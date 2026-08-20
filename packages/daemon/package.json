@@ -1,0 +1,22 @@
+{
+  "name": "@harness/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "bun --watch src/bin.ts"
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/client": "workspace:*",
+    "hono": "^4.9.0"
+  },
+  "bin": {
+    "harnessd": "./src/bin.ts"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@harness/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/client": "workspace:*"
+  },
+  "bin": {
+    "harness": "./src/bin.ts"
+  }
+}

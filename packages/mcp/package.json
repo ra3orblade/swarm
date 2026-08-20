@@ -1,0 +1,22 @@
+{
+  "name": "@harness/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/client": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.25.0"
+  },
+  "bin": {
+    "harness-mcp": "./src/bin.ts"
+  }
+}

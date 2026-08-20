@@ -1,0 +1,17 @@
+{
+  "name": "@harness/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "echo \"web: build not wired yet (M0.6)\""
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/client": "workspace:*"
+  }
+}
