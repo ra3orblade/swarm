@@ -65,6 +65,8 @@ export interface SessionView {
   };
   costUsd: number | null;
   toolCounts: Record<string, number>;
+  /** Last ≤24 top-level turns, oldest first: [outputTokens, costUsd]. */
+  spark: Array<[number, number | null]>;
 }
 
 const SCHEMA = `
@@ -538,7 +540,22 @@ export class Store {
         } catch {
           continue;
         }
-        n += this.ingestLog(path, "grok", parseGrokUpdates, cwd);
+        let title: string | undefined;
+        try {
+          const sum = JSON.parse(readFileSync(join(cwdDir, sid, "summary.json"), "utf8")) as {
+            session_summary?: string;
+          };
+          title = sum.session_summary;
+        } catch {
+          /* no summary */
+        }
+        n += this.ingestLog(path, "grok", parseGrokUpdates, cwd, title);
+        // the dir name is the session id; backfill the title even when there are no new bytes
+        if (title) {
+          this.db
+            .prepare("UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')")
+            .run(title, sid);
+        }
       }
     }
     return n;
@@ -550,6 +567,7 @@ export class Store {
     agent: string,
     parse: (chunk: string) => LogParseResult,
     cwdHint?: string,
+    titleHint?: string,
   ): number {
     const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
       offset: number;
@@ -575,7 +593,16 @@ export class Store {
       .prepare(
         "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
       )
-      .run(d.title ?? null, d.model ?? null, lastText, lastSeen, state, state, lastSeen, sid);
+      .run(
+        d.title ?? titleHint ?? null,
+        d.model ?? null,
+        lastText,
+        lastSeen,
+        state,
+        state,
+        lastSeen,
+        sid,
+      );
     this.db
       .prepare(
         "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
@@ -672,6 +699,22 @@ export class Store {
       )
       .all() as Array<Record<string, unknown>>;
     const idleBefore = Date.now() - IDLE_MS;
+    // Per-session sparkline: the last 24 top-level turns (output tokens + cost), oldest first.
+    const sparkRows = this.db
+      .prepare(
+        `SELECT session_id, output, cost_usd FROM (
+           SELECT t.session_id, t.output, t.cost_usd, t.ts,
+                  ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY t.ts DESC) AS rn
+           FROM turns t WHERE t.agent_id IS NULL AND t.sidechain = 0
+         ) WHERE rn <= 24 ORDER BY ts`,
+      )
+      .all() as Array<{ session_id: string; output: number; cost_usd: number | null }>;
+    const sparks = new Map<string, Array<[number, number | null]>>();
+    for (const x of sparkRows) {
+      const a = sparks.get(x.session_id) ?? [];
+      a.push([x.output, x.cost_usd]);
+      sparks.set(x.session_id, a);
+    }
     return rows.map((r) => {
       let state = r.state as SessionView["state"];
       if (state !== "ended" && new Date(r.last_seen_at as string).getTime() < idleBefore)
@@ -708,6 +751,7 @@ export class Store {
         },
         costUsd: r.unpriced ? null : ((r.cost_usd as number) ?? 0),
         toolCounts: JSON.parse((r.tool_counts as string) || "{}"),
+        spark: sparks.get(r.id as string) ?? [],
       };
     });
   }
@@ -732,15 +776,40 @@ export class Store {
       }>;
     const daily = this.db
       .prepare(
-        `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, SUM(t.cost_usd) AS cost, SUM(t.output) AS output
-         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-14 days') GROUP BY day, projectId ORDER BY day`,
+        `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
+                SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-14 days') GROUP BY day, projectId, agent ORDER BY day`,
       )
-      .all() as Array<{ day: string; projectId: string; cost: number | null; output: number }>;
+      .all() as Array<{
+      day: string;
+      projectId: string;
+      agent: string;
+      cost: number | null;
+      output: number;
+      turns: number;
+    }>;
+    // Weekday × hour activity over the last 4 weeks, in local time (SQLite 'localtime' modifier).
+    const hourly = this.db
+      .prepare(
+        `SELECT CAST(strftime('%w', t.ts, 'localtime') AS INTEGER) AS dow, CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour,
+                s.project_id AS projectId, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-28 days') GROUP BY dow, hour, projectId`,
+      )
+      .all() as Array<{
+      dow: number;
+      hour: number;
+      projectId: string;
+      cost: number | null;
+      turns: number;
+    }>;
     return {
+      hourly,
       byProjectToday: q("WHERE t.ts >= ?", "s.project_id"),
       byProjectAll: q("WHERE ? IS NOT NULL", "s.project_id"),
       byModelToday: q("WHERE t.ts >= ?", "t.model"),
       byModelAll: q("WHERE ? IS NOT NULL", "t.model"),
+      byAgentToday: q("WHERE t.ts >= ?", "COALESCE(s.agent, 'claude-code')"),
+      byAgentAll: q("WHERE ? IS NOT NULL", "COALESCE(s.agent, 'claude-code')"),
       daily,
     };
   }
