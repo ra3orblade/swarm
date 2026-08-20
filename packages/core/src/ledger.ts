@@ -1,0 +1,120 @@
+/**
+ * Claim ledger semantics — the pure decision layer.
+ *
+ * Ported from the proven per-repo harness scripts (claim/renew/release/reap over a
+ * fail-closed lease ledger) and re-homed into Swarm's model: the daemon supplies the
+ * I/O (git dirty/unpushed state, worktree existence) and persists to SQLite; this module
+ * owns the *rules*, so they can be unit-tested in isolation and shared across surfaces.
+ *
+ * Invariants (docs/10-development-guidelines.md): claims fail closed; release refuses to
+ * discard dirty or unpushed work; reap never drops a claim whose worktree still holds work
+ * (a worktree full of work with no claim pointing at it is invisible — that is how finished
+ * work once merged without being noticed).
+ */
+
+import type { ClaimState } from "./types";
+
+export interface LeaseClaim {
+  task: string;
+  owner: string;
+  worktree: string;
+  branch: string;
+  acquiredAt: string;
+  expiresAt: string;
+  state: ClaimState;
+}
+
+export const DEFAULT_LEASE_MINUTES = 45;
+
+export function isExpired(claim: Pick<LeaseClaim, "expiresAt">, now: number): boolean {
+  return new Date(claim.expiresAt).getTime() < now;
+}
+
+/** A claim is "active" (blocks re-claiming) while it is held and unexpired. */
+export function isActive(claim: LeaseClaim, now: number): boolean {
+  return claim.state === "held" && !isExpired(claim, now);
+}
+
+export function nextExpiry(now: number, leaseMinutes = DEFAULT_LEASE_MINUTES): string {
+  return new Date(now + leaseMinutes * 60_000).toISOString();
+}
+
+export type ClaimDecision =
+  | { ok: true }
+  | { ok: false; reason: "held"; heldBy: string; until: string };
+
+/**
+ * Can `owner` claim `task`? Fails closed while any active claim exists on the task,
+ * even for a different owner. The same owner re-claiming their own active task is allowed
+ * (idempotent renew-by-claim); an expired claim never blocks.
+ */
+export function canClaim(
+  existing: LeaseClaim[],
+  task: string,
+  owner: string,
+  now: number,
+): ClaimDecision {
+  const active = existing.find((c) => c.task === task && isActive(c, now));
+  if (active && active.owner !== owner) {
+    return { ok: false, reason: "held", heldBy: active.owner, until: active.expiresAt };
+  }
+  return { ok: true };
+}
+
+export interface HeldWork {
+  dirty: boolean;
+  unpushed: boolean;
+}
+
+export type ReleaseDecision = { ok: true } | { ok: false; reason: "dirty" | "unpushed" };
+
+/**
+ * May a worktree be released (removed)? Refuses when it holds uncommitted or unpushed
+ * work unless `force`. `--force` is the only path that loses work, by design.
+ */
+export function canRelease(work: HeldWork, force: boolean): ReleaseDecision {
+  if (force) return { ok: true };
+  if (work.dirty) return { ok: false, reason: "dirty" };
+  if (work.unpushed) return { ok: false, reason: "unpushed" };
+  return { ok: true };
+}
+
+export type ReapAction = "reap" | "keep-orphaned" | "not-expired";
+
+/**
+ * What should the reaper do with a claim, unattended?
+ * - not expired            → leave it alone
+ * - worktree gone/clean    → reap (release claim, remove worktree)
+ * - worktree holds work    → keep as orphaned; NEVER silently drop it
+ */
+export function reapAction(
+  claim: LeaseClaim,
+  now: number,
+  worktreeExists: boolean,
+  work: HeldWork | null,
+): ReapAction {
+  if (isActive(claim, now)) return "not-expired";
+  if (!worktreeExists) return "reap";
+  if (work && (work.dirty || work.unpushed)) return "keep-orphaned";
+  return "reap";
+}
+
+/** Human-readable, actionable message for a fail-closed outcome (same text everywhere). */
+export function claimRefusalMessage(
+  d: Extract<ClaimDecision, { ok: false }>,
+  task: string,
+): string {
+  return (
+    `${task} is held by ${d.heldBy} until ${d.until}. ` +
+    "Pick another task or coordinate with the holder — claims fail closed on purpose."
+  );
+}
+
+export function releaseRefusalMessage(
+  d: Extract<ReleaseDecision, { ok: false }>,
+  worktree: string,
+): string {
+  return d.reason === "dirty"
+    ? `${worktree} has uncommitted changes. Commit and push them, or re-run with --force to discard.`
+    : `${worktree} has unpushed commits. Push them, or re-run with --force to discard the worktree.`;
+}

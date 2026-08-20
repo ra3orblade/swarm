@@ -72,7 +72,7 @@ bun run swarm uninstall       # remove Swarm hooks from Claude Code
 - **State** lives in `~/.swarm/` — never in your repositories. Uninstalling leaves your repos untouched.
 - **Hooks** are installed once at the Claude Code user level, so every session on the machine reports in.
 
-Full design docs are in [`docs/`](docs/00-index.md): [vision](docs/01-vision-and-scope.md) · [architecture](docs/02-architecture.md) · [data model](docs/03-data-model.md) · [protocol](docs/04-protocol.md) · [interface](docs/08-interface.md) · [roadmap](docs/06-roadmap.md).
+See the [roadmap](ROADMAP.md) and [features](docs/09-features.md). Full design docs are in [`docs/`](docs/00-index.md): [vision](docs/01-vision-and-scope.md) · [architecture](docs/02-architecture.md) · [data model](docs/03-data-model.md) · [protocol](docs/04-protocol.md) · [interface](docs/08-interface.md) · [development guidelines](docs/10-development-guidelines.md).
 
 ## Privacy
 
