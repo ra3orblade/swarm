@@ -1,5 +1,5 @@
 /**
- * Model pricing in USD per million tokens. Static table ships with Swarm; the daemon may
+ * Model pricing in USD per million tokens, across providers (Anthropic, OpenAI, Google, …). Static table ships with Swarm; the daemon may
  * overlay ~/.swarm/pricing.json (same shape) or a LiteLLM refresh. Unknown models → null cost
  * (tokens still shown). Sources: anthropic.com/pricing as of the table date.
  */
@@ -33,6 +33,20 @@ export const PRICES: Record<string, Price> = {
   "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheWrite1h: 10, cacheRead: 0.5 },
   "claude-sonnet-5": { input: 2, output: 10, cacheWrite: 2.5, cacheWrite1h: 4, cacheRead: 0.2 },
   "claude-fable-5": { input: 10, output: 50, cacheWrite: 12.5, cacheWrite1h: 20, cacheRead: 1 },
+  // OpenAI
+  "gpt-4o": { input: 2.5, output: 10, cacheWrite: 2.5, cacheRead: 1.25 },
+  "gpt-4o-mini": { input: 0.15, output: 0.6, cacheWrite: 0.15, cacheRead: 0.075 },
+  "gpt-4.1": { input: 2, output: 8, cacheWrite: 2, cacheRead: 0.5 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheWrite: 0.4, cacheRead: 0.1 },
+  "gpt-5": { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.125 },
+  o3: { input: 2, output: 8, cacheWrite: 2, cacheRead: 0.5 },
+  "o4-mini": { input: 1.1, output: 4.4, cacheWrite: 1.1, cacheRead: 0.275 },
+  // Google
+  "gemini-2.5-pro": { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.31 },
+  "gemini-2.5-flash": { input: 0.3, output: 2.5, cacheWrite: 0.3, cacheRead: 0.075 },
+  // DeepSeek
+  "deepseek-chat": { input: 0.27, output: 1.1, cacheWrite: 0.27, cacheRead: 0.07 },
+  "deepseek-reasoner": { input: 0.55, output: 2.19, cacheWrite: 0.55, cacheRead: 0.14 },
 };
 
 export function priceFor(model: string | null | undefined, table = PRICES): Price | null {
@@ -63,7 +77,8 @@ export function costUsd(model: string | null | undefined, u: Usage, table = PRIC
 export function fromLiteLLM(json: Record<string, Record<string, unknown>>): Record<string, Price> {
   const out: Record<string, Price> = {};
   for (const [k, v] of Object.entries(json)) {
-    if (!k.startsWith("claude-") || typeof v.input_cost_per_token !== "number") continue;
+    if (typeof v.input_cost_per_token !== "number") continue;
+    if (k.includes("/") || k.includes("ft:")) continue; // skip routed/fine-tune aliases
     const n = (x: unknown, fb: number) => (typeof x === "number" ? x * 1_000_000 : fb);
     const input = n(v.input_cost_per_token, 0);
     out[k] = {

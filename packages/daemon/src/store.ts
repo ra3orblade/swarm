@@ -141,7 +141,13 @@ export class Store {
     const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`pricing fetch ${r.status}`);
     const j = (await r.json()) as Record<string, Record<string, unknown>>;
-    const slim = Object.fromEntries(Object.entries(j).filter(([k]) => k.startsWith("claude-")));
+    const slim = Object.fromEntries(
+      Object.entries(j).filter(
+        ([k, v]) =>
+          typeof (v as { input_cost_per_token?: unknown }).input_cost_per_token === "number" &&
+          !k.includes("/"),
+      ),
+    );
     writeFileSync(join(this.home, "pricing.litellm.json"), JSON.stringify(slim, null, 1));
     this.loadPricing();
     this.reprice();
