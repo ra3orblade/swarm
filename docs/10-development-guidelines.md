@@ -49,6 +49,19 @@ A change is done when all of these pass and are true:
 - **No abstraction without three uses.** No helper for a one-shot; no premature framework.
 - **Formatting is not a review topic** — Biome decides. Run `bun run format`.
 
+## Parallel sessions — never share a checkout
+
+Running two agent sessions in the **same working tree** at once is unsafe: they clobber each other's edits and, worst of all, a broad `git add -A` / `git commit -a` in one **sweeps the other's uncommitted work into its commit** (this happened while building Swarm itself). Rules:
+
+- **One session per checkout.** Give each concurrent session its own **git worktree**:
+  ```sh
+  git worktree add ~/.swarm/worktrees/swarm/<task> -b feat/<task> main
+  ```
+  Separate worktrees have separate toplevels, so they never collide.
+- **Never `git add -A` in a shared tree.** Stage explicit paths (`git add <path>`). Assume another session may be writing.
+- **Never kill by pattern** (`pkill -f`) or run destructive git (`git reset --hard`, `git checkout .`, `git clean -f`) in a shared tree.
+- Swarm now enforces a soft guard: on `PreToolUse`, the daemon returns an **ask** decision before a broad `git add`/destructive git/pattern-kill when another live session shares the checkout (disable with `SWARM_GUARD=off`). It is a backstop, not a substitute for worktrees.
+
 ## Contribution & release discipline
 
 - **Batch work into few, substantial PRs.** One PR carries several related tasks, not one task per PR. Avoid streams of small commits and frequent pushes.

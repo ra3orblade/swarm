@@ -17,6 +17,9 @@ import { basename, dirname, join } from "node:path";
 import {
   costUsd,
   fromLiteLLM,
+  type GuardDecision,
+  guardBash,
+  type LiveSession,
   type LogParseResult,
   normalizeHook,
   PRICES,
@@ -129,6 +132,45 @@ export class Store {
     } catch {
       /* ignore */
     }
+  }
+
+  // ---------- guardrails (M2.1)
+  private topCache = new Map<string, { v: string | null; t: number }>();
+  private toplevel(cwd: string): string | null {
+    const hit = this.topCache.get(cwd);
+    if (hit && Date.now() - hit.t < 10_000) return hit.v;
+    const v = cwd && existsSync(cwd) ? gitToplevel(cwd) : null;
+    this.topCache.set(cwd, { v, t: Date.now() });
+    return v;
+  }
+
+  /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
+  guardHook(raw: Record<string, unknown>): Extract<GuardDecision, { action: "ask" }> | null {
+    if (raw.tool_name !== "Bash") return null;
+    const input = raw.tool_input as { command?: string } | undefined;
+    const cmd = input?.command;
+    if (!cmd) return null;
+    const id = typeof raw.session_id === "string" ? raw.session_id : "";
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const current = { id, toplevel: this.toplevel(cwd) };
+    const rows = this.db
+      .prepare(
+        "SELECT id, cwd, last_seen_at, state FROM sessions WHERE state != 'ended' AND last_seen_at > ?",
+      )
+      .all(new Date(Date.now() - 130_000).toISOString()) as Array<{
+      id: string;
+      cwd: string;
+      last_seen_at: string;
+      state: string;
+    }>;
+    const sessions: LiveSession[] = rows.map((r) => ({
+      id: r.id,
+      toplevel: this.toplevel(r.cwd),
+      lastSeenAt: r.last_seen_at,
+      state: r.state,
+    }));
+    const d = guardBash(cmd, current, sessions, Date.now());
+    return d.action === "ask" ? d : null;
   }
 
   // ---------- pricing

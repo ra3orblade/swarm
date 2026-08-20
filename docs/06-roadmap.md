@@ -54,7 +54,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 ## M2 — Enforce (rules)
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
-| M2.1 | Rule engine + built-ins: `shared-tree-readonly`, `no-pattern-kill`, `claim-required-to-write`, `protected-ports`, `no-foreign-worktree` | M1 | ⚪ |
+| M2.1 | Rule engine + built-ins: `shared-tree-readonly`, `no-pattern-kill`, `claim-required-to-write`, `protected-ports`, `no-foreign-worktree` | M1 | 🟡 2026-08-20 first guards shipped ahead of M1: shared-tree concurrent-session guard (broad `git add`/destructive git/pattern-kill → PreToolUse `ask`) in `core/rules.ts` + daemon hook; rest with M1/M2 |
 | M2.2 | Gates: record/query, latest-run-wins, rubric required; `swarm gate` + MCP tool | M1 | ⚪ |
 | M2.3 | Incidents view; ack; denied-action feed | M2.1 | ⚪ |
 
