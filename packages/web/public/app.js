@@ -10,6 +10,7 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
+const agentLabel = (a) => ({ "claude-code": "Claude", codex: "Codex", gemini: "Gemini", aider: "Aider" }[a] ?? a);
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
@@ -54,7 +55,7 @@ function renderFleet() {
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
   const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
+    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.agent && s.agent !== "claude-code" ? ` <span class="badge agent">${esc(agentLabel(s.agent))}</span>` : ""}${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
     .join("")}</tbody></table></div>`;
   $("#main").innerHTML =
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +

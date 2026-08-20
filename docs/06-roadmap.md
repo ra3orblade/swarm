@@ -84,9 +84,9 @@ Goal: Swarm observes and coordinates AI coding agents generally, not only Claude
 |----|------|--------|
 | M5.1 | Provider-agnostic pricing: price any model (Anthropic/OpenAI/Google/DeepSeek/…), not just `claude-*` | ✅ 2026-08-20 static table + LiteLLM refresh generalized; 10 tests |
 | M5.2 | `AgentAdapter` interface + registry in `core`; Claude Code refactored behind it | ✅ 2026-08-20 `adapters/types.ts` (AgentAdapter/LogParseResult), registry, claude-code wrapper |
-| M5.3 | First non-Claude adapter — **Codex CLI** (~/.codex rollout JSONL): parser done + validated on real sessions; daemon discovery/tailing next | 🟡 2026-08-20 `adapters/codex` parser (turns, usage, tools, cost via gpt-5) + tests on real data; daemon ingestion pending |
-| M5.4 | Daemon: discover + tail Codex sessions (map to projects by cwd, no hooks), agent-tagged sessions; then Gemini CLI, Aider, opencode/Cline, Grok adapters | ⚪ |
-| M5.5 | Dashboard: agent badge per session; group/filter by agent; unified spend across agents | ⚪ |
+| M5.3 | First non-Claude adapter — **Codex CLI**: parser + daemon discovery/tailing, agent-tagged sessions in the dashboard | ✅ 2026-08-20 tails `~/.codex` rollout logs (bounded scan, offset-tracked, one-time backfill), maps to projects by cwd, prices gpt-5.5; validated on real sessions (integral 70 turns/$3.52, brainstorm 9/$0.42) |
+| M5.4 | More adapters behind the same interface: Gemini CLI, Aider, opencode/Cline, Grok | ⚪ |
+| M5.5 | Dashboard: agent badge per session (done); group/filter by agent + unified spend across agents | 🟡 2026-08-20 agent badge in Fleet; per-agent grouping/spend next |
 
 ## M6 — Desktop app (Tauri) + autoupdate ← direction set 2026-08-20
 Goal: ship Swarm as a real desktop app with automatic updates, not just a CLI + browser tab.

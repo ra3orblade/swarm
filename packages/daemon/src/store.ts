@@ -21,6 +21,7 @@ import {
   PRICES,
   type Price,
   type Project,
+  parseCodexRollout,
   parseTranscriptChunk,
   projectIdentity,
   type SwarmEvent,
@@ -34,6 +35,7 @@ export interface SessionView {
   id: string;
   projectId: string;
   kind: "interactive" | "spawned" | "subagent";
+  agent: string;
   parentId: string | null;
   cwd: string;
   branch: string | null;
@@ -98,7 +100,16 @@ export class Store {
     this.loadPricing();
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     this.db.exec(SCHEMA);
+    this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.migrateProjectsJson(join(home, "projects.json"));
+  }
+
+  /** Add a column to an existing table if a prior schema version lacked it. */
+  private ensureColumn(table: string, col: string, decl: string) {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === col)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
+    }
   }
 
   private migrateProjectsJson(file: string) {
@@ -354,21 +365,15 @@ export class Store {
     }
   }
 
-  private tailFile(path: string, sessionId: string, agentId: string | null): number {
-    const row = this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
-      offset: number;
-    } | null;
-    const r = this.readFrom(path, row?.offset ?? 0);
-    if (!r) return 0;
-    const d = parseTranscriptChunk(r.chunk);
+  private persistTurns(sessionId: string, agentId: string | null, turns: Turn[]) {
     const up = this.db.prepare(
       `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, text, tools)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET input=excluded.input, output=excluded.output, cache_write=excluded.cache_write, cache_write_1h=excluded.cache_write_1h,
          cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools`,
     );
-    const tx = this.db.transaction((turns: Turn[]) => {
-      for (const t of turns) {
+    const tx = this.db.transaction((ts: Turn[]) => {
+      for (const t of ts) {
         up.run(
           t.id,
           sessionId,
@@ -383,13 +388,23 @@ export class Store {
           t.usage.cacheWrite1h ?? 0,
           t.usage.cacheRead,
           t.usage.thinking,
-          costUsd(t.model, t.usage),
+          costUsd(t.model, t.usage, this.prices),
           t.text,
           JSON.stringify(t.tools),
         );
       }
     });
-    tx(d.turns);
+    tx(turns);
+  }
+
+  private tailFile(path: string, sessionId: string, agentId: string | null): number {
+    const row = this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+      offset: number;
+    } | null;
+    const r = this.readFrom(path, row?.offset ?? 0);
+    if (!r) return 0;
+    const d = parseTranscriptChunk(r.chunk);
+    this.persistTurns(sessionId, agentId, d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
     const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
     this.db
@@ -443,6 +458,100 @@ export class Store {
     let n = 0;
     for (const { id } of ids) n += this.tailSession(id);
     return n;
+  }
+
+  // ---------- Codex (no hooks: discover + tail ~/.codex rollout logs)
+  private codexRoot(): string {
+    return process.env.SWARM_CODEX_DIR ?? join(homedir(), ".codex", "sessions");
+  }
+
+  /** rollout-*.jsonl files whose date-partitioned path is within `sinceMs`. Bounded, no full walk. */
+  private codexRolloutFiles(sinceMs: number): string[] {
+    const root = this.codexRoot();
+    const out: string[] = [];
+    const ls = (p: string) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [] as string[];
+      }
+    };
+    for (const y of ls(root)) {
+      if (!/^\d{4}$/.test(y)) continue;
+      for (const m of ls(join(root, y))) {
+        if (!/^\d\d$/.test(m)) continue;
+        for (const day of ls(join(root, y, m))) {
+          if (!/^\d\d$/.test(day)) continue;
+          if (Date.parse(`${y}-${m}-${day}T23:59:59Z`) < sinceMs) continue;
+          const dir = join(root, y, m, day);
+          for (const f of ls(dir)) {
+            if (f.startsWith("rollout-") && f.endsWith(".jsonl")) out.push(join(dir, f));
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  tailCodex(windowMs = 3 * 24 * 60 * 60_000): number {
+    if (!existsSync(this.codexRoot())) return 0;
+    let n = 0;
+    for (const path of this.codexRolloutFiles(Date.now() - windowMs)) {
+      const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+        offset: number;
+      } | null) ?? { offset: 0 };
+      const r = this.readFrom(path, off.offset);
+      if (!r) continue;
+      const d = parseCodexRollout(r.chunk);
+      const sid = d.sessionId;
+      if (!sid) {
+        // header not yet seen (mid-file start); wait for it
+        continue;
+      }
+      const mtime = (() => {
+        try {
+          return statSync(path).mtimeMs;
+        } catch {
+          return Date.now();
+        }
+      })();
+      this.ensureCodexSession(sid, d.cwd ?? "", mtime);
+      this.persistTurns(sid, null, d.turns);
+      const lastText = [...d.turns].reverse().find((t) => t.text)?.text ?? null;
+      const state = Date.now() - mtime < 90_000 ? "active" : "ended";
+      const lastSeen = new Date(mtime).toISOString();
+      this.db
+        .prepare(
+          "UPDATE sessions SET model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+        )
+        .run(d.model ?? null, lastText, lastSeen, state, state, lastSeen, sid);
+      this.db
+        .prepare(
+          "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+        )
+        .run(path, sid, r.next);
+      n += d.turns.length;
+    }
+    return n;
+  }
+
+  private ensureCodexSession(sid: string, cwd: string, mtime: number) {
+    const exists = this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sid);
+    if (exists) return;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const ts = new Date(mtime).toISOString();
+    this.db
+      .prepare(
+        "INSERT INTO sessions (id, project_id, kind, agent, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', 'codex', ?, ?, ?, ?, '', '', 'active')",
+      )
+      .run(
+        sid,
+        project?.id ?? "p_unknown",
+        cwd,
+        cwd && existsSync(cwd) ? currentBranch(cwd) : null,
+        ts,
+        ts,
+      );
   }
 
   // ---------- reads
@@ -522,6 +631,7 @@ export class Store {
         id: r.id as string,
         projectId: r.project_id as string,
         kind: r.kind as SessionView["kind"],
+        agent: (r.agent as string) ?? "claude-code",
         parentId: (r.parent_id as string) ?? null,
         cwd: r.cwd as string,
         branch: (r.branch as string) ?? null,

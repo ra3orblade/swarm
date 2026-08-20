@@ -18,7 +18,13 @@ try {
 }
 
 writeDaemonInfo({ port, pid: process.pid, version: VERSION, startedAt: new Date().toISOString() });
-const tailer = setInterval(() => store.tailActive(), 5000);
+// one-time backfill of recent-ish agent history on boot, then cheap live ticks
+const backfillDays = Number(process.env.SWARM_CODEX_BACKFILL_DAYS ?? 30);
+store.tailCodex(backfillDays * 24 * 60 * 60_000);
+const tailer = setInterval(() => {
+  store.tailActive();
+  store.tailCodex();
+}, 5000);
 if (process.env.SWARM_OFFLINE !== "1") store.refreshPricing().catch(() => {});
 console.log(`swarmd ${VERSION} listening on http://127.0.0.1:${port}`);
 
