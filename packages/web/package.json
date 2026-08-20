@@ -8,10 +8,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "echo \"web: build not wired yet (M0.6)\""
+    "build": "bun tools/build.ts"
   },
   "dependencies": {
+    "@phosphor-icons/core": "^2.1.1",
+    "@phosphor-icons/react": "^2.1.10",
+    "@react-fancy-menus/core": "^0.2.1",
+    "@swarm/client": "workspace:*",
     "@swarm/core": "workspace:*",
-    "@swarm/client": "workspace:*"
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
   }
 }

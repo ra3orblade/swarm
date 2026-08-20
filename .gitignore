@@ -7,3 +7,6 @@ dist/
 !.env.example
 coverage/
 .tsout/
+packages/web/public/menus.js
+packages/web/public/fm.css
+packages/web/public/icons.js
