@@ -1,7 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import { createApp, Store } from "./app";
 
 const tmpHome = () => mkdtempSync(join(tmpdir(), "harness-test-"));
@@ -51,5 +51,35 @@ describe("hook ingestion", () => {
     const snap = store.snapshot();
     expect(snap.projects).toHaveLength(1);
     expect(snap.sessions[0]).toMatchObject({ id: "s9", last: "Bash ls", toolCalls: 1 });
+  });
+});
+
+describe("turns and spend", () => {
+  it("stores transcript turns, prices them, and rolls up spend", () => {
+    const home = tmpHome();
+    const store = new Store(home);
+    // seed a session + transcript file
+    const dir = join(home, "t");
+    require("node:fs").mkdirSync(dir, { recursive: true });
+    const tpath = join(dir, "s.jsonl");
+    require("node:fs").writeFileSync(
+      tpath,
+      `${JSON.stringify({ type: "assistant", timestamp: "2026-08-20T10:00:00Z", message: { id: "m1", model: "claude-opus-4-5", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 5000 } } })}\n`,
+    );
+    store.append({
+      ts: "2026-08-20T10:00:00Z",
+      type: "session.started",
+      projectId: "p1",
+      sessionId: "s1",
+      payload: { cwd: dir },
+    });
+    store.db.prepare("UPDATE sessions SET transcript_path = ? WHERE id = 's1'").run(tpath);
+    expect(store.tailSession("s1")).toBe(1);
+    const sess = store.sessions().find((s) => s.id === "s1");
+    expect(sess?.tokens.output).toBe(2000);
+    expect(sess?.costUsd).toBeGreaterThan(0);
+    expect(store.spend().byProjectAll.find((x) => x.key === "p1")?.output).toBe(2000);
+    // idempotent re-tail (offset held): no new turns
+    expect(store.tailSession("s1")).toBe(0);
   });
 });

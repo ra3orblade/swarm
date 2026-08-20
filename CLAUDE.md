@@ -10,7 +10,7 @@ Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing sur
 
 ## Status
 
-M0 mostly done (2026-08-20): the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `harness install`), with project sidebar, Fleet and Session views. Events are still **in memory** — a daemon restart (including `--watch` reloads) wipes history; M0.3 SQLite is the next task. Dashboard is plain HTML/JS in `packages/web/public`, served by the daemon, no build step.
+M0 + M0.8 done (2026-08-20): SQLite-backed. Reads Claude Code **transcripts** for tokens/cost/reasoning, not just hooks — the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `harness install`), with project sidebar, Fleet and Session views. Events are still **in memory** — a daemon restart (including `--watch` reloads) wipes history; M0.3 SQLite is the next task. Dashboard is plain HTML/JS in `packages/web/public`, served by the daemon, no build step.
 
 Dev loop: `bun run dev` (daemon, hot-reload) → `bun packages/cli/src/bin.ts install` once → start `claude` anywhere → open the URL. `harness uninstall` removes the hooks.
 
@@ -23,7 +23,7 @@ Bun workspaces · TypeScript · Biome · Vitest · Hono (daemon) · `bun:sqlite`
 ```sh
 bun install
 bun run dev          # harnessd with --watch (HARNESS_PORT, default 7777)
-bun run test         # vitest (packages/*/src/**/*.test.ts)
+bun run test         # bun test (bunfig root=packages)
 bun run typecheck    # tsc -b over project references
 bun run lint         # biome check .   (format: bun run format)
 bun run smoke        # in-process daemon: POST event → SSE replay

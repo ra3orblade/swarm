@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "../../.tsout/hook",
+    "tsBuildInfoFile": "../../.tsout/hook.tsbuildinfo"
+  },
   "include": ["src"],
   "references": [{ "path": "../core" }, { "path": "../client" }]
 }

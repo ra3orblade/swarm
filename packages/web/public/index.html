@@ -32,11 +32,19 @@
   .ev.tool\.completed .k{color:var(--dim)}.ev.incident\.opened .k,.ev.incident\.opened .m{color:var(--warn)}.ev.session\.ended .k{color:var(--bad)}.ev.prompt\.submitted .k{color:var(--ok)}
   .ev .m{white-space:pre-wrap;word-break:break-word}
   .back{color:var(--acc);cursor:pointer;text-decoration:none}
-  kbd{font:inherit;color:var(--dim)}
+  kbd,code{font:inherit;color:var(--dim)}.dim{color:var(--dim)}.mono{font-family:var(--mono);font-size:11px}.num{text-align:right;font-variant-numeric:tabular-nums}
+  header .nav{color:var(--dim);text-decoration:none;padding:4px 8px;border-radius:5px}header .nav.on{color:var(--fg);background:var(--line)}header #today{margin-right:16px}
+  .proj .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sess{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:start}.side{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;position:sticky;top:0}
+  .stat{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)}.stat span{color:var(--dim)}.stat b{font-weight:600}.stat small{color:var(--dim);font-weight:400}
+  .side h4{margin:12px 0 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em}table.mini{border:0;background:none}table.mini td{padding:2px 0;border:0}
+  .ev.assistant .k{color:var(--fg)}.ev.assistant .m{color:var(--fg)}.ev.tool\.requested .m{color:var(--dim)}
+  .bars{display:flex;gap:6px;align-items:flex-end;height:90px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px 22px;margin-bottom:14px}.bar{flex:1;height:100%;position:relative;display:flex;align-items:flex-end}.bar div{width:100%;background:var(--acc);border-radius:3px 3px 0 0;min-height:1px;opacity:.85}.bar span{position:absolute;bottom:-18px;left:0;right:0;text-align:center;font-size:10px;color:var(--dim)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 </style>
 </head>
 <body>
-<header><b>HARNESS</b><a class="back" href="#" id="navFleet">Fleet</a><span class="sp"></span><span id="daemon"><span class="dot"></span>daemon</span></header>
+<header><b>HARNESS</b><a href="#" data-view="fleet" class="nav on">Fleet</a><a href="#" data-view="spend" class="nav">Spend</a><span class="sp"></span><span id="today" class="dim"></span><span id="daemon"><span class="dot"></span>daemon</span></header>
 <aside>
   <h4>Projects</h4>
   <div id="projects"></div>

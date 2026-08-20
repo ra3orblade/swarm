@@ -37,8 +37,19 @@ export function createApp(store = new Store()) {
   app.get("/v1/state", (c) => c.json(store.snapshot()));
   app.get("/v1/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    return c.json(store.events.filter((e) => e.sessionId === id).slice(-500));
+    return c.json({ events: store.sessionEvents(id), turns: store.sessionTurns(id) });
   });
+
+  app.post("/v1/pricing/refresh", async (c) => {
+    try {
+      await store.refreshPricing();
+      return c.json({ ok: true, models: Object.keys(store.prices).length });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502);
+    }
+  });
+  app.get("/v1/pricing", (c) => c.json(store.prices));
+  app.post("/v1/sessions/:id/tail", (c) => c.json({ turns: store.tailSession(c.req.param("id")) }));
 
   // ---- ingestion
   app.post("/v1/hook/:event", async (c) => {

@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "../../.tsout/web",
+    "tsBuildInfoFile": "../../.tsout/web.tsbuildinfo"
+  },
   "include": ["src"],
   "references": [{ "path": "../core" }, { "path": "../client" }]
 }

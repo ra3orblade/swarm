@@ -12,15 +12,14 @@
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "smoke": "bun tools/smoke.ts",
     "docs:check": "bun tools/docs-check.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.1.2",
+    "@biomejs/biome": "^2.5.9",
     "@types/bun": "latest",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "typescript": "^5.9.2"
   }
 }

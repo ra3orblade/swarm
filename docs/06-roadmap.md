@@ -9,11 +9,23 @@ Goal: one dashboard shows every Claude Code session on the machine, live, across
 |----|------|---------|--------|
 | M0.1 | Scaffold monorepo, CI, Biome, Vitest, Apache-2.0, README skeleton | — | ✅ 2026-08-20 — 7 packages, in-memory event log + SSE, hook→daemon→SSE smoke |
 | M0.2 | `core`: event types, Claude Code hook adapter, project identity (git common dir) | M0.1 | ✅ 2026-08-20 |
-| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | 🟡 ingestion + SSE + project registry done; events still in memory (lost on restart); no socket/auto-start |
+| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | ✅ 2026-08-20 SQLite (events/sessions/turns/tails) persisted; migrates projects.json; socket + auto-start still TODO |
 | M0.4 | `hook` shim + `harness install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ✅ 2026-08-20 |
 | M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | 🟡 all but `tail` |
 | M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet (+branch) + Session + Worktrees panel (branch, head, dirty, unpushed, sessions inside) + add/remove project; React decision (OQ-6) deferred until it hurts |
 | M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on both author repos | M0.4–M0.6 | ⚪ |
+
+## M0.8 — What agents are doing (transcript intelligence) ✅ 2026-08-20
+Landed ahead of M1 by request. Reads each session's transcript JSONL (path from the hook) plus its `subagents/*.jsonl`, tailing on hook activity and on a 5s timer (long turns emit no hooks).
+
+| ID | Task | Status |
+|----|------|--------|
+| M0.8.1 | `core/pricing`: static table + `fromLiteLLM`, longest-prefix match, cache tiers | ✅ |
+| M0.8.2 | `core/transcript`: JSONL → turns (model, per-tier usage, thinking, text, tools, sidechain); collapses streamed lines | ✅ |
+| M0.8.3 | daemon: turns table, offset-tracked tailer, subagent files, session title/model/branch/context | ✅ |
+| M0.8.4 | daemon: cost via pricing overlay (`~/.harness/pricing.json`, LiteLLM refresh); reprice on refresh | ✅ |
+| M0.8.5 | web: Fleet shows title/model/out/ctx/cost; Session detail (cost, context %cached, thinking, tool histogram, live reasoning stream); Spend view (by project/model, today/all-time, 14-day bars) | ✅ |
+| M0.8.6 | tooling: migrate vitest→bun:test, stop emitting per-package dist, biome 2.5 | ✅ |
 
 ## M1 — Hold things (ledger)
 | ID | Task | Depends | Status |
