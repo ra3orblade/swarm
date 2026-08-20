@@ -125,3 +125,61 @@ describe("codex ingestion", () => {
     delete process.env.SWARM_CODEX_DIR;
   });
 });
+
+describe("shared-tree guard (M2.1)", () => {
+  it("asks before `git add -A` when another live session shares the checkout", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const cwd = process.cwd();
+    // two sessions active in the same tree
+    for (const id of ["sess-a", "sess-b"]) {
+      await app.request("/v1/hook/PreToolUse", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          session_id: id,
+          cwd,
+          tool_name: "Read",
+          tool_input: { file_path: "x" },
+        }),
+      });
+    }
+    const r = await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "sess-a",
+        cwd,
+        tool_name: "Bash",
+        tool_input: { command: "git add -A" },
+      }),
+    });
+    const body = (await r.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(body.hookSpecificOutput?.permissionDecision).toBe("ask");
+    expect(store).toBeDefined();
+  });
+
+  it("allows `git add -A` when the session is alone", async () => {
+    const { app } = createApp(new Store(tmpHome()));
+    await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "solo",
+        cwd: process.cwd(),
+        tool_name: "Read",
+        tool_input: {},
+      }),
+    });
+    const r = await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "solo",
+        cwd: process.cwd(),
+        tool_name: "Bash",
+        tool_input: { command: "git add -A" },
+      }),
+    });
+    expect(await r.json()).toEqual({});
+  });
+});

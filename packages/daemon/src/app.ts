@@ -61,9 +61,24 @@ export function createApp(store = new Store()) {
 
   // ---- ingestion
   app.post("/v1/hook/:event", async (c) => {
+    const event = c.req.param("event");
     const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    store.ingestHook(c.req.param("event"), raw);
-    return c.json({}); // allow; rules land in M2
+    store.ingestHook(event, raw);
+    // M2.1 guard: on PreToolUse, ask before a shared-tree collision (broad git add, destructive git,
+    // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
+    if (event === "PreToolUse" && process.env.SWARM_GUARD !== "off") {
+      const guard = store.guardHook(raw);
+      if (guard) {
+        return c.json({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "ask",
+            permissionDecisionReason: `[swarm] ${guard.reason}`,
+          },
+        });
+      }
+    }
+    return c.json({});
   });
   app.post("/v1/events", async (c) => {
     const e = (await c.req.json()) as SwarmEvent;
