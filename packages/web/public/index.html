@@ -14,6 +14,9 @@
     --warn:#c77800; --warn-soft:rgba(199,120,0,.12);
     --bad:#d1352b; --bad-soft:rgba(209,53,43,.12);
     --violet:#7857c9;
+    /* categorical (fixed agent slots; validated adjacent-pair CVD-safe) + one-hue steps for part-to-whole */
+    --c0:#8b929c; --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#4a3aa7;
+    --acc-1:#cfe0fa; --acc-2:#9dc0f2; --acc-3:#5f97e6; --acc-4:#2a78d6; --acc-5:#1a4f95;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
@@ -28,6 +31,8 @@
       --warn:#d9a441; --warn-soft:rgba(217,164,65,.14);
       --bad:#f0655a; --bad-soft:rgba(240,101,90,.14);
       --violet:#a68bec;
+      --c0:#7c8592; --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9;
+      --acc-1:#22395c; --acc-2:#2a5390; --acc-3:#2f6fc2; --acc-4:#3987e5; --acc-5:#8dbcff;
       --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
     }
   }
@@ -39,6 +44,8 @@
     --warn:#d9a441; --warn-soft:rgba(217,164,65,.14);
     --bad:#f0655a; --bad-soft:rgba(240,101,90,.14);
     --violet:#a68bec;
+    --c0:#7c8592; --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9;
+    --acc-1:#22395c; --acc-2:#2a5390; --acc-3:#2f6fc2; --acc-4:#3987e5; --acc-5:#8dbcff;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
   }
 
@@ -136,6 +143,7 @@
   .badge.warn{color:var(--warn);background:var(--warn-soft)}
   .badge.acc{color:var(--acc);background:var(--acc-soft)}
   .badge.ok{color:var(--ok);background:var(--ok-soft)}
+  .badge.agent{color:var(--violet);background:color-mix(in srgb,var(--violet) 14%,transparent);font-weight:600}
 
   /* empty */
   .empty{color:var(--dim);padding:44px 24px;text-align:center;border:1px dashed var(--line);
@@ -180,13 +188,80 @@
   .bar:hover>div{opacity:.75}
   .bar span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font:10px var(--mono);color:var(--faint)}
   .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+
+  /* charts */
+  .chart{display:block;width:100%;overflow:visible}
+  .chart .grid{stroke:var(--line-2);stroke-width:1;vector-effect:non-scaling-stroke}
+  .chart .base{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+  .chart .ax{fill:var(--faint);font:10px var(--mono);text-anchor:start}
+  .chart .ax.mid{text-anchor:middle}
+  .chart .col:hover path{filter:brightness(1.12)}
+  .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px 10px;margin-bottom:18px}
+  .chart-card h3{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--fg-2);display:flex;gap:10px;align-items:baseline}
+  .chart-card h3 span{color:var(--faint);font-weight:400}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin:8px 0 0;font-size:11.5px;color:var(--fg-2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .legend em{font-style:normal;color:var(--dim);font-variant-numeric:tabular-nums}
+  .legend.small{font-size:11px;margin-top:6px}
+  #tip{position:fixed;left:0;top:0;display:none;z-index:50;pointer-events:none;background:var(--fg);color:var(--bg);
+    padding:7px 10px;border-radius:6px;font:11.5px/1.5 var(--sans);box-shadow:0 4px 14px rgba(0,0,0,.2);max-width:280px;font-variant-numeric:tabular-nums}
+  #tip b{font-weight:600}#tip span{opacity:.7}#tip i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:6px}
+  .spark{width:88px;height:20px;display:block;overflow:visible}
+  .spark path{fill:none;stroke-width:1.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+  .comp{display:flex;gap:2px;height:12px;border-radius:4px;overflow:hidden;margin-top:4px}
+  .comp i{display:block;min-width:2px;transition:filter .12s}.comp i:hover{filter:brightness(1.15)}
+  .hbars{display:flex;flex-direction:column;gap:4px}
+  .hb{display:grid;grid-template-columns:minmax(0,88px) 1fr 30px;gap:8px;align-items:center;font-size:12px}
+  .hb .k{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-2)}
+  .hb .t{height:8px;background:var(--panel-2);border-radius:3px;overflow:hidden}
+  .hb .t i{display:block;height:100%;border-radius:3px;min-width:2px}
+  .hb .n{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums;font-size:11.5px}
+  .hm{display:grid;grid-template-columns:34px 1fr;gap:3px 8px;align-items:center}
+  .hm-lbl{font:10.5px var(--mono);color:var(--faint)}
+  .hm-row{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;height:16px}
+  .hm-row i{display:block;border-radius:2px;background:var(--acc);outline:1px solid var(--line-2);outline-offset:-1px}
+  .hm-row i:hover{outline-color:var(--fg)}
+  .hm-hours{position:relative;height:14px;font:10px var(--mono);color:var(--faint)}
+  .hm-hours span{position:absolute;top:0}
+  /* timeline */
+  .tl{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:8px 16px 12px}
+  .tl-row{display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:center;height:24px;cursor:pointer;border-radius:4px}
+  .tl-row:hover{background:var(--panel-2)}
+  .tl-row.head{height:22px;cursor:default;margin-bottom:4px;position:sticky;top:-20px;background:var(--panel);z-index:2}
+  .tl-row.head:hover{background:var(--panel)}
+  .tl-name{font-size:12px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:10px}
+  .tl-track{position:relative;height:100%}
+  .tl-track>i{position:absolute;top:6px;height:12px;border-radius:3px;min-width:3px;opacity:.9}
+  .tl-track>i.live{box-shadow:0 0 0 2px var(--panel),0 0 0 3px currentColor;animation:none}
+  .tl-track>i:hover{opacity:1;filter:brightness(1.1)}
+  .tl-track>i:not([data-tip]){top:0;height:100%;width:1px;background:var(--line-2);border-radius:0;opacity:1;min-width:0;pointer-events:none}
+  .tl-axis{position:absolute;inset:0;font:10px var(--mono);color:var(--faint)}
+  .tl-axis span{position:absolute;top:3px;transform:translateX(-50%)}
+  .tl-now{position:absolute;top:0;bottom:-2000px;width:1px;background:var(--bad);z-index:1;pointer-events:none}
+  .tl-group{position:relative;margin-top:6px;padding-top:4px;border-top:1px solid var(--line-2)}
+  .tl-proj{font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 10px 2px}
+  .tl-proj small{margin-left:8px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint)}
+  .tl{overflow:hidden}
+  .tl-group{overflow:hidden}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px}
+  .kpi .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .kpi .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px;color:var(--fg)}
+  .kpi .d{font-size:11.5px;color:var(--faint)}
   main>h2:not(:first-child){margin-top:22px}
+  .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .chip{font:500 12px var(--sans);padding:4px 11px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;user-select:none}
+  .chip:hover{border-color:var(--acc);color:var(--fg-2)}
+  .chip.on{background:var(--acc-soft);border-color:transparent;color:var(--acc)}
+  .chip b{font-weight:700}
 </style>
 </head>
 <body>
 <header>
   <span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 11" shape-rendering="crispEdges"><rect x="2" y="1" width="1" height="1" fill="#a3e635"/><rect x="6" y="1" width="1" height="1" fill="#7cc02f"/><rect x="7" y="1" width="1" height="1" fill="#7cc02f"/><rect x="8" y="1" width="1" height="1" fill="#7cc02f"/><rect x="9" y="1" width="1" height="1" fill="#4f7d24"/><rect x="4" y="3" width="1" height="1" fill="#a3e635"/><rect x="7" y="3" width="1" height="1" fill="#7cc02f"/><rect x="8" y="3" width="1" height="1" fill="#7cc02f"/><rect x="9" y="3" width="1" height="1" fill="#7cc02f"/><rect x="10" y="3" width="1" height="1" fill="#7cc02f"/><rect x="11" y="3" width="1" height="1" fill="#7cc02f"/><rect x="12" y="3" width="1" height="1" fill="#4f7d24"/><rect x="1" y="5" width="1" height="1" fill="#a3e635"/><rect x="5" y="5" width="1" height="1" fill="#a3e635"/><rect x="6" y="5" width="1" height="1" fill="#a3e635"/><rect x="7" y="5" width="1" height="1" fill="#a3e635"/><rect x="8" y="5" width="1" height="1" fill="#a3e635"/><rect x="9" y="5" width="1" height="1" fill="#a3e635"/><rect x="10" y="5" width="1" height="1" fill="#a3e635"/><rect x="11" y="5" width="1" height="1" fill="#a3e635"/><rect x="12" y="5" width="1" height="1" fill="#a3e635"/><rect x="13" y="5" width="1" height="1" fill="#4f7d24"/><rect x="4" y="7" width="1" height="1" fill="#a3e635"/><rect x="7" y="7" width="1" height="1" fill="#7cc02f"/><rect x="8" y="7" width="1" height="1" fill="#7cc02f"/><rect x="9" y="7" width="1" height="1" fill="#7cc02f"/><rect x="10" y="7" width="1" height="1" fill="#7cc02f"/><rect x="11" y="7" width="1" height="1" fill="#4f7d24"/><rect x="2" y="9" width="1" height="1" fill="#a3e635"/><rect x="6" y="9" width="1" height="1" fill="#7cc02f"/><rect x="7" y="9" width="1" height="1" fill="#7cc02f"/><rect x="8" y="9" width="1" height="1" fill="#7cc02f"/><rect x="9" y="9" width="1" height="1" fill="#4f7d24"/></svg>Swarm</span>
   <a href="#" data-view="fleet" class="nav on">Fleet</a>
+  <a href="#" data-view="timeline" class="nav">Timeline</a>
   <a href="#" data-view="spend" class="nav">Spend</a>
   <span class="sp"></span>
   <span id="today"></span>
@@ -202,6 +277,7 @@
   <p class="hint">Folders where Swarm sees a Claude session appear automatically under <b>Unpinned</b>. Pin the ones you care about to keep them here.</p>
 </aside>
 <main id="main"></main>
+<script src="/viz.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

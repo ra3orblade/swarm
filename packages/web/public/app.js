@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet" };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -10,6 +10,7 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
+const agentLabel = (a) => ({ "claude-code": "Claude", codex: "Codex", grok: "Grok", gemini: "Gemini", aider: "Aider" }[a] ?? a);
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
@@ -50,13 +51,20 @@ function renderProjects() {
 
 // ---------- fleet
 function renderFleet() {
-  const rows = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
+  const base = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
+  const agents = [...new Set(base.map((s) => s.agent))].sort();
+  const rows = base.filter((s) => !state.agentFilter || s.agent === state.agentFilter);
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
   const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
+    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.agent && s.agent !== "claude-code" ? ` <span class="badge agent">${esc(agentLabel(s.agent))}</span>` : ""}${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
     .join("")}</tbody></table></div>`;
-  $("#main").innerHTML =
+  const chips = agents.length > 1
+    ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">all</span>${agents
+        .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${base.filter((s) => s.agent === a).length}</b></span>`)
+        .join("")}</div>`
+    : "";
+  $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
     (live.length ? table(live) : `<div class="empty">Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
@@ -95,7 +103,8 @@ function renderSpend() {
     .join("")}</tbody></table></div>`;
   $("#main").innerHTML =
     `<h2>Spend · last 14 days <span>${usd(sumBy(perDay, (d) => d.cost))}</span></h2>${bars}
-     <div class="cols"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+     <h2>By agent · all time <span>${usd(sumBy(sp.byAgentAll, (x) => x.cost))}</span></h2>${tbl(sp.byAgentAll, "agent", agentLabel)}
+     <div class="cols" style="margin-top:18px"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 style="margin-top:18px">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div><h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}<h2 style="margin-top:18px">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      <p class="dim" style="margin-top:14px">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
@@ -141,11 +150,12 @@ function renderSession() {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view]");
+  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view],.chip");
   if (!t) return;
   if (t.dataset.rm) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.rm}`, { method: "DELETE" }); return refresh(); }
   if (t.dataset.pin) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.pin}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: true }) }); return refresh(); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
+  if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; state.session = null; return render(); }

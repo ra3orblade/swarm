@@ -83,3 +83,45 @@ describe("turns and spend", () => {
     expect(store.tailSession("s1")).toBe(0);
   });
 });
+
+describe("codex ingestion", () => {
+  it("discovers and tails a codex rollout, tagging the session as codex", () => {
+    const home = tmpHome();
+    const codexDir = join(home, "codexsessions", "2026", "08", "20");
+    require("node:fs").mkdirSync(codexDir, { recursive: true });
+    const roll = join(codexDir, "rollout-2026-08-20T10-00-00-abc.jsonl");
+    const L = (o: unknown) => `${JSON.stringify(o)}\n`;
+    require("node:fs").writeFileSync(
+      roll,
+      L({
+        type: "session_meta",
+        timestamp: "2026-08-20T10:00:00Z",
+        payload: { session_id: "cx1", cwd: process.cwd() },
+      }) +
+        L({ type: "turn_context", payload: { model: "gpt-5.5" } }) +
+        L({
+          type: "event_msg",
+          timestamp: "2026-08-20T10:00:01Z",
+          payload: { type: "agent_message", message: "hi" },
+        }) +
+        L({
+          type: "event_msg",
+          timestamp: "2026-08-20T10:00:02Z",
+          payload: {
+            type: "token_count",
+            info: {
+              last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 200 },
+            },
+          },
+        }),
+    );
+    process.env.SWARM_CODEX_DIR = join(home, "codexsessions");
+    const store = new Store(home);
+    expect(store.tailCodex(3650 * 24 * 60 * 60_000)).toBe(1);
+    const s = store.sessions().find((x) => x.id === "cx1");
+    expect(s?.agent).toBe("codex");
+    expect(s?.model).toBe("gpt-5.5");
+    expect(s?.tokens.output).toBe(200);
+    delete process.env.SWARM_CODEX_DIR;
+  });
+});

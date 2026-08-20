@@ -77,5 +77,28 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M4.7 | Desktop notifications with Allow/Deny actions | M3.2 | ⚪ |
 | M4.8 | Task-source adapters: GitHub Issues, Linear | M1.6 | ⚪ |
 
+## M5 — Beyond Claude (multi-agent) ← direction set 2026-08-20
+Goal: Swarm observes and coordinates AI coding agents generally, not only Claude Code. The event model already carries `raw` + normalized fields, and adapters live under `core/adapters/<name>`.
+
+| ID | Task | Status |
+|----|------|--------|
+| M5.1 | Provider-agnostic pricing: price any model (Anthropic/OpenAI/Google/DeepSeek/…), not just `claude-*` | ✅ 2026-08-20 static table + LiteLLM refresh generalized; 10 tests |
+| M5.2 | `AgentAdapter` interface + registry in `core`; Claude Code refactored behind it | ✅ 2026-08-20 `adapters/types.ts` (AgentAdapter/LogParseResult), registry, claude-code wrapper |
+| M5.3 | First non-Claude adapter — **Codex CLI**: parser + daemon discovery/tailing, agent-tagged sessions in the dashboard | ✅ 2026-08-20 tails `~/.codex` rollout logs (bounded scan, offset-tracked, one-time backfill), maps to projects by cwd, prices gpt-5.5; validated on real sessions (integral 70 turns/$3.52, brainstorm 9/$0.42) |
+| M5.4 | More adapters behind the same interface | 🟡 2026-08-20 **Grok** (xAI) done — ACP `updates.jsonl`, cost via grok pricing, validated on real sessions (grok-4.5); Gemini CLI, Aider, opencode/Cline next |
+| M5.5 | Dashboard: agent badge, Fleet agent-filter chips, unified per-agent spend breakdown | ✅ 2026-08-20 badge + filter chips + Spend 'by agent' (Claude/Codex/Grok in one view); Grok session titles from summary.json |
+
+## M6 — Desktop app (Tauri) + autoupdate ← direction set 2026-08-20
+Goal: ship Swarm as a real desktop app with automatic updates, not just a CLI + browser tab.
+
+Approach: a **Tauri v2** shell hosting the dashboard, with the daemon shipped as a **sidecar** (the daemon compiled to a single binary via `bun build --compile`) that the app starts on launch; the webview points at the local daemon. A tray icon shows live-session count and opens the window. Autoupdate via Tauri's built-in updater against signed artifacts + an update manifest on GitHub Releases.
+
+| ID | Task | Depends | Status |
+|----|------|---------|--------|
+| M6.1 | Compile the daemon to a standalone binary (`bun build --compile`); the app resolves & supervises it as a sidecar | M0.9.6 | ⚪ |
+| M6.2 | Tauri v2 scaffold: window + tray, points at the daemon; dev + build scripts | M6.1 | ⚪ |
+| M6.3 | Autoupdate: Tauri updater, signed release artifacts, update manifest on GitHub Releases, in-app "update available" | M6.2 | ⚪ |
+| M6.4 | Signing/notarization (macOS) and code-signing (Windows); CI release pipeline building all OS bundles | M6.3 | ⚪ |
+
 ## Later (not scheduled)
 Remote/shared daemon with auth · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule · release of single-file binaries.

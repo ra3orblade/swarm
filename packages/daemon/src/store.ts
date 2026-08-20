@@ -17,10 +17,13 @@ import { basename, dirname, join } from "node:path";
 import {
   costUsd,
   fromLiteLLM,
+  type LogParseResult,
   normalizeHook,
   PRICES,
   type Price,
   type Project,
+  parseCodexRollout,
+  parseGrokUpdates,
   parseTranscriptChunk,
   projectIdentity,
   type SwarmEvent,
@@ -34,6 +37,7 @@ export interface SessionView {
   id: string;
   projectId: string;
   kind: "interactive" | "spawned" | "subagent";
+  agent: string;
   parentId: string | null;
   cwd: string;
   branch: string | null;
@@ -61,6 +65,8 @@ export interface SessionView {
   };
   costUsd: number | null;
   toolCounts: Record<string, number>;
+  /** Last ≤24 top-level turns, oldest first: [outputTokens, costUsd]. */
+  spark: Array<[number, number | null]>;
 }
 
 const SCHEMA = `
@@ -98,7 +104,16 @@ export class Store {
     this.loadPricing();
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     this.db.exec(SCHEMA);
+    this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.migrateProjectsJson(join(home, "projects.json"));
+  }
+
+  /** Add a column to an existing table if a prior schema version lacked it. */
+  private ensureColumn(table: string, col: string, decl: string) {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === col)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
+    }
   }
 
   private migrateProjectsJson(file: string) {
@@ -141,7 +156,13 @@ export class Store {
     const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`pricing fetch ${r.status}`);
     const j = (await r.json()) as Record<string, Record<string, unknown>>;
-    const slim = Object.fromEntries(Object.entries(j).filter(([k]) => k.startsWith("claude-")));
+    const slim = Object.fromEntries(
+      Object.entries(j).filter(
+        ([k, v]) =>
+          typeof (v as { input_cost_per_token?: unknown }).input_cost_per_token === "number" &&
+          !k.includes("/"),
+      ),
+    );
     writeFileSync(join(this.home, "pricing.litellm.json"), JSON.stringify(slim, null, 1));
     this.loadPricing();
     this.reprice();
@@ -348,21 +369,15 @@ export class Store {
     }
   }
 
-  private tailFile(path: string, sessionId: string, agentId: string | null): number {
-    const row = this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
-      offset: number;
-    } | null;
-    const r = this.readFrom(path, row?.offset ?? 0);
-    if (!r) return 0;
-    const d = parseTranscriptChunk(r.chunk);
+  private persistTurns(sessionId: string, agentId: string | null, turns: Turn[]) {
     const up = this.db.prepare(
       `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, text, tools)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET input=excluded.input, output=excluded.output, cache_write=excluded.cache_write, cache_write_1h=excluded.cache_write_1h,
          cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools`,
     );
-    const tx = this.db.transaction((turns: Turn[]) => {
-      for (const t of turns) {
+    const tx = this.db.transaction((ts: Turn[]) => {
+      for (const t of ts) {
         up.run(
           t.id,
           sessionId,
@@ -377,13 +392,23 @@ export class Store {
           t.usage.cacheWrite1h ?? 0,
           t.usage.cacheRead,
           t.usage.thinking,
-          costUsd(t.model, t.usage),
+          costUsd(t.model, t.usage, this.prices),
           t.text,
           JSON.stringify(t.tools),
         );
       }
     });
-    tx(d.turns);
+    tx(turns);
+  }
+
+  private tailFile(path: string, sessionId: string, agentId: string | null): number {
+    const row = this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+      offset: number;
+    } | null;
+    const r = this.readFrom(path, row?.offset ?? 0);
+    if (!r) return 0;
+    const d = parseTranscriptChunk(r.chunk);
+    this.persistTurns(sessionId, agentId, d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
     const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
     this.db
@@ -437,6 +462,172 @@ export class Store {
     let n = 0;
     for (const { id } of ids) n += this.tailSession(id);
     return n;
+  }
+
+  // ---------- Codex (no hooks: discover + tail ~/.codex rollout logs)
+  private codexRoot(): string {
+    return process.env.SWARM_CODEX_DIR ?? join(homedir(), ".codex", "sessions");
+  }
+
+  /** rollout-*.jsonl files whose date-partitioned path is within `sinceMs`. Bounded, no full walk. */
+  private codexRolloutFiles(sinceMs: number): string[] {
+    const root = this.codexRoot();
+    const out: string[] = [];
+    const ls = (p: string) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [] as string[];
+      }
+    };
+    for (const y of ls(root)) {
+      if (!/^\d{4}$/.test(y)) continue;
+      for (const m of ls(join(root, y))) {
+        if (!/^\d\d$/.test(m)) continue;
+        for (const day of ls(join(root, y, m))) {
+          if (!/^\d\d$/.test(day)) continue;
+          if (Date.parse(`${y}-${m}-${day}T23:59:59Z`) < sinceMs) continue;
+          const dir = join(root, y, m, day);
+          for (const f of ls(dir)) {
+            if (f.startsWith("rollout-") && f.endsWith(".jsonl")) out.push(join(dir, f));
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  tailCodex(windowMs = 3 * 24 * 60 * 60_000): number {
+    if (!existsSync(this.codexRoot())) return 0;
+    let n = 0;
+    for (const path of this.codexRolloutFiles(Date.now() - windowMs)) {
+      n += this.ingestLog(path, "codex", parseCodexRollout);
+    }
+    return n;
+  }
+
+  private grokRoot(): string {
+    return process.env.SWARM_GROK_DIR ?? join(homedir(), ".grok", "sessions");
+  }
+
+  /** Grok: ~/.grok/sessions/<url-encoded-cwd>/<session-id>/updates.jsonl (cwd is in the dir name). */
+  tailGrok(windowMs = 3 * 24 * 60 * 60_000): number {
+    const root = this.grokRoot();
+    if (!existsSync(root)) return 0;
+    const since = Date.now() - windowMs;
+    const ls = (p: string) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [] as string[];
+      }
+    };
+    let n = 0;
+    for (const enc of ls(root)) {
+      if (!enc.includes("%2F") && !enc.startsWith("/")) continue; // encoded cwd dirs only
+      let cwd = "";
+      try {
+        cwd = decodeURIComponent(enc);
+      } catch {
+        cwd = enc;
+      }
+      const cwdDir = join(root, enc);
+      for (const sid of ls(cwdDir)) {
+        const path = join(cwdDir, sid, "updates.jsonl");
+        if (!existsSync(path)) continue;
+        try {
+          if (statSync(path).mtimeMs < since) continue;
+        } catch {
+          continue;
+        }
+        let title: string | undefined;
+        try {
+          const sum = JSON.parse(readFileSync(join(cwdDir, sid, "summary.json"), "utf8")) as {
+            session_summary?: string;
+          };
+          title = sum.session_summary;
+        } catch {
+          /* no summary */
+        }
+        n += this.ingestLog(path, "grok", parseGrokUpdates, cwd, title);
+        // the dir name is the session id; backfill the title even when there are no new bytes
+        if (title) {
+          this.db
+            .prepare("UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')")
+            .run(title, sid);
+        }
+      }
+    }
+    return n;
+  }
+
+  /** Shared no-hooks ingestion: incrementally read an agent's session log, upsert its session + turns. */
+  private ingestLog(
+    path: string,
+    agent: string,
+    parse: (chunk: string) => LogParseResult,
+    cwdHint?: string,
+    titleHint?: string,
+  ): number {
+    const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+      offset: number;
+    } | null) ?? { offset: 0 };
+    const r = this.readFrom(path, off.offset);
+    if (!r) return 0;
+    const d = parse(r.chunk);
+    const sid = d.sessionId;
+    if (!sid) return 0; // header not seen yet
+    const mtime = (() => {
+      try {
+        return statSync(path).mtimeMs;
+      } catch {
+        return Date.now();
+      }
+    })();
+    this.ensureAgentSession(sid, agent, d.cwd ?? cwdHint ?? "", mtime);
+    this.persistTurns(sid, null, d.turns);
+    const lastText = [...d.turns].reverse().find((t) => t.text)?.text ?? null;
+    const state = Date.now() - mtime < 90_000 ? "active" : "ended";
+    const lastSeen = new Date(mtime).toISOString();
+    this.db
+      .prepare(
+        "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+      )
+      .run(
+        d.title ?? titleHint ?? null,
+        d.model ?? null,
+        lastText,
+        lastSeen,
+        state,
+        state,
+        lastSeen,
+        sid,
+      );
+    this.db
+      .prepare(
+        "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+      )
+      .run(path, sid, r.next);
+    return d.turns.length;
+  }
+
+  private ensureAgentSession(sid: string, agent: string, cwd: string, mtime: number) {
+    if (this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sid)) return;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const ts = new Date(mtime).toISOString();
+    this.db
+      .prepare(
+        "INSERT INTO sessions (id, project_id, kind, agent, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', ?, ?, ?, ?, ?, '', '', 'active')",
+      )
+      .run(
+        sid,
+        project?.id ?? "p_unknown",
+        agent,
+        cwd,
+        cwd && existsSync(cwd) ? currentBranch(cwd) : null,
+        ts,
+        ts,
+      );
   }
 
   // ---------- reads
@@ -508,6 +699,22 @@ export class Store {
       )
       .all() as Array<Record<string, unknown>>;
     const idleBefore = Date.now() - IDLE_MS;
+    // Per-session sparkline: the last 24 top-level turns (output tokens + cost), oldest first.
+    const sparkRows = this.db
+      .prepare(
+        `SELECT session_id, output, cost_usd FROM (
+           SELECT t.session_id, t.output, t.cost_usd, t.ts,
+                  ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY t.ts DESC) AS rn
+           FROM turns t WHERE t.agent_id IS NULL AND t.sidechain = 0
+         ) WHERE rn <= 24 ORDER BY ts`,
+      )
+      .all() as Array<{ session_id: string; output: number; cost_usd: number | null }>;
+    const sparks = new Map<string, Array<[number, number | null]>>();
+    for (const x of sparkRows) {
+      const a = sparks.get(x.session_id) ?? [];
+      a.push([x.output, x.cost_usd]);
+      sparks.set(x.session_id, a);
+    }
     return rows.map((r) => {
       let state = r.state as SessionView["state"];
       if (state !== "ended" && new Date(r.last_seen_at as string).getTime() < idleBefore)
@@ -516,6 +723,7 @@ export class Store {
         id: r.id as string,
         projectId: r.project_id as string,
         kind: r.kind as SessionView["kind"],
+        agent: (r.agent as string) ?? "claude-code",
         parentId: (r.parent_id as string) ?? null,
         cwd: r.cwd as string,
         branch: (r.branch as string) ?? null,
@@ -543,6 +751,7 @@ export class Store {
         },
         costUsd: r.unpriced ? null : ((r.cost_usd as number) ?? 0),
         toolCounts: JSON.parse((r.tool_counts as string) || "{}"),
+        spark: sparks.get(r.id as string) ?? [],
       };
     });
   }
@@ -567,15 +776,40 @@ export class Store {
       }>;
     const daily = this.db
       .prepare(
-        `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, SUM(t.cost_usd) AS cost, SUM(t.output) AS output
-         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-14 days') GROUP BY day, projectId ORDER BY day`,
+        `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
+                SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-14 days') GROUP BY day, projectId, agent ORDER BY day`,
       )
-      .all() as Array<{ day: string; projectId: string; cost: number | null; output: number }>;
+      .all() as Array<{
+      day: string;
+      projectId: string;
+      agent: string;
+      cost: number | null;
+      output: number;
+      turns: number;
+    }>;
+    // Weekday × hour activity over the last 4 weeks, in local time (SQLite 'localtime' modifier).
+    const hourly = this.db
+      .prepare(
+        `SELECT CAST(strftime('%w', t.ts, 'localtime') AS INTEGER) AS dow, CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour,
+                s.project_id AS projectId, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-28 days') GROUP BY dow, hour, projectId`,
+      )
+      .all() as Array<{
+      dow: number;
+      hour: number;
+      projectId: string;
+      cost: number | null;
+      turns: number;
+    }>;
     return {
+      hourly,
       byProjectToday: q("WHERE t.ts >= ?", "s.project_id"),
       byProjectAll: q("WHERE ? IS NOT NULL", "s.project_id"),
       byModelToday: q("WHERE t.ts >= ?", "t.model"),
       byModelAll: q("WHERE ? IS NOT NULL", "t.model"),
+      byAgentToday: q("WHERE t.ts >= ?", "COALESCE(s.agent, 'claude-code')"),
+      byAgentAll: q("WHERE ? IS NOT NULL", "COALESCE(s.agent, 'claude-code')"),
       daily,
     };
   }
