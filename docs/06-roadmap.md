@@ -12,7 +12,7 @@ Goal: one dashboard shows every Claude Code session on the machine, live, across
 | M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | 🟡 ingestion + SSE + project registry done; events still in memory (lost on restart); no socket/auto-start |
 | M0.4 | `hook` shim + `harness install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ✅ 2026-08-20 |
 | M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | 🟡 all but `tail` |
-| M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet + Session + add/remove project; React decision (OQ-6) deferred until it hurts |
+| M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet (+branch) + Session + Worktrees panel (branch, head, dirty, unpushed, sessions inside) + add/remove project; React decision (OQ-6) deferred until it hurts |
 | M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on both author repos | M0.4–M0.6 | ⚪ |
 
 ## M1 — Hold things (ledger)

@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const state = { projects: [], sessions: [], seq: 0, sel: null, session: null, log: [] };
+const state = { projects: [], sessions: [], worktrees: {}, seq: 0, sel: null, session: null, log: [] };
 
 const esc = (s) =>
   String(s ?? "").replace(
@@ -44,21 +44,40 @@ function renderProjects() {
       : "");
 }
 
+function renderWorktrees() {
+  const ids = state.sel ? [state.sel] : state.projects.map((p) => p.id);
+  const rows = ids.flatMap((id) => (state.worktrees[id] ?? []).map((w) => ({ ...w, projectId: id })));
+  if (!rows.length) return "";
+  const inside = (w) => state.sessions.filter((s) => s.state !== "ended" && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`)));
+  const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
+  const short = (p) => p.replace(/^\/Users\/[^/]+/, "~");
+  return `<h2 style="margin-top:18px">Worktrees <span>${rows.length}</span></h2>
+    <table><thead><tr><th style="width:30px"></th>${state.sel ? "" : '<th style="width:140px">project</th>'}<th style="width:260px">branch</th><th style="width:80px">head</th><th>path</th><th style="width:180px">state</th><th style="width:120px">sessions</th></tr></thead><tbody>${rows
+      .map((w) => {
+        const ss = inside(w);
+        const dot = ss.length ? "active" : w.dirty > 0 ? "waiting" : "ended";
+        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">clean</span>' : "";
+        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "dirty", "warn")}${badge(w.ahead, "unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${s.id.slice(0, 8)}</a>`).join(" ") || '<span style="color:var(--dim)">—</span>'}</td></tr>`;
+      })
+      .join("")}</tbody></table>`;
+}
+
 function renderFleet() {
   const rows = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
   const liveN = rows.filter((s) => s.state !== "ended").length;
   $("#main").innerHTML =
     `<h2>Fleet <span>${liveN} live · ${rows.length - liveN} ended</span></h2>` +
     (rows.length
-      ? `<table><thead><tr><th style="width:30px"></th><th style="width:140px">project</th><th style="width:120px">session</th><th>now</th><th style="width:60px">age</th><th style="width:60px">tools</th><th style="width:60px">subs</th></tr></thead><tbody>` +
+      ? `<table><thead><tr><th style="width:30px"></th><th style="width:140px">project</th><th style="width:100px">session</th><th style="width:200px">branch</th><th>now</th><th style="width:60px">age</th><th style="width:60px">tools</th><th style="width:60px">subs</th></tr></thead><tbody>` +
         rows
           .map(
             (s) =>
-              `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td><td>${esc(projName(s.projectId))}</td><td title="${s.id}">${s.id.slice(0, 8)}</td><td class="now" title="${esc(s.last)}">${esc(s.last)}</td><td>${ago(s.lastSeenAt)}</td><td>${s.toolCalls}</td><td>${s.subagents || ""}</td></tr>`,
+              `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td><td>${esc(projName(s.projectId))}</td><td title="${s.id}">${s.id.slice(0, 8)}</td><td class="br" title="${esc(s.cwd)}">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.last)}</td><td>${ago(s.lastSeenAt)}</td><td>${s.toolCalls}</td><td>${s.subagents || ""}</td></tr>`,
           )
           .join("") +
         `</tbody></table>`
-      : `<div class="empty">No sessions seen yet.<br><br>Run <kbd>harness install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here.</div>`);
+      : `<div class="empty">No sessions seen yet.<br><br>Run <kbd>harness install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here.</div>`) +
+    renderWorktrees();
 }
 
 async function openSession(id) {
@@ -117,7 +136,8 @@ $("#addForm").addEventListener("submit", async (ev) => {
 // ---- live
 function connect() {
   const es = new EventSource(`/v1/events?since=${state.seq}`);
-  es.onopen = () => $("#daemon .dot").classList.add("on");
+  es.addEventListener("open", () => $("#daemon .dot").classList.add("on"));
+  es.addEventListener("ping", () => $("#daemon .dot").classList.add("on"));
   es.onerror = () => {
     $("#daemon .dot").classList.remove("on");
     es.close();

@@ -8,36 +8,12 @@ import {
   projectIdentity,
   type Session,
 } from "@harness/core";
+import { currentBranch, gitCommonDir, gitToplevel, listWorktrees, type Worktree } from "./git";
 
 export const HARNESS_HOME = process.env.HARNESS_HOME ?? join(homedir(), ".harness");
 
-function gitCommonDir(cwd: string): string | null {
-  try {
-    const r = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--git-common-dir"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (r.exitCode !== 0) return null;
-    const out = r.stdout.toString().trim();
-    return realpathSync(out.startsWith("/") ? out : join(cwd, out));
-  } catch {
-    return null;
-  }
-}
-
-function gitToplevel(cwd: string): string | null {
-  try {
-    const r = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    return r.exitCode === 0 ? realpathSync(r.stdout.toString().trim()) : null;
-  } catch {
-    return null;
-  }
-}
-
 export interface SessionView extends Session {
+  branch: string | null;
   last: string;
   lastType: string;
   state: "active" | "waiting" | "ended";
@@ -118,6 +94,7 @@ export class Store {
         parentId: null,
         cwd: p.cwd ?? "",
         worktree: null,
+        branch: null,
         model: null,
         startedAt: e.ts,
         endedAt: null,
@@ -134,7 +111,10 @@ export class Store {
     s.last = p.summary ?? e.type;
     s.lastType = e.type;
     if (e.projectId !== "p_unknown") s.projectId = e.projectId;
-    if (p.cwd) s.cwd = p.cwd;
+    if (p.cwd) {
+      s.cwd = p.cwd;
+      if (existsSync(p.cwd)) s.branch = currentBranch(p.cwd);
+    }
     if (e.type === "tool.requested") s.toolCalls++;
     if (e.type === "subagent.started") s.subagents++;
     if (e.type === "subagent.stopped") s.subagents = Math.max(0, s.subagents - 1);
@@ -154,9 +134,23 @@ export class Store {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
   }
+  private wtCache = new Map<string, { v: Worktree[]; t: number }>();
+  worktrees(projectId: string): Worktree[] {
+    const p = this.projects.get(projectId);
+    if (!p) return [];
+    const hit = this.wtCache.get(projectId);
+    if (hit && Date.now() - hit.t < 3000) return hit.v;
+    const v = listWorktrees(p.root);
+    this.wtCache.set(projectId, { v, t: Date.now() });
+    return v;
+  }
+
   snapshot() {
+    const worktrees: Record<string, Worktree[]> = {};
+    for (const id of this.projects.keys()) worktrees[id] = this.worktrees(id);
     return {
       projects: [...this.projects.values()],
+      worktrees,
       sessions: [...this.sessions.values()].sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : -1)),
       seq: this.events.length,
     };
