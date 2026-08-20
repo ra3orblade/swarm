@@ -8,11 +8,11 @@ Goal: one dashboard shows every Claude Code session on the machine, live, across
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
 | M0.1 | Scaffold monorepo, CI, Biome, Vitest, Apache-2.0, README skeleton | — | ✅ 2026-08-20 — 7 packages, in-memory event log + SSE, hook→daemon→SSE smoke |
-| M0.2 | `core`: event types, Claude Code hook adapter, project identity (git common dir) | M0.1 | ⚪ |
-| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | ⚪ |
-| M0.4 | `hook` shim + `harness install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ⚪ |
-| M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | ⚪ |
-| M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | ⚪ |
+| M0.2 | `core`: event types, Claude Code hook adapter, project identity (git common dir) | M0.1 | ✅ 2026-08-20 |
+| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | 🟡 ingestion + SSE + project registry done; events still in memory (lost on restart); no socket/auto-start |
+| M0.4 | `hook` shim + `harness install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ✅ 2026-08-20 |
+| M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | 🟡 all but `tail` |
+| M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet + Session + add/remove project; React decision (OQ-6) deferred until it hurts |
 | M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on both author repos | M0.4–M0.6 | ⚪ |
 
 ## M1 — Hold things (ledger)

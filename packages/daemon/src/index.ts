@@ -1,1 +1,1 @@
-export { createApp, EventLog, VERSION } from "./app";
+export { createApp, Store, VERSION } from "./app";

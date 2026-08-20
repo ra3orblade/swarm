@@ -1,50 +1,70 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { HarnessEvent } from "@harness/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { Store } from "./store";
 
-export const VERSION = "0.0.0";
+export const VERSION = "0.0.1";
+export { Store };
 
-/** In-memory event log for M0.1. SQLite lands in M0.3. */
-export class EventLog {
-  private events: HarnessEvent[] = [];
-  private listeners = new Set<(e: HarnessEvent) => void>();
+const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../web/public");
 
-  append(e: HarnessEvent): HarnessEvent {
-    const stored = { ...e, seq: this.events.length + 1 };
-    this.events.push(stored);
-    for (const l of this.listeners) l(stored);
-    return stored;
-  }
-  since(seq: number): HarnessEvent[] {
-    return this.events.filter((e) => (e.seq ?? 0) > seq);
-  }
-  subscribe(l: (e: HarnessEvent) => void): () => void {
-    this.listeners.add(l);
-    return () => this.listeners.delete(l);
-  }
-}
-
-export function createApp(log = new EventLog()) {
+export function createApp(store = new Store()) {
   const app = new Hono();
 
   app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
 
-  app.post("/v1/events", async (c) => {
-    const e = (await c.req.json()) as HarnessEvent;
-    return c.json(log.append(e), 201);
+  // ---- projects
+  app.get("/v1/projects", (c) => c.json(store.snapshot().projects));
+  app.post("/v1/projects", async (c) => {
+    const { path, name } = (await c.req.json()) as { path?: string; name?: string };
+    if (!path) return c.json({ error: "path required" }, 400);
+    try {
+      return c.json(store.resolveProject(path, true, name), 201);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+  app.delete("/v1/projects/:id", (c) =>
+    store.removeProject(c.req.param("id"))
+      ? c.body(null, 204)
+      : c.json({ error: "not found" }, 404),
+  );
+
+  // ---- state for the dashboard
+  app.get("/v1/state", (c) => c.json(store.snapshot()));
+  app.get("/v1/sessions/:id/events", (c) => {
+    const id = c.req.param("id");
+    return c.json(store.events.filter((e) => e.sessionId === id).slice(-500));
   });
 
+  // ---- ingestion
+  app.post("/v1/hook/:event", async (c) => {
+    const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    store.ingestHook(c.req.param("event"), raw);
+    return c.json({}); // allow; rules land in M2
+  });
+  app.post("/v1/events", async (c) => {
+    const e = (await c.req.json()) as HarnessEvent;
+    return c.json(store.append(e), 201);
+  });
+
+  // ---- SSE
   app.get("/v1/events", (c) => {
     const since = Number(c.req.query("since") ?? 0);
     return streamSSE(c, async (stream) => {
-      for (const e of log.since(since)) {
+      for (const e of store.since(since)) {
         await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
       }
       await new Promise<void>((resolve) => {
-        const off = log.subscribe((e) => {
+        const off = store.subscribe((e) => {
           void stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
         });
+        const beat = setInterval(() => void stream.writeSSE({ event: "ping", data: "" }), 15000);
         stream.onAbort(() => {
+          clearInterval(beat);
           off();
           resolve();
         });
@@ -52,5 +72,13 @@ export function createApp(log = new EventLog()) {
     });
   });
 
-  return { app, log };
+  // ---- dashboard
+  app.get("/", (c) => c.html(readFileSync(join(WEB_DIR, "index.html"), "utf8")));
+  app.get("/app.js", (c) =>
+    c.body(readFileSync(join(WEB_DIR, "app.js"), "utf8"), 200, {
+      "content-type": "text/javascript",
+    }),
+  );
+
+  return { app, store };
 }
