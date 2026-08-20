@@ -93,11 +93,10 @@ export function createApp(store = new Store()) {
 
   // ---- dashboard
   app.get("/", (c) => c.html(readFileSync(join(WEB_DIR, "index.html"), "utf8")));
-  app.get("/app.js", (c) =>
-    c.body(readFileSync(join(WEB_DIR, "app.js"), "utf8"), 200, {
-      "content-type": "text/javascript",
-    }),
-  );
+  for (const f of ["app.js", "viz.js"])
+    app.get(`/${f}`, (c) =>
+      c.body(readFileSync(join(WEB_DIR, f), "utf8"), 200, { "content-type": "text/javascript" }),
+    );
 
   return { app, store };
 }
