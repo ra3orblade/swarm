@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/art/swarm-icon.svg" alt="Swarm" width="96" height="96"></p>
+
 # Swarm
 
 **A local-first control plane for AI-agent development on any repository.**
