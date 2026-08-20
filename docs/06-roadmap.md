@@ -44,7 +44,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 ## M1 — Hold things (ledger)
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
-| M1.1 | Claims: claim/renew/release/list/reap with worktree create/remove; fail-closed; dirty/unpushed refusal (port of `wt.ts`) | M0 | ⚪ |
+| M1.1 | Claims: claim/renew/release/list/reap with worktree create/remove; fail-closed; dirty/unpushed refusal | M0 | 🟡 2026-08-20 pure lease semantics ported into `core/ledger.ts` (canClaim/canRelease/reapAction, fail-closed, never-lose-work) + 11 tests; daemon SQLite + git worktree wiring next |
 | M1.2 | Auto-renew on holder activity; orphan detection + incidents | M1.1 | ⚪ |
 | M1.3 | Handoff/resume payloads; injected via `SessionStart` context | M1.1 | ⚪ |
 | M1.4 | Runtime resources + process registry (`serve`, `proc`; port allocation; pid-based liveness) (port of `serve.ts`, `workers.ts`) | M0 | ⚪ |
