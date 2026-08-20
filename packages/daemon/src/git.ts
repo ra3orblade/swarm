@@ -86,3 +86,55 @@ export function currentBranch(cwd: string): string | null {
   branchCache.set(cwd, { v: v === "HEAD" ? "(detached)" : v, t: now });
   return branchCache.get(cwd)?.v ?? null;
 }
+
+/** Create a worktree at `path` on a new (or existing) branch off `baseRef`. Returns realpath or null. */
+export function worktreeAdd(
+  repoRoot: string,
+  path: string,
+  branch: string,
+  baseRef = "HEAD",
+): string | null {
+  // new branch if it doesn't exist yet, else just check it out into the worktree
+  const branchExists =
+    git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]) !== null;
+  const args = branchExists
+    ? ["worktree", "add", path, branch]
+    : ["worktree", "add", "-b", branch, path, baseRef];
+  if (git(repoRoot, args) === null) return null;
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+export function worktreeRemove(repoRoot: string, path: string, force: boolean): boolean {
+  const args = ["worktree", "remove", path];
+  if (force) args.push("--force");
+  return git(repoRoot, args) !== null;
+}
+
+/** Uncommitted (dirty) and unpushed state of a worktree — the release/reap gate. */
+export function heldWork(path: string): { dirty: boolean; unpushed: boolean } {
+  const status = git(path, ["status", "--porcelain"]);
+  const dirty = status !== null && status.trim().length > 0;
+  // "unpushed": commits on HEAD that couldn't be recovered from anywhere else.
+  const count = (args: string[]) => {
+    const out = git(path, ["rev-list", "--count", ...args])?.trim();
+    return out !== undefined && out !== "" ? Number(out) : 0;
+  };
+  let unpushed: boolean;
+  if (git(path, ["rev-parse", "--verify", "--quiet", "@{upstream}"]) !== null) {
+    unpushed = count(["@{upstream}..HEAD"]) > 0;
+  } else {
+    // no upstream: HEAD commits not reachable from remotes or the base branch (main/master).
+    const baselines = ["--remotes"];
+    for (const b of ["main", "master"]) {
+      if (git(path, ["rev-parse", "--verify", "--quiet", `refs/heads/${b}`]) !== null)
+        baselines.push(b);
+    }
+    // nothing to compare against (single-branch fresh repo): treat as pushed
+    unpushed = baselines.length > 1 ? count(["HEAD", "--not", ...baselines]) > 0 : false;
+  }
+  return { dirty, unpushed };
+}

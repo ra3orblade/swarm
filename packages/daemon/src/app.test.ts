@@ -183,3 +183,63 @@ describe("shared-tree guard (M2.1)", () => {
     expect(await r.json()).toEqual({});
   });
 });
+
+describe("claims (M1)", () => {
+  const sh = (cwd: string, ...args: string[]) =>
+    Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  function tmpRepo(): string {
+    const dir = require("node:fs").mkdtempSync(join(tmpdir(), "swarm-repo-"));
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@t");
+    sh(dir, "git", "config", "user.name", "t");
+    require("node:fs").writeFileSync(join(dir, "README.md"), "# repo\n");
+    sh(dir, "git", "add", "README.md");
+    sh(dir, "git", "commit", "-qm", "init");
+    return require("node:fs").realpathSync(dir);
+  }
+
+  it("claims into a real worktree, fails closed on a second owner, releases and removes it", () => {
+    const store = new Store(tmpHome());
+    const repo = tmpRepo();
+    const p = store.resolveProject(repo, true);
+
+    const c = store.claim(p.id, "M1.1", "agent-a");
+    expect(c.ok).toBe(true);
+    if (c.ok) {
+      expect(require("node:fs").existsSync(c.worktree)).toBe(true);
+      expect(c.branch).toBe("task/M1.1");
+    }
+
+    // fail closed: another owner cannot take the held task
+    const c2 = store.claim(p.id, "M1.1", "agent-b");
+    expect(c2.ok).toBe(false);
+
+    // same owner idempotent-ish is allowed by canClaim, but worktree exists → refused cleanly
+    expect(store.claim(p.id, "M1.1", "agent-a").ok).toBe(false);
+
+    // list shows it held
+    expect(store.claims(p.id).find((x) => x.task === "M1.1")?.state).toBe("held");
+
+    // release removes the worktree (clean tree)
+    const wt = (c as { worktree: string }).worktree;
+    const r = store.release(p.id, "M1.1", false);
+    expect(r.ok).toBe(true);
+    expect(require("node:fs").existsSync(wt)).toBe(false);
+    expect(store.claims(p.id).find((x) => x.task === "M1.1")?.state).toBe("released");
+  });
+
+  it("refuses to release a worktree with uncommitted work unless forced", () => {
+    const store = new Store(tmpHome());
+    const p = store.resolveProject(tmpRepo(), true);
+    const c = store.claim(p.id, "M1.2", "agent-a");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    require("node:fs").writeFileSync(join(c.worktree, "dirty.txt"), "wip");
+    const refused = store.release(p.id, "M1.2", false);
+    expect(refused.ok).toBe(false);
+    expect(require("node:fs").existsSync(c.worktree)).toBe(true);
+    // force discards it
+    expect(store.release(p.id, "M1.2", true).ok).toBe(true);
+    expect(require("node:fs").existsSync(c.worktree)).toBe(false);
+  });
+});

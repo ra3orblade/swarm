@@ -15,12 +15,18 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
+  canClaim,
+  canRelease,
+  claimRefusalMessage,
   costUsd,
   fromLiteLLM,
   type GuardDecision,
   guardBash,
+  isActive,
+  type LeaseClaim,
   type LiveSession,
   type LogParseResult,
+  nextExpiry,
   normalizeHook,
   PRICES,
   type Price,
@@ -29,10 +35,21 @@ import {
   parseGrokUpdates,
   parseTranscriptChunk,
   projectIdentity,
+  reapAction,
+  releaseRefusalMessage,
   type SwarmEvent,
   type Turn,
 } from "@swarm/core";
-import { currentBranch, gitCommonDir, gitToplevel, listWorktrees, type Worktree } from "./git";
+import {
+  currentBranch,
+  gitCommonDir,
+  gitToplevel,
+  heldWork,
+  listWorktrees,
+  type Worktree,
+  worktreeAdd,
+  worktreeRemove,
+} from "./git";
 
 export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
 
@@ -89,6 +106,11 @@ CREATE TABLE IF NOT EXISTS turns (
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, ts);
 CREATE TABLE IF NOT EXISTS tails (path TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, offset INTEGER);
+CREATE TABLE IF NOT EXISTS claims (
+  project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
+  acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
+  PRIMARY KEY (project_id, task)
+);
 `;
 
 const IDLE_MS = 10 * 60_000;
@@ -672,6 +694,191 @@ export class Store {
       );
   }
 
+  // ---------- claims (M1: fail-closed leases in isolated git worktrees)
+  private claimRows(projectId: string): LeaseClaim[] {
+    return (
+      this.db.prepare("SELECT * FROM claims WHERE project_id = ?").all(projectId) as Array<
+        Record<string, unknown>
+      >
+    ).map((r) => ({
+      task: r.task as string,
+      owner: (r.owner as string) ?? "",
+      worktree: (r.worktree as string) ?? "",
+      branch: (r.branch as string) ?? "",
+      acquiredAt: r.acquired_at as string,
+      expiresAt: r.expires_at as string,
+      state: r.state as LeaseClaim["state"],
+    }));
+  }
+
+  claims(projectId?: string) {
+    const rows = (
+      this.db
+        .prepare(
+          projectId
+            ? "SELECT * FROM claims WHERE project_id = ? ORDER BY acquired_at DESC"
+            : "SELECT * FROM claims ORDER BY acquired_at DESC",
+        )
+        .all(...(projectId ? [projectId] : [])) as Array<Record<string, unknown>>
+    ).map((r) => ({
+      projectId: r.project_id as string,
+      task: r.task as string,
+      owner: (r.owner as string) ?? "",
+      worktree: (r.worktree as string) ?? "",
+      branch: (r.branch as string) ?? "",
+      acquiredAt: r.acquired_at as string,
+      expiresAt: r.expires_at as string,
+      releasedAt: (r.released_at as string) ?? null,
+      state: r.state as string,
+    }));
+    const now = Date.now();
+    for (const c of rows)
+      if (c.state === "held" && new Date(c.expiresAt).getTime() < now) c.state = "expired";
+    return rows;
+  }
+
+  private worktreePath(projectId: string, task: string): string {
+    const slug = (x: string) => x.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
+    const p = this.project(projectId);
+    return join(this.home, "worktrees", slug(p?.name ?? projectId), slug(task));
+  }
+
+  claim(projectId: string, task: string, owner: string, baseRef = "HEAD") {
+    const p = this.project(projectId);
+    if (!p) return { ok: false as const, error: "unknown project" };
+    const now = Date.now();
+    const decision = canClaim(this.claimRows(projectId), task, owner, now);
+    if (!decision.ok) return { ok: false as const, error: claimRefusalMessage(decision, task) };
+    const branch = `task/${task}`;
+    const worktree = this.worktreePath(projectId, task);
+    if (existsSync(worktree))
+      return { ok: false as const, error: `${worktree} already exists; release ${task} first` };
+    mkdirSync(dirname(worktree), { recursive: true });
+    const created = worktreeAdd(p.root, worktree, branch, baseRef);
+    if (!created) return { ok: false as const, error: `git worktree add failed for ${task}` };
+    const expiresAt = nextExpiry(now);
+    const acquiredAt = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, released_at, state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'held')
+         ON CONFLICT(project_id, task) DO UPDATE SET owner=excluded.owner, worktree=excluded.worktree, branch=excluded.branch,
+           acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released_at=NULL, state='held'`,
+      )
+      .run(projectId, task, owner, created, branch, acquiredAt, expiresAt);
+    this.append({
+      ts: acquiredAt,
+      type: "claim.acquired",
+      projectId,
+      sessionId: null,
+      payload: { task, owner, worktree: created, branch, summary: `claim ${task} by ${owner}` },
+    });
+    return { ok: true as const, task, owner, worktree: created, branch, expiresAt };
+  }
+
+  renew(projectId: string, task: string) {
+    const row = this.db
+      .prepare("SELECT state FROM claims WHERE project_id = ? AND task = ?")
+      .get(projectId, task) as { state: string } | null;
+    if (!row) return { ok: false as const, error: `no claim on ${task}` };
+    const expiresAt = nextExpiry(Date.now());
+    this.db
+      .prepare("UPDATE claims SET expires_at = ?, state = 'held' WHERE project_id = ? AND task = ?")
+      .run(expiresAt, projectId, task);
+    this.append({
+      ts: new Date().toISOString(),
+      type: "claim.renewed",
+      projectId,
+      sessionId: null,
+      payload: { task, expiresAt, summary: `renew ${task}` },
+    });
+    return { ok: true as const, task, expiresAt };
+  }
+
+  release(projectId: string, task: string, force = false) {
+    const p = this.project(projectId);
+    const row = this.db
+      .prepare("SELECT * FROM claims WHERE project_id = ? AND task = ?")
+      .get(projectId, task) as Record<string, unknown> | null;
+    if (!row) return { ok: false as const, error: `no claim on ${task}` };
+    const worktree = (row.worktree as string) ?? "";
+    if (worktree && existsSync(worktree)) {
+      const work = heldWork(worktree);
+      const can = canRelease(work, force);
+      if (!can.ok)
+        return {
+          ok: false as const,
+          error: releaseRefusalMessage(can, worktree),
+          refused: can.reason,
+        };
+      if (p && !worktreeRemove(p.root, worktree, force))
+        return { ok: false as const, error: `git worktree remove failed for ${worktree}` };
+    }
+    const releasedAt = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE claims SET state = 'released', released_at = ? WHERE project_id = ? AND task = ?",
+      )
+      .run(releasedAt, projectId, task);
+    this.append({
+      ts: releasedAt,
+      type: "claim.released",
+      projectId,
+      sessionId: null,
+      payload: { task, summary: `release ${task}` },
+    });
+    return { ok: true as const, task };
+  }
+
+  reap(projectId?: string) {
+    const scope = projectId ? [projectId] : this.projects().map((p) => p.id);
+    const now = Date.now();
+    const result: Array<{ task: string; projectId: string; action: string }> = [];
+    for (const pid of scope) {
+      const p = this.project(pid);
+      for (const c of this.claimRows(pid)) {
+        if (c.state !== "held" && c.state !== "expired") continue;
+        if (isActive({ ...c, state: "held" }, now)) continue;
+        const exists = c.worktree ? existsSync(c.worktree) : false;
+        const work = exists ? heldWork(c.worktree) : null;
+        const action = reapAction({ ...c, state: "held" }, now, exists, work);
+        if (action === "not-expired") continue;
+        if (action === "reap") {
+          if (exists && p) worktreeRemove(p.root, c.worktree, false);
+          this.db
+            .prepare(
+              "UPDATE claims SET state = 'reaped', released_at = ? WHERE project_id = ? AND task = ?",
+            )
+            .run(new Date(now).toISOString(), pid, c.task);
+          this.append({
+            ts: new Date(now).toISOString(),
+            type: "claim.released",
+            projectId: pid,
+            sessionId: null,
+            payload: { task: c.task, summary: `reaped ${c.task}` },
+          });
+        } else {
+          this.db
+            .prepare("UPDATE claims SET state = 'orphaned' WHERE project_id = ? AND task = ?")
+            .run(pid, c.task);
+          this.append({
+            ts: new Date(now).toISOString(),
+            type: "claim.orphaned",
+            projectId: pid,
+            sessionId: null,
+            payload: {
+              task: c.task,
+              worktree: c.worktree,
+              summary: `orphaned ${c.task} (holds work)`,
+            },
+          });
+        }
+        result.push({ task: c.task, projectId: pid, action });
+      }
+    }
+    return result;
+  }
+
   // ---------- reads
   since(seq: number, limit = 5000): SwarmEvent[] {
     return (
@@ -863,7 +1070,14 @@ export class Store {
     const seq = (
       this.db.prepare("SELECT COALESCE(MAX(seq),0) AS seq FROM events").get() as { seq: number }
     ).seq;
-    return { projects, worktrees, sessions: this.sessions(), spend: this.spend(), seq };
+    return {
+      projects,
+      worktrees,
+      sessions: this.sessions(),
+      spend: this.spend(),
+      claims: this.claims(),
+      seq,
+    };
   }
 }
 

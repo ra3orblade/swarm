@@ -25,6 +25,10 @@ const help = `swarm — control plane for AI-agent development
   ui                 open the dashboard
   tail [--project p] [--session id]   follow the live event stream
 
+  claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
+  renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
+  claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
+
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
 Env: SWARM_URL, SWARM_PORT (default 7777), SWARM_HOME (~/.swarm)`;
@@ -127,6 +131,89 @@ try {
         body: JSON.stringify({ path: p, name }),
       })) as { id: string; name: string; root: string };
       console.log(json ? JSON.stringify(proj) : `added ${proj.name} (${proj.id}) → ${proj.root}`);
+      break;
+    }
+    case "claim": {
+      await ensureDaemon({ quiet: true });
+      const task = arg();
+      if (!task) throw new Error("usage: swarm claim <task> [--owner name]");
+      const ownerIdx = rest.indexOf("--owner");
+      const owner = ownerIdx >= 0 ? rest[ownerIdx + 1] : (process.env.USER ?? "me");
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/claims`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: proj.id, task, owner }),
+      }).then((x) => x.json())) as {
+        ok: boolean;
+        worktree?: string;
+        branch?: string;
+        error?: string;
+      };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok) console.log(`claimed ${task} → ${r.worktree}\n  cd ${r.worktree}`);
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      }
+      break;
+    }
+    case "renew":
+    case "release": {
+      await ensureDaemon({ quiet: true });
+      const task = arg();
+      if (!task)
+        throw new Error(`usage: swarm ${cmd} <task>${cmd === "release" ? " [--force]" : ""}`);
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/claims/${cmd}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: proj.id, task, force: rest.includes("--force") }),
+      }).then((x) => x.json())) as { ok: boolean; error?: string; expiresAt?: string };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok)
+        console.log(cmd === "renew" ? `renewed ${task} until ${r.expiresAt}` : `released ${task}`);
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      }
+      break;
+    }
+    case "reap": {
+      await ensureDaemon({ quiet: true });
+      const r = (await api("/v1/claims/reap", { method: "POST" })) as {
+        reaped: Array<{ task: string; action: string }>;
+      };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.reaped.length)
+        for (const x of r.reaped) console.log(`${x.action.padEnd(14)} ${x.task}`);
+      else console.log("nothing to reap");
+      break;
+    }
+    case "claims": {
+      await ensureDaemon({ quiet: true });
+      const cs = (await api("/v1/claims")) as Array<{
+        task: string;
+        owner: string;
+        state: string;
+        worktree: string;
+        expiresAt: string;
+      }>;
+      if (json) console.log(JSON.stringify(cs));
+      else if (!cs.length) console.log("no claims");
+      else
+        for (const c of cs)
+          console.log(
+            `${c.state.padEnd(9)} ${c.task.padEnd(16)} ${(c.owner || "").padEnd(12)} ${c.worktree}`,
+          );
       break;
     }
     case "ls": {
