@@ -47,6 +47,11 @@ export const PRICES: Record<string, Price> = {
   // DeepSeek
   "deepseek-chat": { input: 0.27, output: 1.1, cacheWrite: 0.27, cacheRead: 0.07 },
   "deepseek-reasoner": { input: 0.55, output: 2.19, cacheWrite: 0.55, cacheRead: 0.14 },
+  // xAI Grok (approx public pricing; override via ~/.swarm/pricing.json)
+  "grok-4": { input: 3, output: 15, cacheWrite: 3, cacheRead: 0.75 },
+  "grok-3": { input: 3, output: 15, cacheWrite: 3, cacheRead: 0.75 },
+  "grok-code-fast": { input: 0.2, output: 1.5, cacheWrite: 0.2, cacheRead: 0.02 },
+  "grok-composer": { input: 0.2, output: 1.5, cacheWrite: 0.2, cacheRead: 0.02 },
 };
 
 export function priceFor(model: string | null | undefined, table = PRICES): Price | null {

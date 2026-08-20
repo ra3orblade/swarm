@@ -17,11 +17,13 @@ import { basename, dirname, join } from "node:path";
 import {
   costUsd,
   fromLiteLLM,
+  type LogParseResult,
   normalizeHook,
   PRICES,
   type Price,
   type Project,
   parseCodexRollout,
+  parseGrokUpdates,
   parseTranscriptChunk,
   projectIdentity,
   type SwarmEvent,
@@ -497,56 +499,103 @@ export class Store {
     if (!existsSync(this.codexRoot())) return 0;
     let n = 0;
     for (const path of this.codexRolloutFiles(Date.now() - windowMs)) {
-      const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
-        offset: number;
-      } | null) ?? { offset: 0 };
-      const r = this.readFrom(path, off.offset);
-      if (!r) continue;
-      const d = parseCodexRollout(r.chunk);
-      const sid = d.sessionId;
-      if (!sid) {
-        // header not yet seen (mid-file start); wait for it
-        continue;
-      }
-      const mtime = (() => {
-        try {
-          return statSync(path).mtimeMs;
-        } catch {
-          return Date.now();
-        }
-      })();
-      this.ensureCodexSession(sid, d.cwd ?? "", mtime);
-      this.persistTurns(sid, null, d.turns);
-      const lastText = [...d.turns].reverse().find((t) => t.text)?.text ?? null;
-      const state = Date.now() - mtime < 90_000 ? "active" : "ended";
-      const lastSeen = new Date(mtime).toISOString();
-      this.db
-        .prepare(
-          "UPDATE sessions SET model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
-        )
-        .run(d.model ?? null, lastText, lastSeen, state, state, lastSeen, sid);
-      this.db
-        .prepare(
-          "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
-        )
-        .run(path, sid, r.next);
-      n += d.turns.length;
+      n += this.ingestLog(path, "codex", parseCodexRollout);
     }
     return n;
   }
 
-  private ensureCodexSession(sid: string, cwd: string, mtime: number) {
-    const exists = this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sid);
-    if (exists) return;
+  private grokRoot(): string {
+    return process.env.SWARM_GROK_DIR ?? join(homedir(), ".grok", "sessions");
+  }
+
+  /** Grok: ~/.grok/sessions/<url-encoded-cwd>/<session-id>/updates.jsonl (cwd is in the dir name). */
+  tailGrok(windowMs = 3 * 24 * 60 * 60_000): number {
+    const root = this.grokRoot();
+    if (!existsSync(root)) return 0;
+    const since = Date.now() - windowMs;
+    const ls = (p: string) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [] as string[];
+      }
+    };
+    let n = 0;
+    for (const enc of ls(root)) {
+      if (!enc.includes("%2F") && !enc.startsWith("/")) continue; // encoded cwd dirs only
+      let cwd = "";
+      try {
+        cwd = decodeURIComponent(enc);
+      } catch {
+        cwd = enc;
+      }
+      const cwdDir = join(root, enc);
+      for (const sid of ls(cwdDir)) {
+        const path = join(cwdDir, sid, "updates.jsonl");
+        if (!existsSync(path)) continue;
+        try {
+          if (statSync(path).mtimeMs < since) continue;
+        } catch {
+          continue;
+        }
+        n += this.ingestLog(path, "grok", parseGrokUpdates, cwd);
+      }
+    }
+    return n;
+  }
+
+  /** Shared no-hooks ingestion: incrementally read an agent's session log, upsert its session + turns. */
+  private ingestLog(
+    path: string,
+    agent: string,
+    parse: (chunk: string) => LogParseResult,
+    cwdHint?: string,
+  ): number {
+    const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+      offset: number;
+    } | null) ?? { offset: 0 };
+    const r = this.readFrom(path, off.offset);
+    if (!r) return 0;
+    const d = parse(r.chunk);
+    const sid = d.sessionId;
+    if (!sid) return 0; // header not seen yet
+    const mtime = (() => {
+      try {
+        return statSync(path).mtimeMs;
+      } catch {
+        return Date.now();
+      }
+    })();
+    this.ensureAgentSession(sid, agent, d.cwd ?? cwdHint ?? "", mtime);
+    this.persistTurns(sid, null, d.turns);
+    const lastText = [...d.turns].reverse().find((t) => t.text)?.text ?? null;
+    const state = Date.now() - mtime < 90_000 ? "active" : "ended";
+    const lastSeen = new Date(mtime).toISOString();
+    this.db
+      .prepare(
+        "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+      )
+      .run(d.title ?? null, d.model ?? null, lastText, lastSeen, state, state, lastSeen, sid);
+    this.db
+      .prepare(
+        "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+      )
+      .run(path, sid, r.next);
+    return d.turns.length;
+  }
+
+  private ensureAgentSession(sid: string, agent: string, cwd: string, mtime: number) {
+    if (this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sid)) return;
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
     const ts = new Date(mtime).toISOString();
     this.db
       .prepare(
-        "INSERT INTO sessions (id, project_id, kind, agent, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', 'codex', ?, ?, ?, ?, '', '', 'active')",
+        "INSERT INTO sessions (id, project_id, kind, agent, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', ?, ?, ?, ?, ?, '', '', 'active')",
       )
       .run(
         sid,
         project?.id ?? "p_unknown",
+        agent,
         cwd,
         cwd && existsSync(cwd) ? currentBranch(cwd) : null,
         ts,
