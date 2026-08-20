@@ -2,7 +2,7 @@
 
 Status: draft
 
-Bun workspaces, TypeScript, Biome, Vitest. Bun because the daemon, CLI, MCP server and hook shim all want fast startup and `bun:sqlite` with no native build step; it matches the author's other repos.
+Bun workspaces, TypeScript, Biome, Vitest. Bun because the daemon, CLI, MCP server and hook shim all want fast startup and `bun:sqlite` with no native build step, keeping the toolchain minimal.
 
 ```
 swarm/

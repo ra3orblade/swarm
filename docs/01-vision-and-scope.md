@@ -8,11 +8,11 @@ Status: draft
 
 ## Why it exists
 
-Two real projects (Brainstorm, Line of Sites) grew a harness by hand: a claim ledger in the git common dir, lease/renew/reap, runtime-singleton claims (`runtime:worker`, `runtime:web`), recorded gates (`evaluations.jsonl`), port-allocating dev servers, pid-tracked workers, and a `CLAUDE.md` full of rules learned from incidents ("seven stale workers raced", "an agent adopted another agent's diff"). Every piece was copied by hand from one repo to the next and every rule is enforced only by the model re-reading it. That does not scale to a third project, a second person, or a cloud agent.
+In practice, teams grow this coordination layer by hand: a claim ledger in the git common dir, lease/renew/reap, runtime-singleton claims (`runtime:worker`, `runtime:web`), recorded gates, port-allocating dev servers, pid-tracked workers, and a `CLAUDE.md` full of rules learned from incidents (stale workers racing on a shared database, one agent adopting another's uncommitted diff). Every piece gets copied by hand from one repo to the next, and every rule is enforced only by the model re-reading it. That does not scale to a third project, a second person, or a cloud agent.
 
 ## Who it is for
 
-1. **The author, today** — managing several repos with many parallel Claude Code sessions, subagents and workflows, and no single place to see what is happening.
+1. **A solo developer or small team, today** — running many parallel Claude Code sessions, subagents and workflows across several repos, with no single place to see what is happening.
 2. **Solo builders and small teams** running agent-heavy development who have the same coordination bugs and no time to build tooling.
 3. Later: teams who want the ledger shared (remote daemon), not just local.
 

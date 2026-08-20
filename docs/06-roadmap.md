@@ -1,6 +1,6 @@
 # 06 · Roadmap
 
-Status: draft. Task IDs are immutable. Every milestone ends with the author using it on Brainstorm and Line of Sites.
+Status: draft. Task IDs are immutable. Every milestone ends in something usable on real projects.
 
 ## M0 — See everything (observe only)
 Goal: one dashboard shows every Claude Code session on the machine, live, across repos. No enforcement yet.
@@ -13,7 +13,7 @@ Goal: one dashboard shows every Claude Code session on the machine, live, across
 | M0.4 | `hook` shim + `swarm install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ✅ 2026-08-20 |
 | M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | ✅ 2026-08-20 incl. `tail`, `setup`, `start/stop/restart` |
 | M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet (+branch) + Session + Worktrees panel (branch, head, dirty, unpushed, sessions inside) + add/remove project; React decision (OQ-6) deferred until it hurts |
-| M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on both author repos | M0.4–M0.6 | ⚪ |
+| M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on a real project | M0.4–M0.6 | ✅ 2026-08-20 (tools/smoke.ts) |
 
 ## M0.8 — What agents are doing (transcript intelligence) ✅ 2026-08-20
 Landed ahead of M1 by request. Reads each session's transcript JSONL (path from the hook) plus its `subagents/*.jsonl`, tailing on hook activity and on a 5s timer (long turns emit no hooks).

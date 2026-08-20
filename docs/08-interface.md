@@ -17,9 +17,9 @@ Local web app served by the daemon at `http://localhost:<port>` (opened by `swar
 │ ⌂ Swarm   Fleet   Incidents ●2            ⌕ search (⌘K)       daemon ● 0.3.1   ☾  │
 ├───────────────┬──────────────────────────────────────────────────────────────────────┤
 │ PROJECTS      │                                                                      │
-│ ● lineofsites │                                                                      │
+│ ● web-app │                                                                      │
 │   3 live      │                         <view>                                       │
-│ ● brainstorm  │                                                                      │
+│ ● api  │                                                                      │
 │   1 live      │                                                                      │
 │ ○ swarm     │                                                                      │
 │   idle        │                                                                      │
@@ -43,12 +43,12 @@ FLEET                                                    4 live · 2 idle · $3.
 ┌────┬──────────────┬────────────┬──────────┬────────────────────────────────┬──────┬─────────┬──────┐
 │    │ project      │ session    │ claim    │ now                            │ age  │ tokens  │ cost │
 ├────┼──────────────┼────────────┼──────────┼────────────────────────────────┼──────┼─────────┼──────┤
-│ ●  │ lineofsites  │ owner ⌨    │ —        │ Read docs/planning/52-impl…    │ 2s   │ 184k    │ 1.10 │
-│ ●  │ lineofsites  │ M0.6 ▶     │ M0.6     │ Bash bun run test              │ 41s  │ 92k     │ 0.61 │
-│ ●  │ lineofsites  │  └ sub #2  │ (M0.6)   │ Grep "scan.*report"            │ 3s   │ 12k     │ 0.08 │
-│ ●  │ brainstorm   │ owner ⌨    │ 9.13.5   │ waiting for input              │ 4m   │ 301k    │ 1.63 │
-│ ◐  │ brainstorm   │ M0.7 ▶     │ M0.7     │ ⚠ permission: rm -rf dist      │ 12s  │ 40k     │ —    │
-│ ○  │ lineofsites  │ M0.4 ▶     │ M0.4     │ ended · result ok · 14 turns   │ 1h   │ 210k    │ 1.40 │
+│ ●  │ web-app  │ owner ⌨    │ —        │ Read docs/planning/52-impl…    │ 2s   │ 184k    │ 1.10 │
+│ ●  │ web-app  │ M0.6 ▶     │ M0.6     │ Bash bun run test              │ 41s  │ 92k     │ 0.61 │
+│ ●  │ web-app  │  └ sub #2  │ (M0.6)   │ Grep "scan.*report"            │ 3s   │ 12k     │ 0.08 │
+│ ●  │ api   │ owner ⌨    │ 9.13.5   │ waiting for input              │ 4m   │ 301k    │ 1.63 │
+│ ◐  │ api   │ M0.7 ▶     │ M0.7     │ ⚠ permission: rm -rf dist      │ 12s  │ 40k     │ —    │
+│ ○  │ web-app  │ M0.4 ▶     │ M0.4     │ ended · result ok · 14 turns   │ 1h   │ 210k    │ 1.40 │
 └────┴──────────────┴────────────┴──────────┴────────────────────────────────┴──────┴─────────┴──────┘
 ```
 
@@ -63,7 +63,7 @@ FLEET                                                    4 live · 2 idle · $3.
 Board for one repository: claims, worktrees, resources, gates, and the task list if a task source is configured.
 
 ```
-lineofsites   /Users/admin/home/lineofsites   main@a1b2c3 · 3 worktrees · 2 live       [▶ Run task] [⋯]
+web-app   ~/code/web-app   main@a1b2c3 · 3 worktrees · 2 live       [▶ Run task] [⋯]
 
 CLAIMS                                                             RESOURCES
 ┌──────┬──────────────┬─────────────┬───────────┬────────┐         ┌────────┬────────────┬───────┐
@@ -100,11 +100,11 @@ pid 47990  db    :54320 owner ⌨  up 3h                M0.3 security fail  2026
 The live stream for one session (interactive, spawned, or subagent). This is the "monitor how it's building" screen.
 
 ```
-lineofsites · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok · $0.61        [⏸ pause] [■ stop] [⋯]
+web-app · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok · $0.61        [⏸ pause] [■ stop] [⋯]
 ┌─────────────────────────────────────────────────────────────────┬────────────────────────────────┐
 │ 14:02:11  ▸ user     implement M0.6 per docs/06-roadmap.md …    │ CONTEXT                        │
 │ 14:02:13  ▸ assistant I'll start by reading the roadmap…        │ claim    M0.6 · 38m left       │
-│ 14:02:14  ▸ Read      docs/06-roadmap.md                 ✓ 12ms │ worktree ~/.swarm/wt/los/m0.6│
+│ 14:02:14  ▸ Read      docs/06-roadmap.md                 ✓ 12ms │ worktree ~/.swarm/wt/web-app/m0.6│
 │ 14:02:19  ▸ Bash      bun install                        ✓ 4.1s │ branch   task/m0.6 · 3 commits │
 │ 14:02:40  ▸ Write     packages/web/src/Fleet.tsx         ✓      │ resources web:3401             │
 │ 14:03:02  ▸ Bash      bun run test                       ✗ 1.2s │ processes 48113 web            │
@@ -113,7 +113,7 @@ lineofsites · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k t
 │ 14:03:08  ▸ Edit      packages/web/src/Fleet.tsx         ✓      │ Read 9 Bash 8 Edit 7 …          │
 │ 14:03:12  ▸ Bash      rm -rf dist                  ⚠ waiting    │                                │
 │           │ rule: none matched · asking human    [Allow] [Deny] │ DENIED 1                       │
-│ 14:03:12  ▸ Agent     └ sub #2 "find scan report callers" ●     │ 14:01 Edit ../lineofsites/…    │
+│ 14:03:12  ▸ Agent     └ sub #2 "find scan report callers" ●     │ 14:01 Edit ../api/…    │
 │                                                                 │   shared-tree-readonly         │
 │ ▍ streaming…                                                    │                                │
 ├─────────────────────────────────────────────────────────────────┴────────────────────────────────┤
@@ -133,10 +133,10 @@ Chronological list of things that went wrong or were prevented. Each is one line
 
 ```
 INCIDENTS                                                                 [ack all visible]
-⚠ 14:01  lineofsites  owner ⌨   denied Edit outside worktree (shared-tree-readonly)              [ack]
-⚠ 13:55  brainstorm   M0.7 ▶    claim M0.7 expired with dirty worktree → orphaned                 [open]
-⚠ 13:40  lineofsites  M0.3 ▶    gate security failed: "open port in preview"                      [open]
-⚠ 12:10  brainstorm   —         process 47001 (worker) alive but no session owns it               [stop] [ack]
+⚠ 14:01  web-app  owner ⌨   denied Edit outside worktree (shared-tree-readonly)              [ack]
+⚠ 13:55  api   M0.7 ▶    claim M0.7 expired with dirty worktree → orphaned                 [open]
+⚠ 13:40  web-app  M0.3 ▶    gate security failed: "open port in preview"                      [open]
+⚠ 12:10  api   —         process 47001 (worker) alive but no session owns it               [stop] [ack]
 ```
 
 Kinds: `denied`, `orphaned`, `gate-failed`, `stray-process`, `port-conflict`, `daemon-restart`. Acked incidents stay searchable.
@@ -185,7 +185,7 @@ swarm run ls | attach <session> | send <session> "text" | stop <session>
 `swarm status` sample:
 
 ```
-lineofsites  main@a1b2c3  3 live  1 incident
+web-app  main@a1b2c3  3 live  1 incident
   ⌨ owner      —      Read docs/…                2s
   ▶ M0.6       M0.6   Bash bun run test         41s   wt/m0.6  web:3401
   ○ M0.4       M0.4   ended ok · orphan wt ⚠     1h
@@ -216,7 +216,7 @@ Server name `swarm`; project inferred from the server's `cwd`. Every tool return
 Context injection (not a tool — arrives automatically via hooks) on `SessionStart` and each prompt:
 
 ```
-[swarm] project lineofsites · you hold M0.6 (38m left) in ~/.swarm/wt/los/m0.6 · resources: web:3401
+[swarm] project web-app · you hold M0.6 (38m left) in ~/.swarm/wt/web-app/m0.6 · resources: web:3401
 [swarm] rules: shared-tree-readonly, no-pattern-kill, claim-required-to-write
 [swarm] handoff from previous holder: done=…, remaining=…, verify=…
 ```
