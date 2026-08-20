@@ -778,7 +778,7 @@ export class Store {
       .prepare(
         `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
                 SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
-         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-14 days') GROUP BY day, projectId, agent ORDER BY day`,
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-90 days') GROUP BY day, projectId, agent ORDER BY day`,
       )
       .all() as Array<{
       day: string;

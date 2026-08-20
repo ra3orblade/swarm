@@ -139,7 +139,7 @@ function timeline(sessions, { from, to, projName, now = Date.now() } = {}) {
         const b = Math.min(to, new Date(s.lastSeenAt).getTime());
         const live = s.state === "active" || s.state === "waiting";
         const tip = `<b>${attr(s.title ?? s.id.slice(0, 8))}</b><br><i style="background:${agentColor(s.agent)}"></i>${agentName(s.agent)} · ${s.state}<br>${new Date(s.startedAt).toTimeString().slice(0, 5)} → ${new Date(s.lastSeenAt).toTimeString().slice(0, 5)} · ${fmtUsd(s.costUsd)} · ${s.turns} turns`;
-        return `<div class="tl-row" data-s="${s.id}"><span class="tl-name">${attr(s.title ?? s.id.slice(0, 8))}</span><span class="tl-track">${gridLines}<i data-tip="${attr(tip)}" class="${live ? "live" : ""}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%;background:${agentColor(s.agent)}"></i></span></div>`;
+        return `<div class="tl-row" data-s="${s.id}"><span class="tl-name">${attr(s.title ?? s.id.slice(0, 8))}</span><span class="tl-track">${gridLines}<i data-tip="${attr(tip)}" class="${live ? "live" : ""}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%;background:${agentColor(s.agent)};color:${agentColor(s.agent)}"></i></span></div>`;
       })
       .join("");
     return `<div class="tl-group"><div class="tl-proj">${attr(projName(pid))}<small>${list.length}</small></div>${rows}</div>`;

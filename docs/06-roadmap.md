@@ -87,6 +87,8 @@ Goal: Swarm observes and coordinates AI coding agents generally, not only Claude
 | M5.3 | First non-Claude adapter — **Codex CLI**: parser + daemon discovery/tailing, agent-tagged sessions in the dashboard | ✅ 2026-08-20 tails `~/.codex` rollout logs (bounded scan, offset-tracked, one-time backfill), maps to projects by cwd, prices gpt-5.5; validated on real sessions (integral 70 turns/$3.52, brainstorm 9/$0.42) |
 | M5.4 | More adapters behind the same interface | 🟡 2026-08-20 **Grok** (xAI) done — ACP `updates.jsonl`, cost via grok pricing, validated on real sessions (grok-4.5); Gemini CLI, Aider, opencode/Cline next |
 | M5.5 | Dashboard: agent badge, Fleet agent-filter chips, unified per-agent spend breakdown | ✅ 2026-08-20 badge + filter chips + Spend 'by agent' (Claude/Codex/Grok in one view); Grok session titles from summary.json |
+| M5.6 | Visualisations (inline SVG, no chart lib): stacked daily cost by agent with 7/14/30/90d range, weekday×hour activity heatmap, KPI tiles, Fleet sparklines (output/turn), Session token-composition bar + cost-per-turn strip + tool-mix bars, **Timeline** view (session lanes per project, coloured by agent, 3–72h) | ✅ 2026-08-20 `web/public/viz.js`; daemon adds `daily.agent`, `hourly`, `sessions[].spark` |
+| M5.7 | Visualisation follow-ups: turn ticks / idle gaps on Timeline lanes, claim & lease overlays once M1 lands, gate pass/fail history (M2), per-project spend sparkline in sidebar, log-scale toggle when one day dwarfs the rest | ⚪ |
 
 ## M6 — Desktop app (Tauri) + autoupdate ← direction set 2026-08-20
 Goal: ship Swarm as a real desktop app with automatic updates, not just a CLI + browser tab.

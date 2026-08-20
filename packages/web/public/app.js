@@ -10,7 +10,8 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
-const agentLabel = (a) => ({ "claude-code": "Claude", codex: "Codex", grok: "Grok", gemini: "Gemini", aider: "Aider" }[a] ?? a);
+const agentLabel = (a) => viz.agentName(a);
+const agentBadge = (a) => (a && a !== "claude-code" ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
@@ -21,6 +22,7 @@ function render() {
   renderHeader();
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
+  else if (state.view === "timeline") renderTimeline();
   else renderFleet();
 }
 function renderHeader() {
@@ -56,8 +58,8 @@ function renderFleet() {
   const rows = base.filter((s) => !state.agentFilter || s.agent === state.agentFilter);
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
-  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.agent && s.agent !== "claude-code" ? ` <span class="badge agent">${esc(agentLabel(s.agent))}</span>` : ""}${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
+  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
+    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
     .join("")}</tbody></table></div>`;
   const chips = agents.length > 1
     ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">all</span>${agents
@@ -92,22 +94,56 @@ function renderWorktrees() {
 function renderSpend() {
   const sp = state.spend;
   if (!sp) return;
+  const inSel = (x) => !state.sel || x.projectId === state.sel;
   const filt = (arr) => (state.sel ? arr.filter((x) => x.key === state.sel) : arr);
-  const days = [...new Set(sp.daily.map((d) => d.day))].sort();
-  const perDay = days.map((day) => ({ day, cost: sumBy(sp.daily.filter((d) => d.day === day && (!state.sel || d.projectId === state.sel)), (d) => d.cost) }));
-  const max = Math.max(1, ...perDay.map((d) => d.cost));
-  const bars = `<div class="bars">${perDay.map((d) => `<div class="bar" title="${d.day}: $${d.cost.toFixed(2)}"><div style="height:${(100 * d.cost) / max}%"></div><span>${d.day.slice(5)}</span></div>`).join("")}</div>`;
-  const tbl = (rows, label, name) => `<div class="card"><table><thead><tr><th>${label}</th><th class="num" style="width:88px">cost</th><th class="num" style="width:88px">in+cache</th><th class="num" style="width:84px">out</th><th class="num" style="width:64px">turns</th></tr></thead><tbody>${rows
+  // last N days, zero-filled, stacked by agent
+  const N = state.spendDays ?? 14;
+  const days = [];
+  for (let i = N - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+  const inRange = sp.daily.filter((d) => inSel(d) && d.day >= days[0]);
+  const agents = [...new Set(inRange.map((d) => d.agent))].sort(viz.agentSort);
+  const series = Object.fromEntries(agents.map((a) => [a, days.map((day) => sumBy(inRange.filter((d) => d.day === day && d.agent === a), (d) => d.cost))]));
+  const total14 = sumBy(inRange, (d) => d.cost);
+  const today = days.at(-1);
+  const todayCost = sumBy(inRange.filter((d) => d.day === today), (d) => d.cost);
+  const todayTurns = sumBy(inRange.filter((d) => d.day === today), (d) => d.turns);
+  const activeDays = new Set(inRange.filter((d) => d.cost).map((d) => d.day)).size;
+  const prevDays = new Set(inRange.filter((d) => d.cost && d.day !== today).map((d) => d.day)).size;
+  const avg = prevDays ? (total14 - todayCost) / prevDays : 0;
+  const rangeChips = `<span style="margin-left:auto;display:flex;gap:2px">${[7, 14, 30, 90].map((n) => `<a href="#" class="nav ${N === n ? "on" : ""}" data-days="${n}">${n}d</a>`).join("")}</span>`;
+  const byAgentToday = state.sel ? null : sp.byAgentToday;
+  const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const tbl = (rows, label, name, color) => `<div class="card"><table><thead><tr><th>${label}</th><th class="num" style="width:88px">cost</th><th class="num" style="width:88px">in+cache</th><th class="num" style="width:84px">out</th><th class="num" style="width:64px">turns</th></tr></thead><tbody>${rows
     .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
-    .map((r) => `<tr><td>${esc(name(r.key))}</td><td class="num">${usd(r.cost)}</td><td class="num">${tok(r.input)}</td><td class="num">${tok(r.output)}</td><td class="num">${r.turns}</td></tr>`)
+    .map((r) => `<tr><td>${color ? `<i class="sw" style="background:${color(r.key)}"></i>` : ""}${esc(name(r.key))}</td><td class="num">${usd(r.cost)}</td><td class="num">${tok(r.input)}</td><td class="num">${tok(r.output)}</td><td class="num">${r.turns}</td></tr>`)
     .join("")}</tbody></table></div>`;
+  const hm = sp.hourly.filter(inSel).map((c) => ({ dow: c.dow, hour: c.hour, v: c.cost ?? 0 }));
   $("#main").innerHTML =
-    `<h2>Spend · last 14 days <span>${usd(sumBy(perDay, (d) => d.cost))}</span></h2>${bars}
-     <h2>By agent · all time <span>${usd(sumBy(sp.byAgentAll, (x) => x.cost))}</span></h2>${tbl(sp.byAgentAll, "agent", agentLabel)}
-     <div class="cols" style="margin-top:18px"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+    `<h2>Spend <span>${state.sel ? esc(projName(state.sel)) : "all projects"}</span>${rangeChips}</h2>
+     <div class="kpis">${kpi("today", usd(todayCost), `${todayTurns} turns`)}${kpi(`${N}-day total`, usd(total14), `${activeDays} active day${activeDays === 1 ? "" : "s"}`)}${kpi("today vs avg", prevDays ? `${todayCost >= avg ? "+" : ""}${(((todayCost - avg) / avg) * 100).toFixed(0)}%` : "—", prevDays ? `vs ${usd(avg)} / active day` : "no earlier days to compare")}${kpi("agents", agents.length, agents.map(agentLabel).join(" · ") || "—")}</div>
+     <div class="chart-card"><h3>Daily cost · last ${N} days <span>stacked by agent</span></h3>${viz.stackedColumns(days, series)}${agents.length > 1 ? viz.legend(agents) : ""}</div>
+     <div class="cols">
+       <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
+       <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 style="margin-top:18px">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
+     </div>
+     <div class="cols" style="margin-top:22px"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 style="margin-top:18px">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
-     <div><h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}<h2 style="margin-top:18px">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
+     <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      <p class="dim" style="margin-top:14px">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+}
+
+// ---------- timeline
+function renderTimeline() {
+  const now = Date.now();
+  const hours = state.tlHours ?? 12;
+  const from = now - hours * 3.6e6, to = now + 0.25 * 3.6e6;
+  const rows = state.sessions.filter((s) => (!state.sel || s.projectId === state.sel) && new Date(s.lastSeenAt).getTime() >= from && s.kind !== "subagent");
+  const agents = [...new Set(rows.map((s) => s.agent))].sort(viz.agentSort);
+  const chip = (h) => `<a href="#" class="nav ${hours === h ? "on" : ""}" data-tl="${h}">${h}h</a>`;
+  $("#main").innerHTML =
+    `<h2>Timeline <span>${rows.length} sessions · last ${hours}h · ${usd(sumBy(rows, (s) => s.costUsd))}</span><span style="margin-left:auto;display:flex;gap:2px">${[3, 6, 12, 24, 72].map(chip).join("")}</span></h2>
+     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">No sessions in the last ${hours}h.</div>`}
+     ${agents.length ? `<div style="margin-top:10px">${viz.legend(agents)}</div>` : ""}`;
 }
 
 // ---------- session
@@ -142,7 +178,9 @@ function renderSession() {
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
     ${stat("started", `${ago(s.startedAt)} ago`)}${stat("last seen", `${ago(s.lastSeenAt)} ago`)}
     ${subTurns.length ? stat("subagent turns", subTurns.length) : ""}
-    <h4>tools</h4>${tools.length ? `<table class="mini">${tools.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`).join("")}</table>` : '<span class="dim">none yet</span>'}
+    <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
+    ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
+    <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">none yet</span>'}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${esc(short(s.transcriptPath))}</div>` : ""}
   </aside></div>`;
   if (atBottom) $("#log").scrollTop = $("#log").scrollHeight;
@@ -150,11 +188,13 @@ function renderSession() {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view],.chip");
+  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days]");
   if (!t) return;
   if (t.dataset.rm) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.rm}`, { method: "DELETE" }); return refresh(); }
   if (t.dataset.pin) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.pin}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: true }) }); return refresh(); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
+  if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
+  if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
