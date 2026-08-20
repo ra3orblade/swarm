@@ -5,75 +5,75 @@
     "": {
       "name": "harness-monorepo",
       "devDependencies": {
-        "@biomejs/biome": "^2.1.2",
+        "@biomejs/biome": "^2.5.9",
         "@types/bun": "latest",
         "typescript": "^5.9.2",
       },
     },
     "packages/cli": {
-      "name": "@harness/cli",
+      "name": "@swarm/cli",
       "version": "0.0.0",
       "bin": {
-        "harness": "./src/bin.ts",
+        "swarm": "./src/bin.ts",
       },
       "dependencies": {
-        "@harness/client": "workspace:*",
-        "@harness/core": "workspace:*",
+        "@swarm/client": "workspace:*",
+        "@swarm/core": "workspace:*",
       },
     },
     "packages/client": {
-      "name": "@harness/client",
+      "name": "@swarm/client",
       "version": "0.0.0",
       "dependencies": {
-        "@harness/core": "workspace:*",
+        "@swarm/core": "workspace:*",
       },
     },
     "packages/core": {
-      "name": "@harness/core",
+      "name": "@swarm/core",
       "version": "0.0.0",
     },
     "packages/daemon": {
-      "name": "@harness/daemon",
+      "name": "@swarm/daemon",
       "version": "0.0.0",
       "bin": {
-        "harnessd": "./src/bin.ts",
+        "swarmd": "./src/bin.ts",
       },
       "dependencies": {
-        "@harness/client": "workspace:*",
-        "@harness/core": "workspace:*",
+        "@swarm/client": "workspace:*",
+        "@swarm/core": "workspace:*",
         "hono": "^4.9.0",
       },
     },
     "packages/hook": {
-      "name": "@harness/hook",
+      "name": "@swarm/hook",
       "version": "0.0.0",
       "bin": {
-        "harness-hook": "./src/bin.ts",
+        "swarm-hook": "./src/bin.ts",
       },
       "dependencies": {
-        "@harness/client": "workspace:*",
-        "@harness/core": "workspace:*",
+        "@swarm/client": "workspace:*",
+        "@swarm/core": "workspace:*",
       },
     },
     "packages/mcp": {
-      "name": "@harness/mcp",
+      "name": "@swarm/mcp",
       "version": "0.0.0",
       "bin": {
-        "harness-mcp": "./src/bin.ts",
+        "swarm-mcp": "./src/bin.ts",
       },
       "dependencies": {
-        "@harness/client": "workspace:*",
-        "@harness/core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.17.0",
+        "@swarm/client": "workspace:*",
+        "@swarm/core": "workspace:*",
         "zod": "^3.25.0",
       },
     },
     "packages/web": {
-      "name": "@harness/web",
+      "name": "@swarm/web",
       "version": "0.0.0",
       "dependencies": {
-        "@harness/client": "workspace:*",
-        "@harness/core": "workspace:*",
+        "@swarm/client": "workspace:*",
+        "@swarm/core": "workspace:*",
       },
     },
   },
@@ -96,23 +96,23 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.9", "", { "os": "win32", "cpu": "x64" }, "sha512-Yiq0H56LjXSSw/hd9YkXgSLQfzyDJzbzU2TezozxyNw+uKWAqOtqGVvBfzKRRDiaFF5avGAhHdWKx7LtDOShUw=="],
 
-    "@harness/cli": ["@harness/cli@workspace:packages/cli"],
-
-    "@harness/client": ["@harness/client@workspace:packages/client"],
-
-    "@harness/core": ["@harness/core@workspace:packages/core"],
-
-    "@harness/daemon": ["@harness/daemon@workspace:packages/daemon"],
-
-    "@harness/hook": ["@harness/hook@workspace:packages/hook"],
-
-    "@harness/mcp": ["@harness/mcp@workspace:packages/mcp"],
-
-    "@harness/web": ["@harness/web@workspace:packages/web"],
-
     "@hono/node-server": ["@hono/node-server@2.1.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.30.0", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="],
+
+    "@swarm/cli": ["@swarm/cli@workspace:packages/cli"],
+
+    "@swarm/client": ["@swarm/client@workspace:packages/client"],
+
+    "@swarm/core": ["@swarm/core@workspace:packages/core"],
+
+    "@swarm/daemon": ["@swarm/daemon@workspace:packages/daemon"],
+
+    "@swarm/hook": ["@swarm/hook@workspace:packages/hook"],
+
+    "@swarm/mcp": ["@swarm/mcp@workspace:packages/mcp"],
+
+    "@swarm/web": ["@swarm/web@workspace:packages/web"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

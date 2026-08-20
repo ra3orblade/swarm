@@ -11,7 +11,7 @@ labels: bug
 **Steps to reproduce**
 1.
 
-**`harness doctor` output**
+**`swarm doctor` output**
 ```
 (paste here)
 ```

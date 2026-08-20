@@ -1,7 +1,7 @@
 # Optional per-repo config. Everything here has a default; delete any line you don't need.
 name = "example"
 tasks = "docs/plan.md"          # markdown-table task source (M1.6)
-worktrees = "~/.harness/worktrees/example"
+worktrees = "~/.swarm/worktrees/example"
 
 [resources]
 web = { ports = "3400-3499" }

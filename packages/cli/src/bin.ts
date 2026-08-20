@@ -3,17 +3,17 @@ import { resolve } from "node:path";
 import {
   daemonCommand,
   ensureDaemon,
-  HarnessClient,
   readDaemonInfo,
   resolveBaseUrl,
-} from "@harness/client";
+  SwarmClient,
+} from "@swarm/client";
 import { install, status, uninstall } from "./install";
 
 const [cmd = "help", ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
 const arg = () => rest.find((a) => !a.startsWith("--"));
 
-const help = `harness — control plane for AI-agent development
+const help = `swarm — control plane for AI-agent development
 
   setup              start the daemon, install hooks, open the dashboard (do this first)
   start | stop | restart   manage the background daemon
@@ -25,12 +25,12 @@ const help = `harness — control plane for AI-agent development
   ui                 open the dashboard
   tail [--project p] [--session id]   follow the live event stream
 
-  install | uninstall     add/remove Harness hooks in ~/.claude/settings.json
+  install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
-Env: HARNESS_URL, HARNESS_PORT (default 7777), HARNESS_HOME (~/.harness)`;
+Env: SWARM_URL, SWARM_PORT (default 7777), SWARM_HOME (~/.swarm)`;
 
 async function api(path: string, init?: RequestInit) {
-  const base = new HarnessClient().baseUrl;
+  const base = new SwarmClient().baseUrl;
   const r = await fetch(`${base}${path}`, init);
   if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
   return r.status === 204 ? null : r.json();
@@ -38,7 +38,7 @@ async function api(path: string, init?: RequestInit) {
 
 async function daemonRunning(): Promise<boolean> {
   try {
-    await new HarnessClient().health();
+    await new SwarmClient().health();
     return true;
   } catch {
     return false;
@@ -63,14 +63,14 @@ try {
       const evs = install();
       console.log(`✓ daemon running at ${base}`);
       console.log(`✓ installed hooks for ${evs.length} events (${status().path})`);
-      console.log("✓ any Claude session you start now will appear in Harness");
+      console.log("✓ any Claude session you start now will appear in Swarm");
       Bun.spawn(["open", base]).unref?.();
       console.log(`\nOpen the dashboard: ${base}`);
       break;
     }
     case "start": {
       if (await daemonRunning()) {
-        console.log(`already running at ${new HarnessClient().baseUrl}`);
+        console.log(`already running at ${new SwarmClient().baseUrl}`);
         break;
       }
       const base = await ensureDaemon();
@@ -108,8 +108,8 @@ try {
         "claude CLI on PATH",
         "install Claude Code: https://claude.com/claude-code",
       );
-      line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: harness start");
-      line(st.installed, "hooks installed", "run: harness install");
+      line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: swarm start");
+      line(st.installed, "hooks installed", "run: swarm install");
       if (!running) process.exitCode = 1;
       console.log(
         `\nsettings: ${st.path}\ndaemon cmd: ${daemonCommand().join(" ")}\nurl: ${resolveBaseUrl()}`,
@@ -171,7 +171,7 @@ try {
     }
     case "tail": {
       await ensureDaemon({ quiet: true });
-      const base = new HarnessClient().baseUrl;
+      const base = new SwarmClient().baseUrl;
       const pIdx = rest.indexOf("--session");
       const wantSession = pIdx >= 0 ? rest[pIdx + 1] : undefined;
       const res = await fetch(`${base}/v1/events?since=0`);

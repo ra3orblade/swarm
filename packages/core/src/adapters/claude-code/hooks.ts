@@ -1,9 +1,9 @@
 /**
- * Claude Code hook input → normalized Harness event.
+ * Claude Code hook input → normalized Swarm event.
  * Field names follow the hook input contract as observed; the full upstream
  * object is always kept under `raw` so nothing is lost if the schema drifts.
  */
-import type { EventType, HarnessEvent } from "../../types";
+import type { EventType, SwarmEvent } from "../../types";
 
 export type HookEventName =
   | "SessionStart"
@@ -106,7 +106,7 @@ export function normalizeHook(
   raw: HookInput,
   projectId: string,
   ts = new Date().toISOString(),
-): HarnessEvent<HookPayload> {
+): SwarmEvent<HookPayload> {
   const type = MAP[event as HookEventName] ?? "agent.text";
   const tool = raw.tool_name;
   let summary: string;

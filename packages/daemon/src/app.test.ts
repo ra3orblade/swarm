@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, Store } from "./app";
 
-const tmpHome = () => mkdtempSync(join(tmpdir(), "harness-test-"));
+const tmpHome = () => mkdtempSync(join(tmpdir(), "swarm-test-"));
 
-describe("harnessd", () => {
+describe("swarmd", () => {
   it("reports health", async () => {
     const { app } = createApp(new Store(tmpHome()));
     const r = await app.request("/v1/health");

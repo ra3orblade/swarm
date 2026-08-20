@@ -17,18 +17,18 @@ import { basename, dirname, join } from "node:path";
 import {
   costUsd,
   fromLiteLLM,
-  type HarnessEvent,
   normalizeHook,
   PRICES,
   type Price,
   type Project,
   parseTranscriptChunk,
   projectIdentity,
+  type SwarmEvent,
   type Turn,
-} from "@harness/core";
+} from "@swarm/core";
 import { currentBranch, gitCommonDir, gitToplevel, listWorktrees, type Worktree } from "./git";
 
-export const HARNESS_HOME = process.env.HARNESS_HOME ?? join(homedir(), ".harness");
+export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
 
 export interface SessionView {
   id: string;
@@ -88,13 +88,13 @@ export class Store {
   db: Database;
   prices: Record<string, Price> = { ...PRICES };
   private home: string;
-  private listeners = new Set<(e: HarnessEvent) => void>();
+  private listeners = new Set<(e: SwarmEvent) => void>();
   private wtCache = new Map<string, { v: Worktree[]; t: number }>();
 
-  constructor(home = HARNESS_HOME) {
+  constructor(home = SWARM_HOME) {
     mkdirSync(home, { recursive: true });
     this.home = home;
-    this.db = new Database(join(home, "harness.db"));
+    this.db = new Database(join(home, "swarm.db"));
     this.loadPricing();
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     this.db.exec(SCHEMA);
@@ -117,7 +117,7 @@ export class Store {
   }
 
   // ---------- pricing
-  /** Static table < ~/.harness/pricing.litellm.json (refreshed) < ~/.harness/pricing.json (user). */
+  /** Static table < ~/.swarm/pricing.litellm.json (refreshed) < ~/.swarm/pricing.json (user). */
   loadPricing() {
     this.prices = { ...PRICES };
     for (const f of ["pricing.litellm.json", "pricing.json"]) {
@@ -236,7 +236,7 @@ export class Store {
   }
 
   // ---------- events
-  append(e: HarnessEvent): HarnessEvent {
+  append(e: SwarmEvent): SwarmEvent {
     const r = this.db
       .prepare(
         "INSERT INTO events (ts, type, project_id, session_id, payload, raw) VALUES (?, ?, ?, ?, ?, ?)",
@@ -255,7 +255,7 @@ export class Store {
     return stored;
   }
 
-  ingestHook(event: string, raw: Record<string, unknown>): HarnessEvent {
+  ingestHook(event: string, raw: Record<string, unknown>): SwarmEvent {
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
@@ -268,7 +268,7 @@ export class Store {
     return e;
   }
 
-  private projectSession(e: HarnessEvent) {
+  private projectSession(e: SwarmEvent) {
     if (!e.sessionId) return;
     const p = e.payload as { summary?: string; cwd?: string | null; hook?: string; tool?: string };
     const row = this.db
@@ -440,14 +440,14 @@ export class Store {
   }
 
   // ---------- reads
-  since(seq: number, limit = 5000): HarnessEvent[] {
+  since(seq: number, limit = 5000): SwarmEvent[] {
     return (
       this.db
         .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?")
         .all(seq, limit) as Array<Record<string, unknown>>
     ).map(rowToEvent);
   }
-  sessionEvents(id: string, limit = 500): HarnessEvent[] {
+  sessionEvents(id: string, limit = 500): SwarmEvent[] {
     return (
       this.db
         .prepare(
@@ -480,7 +480,7 @@ export class Store {
         tools: JSON.parse((r.tools as string) || "[]"),
       }));
   }
-  subscribe(l: (e: HarnessEvent) => void): () => void {
+  subscribe(l: (e: SwarmEvent) => void): () => void {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
   }
@@ -591,11 +591,11 @@ export class Store {
   }
 }
 
-function rowToEvent(r: Record<string, unknown>): HarnessEvent {
-  const e: HarnessEvent = {
+function rowToEvent(r: Record<string, unknown>): SwarmEvent {
+  const e: SwarmEvent = {
     seq: r.seq as number,
     ts: r.ts as string,
-    type: r.type as HarnessEvent["type"],
+    type: r.type as SwarmEvent["type"],
     projectId: r.project_id as string,
     sessionId: (r.session_id as string) ?? null,
     payload: JSON.parse((r.payload as string) ?? "null"),

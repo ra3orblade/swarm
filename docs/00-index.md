@@ -1,10 +1,10 @@
-# Harness — design docs
+# Swarm — design docs
 
 Status: draft (design phase, nothing built yet). Read in order.
 
 | # | Doc | What it settles |
 |---|-----|-----------------|
-| 01 | [vision-and-scope](01-vision-and-scope.md) | What Harness is, what it is not, who it is for |
+| 01 | [vision-and-scope](01-vision-and-scope.md) | What Swarm is, what it is not, who it is for |
 | 02 | [architecture](02-architecture.md) | Daemon, ledger, ingestion, control plane, UI; repo-agnostic model |
 | 03 | [data-model](03-data-model.md) | Projects, sessions, agents, claims, resources, gates, events |
 | 04 | [protocol](04-protocol.md) | How events get in (hooks, stream-json, MCP) and out (SSE, CLI, MCP) |

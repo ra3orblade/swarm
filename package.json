@@ -1,5 +1,5 @@
 {
-  "name": "harness-monorepo",
+  "name": "swarm-monorepo",
   "private": true,
   "version": "0.0.1",
   "description": "Local-first control plane for AI-agent development: watch every Claude Code session, ledger tasks/worktrees/resources, enforce rules.",
@@ -9,12 +9,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER/harness.git"
+    "url": "https://github.com/ra3orblade/swarm.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/harness/issues"
+    "url": "https://github.com/ra3orblade/swarm/issues"
   },
-  "homepage": "https://github.com/OWNER/harness#readme",
+  "homepage": "https://github.com/ra3orblade/swarm#readme",
   "keywords": [
     "claude-code",
     "ai-agents",
@@ -27,9 +27,9 @@
     "packages/*"
   ],
   "scripts": {
-    "harness": "bun packages/cli/src/bin.ts",
+    "swarm": "bun packages/cli/src/bin.ts",
     "setup": "bun packages/cli/src/bin.ts setup",
-    "dev": "bun run --filter @harness/daemon dev",
+    "dev": "bun run --filter @swarm/daemon dev",
     "build": "bun run --filter '*' build",
     "typecheck": "tsc -b",
     "lint": "biome check .",

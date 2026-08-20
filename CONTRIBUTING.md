@@ -1,6 +1,6 @@
-# Contributing to Harness
+# Contributing to Swarm
 
-Thanks for helping build Harness. It's early — the fastest way to help is to run it on your own repos and file what's confusing or broken.
+Thanks for helping build Swarm. It's early — the fastest way to help is to run it on your own repos and file what's confusing or broken.
 
 ## Development setup
 
@@ -29,10 +29,10 @@ New behaviour ships with a test. Ledger and pricing semantics live in `packages/
 ## Architecture in one minute
 
 - `packages/core` — pure domain: event types, the Claude Code hook/transcript adapters, pricing, project identity. No I/O. Heavily tested.
-- `packages/daemon` — `harnessd`: the only writer of the SQLite DB. Hono server, SSE, transcript tailer, serves the dashboard.
+- `packages/daemon` — `swarmd`: the only writer of the SQLite DB. Hono server, SSE, transcript tailer, serves the dashboard.
 - `packages/client` — typed HTTP client + daemon lifecycle (find/start the daemon). Shared by everything else.
-- `packages/cli` — the `harness` command.
-- `packages/hook` — `harness-hook`, the tiny shim Claude Code invokes on each hook event. Must stay fast and fail open.
+- `packages/cli` — the `swarm` command.
+- `packages/hook` — `swarm-hook`, the tiny shim Claude Code invokes on each hook event. Must stay fast and fail open.
 - `packages/mcp` — the MCP server that exposes the ledger to agents (in progress).
 - `packages/web` — the dashboard.
 
@@ -40,14 +40,14 @@ Read [`docs/02-architecture.md`](docs/02-architecture.md) and [`CLAUDE.md`](CLAU
 
 ## Ground rules
 
-- **Repo-agnostic is a hard constraint.** Nothing Harness needs may live inside a monitored repository (the one exception is an *optional* `.harness.toml`). Ask: does this work on an empty folder?
-- **Local-first, no telemetry.** Don't add outbound calls. The one exception (optional pricing fetch) is opt-out via `HARNESS_OFFLINE`.
+- **Repo-agnostic is a hard constraint.** Nothing Swarm needs may live inside a monitored repository (the one exception is an *optional* `.swarm.toml`). Ask: does this work on an empty folder?
+- **Local-first, no telemetry.** Don't add outbound calls. The one exception (optional pricing fetch) is opt-out via `SWARM_OFFLINE`.
 - **Keep `core` pure.** No filesystem or network there beyond SQLite in the daemon.
 - Conventional, focused PRs. Describe the behaviour change and how you verified it.
 
 ## Reporting bugs
 
-Open an issue with: what you did, what you expected, what happened, and the output of `bun run harness doctor`. If it involves a session, the `~/.harness/harness.db` schema is stable — but never attach transcript contents you don't want public.
+Open an issue with: what you did, what you expected, what happened, and the output of `bun run swarm doctor`. If it involves a session, the `~/.swarm/swarm.db` schema is stable — but never attach transcript contents you don't want public.
 
 ## License
 

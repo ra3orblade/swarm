@@ -2,20 +2,20 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HOOK_EVENTS } from "@harness/core";
+import { HOOK_EVENTS } from "@swarm/core";
 
-const MARK = "harness-hook"; // prod bin name
+const MARK = "swarm-hook"; // prod bin name
 const isOurs = (h: { command: string }) =>
   h.command.includes(MARK) || h.command.includes("/packages/hook/src/bin.ts");
 const settingsPath = () =>
   process.env.CLAUDE_SETTINGS ?? join(homedir(), ".claude", "settings.json");
 
 /** The command Claude Code should run for each hook event.
- *  - Global install: the source bin lives under node_modules → `harness-hook` is on PATH, use it.
+ *  - Global install: the source bin lives under node_modules → `swarm-hook` is on PATH, use it.
  *  - Clone / dev: run the TS entrypoint directly with bun (absolute path, stable across sessions). */
 function hookCommand(event: string): string {
   const srcBin = resolve(dirname(fileURLToPath(import.meta.url)), "../../hook/src/bin.ts");
-  if (srcBin.includes("/node_modules/")) return `harness-hook ${event}`;
+  if (srcBin.includes("/node_modules/")) return `swarm-hook ${event}`;
   return `bun ${srcBin} ${event}`;
 }
 const shimPath = () => resolve(dirname(fileURLToPath(import.meta.url)), "../../hook/src/bin.ts");

@@ -1,5 +1,5 @@
 {
-  "name": "@harness/daemon",
+  "name": "@swarm/daemon",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,11 +12,11 @@
     "dev": "bun --watch src/bin.ts"
   },
   "dependencies": {
-    "@harness/core": "workspace:*",
-    "@harness/client": "workspace:*",
+    "@swarm/core": "workspace:*",
+    "@swarm/client": "workspace:*",
     "hono": "^4.9.0"
   },
   "bin": {
-    "harnessd": "./src/bin.ts"
+    "swarmd": "./src/bin.ts"
   }
 }

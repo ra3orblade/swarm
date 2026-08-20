@@ -8,20 +8,20 @@ Three doors into the same state: the **dashboard** (for the human watching), the
 
 ## A. Dashboard
 
-Local web app served by the daemon at `http://localhost:<port>` (opened by `harness ui`). Dense, monochrome, keyboard-first; it is an ops console, not a marketing page. Light and dark. Everything updates live over SSE; no refresh button anywhere.
+Local web app served by the daemon at `http://localhost:<port>` (opened by `swarm ui`). Dense, monochrome, keyboard-first; it is an ops console, not a marketing page. Light and dark. Everything updates live over SSE; no refresh button anywhere.
 
 ### Global frame
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ ⌂ Harness   Fleet   Incidents ●2            ⌕ search (⌘K)       daemon ● 0.3.1   ☾  │
+│ ⌂ Swarm   Fleet   Incidents ●2            ⌕ search (⌘K)       daemon ● 0.3.1   ☾  │
 ├───────────────┬──────────────────────────────────────────────────────────────────────┤
 │ PROJECTS      │                                                                      │
 │ ● lineofsites │                                                                      │
 │   3 live      │                         <view>                                       │
 │ ● brainstorm  │                                                                      │
 │   1 live      │                                                                      │
-│ ○ harness     │                                                                      │
+│ ○ swarm     │                                                                      │
 │   idle        │                                                                      │
 │ ○ discovered  │                                                                      │
 │   ~/tmp/x     │                                                                      │
@@ -52,7 +52,7 @@ FLEET                                                    4 live · 2 idle · $3.
 └────┴──────────────┴────────────┴──────────┴────────────────────────────────┴──────┴─────────┴──────┘
 ```
 
-- Icons: `⌨` interactive session, `▶` spawned by Harness, `└` subagent (nested under parent). `●` active, `◐` blocked (waiting on permission/human), `○` ended.
+- Icons: `⌨` interactive session, `▶` spawned by Swarm, `└` subagent (nested under parent). `●` active, `◐` blocked (waiting on permission/human), `○` ended.
 - `now` is the latest event: tool name + compact input, or state text. Truncated; hover/focus shows full input.
 - A blocked row is actionable inline: **Allow / Deny / Open**. That is the permission broker surface.
 - Row click → Session view. Project cell click → Project view.
@@ -91,7 +91,7 @@ pid 47990  db    :54320 owner ⌨  up 3h                M0.3 security fail  2026
                                                       M0.3 security pass  2026-08-19 13:58  "fixed"
 ```
 
-- **Run task** opens a drawer: task id (from task source or free text), prompt (prefilled from the task row), model, permission mode, allowed tools, "open in new worktree" (always on). Submit = `harness run`.
+- **Run task** opens a drawer: task id (from task source or free text), prompt (prefilled from the task row), model, permission mode, allowed tools, "open in new worktree" (always on). Submit = `swarm run`.
 - Orphaned worktree banner is the single most important affordance in the product: it is where lost work gets found. **adopt** hands the claim to the current owner session; **inspect** shows `git status` + diff; **force release** needs a typed confirmation.
 - Gates column shows each declared gate with ✓ / ✗ / — and the latest run on hover. A task cannot be marked done from here while any declared gate lacks a pass (M2).
 
@@ -104,7 +104,7 @@ lineofsites · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k t
 ┌─────────────────────────────────────────────────────────────────┬────────────────────────────────┐
 │ 14:02:11  ▸ user     implement M0.6 per docs/06-roadmap.md …    │ CONTEXT                        │
 │ 14:02:13  ▸ assistant I'll start by reading the roadmap…        │ claim    M0.6 · 38m left       │
-│ 14:02:14  ▸ Read      docs/06-roadmap.md                 ✓ 12ms │ worktree ~/.harness/wt/los/m0.6│
+│ 14:02:14  ▸ Read      docs/06-roadmap.md                 ✓ 12ms │ worktree ~/.swarm/wt/los/m0.6│
 │ 14:02:19  ▸ Bash      bun install                        ✓ 4.1s │ branch   task/m0.6 · 3 commits │
 │ 14:02:40  ▸ Write     packages/web/src/Fleet.tsx         ✓      │ resources web:3401             │
 │ 14:03:02  ▸ Bash      bun run test                       ✗ 1.2s │ processes 48113 web            │
@@ -149,40 +149,40 @@ Hook install status per scope (user / project) with install/uninstall buttons, r
 
 ## B. CLI
 
-`harness <noun> <verb>` with a few top-level shortcuts. Human-readable by default, `--json` everywhere, exit codes: 0 ok, 1 refused (fail-closed), 2 error. Project resolved from `cwd` unless `-p <name|path>`.
+`swarm <noun> <verb>` with a few top-level shortcuts. Human-readable by default, `--json` everywhere, exit codes: 0 ok, 1 refused (fail-closed), 2 error. Project resolved from `cwd` unless `-p <name|path>`.
 
 ```
-harness install [--project]          add hooks + MCP server to Claude Code settings (idempotent)
-harness uninstall                    remove exactly what install added
-harness doctor                       daemon, hooks, MCP, claude version, DB, stray processes
-harness ui                           open dashboard
-harness add <path> [--name]          register a folder;  harness rm <name>
-harness ls                           projects with live counts
-harness status [-p]                  fleet (or one project): sessions, claims, resources, incidents
-harness tail [-p] [--session id] [--raw]   follow the event stream in the terminal
+swarm install [--project]          add hooks + MCP server to Claude Code settings (idempotent)
+swarm uninstall                    remove exactly what install added
+swarm doctor                       daemon, hooks, MCP, claude version, DB, stray processes
+swarm ui                           open dashboard
+swarm add <path> [--name]          register a folder;  swarm rm <name>
+swarm ls                           projects with live counts
+swarm status [-p]                  fleet (or one project): sessions, claims, resources, incidents
+swarm tail [-p] [--session id] [--raw]   follow the event stream in the terminal
 
-harness claim <task> [--owner label] [--branch]     create worktree, hold lease, print path
-harness renew <task>
-harness release <task> [--force]                   refuses if dirty or unpushed
-harness handoff <task> --done … --remaining … --verify …
-harness resume <task>                              print handoff payload (for the next agent)
-harness reap                                       expire stale leases; orphan dirty ones
-harness wt ls|path <task>|adopt <task>
+swarm claim <task> [--owner label] [--branch]     create worktree, hold lease, print path
+swarm renew <task>
+swarm release <task> [--force]                   refuses if dirty or unpushed
+swarm handoff <task> --done … --remaining … --verify …
+swarm resume <task>                              print handoff payload (for the next agent)
+swarm reap                                       expire stale leases; orphan dirty ones
+swarm wt ls|path <task>|adopt <task>
 
-harness res acquire <name> [--ttl]   e.g. web, worker, db, port:3000
-harness res release <name>
-harness serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked
-harness serve stop [name]
-harness proc ls|stop <pid>           only processes this session/project started
+swarm res acquire <name> [--ttl]   e.g. web, worker, db, port:3000
+swarm res release <name>
+swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked
+swarm serve stop [name]
+swarm proc ls|stop <pid>           only processes this session/project started
 
-harness gate record <task> <gate> pass|fail --rubric … --evidence …
-harness gate ls <task>
+swarm gate record <task> <gate> pass|fail --rubric … --evidence …
+swarm gate ls <task>
 
-harness run -p <project> --task <id> [--prompt … | --prompt-file …] [--model] [--permission-mode] [--detach]
-harness run ls | attach <session> | send <session> "text" | stop <session>
+swarm run -p <project> --task <id> [--prompt … | --prompt-file …] [--model] [--permission-mode] [--detach]
+swarm run ls | attach <session> | send <session> "text" | stop <session>
 ```
 
-`harness status` sample:
+`swarm status` sample:
 
 ```
 lineofsites  main@a1b2c3  3 live  1 incident
@@ -196,29 +196,29 @@ resources: web→owner:3000  web→M0.6:3401  db→owner:54320
 
 ## C. MCP tools (what agents see)
 
-Server name `harness`; project inferred from the server's `cwd`. Every tool returns a short human sentence plus a JSON block, and every failure explains *who* holds the thing and *what to do instead*.
+Server name `swarm`; project inferred from the server's `cwd`. Every tool returns a short human sentence plus a JSON block, and every failure explains *who* holds the thing and *what to do instead*.
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `harness.status` | `{}` | claims, resources, live sessions for this project; your own claim if any |
-| `harness.claim` | `{task, owner?, branch?}` | `{worktree, branch}` or **fail-closed** `{held_by, since, expires_in}` |
-| `harness.renew` | `{task}` | new expiry |
-| `harness.handoff` | `{task, done, remaining, files[], verify}` | ack |
-| `harness.resume` | `{task}` | last handoff payload |
-| `harness.release` | `{task, force?}` | ack or `{refused: "dirty"|"unpushed", files[]}` |
-| `harness.resource.acquire` | `{name, ttl?}` | `{port?}` or `{held_by}` |
-| `harness.resource.release` | `{name}` | ack |
-| `harness.gate.record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
-| `harness.next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
-| `harness.note` | `{text}` | attaches a note to the session, visible in the dashboard |
-| `harness.permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
+| `swarm.status` | `{}` | claims, resources, live sessions for this project; your own claim if any |
+| `swarm.claim` | `{task, owner?, branch?}` | `{worktree, branch}` or **fail-closed** `{held_by, since, expires_in}` |
+| `swarm.renew` | `{task}` | new expiry |
+| `swarm.handoff` | `{task, done, remaining, files[], verify}` | ack |
+| `swarm.resume` | `{task}` | last handoff payload |
+| `swarm.release` | `{task, force?}` | ack or `{refused: "dirty"|"unpushed", files[]}` |
+| `swarm.resource.acquire` | `{name, ttl?}` | `{port?}` or `{held_by}` |
+| `swarm.resource.release` | `{name}` | ack |
+| `swarm.gate.record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
+| `swarm.next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
+| `swarm.note` | `{text}` | attaches a note to the session, visible in the dashboard |
+| `swarm.permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
 
 Context injection (not a tool — arrives automatically via hooks) on `SessionStart` and each prompt:
 
 ```
-[harness] project lineofsites · you hold M0.6 (38m left) in ~/.harness/wt/los/m0.6 · resources: web:3401
-[harness] rules: shared-tree-readonly, no-pattern-kill, claim-required-to-write
-[harness] handoff from previous holder: done=…, remaining=…, verify=…
+[swarm] project lineofsites · you hold M0.6 (38m left) in ~/.swarm/wt/los/m0.6 · resources: web:3401
+[swarm] rules: shared-tree-readonly, no-pattern-kill, claim-required-to-write
+[swarm] handoff from previous holder: done=…, remaining=…, verify=…
 ```
 
 ---
@@ -228,4 +228,4 @@ Context injection (not a tool — arrives automatically via hooks) on `SessionSt
 - Same nouns, same verbs, same error texts. A denial in the session log, the CLI and the MCP result is the same sentence.
 - Nothing destructive without a typed confirmation in the UI or `--force` in the CLI; both are logged as incidents.
 - Every list is filterable by project and copyable as JSON.
-- The dashboard never invents state the CLI can't show: if you can't get it from `harness status --json`, it doesn't belong in the UI.
+- The dashboard never invents state the CLI can't show: if you can't get it from `swarm status --json`, it doesn't belong in the UI.

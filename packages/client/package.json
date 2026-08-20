@@ -1,5 +1,5 @@
 {
-  "name": "@harness/client",
+  "name": "@swarm/client",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@harness/core": "workspace:*"
+    "@swarm/core": "workspace:*"
   }
 }

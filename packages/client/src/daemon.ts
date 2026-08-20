@@ -3,9 +3,9 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const HARNESS_HOME = process.env.HARNESS_HOME ?? join(homedir(), ".harness");
-export const DEFAULT_PORT = Number(process.env.HARNESS_PORT ?? 7777);
-const INFO_FILE = join(HARNESS_HOME, "daemon.json");
+export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
+export const DEFAULT_PORT = Number(process.env.SWARM_PORT ?? 7777);
+const INFO_FILE = join(SWARM_HOME, "daemon.json");
 
 export interface DaemonInfo {
   port: number;
@@ -26,7 +26,7 @@ export function readDaemonInfo(): DaemonInfo | null {
 
 /** Called by the daemon on boot. */
 export function writeDaemonInfo(info: Omit<DaemonInfo, "url">): DaemonInfo {
-  mkdirSync(HARNESS_HOME, { recursive: true });
+  mkdirSync(SWARM_HOME, { recursive: true });
   const full = { ...info, url: `http://127.0.0.1:${info.port}` };
   writeFileSync(INFO_FILE, `${JSON.stringify(full, null, 2)}\n`);
   return full;
@@ -45,14 +45,14 @@ function alive(pid: number): boolean {
   }
 }
 
-/** Resolve the daemon entrypoint. Prefer `harnessd` on PATH (global install); fall back to the
+/** Resolve the daemon entrypoint. Prefer `swarmd` on PATH (global install); fall back to the
  *  source bin relative to this file (clone / dev). Returns argv for spawning. */
 export function daemonCommand(): string[] {
   const here = dirname(fileURLToPath(import.meta.url));
   // packages/client/src -> packages/daemon/src/bin.ts
   const srcBin = resolve(here, "../../daemon/src/bin.ts");
   if (existsSync(srcBin)) return ["bun", srcBin];
-  return ["harnessd"];
+  return ["swarmd"];
 }
 
 export interface DaemonClientOptions {
@@ -60,11 +60,11 @@ export interface DaemonClientOptions {
   autoStart?: boolean;
 }
 
-/** Base URL from (in order): explicit, HARNESS_URL, daemon.json, default port. */
+/** Base URL from (in order): explicit, SWARM_URL, daemon.json, default port. */
 export function resolveBaseUrl(explicit?: string): string {
   const raw =
     explicit ??
-    process.env.HARNESS_URL ??
+    process.env.SWARM_URL ??
     readDaemonInfo()?.url ??
     `http://127.0.0.1:${DEFAULT_PORT}`;
   return raw.replace(/\/$/, "");
@@ -95,7 +95,7 @@ export async function ensureDaemon(
   // spawn detached
   const [cmd, ...args] = daemonCommand();
   if (!cmd) throw new Error("could not resolve the daemon command");
-  if (!opts.quiet) process.stderr.write("starting harnessd…\n");
+  if (!opts.quiet) process.stderr.write("starting swarmd…\n");
   const proc = Bun.spawn([cmd, ...args], {
     stdout: "ignore",
     stderr: "ignore",
@@ -109,5 +109,5 @@ export async function ensureDaemon(
     if (await pingHealth(target, 300)) return target;
     await Bun.sleep(100);
   }
-  throw new Error("harnessd did not become healthy within 5s");
+  throw new Error("swarmd did not become healthy within 5s");
 }

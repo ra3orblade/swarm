@@ -6,7 +6,7 @@ labels: enhancement
 
 **The problem you're hitting**
 
-**What you'd like Harness to do**
+**What you'd like Swarm to do**
 
 **Alternatives you've considered**
 

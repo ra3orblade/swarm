@@ -3,9 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const home = mkdtempSync(join(tmpdir(), "harness-daemon-"));
-process.env.HARNESS_HOME = home;
-delete process.env.HARNESS_URL;
+const home = mkdtempSync(join(tmpdir(), "swarm-daemon-"));
+process.env.SWARM_HOME = home;
+delete process.env.SWARM_URL;
 
 const { clearDaemonInfo, daemonCommand, readDaemonInfo, resolveBaseUrl, writeDaemonInfo } =
   await import("./daemon");
@@ -30,9 +30,9 @@ describe("daemon info", () => {
     expect(resolveBaseUrl("http://x:1/")).toBe("http://x:1");
   });
 
-  it("resolves a daemon command (source bin in dev, harnessd otherwise)", () => {
+  it("resolves a daemon command (source bin in dev, swarmd otherwise)", () => {
     const cmd = daemonCommand();
     expect(cmd.length).toBeGreaterThan(0);
-    expect(cmd[0] === "bun" || cmd[0] === "harnessd").toBe(true);
+    expect(cmd[0] === "bun" || cmd[0] === "swarmd").toBe(true);
   });
 });

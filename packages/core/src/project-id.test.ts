@@ -5,7 +5,7 @@ describe("projectIdentity", () => {
   it("maps every worktree of a repo to the same id via the common dir", () => {
     const common = "/Users/me/repo/.git";
     const a = projectIdentity({ root: "/Users/me/repo", commonDir: common });
-    const b = projectIdentity({ root: "/Users/me/.harness/wt/repo/m0.6", commonDir: common });
+    const b = projectIdentity({ root: "/Users/me/.swarm/wt/repo/m0.6", commonDir: common });
     expect(a.id).toBe(b.id);
   });
 

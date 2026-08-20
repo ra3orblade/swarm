@@ -1,4 +1,4 @@
-/** Normalized Harness event types (docs/04-protocol.md). */
+/** Normalized Swarm event types (docs/04-protocol.md). */
 export type EventType =
   | "session.started"
   | "session.ended"
@@ -27,7 +27,7 @@ export type EventType =
 
 export type SessionKind = "interactive" | "spawned" | "subagent";
 
-export interface HarnessEvent<T = unknown> {
+export interface SwarmEvent<T = unknown> {
   /** Monotonic sequence assigned by the daemon. Absent before persistence. */
   seq?: number;
   ts: string;

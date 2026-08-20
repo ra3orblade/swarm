@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HarnessEvent } from "@harness/core";
+import type { SwarmEvent } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Store } from "./store";
@@ -66,7 +66,7 @@ export function createApp(store = new Store()) {
     return c.json({}); // allow; rules land in M2
   });
   app.post("/v1/events", async (c) => {
-    const e = (await c.req.json()) as HarnessEvent;
+    const e = (await c.req.json()) as SwarmEvent;
     return c.json(store.append(e), 201);
   });
 

@@ -1,6 +1,6 @@
 /**
- * Model pricing in USD per million tokens. Static table ships with Harness; the daemon may
- * overlay ~/.harness/pricing.json (same shape) or a LiteLLM refresh. Unknown models → null cost
+ * Model pricing in USD per million tokens. Static table ships with Swarm; the daemon may
+ * overlay ~/.swarm/pricing.json (same shape) or a LiteLLM refresh. Unknown models → null cost
  * (tokens still shown). Sources: anthropic.com/pricing as of the table date.
  */
 export interface Price {
@@ -29,7 +29,7 @@ export const PRICES: Record<string, Price> = {
   "claude-sonnet-4": { input: 3, output: 15, cacheWrite: 3.75, cacheWrite1h: 6, cacheRead: 0.3 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheWrite1h: 2, cacheRead: 0.1 },
   "claude-3-5-haiku": { input: 0.8, output: 4, cacheWrite: 1, cacheWrite1h: 1.6, cacheRead: 0.08 },
-  // Claude 5 family (LiteLLM model_prices, 2026-08-20); overridable via ~/.harness/pricing.json
+  // Claude 5 family (LiteLLM model_prices, 2026-08-20); overridable via ~/.swarm/pricing.json
   "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheWrite1h: 10, cacheRead: 0.5 },
   "claude-sonnet-5": { input: 2, output: 10, cacheWrite: 2.5, cacheWrite1h: 4, cacheRead: 0.2 },
   "claude-fable-5": { input: 10, output: 50, cacheWrite: 12.5, cacheWrite1h: 20, cacheRead: 1 },

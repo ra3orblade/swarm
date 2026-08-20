@@ -4,7 +4,7 @@ Status: draft
 
 ## One sentence
 
-**Harness is an open-source, local-first control plane for AI-agent development on any repository: it watches every Claude Code session on your machine, keeps a ledger of who holds which task, worktree, and runtime resource, enforces the rules you would otherwise write as prose, and streams all of it to one dashboard.**
+**Swarm is an open-source, local-first control plane for AI-agent development on any repository: it watches every Claude Code session on your machine, keeps a ledger of who holds which task, worktree, and runtime resource, enforces the rules you would otherwise write as prose, and streams all of it to one dashboard.**
 
 ## Why it exists
 
@@ -18,7 +18,7 @@ Two real projects (Brainstorm, Line of Sites) grew a harness by hand: a claim le
 
 ## Hard requirements
 
-- **Repository-agnostic.** Pick any folder; Harness monitors it. It must never require files inside the target repo. Optional per-repo config is allowed but never needed. State lives in the user's home, keyed by repository identity.
+- **Repository-agnostic.** Pick any folder; Swarm monitors it. It must never require files inside the target repo. Optional per-repo config is allowed but never needed. State lives in the user's home, keyed by repository identity.
 - **Open source from the first commit.** Apache-2.0. No telemetry. No account. Works fully offline.
 - **Zero-UI core.** Everything works from the CLI and from MCP tools inside an agent session; the dashboard is a view, not the system.
 - **Observes sessions it did not start.** The owner's interactive session is the most important one to see. Hooks, not wrapping, are the primary ingestion path.
@@ -27,8 +27,8 @@ Two real projects (Brainstorm, Line of Sites) grew a harness by hand: a claim le
 
 ## Explicit non-goals (v1)
 
-- Not a replacement for Claude Code, its `Workflow`, `Agent`, or worktree isolation. Harness sits *between* sessions; those run *inside* one.
-- Not a design-doc system, dogfooding pipeline, or planning tool. Those stay project-specific. Harness can *read* a plan file as a task source; it does not own it.
+- Not a replacement for Claude Code, its `Workflow`, `Agent`, or worktree isolation. Swarm sits *between* sessions; those run *inside* one.
+- Not a design-doc system, dogfooding pipeline, or planning tool. Those stay project-specific. Swarm can *read* a plan file as a task source; it does not own it.
 - Not multi-vendor. Claude Code first. The event model is generic so other CLIs can be adapters later, but no A2A, no abstraction tax up front.
 - Not cloud-hosted. Local daemon. Remote/shared ledger is a roadmap item, not an architecture constraint.
 

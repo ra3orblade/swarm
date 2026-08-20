@@ -1,10 +1,10 @@
-/** Smoke: start harnessd in-process, post an event, read it back over SSE. */
+/** Smoke: start swarmd in-process, post an event, read it back over SSE. */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, Store } from "../packages/daemon/src/index";
 
-const { app } = createApp(new Store(mkdtempSync(join(tmpdir(), "harness-smoke-"))));
+const { app } = createApp(new Store(mkdtempSync(join(tmpdir(), "swarm-smoke-"))));
 const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch });
 const base = `http://127.0.0.1:${server.port}`;
 

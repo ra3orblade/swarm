@@ -35,7 +35,7 @@ function renderProjects() {
   const row = (p) => {
     const act = p.discovered
       ? `<span class="act" data-pin="${p.id}" title="Pin this project">☆</span>`
-      : `<span class="act rm" data-rm="${p.id}" title="Remove from Harness">×</span>`;
+      : `<span class="act rm" data-rm="${p.id}" title="Remove from Swarm">×</span>`;
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" title="${esc(p.root)}">
       <span class="st ${live(p.id) ? "live" : ""}"></span><span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
@@ -58,7 +58,7 @@ function renderFleet() {
     .join("")}</tbody></table></div>`;
   $("#main").innerHTML =
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live) : `<div class="empty">Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>harness install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (live.length ? table(live) : `<div class="empty">Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderWorktrees();
 }
@@ -98,7 +98,7 @@ function renderSpend() {
      <div class="cols"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 style="margin-top:18px">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div><h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}<h2 style="margin-top:18px">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
-     <p class="dim" style="margin-top:14px">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.harness/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+     <p class="dim" style="margin-top:14px">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
 }
 
 // ---------- session

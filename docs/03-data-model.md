@@ -25,4 +25,4 @@ Rules of the ledger:
 - A gate's **latest** run decides. Failed runs are never deleted. A run without `rubric` is rejected.
 - A resource is a named singleton per project (`web`) or per machine (`port:3000`). Acquiring a held resource fails with holder details.
 
-Task sources: a task is just a string; Harness does not own the backlog. A project may declare a **task source** in `.harness.toml` (`tasks = "docs/planning/52-implementation-plan.md"`) with a parser (`markdown-table` first), so the dashboard can show titles/status and the "pick next unclaimed task whose deps are ✅" query can be answered. Without a source, tasks are free-form.
+Task sources: a task is just a string; Swarm does not own the backlog. A project may declare a **task source** in `.swarm.toml` (`tasks = "docs/planning/52-implementation-plan.md"`) with a parser (`markdown-table` first), so the dashboard can show titles/status and the "pick next unclaimed task whose deps are ✅" query can be answered. Without a source, tasks are free-form.
