@@ -83,9 +83,9 @@ Goal: Swarm observes and coordinates AI coding agents generally, not only Claude
 | ID | Task | Status |
 |----|------|--------|
 | M5.1 | Provider-agnostic pricing: price any model (Anthropic/OpenAI/Google/DeepSeek/…), not just `claude-*` | ✅ 2026-08-20 static table + LiteLLM refresh generalized; 10 tests |
-| M5.2 | `AgentAdapter` interface + registry in `core` (detect · normalize hook/telemetry · parse transcript/session log); refactor Claude Code behind it | ⚪ |
-| M5.3 | First non-Claude adapter (target TBD — see OQ-10): session discovery, event normalization, cost | ⚪ |
-| M5.4 | Per-agent install/telemetry wiring + `swarm doctor` reports each agent's status | ⚪ |
+| M5.2 | `AgentAdapter` interface + registry in `core`; Claude Code refactored behind it | ✅ 2026-08-20 `adapters/types.ts` (AgentAdapter/LogParseResult), registry, claude-code wrapper |
+| M5.3 | First non-Claude adapter — **Codex CLI** (~/.codex rollout JSONL): parser done + validated on real sessions; daemon discovery/tailing next | 🟡 2026-08-20 `adapters/codex` parser (turns, usage, tools, cost via gpt-5) + tests on real data; daemon ingestion pending |
+| M5.4 | Daemon: discover + tail Codex sessions (map to projects by cwd, no hooks), agent-tagged sessions; then Gemini CLI, Aider, opencode/Cline, Grok adapters | ⚪ |
 | M5.5 | Dashboard: agent badge per session; group/filter by agent; unified spend across agents | ⚪ |
 
 ## M6 — Desktop app (Tauri) + autoupdate ← direction set 2026-08-20
