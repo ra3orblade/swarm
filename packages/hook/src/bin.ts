@@ -2,9 +2,12 @@
 /**
  * harness-hook <HookEvent>: Claude Code hook JSON on stdin → POST /v1/hook/<event> → relay the
  * daemon's decision on stdout. Fails OPEN when the daemon is unreachable or slow (OQ-3).
+ * Never starts the daemon — a hook must stay fast and non-blocking.
  */
+import { resolveBaseUrl } from "@harness/client";
+
 const event = process.argv[2] ?? "Unknown";
-const base = (process.env.HARNESS_URL ?? "http://127.0.0.1:7777").replace(/\/$/, "");
+const base = resolveBaseUrl();
 const input = await Bun.stdin.text();
 let out = "{}";
 try {
@@ -19,5 +22,3 @@ try {
   // fail open
 }
 process.stdout.write(`${out}\n`);
-
-export {};

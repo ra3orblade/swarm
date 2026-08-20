@@ -12,7 +12,7 @@ Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing sur
 
 M0 + M0.8 done (2026-08-20): SQLite-backed. Reads Claude Code **transcripts** for tokens/cost/reasoning, not just hooks — the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `harness install`), with project sidebar, Fleet and Session views. Events are still **in memory** — a daemon restart (including `--watch` reloads) wipes history; M0.3 SQLite is the next task. Dashboard is plain HTML/JS in `packages/web/public`, served by the daemon, no build step.
 
-Dev loop: `bun run dev` (daemon, hot-reload) → `bun packages/cli/src/bin.ts install` once → start `claude` anywhere → open the URL. `harness uninstall` removes the hooks.
+Onboarding is one command: `bun run setup` (ensures the daemon, installs hooks, opens the dashboard). Dev loop: `bun run dev` runs the daemon with hot reload; the CLI is `bun run harness <cmd>` (`setup`, `start/stop/restart`, `status`, `add`, `doctor`, `tail`, `ui`, `install/uninstall`). The daemon auto-starts on any CLI command via `ensureDaemon()`; the hook shim never auto-starts (must stay fast, fails open). State + `daemon.json` live in `~/.harness`.
 
 ## Planned stack (see docs/05)
 

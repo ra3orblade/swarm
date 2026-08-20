@@ -9,9 +9,9 @@ Goal: one dashboard shows every Claude Code session on the machine, live, across
 |----|------|---------|--------|
 | M0.1 | Scaffold monorepo, CI, Biome, Vitest, Apache-2.0, README skeleton | — | ✅ 2026-08-20 — 7 packages, in-memory event log + SSE, hook→daemon→SSE smoke |
 | M0.2 | `core`: event types, Claude Code hook adapter, project identity (git common dir) | M0.1 | ✅ 2026-08-20 |
-| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, socket + port file, auto-start | M0.2 | ✅ 2026-08-20 SQLite (events/sessions/turns/tails) persisted; migrates projects.json; socket + auto-start still TODO |
+| M0.3 | `daemon`: SQLite schema, `/v1/hook/*` ingestion, `/v1/events` SSE, port file, auto-start | M0.2 | ✅ 2026-08-20 SQLite persisted; port file + auto-start done (M0.9.1); unix socket deferred |
 | M0.4 | `hook` shim + `harness install|uninstall` (user-level settings edit, idempotent, reversible) | M0.3 | ✅ 2026-08-20 |
-| M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | 🟡 all but `tail` |
+| M0.5 | `cli`: `add`, `ls`, `status`, `tail`, `doctor` | M0.3 | ✅ 2026-08-20 incl. `tail`, `setup`, `start/stop/restart` |
 | M0.6 | `web`: Fleet + Session views over SSE, served by daemon | M0.3 | 🟡 vanilla HTML/JS (no build); Fleet (+branch) + Session + Worktrees panel (branch, head, dirty, unpushed, sessions inside) + add/remove project; React decision (OQ-6) deferred until it hurts |
 | M0.7 | Smoke test: fake hook events → SSE assertions; dogfood on both author repos | M0.4–M0.6 | ⚪ |
 
@@ -27,6 +27,19 @@ Landed ahead of M1 by request. Reads each session's transcript JSONL (path from 
 | M0.8.5 | web: Fleet shows title/model/out/ctx/cost; Session detail (cost, context %cached, thinking, tool histogram, live reasoning stream); Spend view (by project/model, today/all-time, 14-day bars) | ✅ |
 | M0.8.7 | web: design system pass (theme-aware tokens light/dark, cards, refined type/tables/status); pin/unpin discovered projects; per-session live model + multi-model `+N`; latest-turn model via SQL | ✅ 2026-08-20 |
 | M0.8.6 | tooling: migrate vitest→bun:test, stop emitting per-package dist, biome 2.5 | ✅ |
+
+## M0.9 — Ship it (community-ready) ← current
+Goal: a stranger clones or `npx`-installs Harness and it works in under two minutes, with no dev paths, no manual daemon, and docs that answer the obvious questions. This is the open-source release track.
+
+| ID | Task | Depends | Status |
+|----|------|---------|--------|
+| M0.9.1 | Daemon lifecycle: `~/.harness/daemon.json` (port/pid/version), graceful shutdown, `harness start/stop/restart`, client `ensureDaemon()` auto-spawn | M0.3 | ✅ 2026-08-20 daemon.json (port/pid/version), graceful SIGTERM cleanup, start/stop/restart, client ensureDaemon() auto-spawn |
+| M0.9.2 | Portable `install`: write bin commands that work both from a clone and from a global install (no hard-coded dev paths); `harness setup` one-shot (ensure daemon → install hooks → open UI) | M0.9.1 | ✅ 2026-08-20 install writes portable command (bare bin under node_modules, else bun+abs path); `harness setup` one-shot |
+| M0.9.3 | Community scaffolding: real README (quickstart, what/why, screenshots), CONTRIBUTING, CODE_OF_CONDUCT (Contributor Covenant), SECURITY.md, LICENSE headers, issue/PR templates | — | ✅ 2026-08-20 README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, issue/PR templates |
+| M0.9.4 | Package metadata for publish: description, keywords, repo/bugs/homepage, engines, `files`; decide publish name (OQ-1) | M0.9.1 | 🟡 metadata added; publish name + `files`/bundling pending (OQ-1, M0.9.6) |
+| M0.9.5 | `harness doctor` as the setup guide: checks bun/claude/daemon/hooks/db and prints the exact next command for each gap | M0.9.1 | ✅ 2026-08-20 doctor checks bun/claude/daemon/hooks and prints the fix per gap |
+| M0.9.6 | Release: bundle bins with `bun build` into one publishable package; optional standalone single-file binaries per OS on GitHub Releases; CI publish workflow | M0.9.4 | ⚪ |
+| M0.9.7 | Config: `.harness.toml` loader (optional, per-repo) + `~/.harness/config.toml` (global: port, lease TTL, offline) | M0.9.1 | ⚪ |
 
 ## M1 — Hold things (ledger)
 | ID | Task | Depends | Status |

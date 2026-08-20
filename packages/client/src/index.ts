@@ -1,4 +1,7 @@
 import type { HarnessEvent } from "@harness/core";
+import { resolveBaseUrl } from "./daemon";
+
+export * from "./daemon";
 
 export interface ClientOptions {
   baseUrl?: string;
@@ -11,10 +14,7 @@ export class HarnessClient {
   private readonly f: typeof fetch;
 
   constructor(opts: ClientOptions = {}) {
-    this.baseUrl = (opts.baseUrl ?? process.env.HARNESS_URL ?? "http://127.0.0.1:7777").replace(
-      /\/$/,
-      "",
-    );
+    this.baseUrl = resolveBaseUrl(opts.baseUrl);
     this.f = opts.fetch ?? fetch;
   }
 
