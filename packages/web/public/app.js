@@ -10,6 +10,16 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
+const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size, cls) : "");
+const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
+// static <i data-icon> placeholders in index.html → inline SVG
+for (const el of document.querySelectorAll("i[data-icon]")) el.outerHTML = ic(el.dataset.icon, 15);
+// theme: "system" | "light" | "dark", persisted; CSS handles system via prefers-color-scheme
+const getTheme = () => localStorage.getItem("swarm.theme") ?? "system";
+const setTheme = (t) => { localStorage.setItem("swarm.theme", t); if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; };
+setTheme(getTheme());
+const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
+const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a && a !== "claude-code" ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
@@ -36,19 +46,17 @@ function renderProjects() {
   const pinned = state.projects.filter((p) => !p.discovered);
   const unpinned = state.projects.filter((p) => p.discovered);
   const row = (p) => {
-    const act = p.discovered
-      ? `<span class="act" data-pin="${p.id}" title="Pin this project">☆</span>`
-      : `<span class="act rm" data-rm="${p.id}" title="Remove from Swarm">×</span>`;
-    return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" title="${esc(p.root)}">
-      <span class="st ${live(p.id) ? "live" : ""}"></span><span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+    const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
+    return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}">
+      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
   $("#projects").innerHTML =
     `<h4>Projects</h4>` +
-    `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span><span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
+    `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
     pinned.map(row).join("") +
     (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
-    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
+    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${ic("folder-simple", 22)}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
 }
 
 // ---------- fleet
@@ -58,8 +66,8 @@ function renderFleet() {
   const rows = base.filter((s) => !state.agentFilter || s.agent === state.agentFilter);
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
-  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
+  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th><th style="width:30px"></th></tr></thead><tbody>${list
+    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
     .join("")}</tbody></table></div>`;
   const chips = agents.length > 1
     ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">all</span>${agents
@@ -68,7 +76,7 @@ function renderFleet() {
     : "";
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live) : `<div class="empty">Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (live.length ? table(live) : `<div class="empty">${ic("broadcast", 24)}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderWorktrees();
 }
@@ -170,8 +178,9 @@ function renderSession() {
   const t = s.tokens;
   const ctx = t.input + t.cacheRead + t.cacheWrite;
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
-  const stat = (k, v) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`;
-  $("#main").innerHTML = `<h2><a class="back" href="#" id="back">← back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> <b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>
+  const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
+  const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
+  $("#main").innerHTML = `<h2><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>
   <div class="sess"><div id="log">${sessionStream(s)}</div>
   <aside class="side">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
@@ -181,17 +190,78 @@ function renderSession() {
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">none yet</span>'}
-    ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${esc(short(s.transcriptPath))}</div>` : ""}
+    ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}
   </aside></div>`;
   if (atBottom) $("#log").scrollTop = $("#log").scrollHeight;
 }
 
+
+// ---------- menus (fancy-menus island; see src/menus.tsx). Menus are plain data.
+const pinProject = (id, pinned) => fetch(`/v1/projects/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) }).then(refresh);
+const removeProject = (id) => fetch(`/v1/projects/${id}`, { method: "DELETE" }).then(refresh);
+function menuSpec(kind, d) {
+  if (kind === "project") {
+    const p = state.projects.find((x) => x.id === d.pid);
+    if (!p) return null;
+    const live = state.sessions.filter((s) => s.projectId === p.id && (s.state === "active" || s.state === "waiting")).length;
+    return { title: p.name, items: [
+      { label: "Show sessions", icon: "squares-four", caption: live ? `${live} live` : undefined, run: () => { state.sel = p.id; state.view = "fleet"; state.session = null; render(); } },
+      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = p.id; state.view = "timeline"; state.session = null; render(); } },
+      { label: "Spend", icon: "coins", run: () => { state.sel = p.id; state.view = "spend"; state.session = null; render(); } },
+      { divider: true },
+      p.discovered ? { label: "Pin project", icon: "push-pin", run: () => pinProject(p.id, true) } : { label: "Unpin project", icon: "push-pin-slash", run: () => pinProject(p.id, false) },
+      { label: "Copy path", icon: "copy", caption: tail(p.root), run: () => copy(p.root) },
+      { divider: true },
+      { label: "Remove from Swarm", icon: "trash", danger: true, run: () => removeProject(p.id) },
+    ] };
+  }
+  if (kind === "session") {
+    const s = state.sessions.find((x) => x.id === d.sid);
+    if (!s) return null;
+    return { title: s.title ?? s.id.slice(0, 8), items: [
+      { label: "Open session", icon: "terminal-window", run: () => openSession(s.id) },
+      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = s.projectId; state.view = "timeline"; state.session = null; render(); } },
+      { divider: true },
+      { section: "Copy" },
+      { label: "Session id", icon: "copy", caption: s.id.slice(0, 8), run: () => copy(s.id) },
+      { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 18), run: () => copy(s.cwd) },
+      ...(s.transcriptPath ? [{ label: "Transcript path", icon: "file-text", run: () => copy(s.transcriptPath) }] : []),
+      ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 18), run: () => copy(s.branch) }] : []),
+    ] };
+  }
+  if (kind === "settings") {
+    const theme = getTheme();
+    const th = (id, label, icon) => ({ label, icon, pressed: theme === id, run: () => { setTheme(id); $("#settings").blur(); } });
+    return { title: "Swarm", items: [
+      { label: "Theme", icon: theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor", caption: theme, children: [th("system", "System", "monitor"), th("light", "Light", "sun"), th("dark", "Dark", "moon")] },
+      { divider: true },
+      { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
+      { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
+      { divider: true },
+      { label: "Documentation", icon: "book-open", caption: "GitHub", run: () => window.open("https://github.com/ra3orblade/swarm#readme", "_blank") },
+    ] };
+  }
+  return null;
+}
+function openMenu(kind, anchor, d) {
+  const spec = menuSpec(kind, d);
+  if (!spec) return;
+  if (!window.menus) { console.warn("menus.js not built — run: bun run build:web"); return; }
+  window.menus.open(anchor, spec);
+}
+document.addEventListener("contextmenu", (ev) => {
+  const t = ev.target.closest("[data-ctx]");
+  if (!t) return;
+  ev.preventDefault();
+  openMenu(t.dataset.ctx, { x: ev.clientX, y: ev.clientY }, t.dataset);
+});
+
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days]");
   if (!t) return;
-  if (t.dataset.rm) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.rm}`, { method: "DELETE" }); return refresh(); }
-  if (t.dataset.pin) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.pin}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: true }) }); return refresh(); }
+  if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
+  if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }

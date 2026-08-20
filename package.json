@@ -37,7 +37,9 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "smoke": "bun tools/smoke.ts",
-    "docs:check": "bun tools/docs-check.ts"
+    "docs:check": "bun tools/docs-check.ts",
+    "postinstall": "bun run --filter @swarm/web build",
+    "build:web": "bun run --filter @swarm/web build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
