@@ -24,22 +24,28 @@ function render() {
 }
 function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
-  $("#today").innerHTML = `today ${usd(today)}`;
+  $("#today").innerHTML = `today <b>${usd(today)}</b>`;
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
 }
 
 function renderProjects() {
   const live = (pid) => state.sessions.filter((s) => s.projectId === pid && (s.state === "active" || s.state === "waiting")).length;
-  const reg = state.projects.filter((p) => !p.discovered);
-  const disc = state.projects.filter((p) => p.discovered);
-  const row = (p) => `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" title="${esc(p.root)}">
-      <span class="st ${live(p.id) ? "live" : ""}"></span><span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small><span class="x" data-rm="${p.id}" title="remove">×</span></div>`;
+  const pinned = state.projects.filter((p) => !p.discovered);
+  const unpinned = state.projects.filter((p) => p.discovered);
+  const row = (p) => {
+    const act = p.discovered
+      ? `<span class="act" data-pin="${p.id}" title="Pin this project">☆</span>`
+      : `<span class="act rm" data-rm="${p.id}" title="Remove from Harness">×</span>`;
+    return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" title="${esc(p.root)}">
+      <span class="st ${live(p.id) ? "live" : ""}"></span><span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+  };
   const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
   $("#projects").innerHTML =
-    `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span><span class="nm">All</span><small>${liveAll || ""}</small></div>` +
-    reg.map(row).join("") +
-    (disc.length ? `<h4>discovered</h4>${disc.map(row).join("")}` : "") +
-    (!reg.length && !disc.length ? `<div class="empty" style="padding:14px">No projects yet.<br>Add a folder below.</div>` : "");
+    `<h4>Projects</h4>` +
+    `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span><span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
+    pinned.map(row).join("") +
+    (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
+    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
 }
 
 // ---------- fleet
@@ -47,9 +53,9 @@ function renderFleet() {
   const rows = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
-  const table = (list) => `<table><thead><tr><th style="width:26px"></th>${state.sel ? "" : '<th style="width:110px">project</th>'}<th style="width:230px">session</th><th style="width:140px">branch</th><th>now</th><th style="width:90px">model</th><th style="width:70px;text-align:right">out</th><th style="width:70px;text-align:right">ctx</th><th style="width:64px;text-align:right">cost</th><th style="width:50px;text-align:right">age</th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br">${esc(model(s.model))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
-    .join("")}</tbody></table>`;
+  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th></tr></thead><tbody>${list
+    .map((s) => `<tr data-s="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}"><b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td></tr>`)
+    .join("")}</tbody></table></div>`;
   $("#main").innerHTML =
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
     (live.length ? table(live) : `<div class="empty">Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>harness install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
@@ -64,14 +70,14 @@ function renderWorktrees() {
   const inside = (w) => state.sessions.filter((s) => s.state !== "ended" && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`)));
   const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
   return `<h2 style="margin-top:18px">Worktrees <span>${rows.length}</span></h2>
-    <table><thead><tr><th style="width:26px"></th>${state.sel ? "" : '<th style="width:110px">project</th>'}<th style="width:260px">branch</th><th style="width:80px">head</th><th>path</th><th style="width:180px">state</th><th style="width:160px">sessions</th></tr></thead><tbody>${rows
+    <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:260px">branch</th><th style="width:80px">head</th><th>path</th><th style="width:180px">state</th><th style="width:160px">sessions</th></tr></thead><tbody>${rows
       .map((w) => {
         const ss = inside(w);
         const dot = ss.length ? "active" : w.dirty > 0 ? "waiting" : "ended";
         const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">clean</span>' : "";
         return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "dirty", "warn")}${badge(w.ahead, "unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
       })
-      .join("")}</tbody></table>`;
+      .join("")}</tbody></table></div>`;
 }
 
 // ---------- spend
@@ -83,10 +89,10 @@ function renderSpend() {
   const perDay = days.map((day) => ({ day, cost: sumBy(sp.daily.filter((d) => d.day === day && (!state.sel || d.projectId === state.sel)), (d) => d.cost) }));
   const max = Math.max(1, ...perDay.map((d) => d.cost));
   const bars = `<div class="bars">${perDay.map((d) => `<div class="bar" title="${d.day}: $${d.cost.toFixed(2)}"><div style="height:${(100 * d.cost) / max}%"></div><span>${d.day.slice(5)}</span></div>`).join("")}</div>`;
-  const tbl = (rows, label, name) => `<table><thead><tr><th>${label}</th><th style="width:90px;text-align:right">cost</th><th style="width:90px;text-align:right">in+cache</th><th style="width:90px;text-align:right">out</th><th style="width:70px;text-align:right">turns</th></tr></thead><tbody>${rows
+  const tbl = (rows, label, name) => `<div class="card"><table><thead><tr><th>${label}</th><th class="num" style="width:88px">cost</th><th class="num" style="width:88px">in+cache</th><th class="num" style="width:84px">out</th><th class="num" style="width:64px">turns</th></tr></thead><tbody>${rows
     .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
     .map((r) => `<tr><td>${esc(name(r.key))}</td><td class="num">${usd(r.cost)}</td><td class="num">${tok(r.input)}</td><td class="num">${tok(r.output)}</td><td class="num">${r.turns}</td></tr>`)
-    .join("")}</tbody></table>`;
+    .join("")}</tbody></table></div>`;
   $("#main").innerHTML =
     `<h2>Spend · last 14 days <span>${usd(sumBy(perDay, (d) => d.cost))}</span></h2>${bars}
      <div class="cols"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
@@ -135,9 +141,10 @@ function renderSession() {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-rm],[data-id],[data-s],#back,[data-view]");
+  const t = ev.target.closest("[data-rm],[data-pin],[data-id],[data-s],#back,[data-view]");
   if (!t) return;
   if (t.dataset.rm) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.rm}`, { method: "DELETE" }); return refresh(); }
+  if (t.dataset.pin) { ev.stopPropagation(); await fetch(`/v1/projects/${t.dataset.pin}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned: true }) }); return refresh(); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }

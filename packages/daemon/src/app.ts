@@ -27,6 +27,14 @@ export function createApp(store = new Store()) {
       return c.json({ error: (e as Error).message }, 400);
     }
   });
+  app.patch("/v1/projects/:id", async (c) => {
+    const { pinned, name } = (await c.req.json().catch(() => ({}))) as {
+      pinned?: boolean;
+      name?: string;
+    };
+    const p = store.updateProject(c.req.param("id"), { pinned, name });
+    return p ? c.json(p) : c.json({ error: "not found" }, 404);
+  });
   app.delete("/v1/projects/:id", (c) =>
     store.removeProject(c.req.param("id"))
       ? c.body(null, 204)

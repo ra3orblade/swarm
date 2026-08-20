@@ -40,6 +40,7 @@ export interface SessionView {
   transcriptPath: string | null;
   title: string | null;
   model: string | null;
+  models: number;
   version: string | null;
   startedAt: string;
   endedAt: string | null;
@@ -215,6 +216,21 @@ export class Store {
     return existing;
   }
 
+  updateProject(
+    id: string,
+    patch: { pinned?: boolean | undefined; name?: string | undefined },
+  ): Project | undefined {
+    const cur = this.project(id);
+    if (!cur) return undefined;
+    if (patch.pinned !== undefined)
+      this.db
+        .prepare("UPDATE projects SET discovered = ? WHERE id = ?")
+        .run(patch.pinned ? 0 : 1, id);
+    if (patch.name)
+      this.db.prepare("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
+    return this.project(id);
+  }
+
   removeProject(id: string): boolean {
     return this.db.prepare("DELETE FROM projects WHERE id = ?").run(id).changes > 0;
   }
@@ -369,7 +385,7 @@ export class Store {
     });
     tx(d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
-    const lastModel = d.turns.at(-1)?.model ?? null;
+    const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
     this.db
       .prepare(
         "UPDATE sessions SET title = COALESCE(?, title), model = COALESCE(?, model), version = COALESCE(?, version), last_text = COALESCE(?, last_text), branch = COALESCE(branch, ?) WHERE id = ?",
@@ -484,7 +500,9 @@ export class Store {
       .prepare(
         `SELECT s.*, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
                 COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read, COALESCE(SUM(t.thinking),0) AS thinking,
-                SUM(t.cost_usd) AS cost_usd, MAX(t.cost_usd IS NULL AND t.id IS NOT NULL) AS unpriced
+                SUM(t.cost_usd) AS cost_usd, MAX(t.cost_usd IS NULL AND t.id IS NOT NULL) AS unpriced,
+                (SELECT model FROM turns lt WHERE lt.session_id = s.id AND lt.agent_id IS NULL AND lt.sidechain = 0 ORDER BY lt.ts DESC LIMIT 1) AS live_model,
+                (SELECT COUNT(DISTINCT model) FROM turns lm WHERE lm.session_id = s.id AND lm.agent_id IS NULL AND lm.sidechain = 0) AS model_count
          FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
          GROUP BY s.id ORDER BY s.last_seen_at DESC LIMIT 200`,
       )
@@ -503,7 +521,8 @@ export class Store {
         branch: (r.branch as string) ?? null,
         transcriptPath: (r.transcript_path as string) ?? null,
         title: (r.title as string) ?? null,
-        model: (r.model as string) ?? null,
+        model: (r.live_model as string) ?? (r.model as string) ?? null,
+        models: (r.model_count as number) ?? 0,
         version: (r.version as string) ?? null,
         startedAt: r.started_at as string,
         endedAt: (r.ended_at as string) ?? null,

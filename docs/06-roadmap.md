@@ -25,6 +25,7 @@ Landed ahead of M1 by request. Reads each session's transcript JSONL (path from 
 | M0.8.3 | daemon: turns table, offset-tracked tailer, subagent files, session title/model/branch/context | ✅ |
 | M0.8.4 | daemon: cost via pricing overlay (`~/.harness/pricing.json`, LiteLLM refresh); reprice on refresh | ✅ |
 | M0.8.5 | web: Fleet shows title/model/out/ctx/cost; Session detail (cost, context %cached, thinking, tool histogram, live reasoning stream); Spend view (by project/model, today/all-time, 14-day bars) | ✅ |
+| M0.8.7 | web: design system pass (theme-aware tokens light/dark, cards, refined type/tables/status); pin/unpin discovered projects; per-session live model + multi-model `+N`; latest-turn model via SQL | ✅ 2026-08-20 |
 | M0.8.6 | tooling: migrate vitest→bun:test, stop emitting per-package dist, biome 2.5 | ✅ |
 
 ## M1 — Hold things (ledger)
