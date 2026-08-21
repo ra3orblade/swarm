@@ -9,7 +9,9 @@ import { Store } from "./store";
 export const VERSION = "0.0.1";
 export { Store };
 
-const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../web/public");
+// Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
+const WEB_DIR =
+  process.env.SWARM_WEB_DIR ?? join(dirname(fileURLToPath(import.meta.url)), "../../web/public");
 
 export function createApp(store = new Store()) {
   const app = new Hono();

@@ -66,6 +66,17 @@ bun run swarm uninstall       # remove Swarm hooks from Claude Code
 - `swarm_claim <task>` — get an isolated git worktree for a task (fails closed if held)
 - `swarm_renew` / `swarm_release` / `swarm_reap`
 
+## Desktop app (optional)
+
+A native Tauri app that runs the daemon as a sidecar and shows the dashboard in its own window with a tray icon:
+
+```sh
+bun run desktop:dev     # build web + compile the daemon sidecar, then run the app
+bun run desktop:build   # produce a .app / .dmg (macOS)
+```
+
+Requires the Rust toolchain (`rustup`). Auto-updates are planned (they need code-signing keys).
+
 ## How it works
 
 ```

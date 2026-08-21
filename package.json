@@ -39,10 +39,15 @@
     "smoke": "bun tools/smoke.ts",
     "docs:check": "bun tools/docs-check.ts",
     "postinstall": "bun run --filter @swarm/web build",
-    "build:web": "bun run --filter @swarm/web build"
+    "build:web": "bun run --filter @swarm/web build",
+    "desktop:prep": "bun tools/desktop.ts",
+    "desktop:dev": "bun tools/desktop.ts && cd apps/desktop/src-tauri && cargo run",
+    "desktop:build": "bun tools/desktop.ts && cd apps/desktop/src-tauri && cargo tauri build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/bun": "latest",
     "typescript": "^5.9.2"
   }
