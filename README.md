@@ -81,7 +81,7 @@ bun run swarm uninstall       # remove Swarm hooks from Claude Code
 
 A native Tauri app that runs the daemon as a sidecar and shows the dashboard in its own window with a tray icon:
 
-Download the latest build from [GitHub Releases](https://github.com/ra3orblade/swarm/releases) — macOS `.dmg` (signed + notarized), Windows `.msi`/`.exe`, Linux `.deb`/`.AppImage`. The app checks the release feed and updates itself. The Windows and Linux builds are not code-signed yet.
+Download the latest build from [GitHub Releases](https://github.com/ra3orblade/swarm/releases) — macOS `.dmg` (signed + notarized), Windows `.msi`/`.exe`, Linux `.deb`/`.rpm`. The app checks the release feed and updates itself (macOS + Windows; Linux gets updates once the AppImage build is fixed). The Windows and Linux builds are not code-signed yet.
 
 Building it yourself needs the Rust toolchain (`rustup`):
 

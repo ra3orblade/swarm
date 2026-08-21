@@ -17,8 +17,8 @@ jobs:
           - platform: macos-latest       # Apple silicon
             args: --target aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
-          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .AppImage)
-            args: ""
+          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .rpm). AppImage deferred: linuxdeploy
+            args: --bundles deb,rpm       # fails on GH runners even with NO_STRIP (M6.4 note)
             rust-targets: ""
           - platform: windows-latest      # Windows x86_64 (.msi / .exe)
             args: ""
