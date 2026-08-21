@@ -42,7 +42,7 @@
     "build:web": "bun run --filter @swarm/web build",
     "desktop:prep": "bun tools/desktop.ts",
     "desktop:dev": "bun tools/desktop.ts && cd apps/desktop/src-tauri && cargo run",
-    "desktop:build": "bun tools/desktop.ts && cd apps/desktop/src-tauri && cargo tauri build"
+    "desktop:build": "bun tools/desktop.ts --bundle"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",

@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+serde_json = "1"
 
 [lib]
 name = "swarm_desktop_lib"

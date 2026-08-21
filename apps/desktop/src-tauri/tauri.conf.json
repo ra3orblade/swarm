@@ -34,6 +34,13 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/swarmd"],
-    "resources": ["web/*"]
+    "resources": ["web/*"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5NTFBQjVGMjY1QkJGRkMKUldUOHYxc21YNnRSR1JqWEl0bG4xemJ2QjRnRGRUOXhzMHk3QTlTU3dyaHh2WGdNSm4zaUNQQ1MK",
+      "endpoints": ["https://github.com/ra3orblade/swarm/releases/latest/download/latest.json"]
+    }
   }
 }
