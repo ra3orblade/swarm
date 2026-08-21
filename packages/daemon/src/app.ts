@@ -43,6 +43,34 @@ export function createApp(store = new Store()) {
 
   // ---- state for the dashboard
   app.get("/v1/state", (c) => c.json(store.snapshot()));
+
+  // ---- claims (M1)
+  app.get("/v1/claims", (c) => c.json(store.claims(c.req.query("project"))));
+  app.post("/v1/claims", async (c) => {
+    const b = (await c.req.json()) as {
+      projectId?: string;
+      task?: string;
+      owner?: string;
+      baseRef?: string;
+    };
+    if (!b.projectId || !b.task) return c.json({ error: "projectId and task required" }, 400);
+    const r = store.claim(b.projectId, b.task, b.owner ?? "cli", b.baseRef);
+    return c.json(r, r.ok ? 201 : 409);
+  });
+  app.post("/v1/claims/renew", async (c) => {
+    const b = (await c.req.json()) as { projectId?: string; task?: string };
+    const r = store.renew(b.projectId ?? "", b.task ?? "");
+    return c.json(r, r.ok ? 200 : 404);
+  });
+  app.post("/v1/claims/release", async (c) => {
+    const b = (await c.req.json()) as { projectId?: string; task?: string; force?: boolean };
+    const r = store.release(b.projectId ?? "", b.task ?? "", b.force ?? false);
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.post("/v1/claims/reap", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string };
+    return c.json({ reaped: store.reap(b.projectId) });
+  });
   app.get("/v1/sessions/:id/events", (c) => {
     const id = c.req.param("id");
     return c.json({ events: store.sessionEvents(id), turns: store.sessionTurns(id) });
