@@ -99,6 +99,20 @@
   aside input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--fg);
     padding:7px 9px;border-radius:var(--r-sm);font:12px var(--mono);outline:none;transition:border-color .12s}
   aside input:focus{border-color:var(--acc)}
+  #picker:empty{display:none}
+  #picker{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:50}
+  .pk{width:min(560px,92vw);max-height:78vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 12px 40px rgba(0,0,0,.4);overflow:hidden}
+  .pk-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .pk-h b{font-size:13px}.pk-path{font:11.5px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;direction:rtl;text-align:left}
+  .pk-list{overflow:auto;padding:6px}
+  .pk-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);cursor:pointer;color:var(--fg-2)}
+  .pk-row:hover{background:var(--panel-2)}.pk-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pk-row.up{color:var(--dim)}.pk-row .badge{margin:0}
+  .pk-f{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+  .pk-f button{flex:none}.pk-f .grow{flex:1}
+  .pk-f .primary{background:var(--acc);border-color:var(--acc);color:#0b0f07}
+  .pk-f .primary:hover{filter:brightness(1.06);color:#0b0f07}
+  .proj .nm .pdir{opacity:.5;font-weight:400}
   .hint{color:var(--faint);font-size:11px;line-height:1.5;margin:9px 4px 2px}
   button{background:var(--panel);border:1px solid var(--line);color:var(--fg-2);padding:7px 11px;
     border-radius:var(--r-sm);font:600 12px var(--sans);cursor:pointer;transition:border-color .12s,color .12s}
@@ -109,10 +123,10 @@
   h2{font-size:12px;margin:0 0 12px;color:var(--dim);font-weight:600;text-transform:uppercase;
     letter-spacing:.07em;display:flex;gap:10px;align-items:baseline}
   h2 span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12px}
-  h2 .back{color:var(--acc);text-transform:none;letter-spacing:0;font-weight:500}
+  h2 .back{color:var(--fg-2);text-transform:none;letter-spacing:0;font-weight:600;font-size:12px;display:inline-flex;align-items:center;gap:5px;padding:5px 11px 5px 8px;border:1px solid var(--line);border-radius:20px;background:var(--panel);transition:border-color .12s,color .12s}
 
   /* tables */
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow-x:auto}
   table{width:100%;border-collapse:collapse;table-layout:fixed}
   .card table{background:var(--panel)}
   thead th{text-align:left;padding:9px 12px;color:var(--dim);font-weight:500;font-size:11px;
@@ -271,7 +285,7 @@
   td .more:hover{background:var(--line);color:var(--fg)}
   .stat .ph{color:var(--faint);margin-right:7px}
   .empty .ph{display:block;margin:0 auto 10px;color:var(--faint)}
-  h2 .back{display:inline-flex;align-items:center;gap:4px}
+  h2 .back:hover{border-color:var(--acc);color:var(--fg)}
   /* fancy-menus theme → Swarm tokens */
   :root{--fm-surface-bg:var(--panel);--fm-surface-fg:var(--fg);--fm-surface-border:var(--line);--fm-surface-radius:9px;
     --fm-surface-shadow:0 8px 24px rgba(16,24,40,.14),0 1px 3px rgba(16,24,40,.08);
@@ -309,11 +323,13 @@
   <div class="spacer"></div>
   <form id="addForm" title="Add a project by absolute path">
     <input id="addPath" placeholder="/path/to/repo" autocomplete="off" spellcheck="false">
+    <button type="button" id="browseBtn" title="Browse folders"><i data-icon="folder-simple"></i></button>
     <button type="submit" title="Add project"><i data-icon="plus"></i></button>
   </form>
   <p class="hint">Folders where Swarm sees a Claude session appear automatically under <b>Unpinned</b>. Pin the ones you care about to keep them here.</p>
 </aside>
 <main id="main"></main>
+<div id="picker"></div>
 <script src="/icons.js"></script>
 <script src="/viz.js"></script>
 <script src="/app.js"></script>

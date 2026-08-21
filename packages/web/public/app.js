@@ -46,10 +46,18 @@ function renderProjects() {
   const live = (pid) => state.sessions.filter((s) => s.projectId === pid && (s.state === "active" || s.state === "waiting")).length;
   const pinned = state.projects.filter((p) => !p.discovered);
   const unpinned = state.projects.filter((p) => p.discovered);
+  const nameCount = {};
+  for (const p of state.projects) nameCount[p.name] = (nameCount[p.name] || 0) + 1;
+  const disamb = (p) => {
+    if ((nameCount[p.name] || 0) <= 1) return "";
+    const parts = String(p.root || "").split("/").filter(Boolean);
+    const parent = parts[parts.length - 2];
+    return parent ? `<span class="pdir">${esc(parent)}/</span>` : "";
+  };
   const row = (p) => {
     const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}">
-      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
   $("#projects").innerHTML =
@@ -314,6 +322,40 @@ $("#addForm").addEventListener("submit", async (ev) => {
   $("#addPath").value = "";
   refresh();
 });
+
+// ---------- folder picker
+const picker = { path: null };
+async function openPicker() {
+  await pickerGo($("#addPath").value.trim() || "");
+}
+async function pickerGo(path) {
+  let data;
+  try {
+    const r = await fetch(`/v1/fs/ls?path=${encodeURIComponent(path)}`);
+    data = await r.json();
+    if (!r.ok) throw new Error(data.error || "cannot read folder");
+  } catch (e) { return alert(e.message); }
+  picker.path = data.path;
+  const rows = [];
+  if (data.parent) rows.push(`<div class="pk-row up" data-go="${esc(data.parent)}">${ic("arrow-left", 14)}<span class="nm">..</span></div>`);
+  const base = data.path.replace(/\/$/, "");
+  for (const e of data.entries)
+    rows.push(`<div class="pk-row" data-go="${esc(base)}/${esc(e.name)}">${ic(e.repo ? "git-branch" : "folder-simple", 14)}<span class="nm">${esc(e.name)}</span>${e.repo ? '<span class="badge acc">git</span>' : ""}</div>`);
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("folders", 15)}<span class="pk-path" title="${esc(data.path)}">${esc(data.path)}</span></div>
+    <div class="pk-list">${rows.join("") || '<div class="empty" style="padding:20px">No sub-folders.</div>'}</div>
+    <div class="pk-f"><span class="grow"></span><button type="button" id="pkCancel">Cancel</button><button type="button" id="pkAdd" class="primary">Add this folder</button></div>
+  </div>`;
+}
+const closePicker = () => { $("#picker").innerHTML = ""; };
+$("#picker").addEventListener("click", (ev) => {
+  if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
+  const go = ev.target.closest("[data-go]");
+  if (go) return void pickerGo(go.dataset.go);
+  if (ev.target.closest("#pkAdd")) { $("#addPath").value = picker.path; closePicker(); $("#addForm").requestSubmit(); }
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
+$("#browseBtn").addEventListener("click", () => openPicker());
 
 // ---------- live
 function connect() {
