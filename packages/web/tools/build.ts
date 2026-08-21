@@ -66,6 +66,7 @@ export const ICONS = [
   "currency-dollar",
   "rows",
   "list-bullets",
+  "sliders",
 ];
 // app-facing key -> pixelarticons filename (closest pixel-art equivalent)
 const NAME_MAP: Record<string, string> = {
@@ -79,8 +80,8 @@ const NAME_MAP: Record<string, string> = {
   "push-pin-slash": "map-pin",
   x: "close",
   plus: "plus",
-  "dots-three": "menu-square",
-  "dots-three-vertical": "menu-square",
+  "dots-three": "more-horizontal",
+  "dots-three-vertical": "more-vertical",
   keyboard: "keyboard",
   play: "play",
   "tree-structure": "tree",

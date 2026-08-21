@@ -6,12 +6,12 @@ use std::env;
 use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
+    LogicalPosition, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_shell::ShellExt;
 
@@ -51,14 +51,54 @@ fn existing_healthy_port() -> Option<u16> {
 
 fn navigate_when_ready(win: tauri::WebviewWindow, port: u16) {
     std::thread::spawn(move || {
+        // Keep the animated splash on screen for at least this long so it's actually watchable,
+        // even when the daemon is already healthy and would otherwise flash straight past it.
+        let min_splash = Duration::from_millis(3000);
+        let start = Instant::now();
+        // macOS uses an overlay title bar (traffic lights float over the content); the dashboard
+        // reads ?chrome=inset to pad its header clear of them.
+        let url = if cfg!(target_os = "macos") {
+            format!("http://127.0.0.1:{port}/?chrome=inset")
+        } else {
+            format!("http://127.0.0.1:{port}")
+        };
+        let mut navigated = false;
         for _ in 0..150 {
             if health(port) {
-                let _ = win.eval(&format!("location.replace('http://127.0.0.1:{port}')"));
-                return;
+                let elapsed = start.elapsed();
+                if elapsed < min_splash {
+                    std::thread::sleep(min_splash - elapsed);
+                }
+                // Fade the splash out, then swap to the dashboard (which fades itself in).
+                let _ = win
+                    .eval("document.body.style.transition='opacity .3s ease';document.body.style.opacity='0'");
+                std::thread::sleep(Duration::from_millis(320));
+                let _ = win.eval(&format!("location.replace('{url}')"));
+                navigated = true;
+                break;
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-        let _ = win.eval("document.body.textContent = 'Could not start the Swarm daemon.'");
+        if !navigated {
+            let _ = win.eval("document.body.textContent = 'Could not start the Swarm daemon.'");
+            return;
+        }
+        // Watch native fullscreen: drop the traffic-light padding when the lights are hidden.
+        let mut last = false;
+        loop {
+            std::thread::sleep(Duration::from_millis(400));
+            match win.is_fullscreen() {
+                Ok(fs) => {
+                    if fs != last {
+                        last = fs;
+                        let _ = win.eval(&format!(
+                            "document.documentElement.classList.toggle('fs',{fs})"
+                        ));
+                    }
+                }
+                Err(_) => break, // window gone
+            }
+        }
     });
 }
 
@@ -94,10 +134,18 @@ pub fn run() {
                 p
             });
 
-            // The window loads a splash (frontendDist); redirect it to the daemon once it's up.
-            if let Some(win) = app.get_webview_window("main") {
-                navigate_when_ready(win, port);
-            }
+            // Build the window in Rust (not tauri.conf) so we can pin the macOS traffic lights
+            // near the top-left instead of letting them center in the tall header. It loads a
+            // splash (frontendDist); navigate_when_ready redirects it to the daemon once it's up.
+            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Swarm")
+                .inner_size(1280.0, 820.0)
+                .min_inner_size(720.0, 480.0)
+                .title_bar_style(TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(LogicalPosition::new(19.0, 26.0))
+                .build()?;
+            navigate_when_ready(win, port);
 
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

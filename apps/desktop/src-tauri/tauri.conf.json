@@ -7,21 +7,11 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     },
-    "windows": [
-      {
-        "label": "main",
-        "title": "Swarm",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 720,
-        "minHeight": 480,
-        "url": "index.html"
-      }
-    ]
+    "windows": []
   },
   "bundle": {
     "active": true,

@@ -1,4 +1,18 @@
 const $ = (s) => document.querySelector(s);
+// macOS desktop app signals its overlay title bar via ?chrome=inset (see src-tauri/lib.rs).
+if (new URLSearchParams(location.search).get("chrome") === "inset") {
+  document.documentElement.classList.add("chrome-inset");
+  // The overlay title bar has no native drag region — drag the window from the header.
+  const twin = () => window.__TAURI__?.window?.getCurrentWindow?.();
+  const inert = (e) => e.target.closest("a,button,input,select");
+  const hdr = document.querySelector("header");
+  hdr?.addEventListener("mousedown", (e) => {
+    if (e.button === 0 && !inert(e)) twin()?.startDragging?.();
+  });
+  hdr?.addEventListener("dblclick", (e) => {
+    if (!inert(e)) twin()?.toggleMaximize?.();
+  });
+}
 const state = { projects: [], sessions: [], worktrees: {}, spend: null, seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -309,7 +323,7 @@ function menuSpec(kind, d) {
   if (kind === "settings") {
     const theme = getTheme();
     const th = (id, label, icon) => ({ label, icon, pressed: theme === id, run: () => { setTheme(id); $("#settings").blur(); } });
-    return { title: "Swarm", items: [
+    return { items: [
       { label: "Theme", icon: theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor", caption: theme, children: [th("system", "System", "monitor"), th("light", "Light", "sun"), th("dark", "Dark", "moon")] },
       { divider: true },
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },

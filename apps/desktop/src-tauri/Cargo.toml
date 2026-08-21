@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Swarm — local control plane for AI-agent development"
 edition = "2021"
 
+# Name the executable "Swarm" so macOS shows it (menu bar, dev runs) instead of the crate name.
+[[bin]]
+name = "Swarm"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
