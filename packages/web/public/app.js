@@ -38,7 +38,7 @@ function render() {
 }
 function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
-  $("#today").innerHTML = `today <b>${usd(today)}</b>`;
+  $("#today").innerHTML = `Today <b>${usd(today)}</b>`;
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
 }
 
@@ -68,10 +68,10 @@ function renderFleet() {
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
   const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th><th style="width:30px"></th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
+    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
     .join("")}</tbody></table></div>`;
   const chips = agents.length > 1
-    ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">all</span>${agents
+    ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">All</span>${agents
         .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${base.filter((s) => s.agent === a).length}</b></span>`)
         .join("")}</div>`
     : "";
@@ -88,7 +88,7 @@ function renderClaims() {
   if (!rows.length) return "";
   const order = { orphaned: 0, expired: 1, held: 2 };
   rows.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
-  const badge = (st) => st === "orphaned" ? '<span class="badge warn">orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">expired</span>' : '<span class="badge ok">held</span>';
+  const badge = (st) => st === "orphaned" ? '<span class="badge warn">Orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">Expired</span>' : '<span class="badge ok">Held</span>';
   const orphans = rows.filter((c) => c.state === "orphaned").length;
   return `<h2 style="margin-top:18px">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
     <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:140px">task</th><th style="width:120px">owner</th><th style="width:150px">lease</th><th>worktree</th><th style="width:150px">state</th><th style="width:120px"></th></tr></thead><tbody>${rows
@@ -96,8 +96,8 @@ function renderClaims() {
         const dot = c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active";
         const key = `${c.projectId}:${c.task}`;
         const act = c.state === "orphaned"
-          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">force release</a>`
-          : `<a href="#" data-release="${key}">release</a>`;
+          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">Force release</a>`
+          : `<a href="#" data-release="${key}">Release</a>`;
         return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(c.projectId))}</td>`}<td><b>${esc(c.task)}</b></td><td>${esc(c.owner || "—")}</td><td class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</td><td class="now" title="${esc(c.worktree)}">${esc(short(c.worktree))}</td><td>${badge(c.state)}</td><td>${act}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
@@ -114,8 +114,8 @@ function renderWorktrees() {
       .map((w) => {
         const ss = inside(w);
         const dot = ss.length ? "active" : w.dirty > 0 ? "waiting" : "ended";
-        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">clean</span>' : "";
-        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "dirty", "warn")}${badge(w.ahead, "unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
+        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">Clean</span>' : "";
+        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">Main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
 }
@@ -211,7 +211,7 @@ function renderSession() {
     ${subTurns.length ? stat("subagent turns", subTurns.length) : ""}
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
-    <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">none yet</span>'}
+    <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}
   </aside></div>`;
   if (atBottom) $("#log").scrollTop = $("#log").scrollHeight;
