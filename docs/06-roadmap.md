@@ -101,7 +101,7 @@ Approach: a **Tauri v2** shell hosting the dashboard, with the daemon shipped as
 | M6.1 | Compile the daemon to a standalone binary (`bun build --compile`); app supervises it as a sidecar | M0.9.6 | ✅ 2026-08-21 `bun build --compile` → `swarmd`; `SWARM_WEB_DIR` lets it serve the bundled dashboard; Tauri spawns it via tauri-plugin-shell sidecar |
 | M6.2 | Tauri v2 scaffold: window + tray, points at the daemon; dev + build scripts | M6.1 | ✅ 2026-08-21 `apps/desktop` (Rust: sidecar spawn, health-wait, window at daemon URL, tray with Open/Quit); pixel-logo icon set; `desktop:prep/dev/build` scripts |
 | M6.3 | Autoupdate: Tauri updater, signed artifacts, update manifest on GitHub Releases | M6.2 | 🟡 2026-08-21 updater plugin + generated keypair (pubkey in config) + release workflow emitting updater artifacts; needs the private-key secret + a real tagged release to validate |
-| M6.4 | Signing/notarization (macOS); CI release pipeline | M6.3 | 🟡 2026-08-21 `release.yml` (tauri-action on `v*`) reuses the existing Apple account creds via a var-name mapping (`docs/11`); Windows/Linux bundles TBD |
+| M6.4 | Signing/notarization (macOS); CI release pipeline (macOS + Windows + Linux) | M6.3 | ✅ 2026-08-21 signed+notarized macOS shipped (v0.0.4); release.yml now a 3-OS matrix building .dmg / .msi+.exe / .deb+.AppImage, native sidecar per runner; Windows/Linux unsigned (no Windows cert yet) |
 
 ## Later (not scheduled)
 Remote/shared daemon with auth · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule · release of single-file binaries.
