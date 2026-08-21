@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Store } from "./store";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.2.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.2.1";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.

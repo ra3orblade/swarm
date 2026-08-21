@@ -1,6 +1,6 @@
 {
   "name": "@ra3orblade/swarm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first control plane for AI-agent development: watch every Claude Code / Codex / Grok session on your machine, ledger tasks and worktrees, enforce rules as hook denials.",
   "license": "Apache-2.0",
   "type": "module",

@@ -26,7 +26,7 @@ edit("apps/desktop/src-tauri/tauri.conf.json", jsonVersion);
 edit("apps/desktop/src-tauri/Cargo.toml", (s) =>
   s.replace(/^version = "[^"]+"/m, `version = "${v}"`),
 );
-edit("packages/daemon/src/app.ts", (s) => s.replace(/VERSION = "[^"]+"/, `VERSION = "${v}"`));
+edit("packages/daemon/src/app.ts", (s) => s.replace(/(VERSION = [^;]*?)"[^"]+"/, `$1"${v}"`));
 // keep Cargo.lock in sync without needing cargo: only the swarm-desktop entry
 edit("apps/desktop/src-tauri/Cargo.lock", (s) =>
   s.replace(/(name = "swarm-desktop"\nversion = ")[^"]+"/, `$1${v}"`),
