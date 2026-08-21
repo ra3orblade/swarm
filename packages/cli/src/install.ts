@@ -20,6 +20,14 @@ function hookCommand(event: string): string {
 }
 const shimPath = () => resolve(dirname(fileURLToPath(import.meta.url)), "../../hook/src/bin.ts");
 
+/** MCP server registration (command + args) — portable across global install and clone/dev. */
+function mcpServerConfig(): { command: string; args: string[] } {
+  const srcBin = resolve(dirname(fileURLToPath(import.meta.url)), "../../mcp/src/bin.ts");
+  return srcBin.includes("/node_modules/")
+    ? { command: "swarm-mcp", args: [] }
+    : { command: "bun", args: [srcBin] };
+}
+
 type Hooks = Record<
   string,
   Array<{ matcher?: string; hooks: Array<{ type: string; command: string; timeout?: number }> }>
@@ -49,6 +57,10 @@ export function install(): string[] {
     added.push(ev);
   }
   s.hooks = hooks;
+  // register the MCP server so agents can claim/release via tools
+  const mcp = (s.mcpServers as Record<string, unknown> | undefined) ?? {};
+  mcp.swarm = { type: "stdio", ...mcpServerConfig() };
+  s.mcpServers = mcp;
   save(s);
   return added;
 }
@@ -76,12 +88,21 @@ export function uninstall(): number {
   }
   if (Object.keys(hooks).length) s.hooks = hooks;
   else delete s.hooks;
+  const mcp = (s.mcpServers as Record<string, unknown> | undefined) ?? {};
+  if (mcp.swarm) {
+    delete mcp.swarm;
+    removed++;
+  }
+  if (Object.keys(mcp).length) s.mcpServers = mcp;
+  else delete s.mcpServers;
   save(s);
   return removed;
 }
 
-export function status(): { installed: boolean; path: string; shim: string } {
-  const hooks = (load().hooks as Hooks | undefined) ?? {};
+export function status(): { installed: boolean; mcp: boolean; path: string; shim: string } {
+  const s = load();
+  const hooks = (s.hooks as Hooks | undefined) ?? {};
   const installed = Object.values(hooks).some((l) => l.some((g) => g.hooks.some(isOurs)));
-  return { installed, path: settingsPath(), shim: shimPath() };
+  const mcp = Boolean((s.mcpServers as Record<string, unknown> | undefined)?.swarm);
+  return { installed, mcp, path: settingsPath(), shim: shimPath() };
 }

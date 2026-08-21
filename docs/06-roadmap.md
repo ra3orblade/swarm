@@ -48,7 +48,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M1.2 | Auto-renew on holder activity; orphan detection + incidents | M1.1 | ⚪ |
 | M1.3 | Handoff/resume payloads; injected via `SessionStart` context | M1.1 | ⚪ |
 | M1.4 | Runtime resources + process registry (`serve`, `proc`; port allocation; pid-based liveness) (port of `serve.ts`, `workers.ts`) | M0 | ⚪ |
-| M1.5 | `mcp` server with the claim/resource/handoff tools | M1.1, M1.4 | ⚪ |
+| M1.5 | `mcp` server with the claim tools; registered by `swarm install` | M1.1 | ✅ 2026-08-21 stdio MCP server: `swarm_status/claim/renew/release/reap` forwarding to the daemon (project from cwd); registered in `~/.claude/settings.json` by install; integration-tested via an MCP client → fail-closed claim into a worktree |
 | M1.6 | Project board view in web; `.swarm.toml` + markdown-table task source | M1.1 | ⚪ |
 
 ## M2 — Enforce (rules)

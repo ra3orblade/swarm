@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
-/** swarm-mcp: stdio MCP server exposing the ledger to agents. Tools land in M1.5. */
-console.error("swarm-mcp: not implemented yet (M1.5)");
-process.exit(2);
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { buildServer } from "./server";
+
+const server = buildServer();
+await server.connect(new StdioServerTransport());

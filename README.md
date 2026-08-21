@@ -58,6 +58,14 @@ bun run swarm uninstall       # remove Swarm hooks from Claude Code
 
 (Once published, these will be just `swarm <command>`.)
 
+### For agents (MCP)
+
+`swarm setup` also registers an MCP server, so an agent can coordinate itself instead of you running the CLI:
+
+- `swarm_status` — what's claimed and who's live in this project
+- `swarm_claim <task>` — get an isolated git worktree for a task (fails closed if held)
+- `swarm_renew` / `swarm_release` / `swarm_reap`
+
 ## How it works
 
 ```
