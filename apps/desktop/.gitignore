@@ -3,3 +3,4 @@ src-tauri/gen/
 src-tauri/binaries/
 src-tauri/web/
 *.key
+dist/

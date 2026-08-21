@@ -5,6 +5,28 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const tauri = join(root, "apps/desktop/src-tauri");
 
+// The window's frontend is a tiny splash that waits for the daemon then loads its dashboard URL.
+// Generated here (not committed) so CI always has a frontendDist regardless of .gitignore.
+const dist = join(root, "apps/desktop/dist");
+mkdirSync(dist, { recursive: true });
+Bun.write(
+  join(dist, "index.html"),
+  `<!doctype html><meta charset="utf-8"><title>Swarm</title>
+<style>html,body{margin:0;height:100%;background:#0e1013;color:#a3e635;font:14px system-ui;display:grid;place-items:center}</style>
+<body>starting Swarm…
+<script>
+const URL = "http://127.0.0.1:7777";
+(async () => {
+  for (let i = 0; i < 150; i++) {
+    try { const r = await fetch(URL + "/v1/health"); if (r.ok) { location.replace(URL); return; } } catch {}
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  document.body.textContent = "Could not reach the Swarm daemon.";
+})();
+</script>
+`,
+);
+
 // 1. web assets (generated: menus.js, fm.css, icons.js)
 Bun.spawnSync(["bun", "run", "build:web"], { cwd: root, stdout: "inherit", stderr: "inherit" });
 
