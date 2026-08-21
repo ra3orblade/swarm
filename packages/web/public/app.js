@@ -13,6 +13,53 @@ const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
 const leaseLeft = (iso) => { const d = (new Date(iso) - Date.now()) / 1000; if (d <= 0) return "expired"; return d < 3600 ? `${(d / 60) | 0}m left` : `${(d / 3600).toFixed(1)}h left`; };
 const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size, cls) : "");
 const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
+// pixel-art illustrations for empty states (crispEdges, theme-green; won't clash with icon packs)
+function pixmap(rows, cell = 6) {
+  const C = { X: "var(--acc)", g: "var(--c5,#7fb069)", d: "var(--c4,#2f7d4f)" };
+  const w = Math.max(...rows.map((r) => r.length)) * cell;
+  const h = rows.length * cell;
+  let r = "";
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const f = C[row[x]];
+      if (f) r += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="${f}"/>`;
+    }
+  });
+  return `<svg class="px" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${r}</svg>`;
+}
+const PX = {
+  idle: () => pixmap([
+    "   X  X   ",
+    "   X  X   ",
+    " XXXXXXXX ",
+    " XXXXXXXX ",
+    " X  XX  X ",
+    " XXXXXXXX ",
+    " XX    XX ",
+    " XXXXXXXX ",
+    "  X    X  ",
+  ]),
+  folder: () => pixmap([
+    " XXXX     ",
+    "XXXXXXXXXX",
+    "XggggggggX",
+    "XggggggggX",
+    "XggggggggX",
+    "XggggggggX",
+    "XXXXXXXXXX",
+  ]),
+  clock: () => pixmap([
+    "  XXXXX  ",
+    " X     X ",
+    "X   X   X",
+    "X   X   X",
+    "X   XXX X",
+    "X       X",
+    "X       X",
+    " X     X ",
+    "  XXXXX  ",
+  ]),
+};
 // static <i data-icon> placeholders in index.html → inline SVG
 for (const el of document.querySelectorAll("i[data-icon]")) el.outerHTML = ic(el.dataset.icon, 15);
 // theme: "system" | "light" | "dark", persisted; CSS handles system via prefers-color-scheme
@@ -65,7 +112,7 @@ function renderProjects() {
     `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
     pinned.map(row).join("") +
     (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
-    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${ic("folder-simple", 22)}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
+    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${PX.folder()}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
 }
 
 // ---------- fleet
@@ -85,7 +132,7 @@ function renderFleet() {
     : "";
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live) : `<div class="empty">${ic("broadcast", 24)}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderClaims() +
     renderWorktrees();
@@ -180,7 +227,7 @@ function renderTimeline() {
   const chip = (h) => `<a href="#" class="nav ${hours === h ? "on" : ""}" data-tl="${h}">${h}h</a>`;
   $("#main").innerHTML =
     `<h2>Timeline <span>${rows.length} sessions · last ${hours}h · ${usd(sumBy(rows, (s) => s.costUsd))}</span><span style="margin-left:auto;display:flex;gap:2px">${[3, 6, 12, 24, 72].map(chip).join("")}</span></h2>
-     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">No sessions in the last ${hours}h.</div>`}
+     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">${PX.clock()}No sessions in the last ${hours}h.</div>`}
      ${agents.length ? `<div style="margin-top:10px">${viz.legend(agents)}</div>` : ""}`;
 }
 
