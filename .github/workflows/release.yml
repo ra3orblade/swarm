@@ -9,27 +9,46 @@ permissions:
 
 jobs:
   desktop:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest       # Apple silicon
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
+          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .AppImage)
+            args: ""
+            rust-targets: ""
+          - platform: windows-latest      # Windows x86_64 (.msi / .exe)
+            args: ""
+            rust-targets: ""
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: latest }
       - uses: dtolnay/rust-toolchain@stable
-        with: { targets: aarch64-apple-darwin }
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - name: Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev build-essential
       - run: bun install --frozen-lockfile
-      # build web assets + compile the daemon sidecar + stage resources (no bundle yet)
+      # build web assets + compile the daemon sidecar (native to this runner) + stage resources
       - run: bun run desktop:prep
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple Developer ID cert + notarization — the SAME account creds Brainstorm uses,
-          # mapped from its variable names to Tauri's. Set these as repo secrets.
+          # macOS signing + notarization (ignored on other platforms). Reuses the Apple account
+          # creds, mapped from electron-builder / Brainstorm names to Tauri's. See docs/11.
           APPLE_CERTIFICATE: ${{ secrets.CSC_LINK }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Tauri updater signing key — a NEW secret (not from Brainstorm; Electron has no equivalent).
+          # Tauri updater signing key (same key signs every platform's update package).
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -37,4 +56,4 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Swarm ${{ github.ref_name }}"
           releaseDraft: true
-          args: --target aarch64-apple-darwin
+          args: ${{ matrix.args }}
