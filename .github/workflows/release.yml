@@ -1,0 +1,36 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-apple-darwin }
+      - run: bun install --frozen-lockfile
+      # build web assets + compile the daemon sidecar + stage resources (no bundle yet)
+      - run: bun run desktop:prep
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          # Apple Developer ID cert + notarization — the SAME account creds Brainstorm uses,
+          # mapped from its variable names to Tauri's. Set these as repo secrets.
+          APPLE_CERTIFICATE: ${{ secrets.CSC_LINK }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Tauri updater signing key — a NEW secret (not from Brainstorm; Electron has no equivalent).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Swarm ${{ github.ref_name }}"
+          releaseDraft: true
+          args: --target aarch64-apple-darwin
