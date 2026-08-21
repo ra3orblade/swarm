@@ -41,6 +41,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # linuxdeploy's own strip step fails on GH runners; the release profile already strips.
+          NO_STRIP: "true"
           # macOS signing + notarization (ignored on other platforms). Reuses the Apple account
           # creds, mapped from electron-builder / Brainstorm names to Tauri's. See docs/11.
           APPLE_CERTIFICATE: ${{ secrets.CSC_LINK }}
