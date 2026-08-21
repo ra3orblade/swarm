@@ -17,8 +17,12 @@ jobs:
           - platform: macos-latest       # Apple silicon
             args: --target aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
-          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .rpm / .AppImage)
-            args: ""
+          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .rpm)
+            # AppImage is off for now: linuxdeploy fails on GH runners (even with libfuse2 +
+            # NO_STRIP) and Tauri hides its output — suspect patchelf on the bun-compiled sidecar.
+            # `--bundles` alone is not enough (updater artifacts force AppImage on Linux), so both
+            # are disabled via a config override. Tracked under M6.4 in docs/06.
+            args: --config {"bundle":{"targets":["deb","rpm"],"createUpdaterArtifacts":false}}
             rust-targets: ""
           - platform: windows-latest      # Windows x86_64 (.msi / .exe)
             args: ""
