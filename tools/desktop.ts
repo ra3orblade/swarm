@@ -38,7 +38,7 @@ const hostLine = new TextDecoder()
 if (!hostLine) throw new Error("could not determine the Rust host triple (is rustc installed?)");
 const triple = hostLine.slice(6).trim();
 mkdirSync(join(tauri, "binaries"), { recursive: true });
-const out = join(tauri, "binaries", `swarmd-${triple}`);
+const out = join(tauri, "binaries", `swarmd-${triple}${triple.includes("windows") ? ".exe" : ""}`);
 const r = Bun.spawnSync(
   ["bun", "build", "packages/daemon/src/bin.ts", "--compile", "--outfile", out],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
