@@ -12,8 +12,19 @@ mkdirSync(dist, { recursive: true });
 Bun.write(
   join(dist, "index.html"),
   `<!doctype html><meta charset="utf-8"><title>Swarm</title>
-<style>html,body{margin:0;height:100%;background:#0e1013;color:#a3e635;font:14px system-ui;display:grid;place-items:center}</style>
-<body>starting Swarm…
+<style>
+  html,body{margin:0;height:100%;background:#0e1013;color:#a3e635;
+    font:13px system-ui,-apple-system,sans-serif;display:grid;place-items:center;gap:0;overflow:hidden}
+  .wrap{display:grid;place-items:center;gap:22px;animation:rise .5s ease-out both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .mark rect{image-rendering:pixelated;animation:sweep 1.8s ease-in-out infinite}
+  @keyframes sweep{0%,100%{opacity:.32}50%{opacity:1}}
+  .cap{letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:600;color:#7c8592;
+    animation:blink 1.8s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:.5}50%{opacity:1}}
+  .cap b{color:#a3e635;font-weight:700}
+</style>
+<body><div class="wrap"><svg class="mark" viewBox="0 0 96 66" width="288" height="198" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635" style="animation-delay:0.12s"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:0.36s"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:0.42s"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:0.48s"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24" style="animation-delay:0.54s"/><rect x="24" y="18" width="6" height="6" fill="#a3e635" style="animation-delay:0.24s"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:0.42s"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:0.48s"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:0.54s"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:0.6s"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:0.66s"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24" style="animation-delay:0.72s"/><rect x="6" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.06s"/><rect x="30" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.3s"/><rect x="36" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.36s"/><rect x="42" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.42s"/><rect x="48" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.48s"/><rect x="54" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.54s"/><rect x="60" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.6s"/><rect x="66" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.66s"/><rect x="72" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:0.72s"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24" style="animation-delay:0.78s"/><rect x="24" y="42" width="6" height="6" fill="#a3e635" style="animation-delay:0.24s"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:0.42s"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:0.48s"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:0.54s"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:0.6s"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24" style="animation-delay:0.66s"/><rect x="12" y="54" width="6" height="6" fill="#a3e635" style="animation-delay:0.12s"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:0.36s"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:0.42s"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:0.48s"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24" style="animation-delay:0.54s"/></svg><div class="cap">starting <b>Swarm</b></div></div>
 `,
 );
 
