@@ -140,7 +140,7 @@ function renderSpend() {
   const activeDays = new Set(inRange.filter((d) => d.cost).map((d) => d.day)).size;
   const prevDays = new Set(inRange.filter((d) => d.cost && d.day !== today).map((d) => d.day)).size;
   const avg = prevDays ? (total14 - todayCost) / prevDays : 0;
-  const rangeChips = `<span style="margin-left:auto;display:flex;gap:2px">${[7, 14, 30, 90].map((n) => `<a href="#" class="nav ${N === n ? "on" : ""}" data-days="${n}">${n}d</a>`).join("")}</span>`;
+  const rangeChips = `<span class="seg" style="margin-left:auto">${[7, 14, 30, 90].map((n) => `<a href="#" class="${N === n ? "on" : ""}" data-days="${n}">${n}d</a>`).join("")}</span>`;
   const byAgentToday = state.sel ? null : sp.byAgentToday;
   const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
   const tbl = (rows, label, name, color) => `<div class="card"><table><thead><tr><th>${label}</th><th class="num" style="width:88px">cost</th><th class="num" style="width:88px">in+cache</th><th class="num" style="width:84px">out</th><th class="num" style="width:64px">turns</th></tr></thead><tbody>${rows
