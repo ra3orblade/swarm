@@ -137,17 +137,11 @@
   .proj:hover .act{opacity:1}
   .proj .act:hover{color:var(--fg);background:var(--line)}
   .proj .act.rm:hover{color:var(--bad)}
-  aside .spacer{flex:1}
-  aside form{display:flex;gap:6px;margin-top:12px}
-  aside input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--fg);
-    padding:7px 9px;border-radius:var(--r-sm);font:var(--fs-md) var(--mono);outline:none;transition:border-color var(--t-fast)}
-  aside input:focus{border-color:var(--acc)}
   #picker:empty{display:none}
   #picker{position:fixed;inset:0;background:var(--overlay);display:grid;place-items:center;z-index:50}
   .pk{width:min(560px,92vw);max-height:78vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-pop);overflow:hidden}
   .pk-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
-  .pk-h b{font-size:var(--fs-lg)}.pk-path{font:var(--fs-mono) var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;direction:rtl;text-align:left}
-  .pk-list{overflow:auto;padding:6px}
+    .pk-list{overflow:auto;padding:6px}
   .pk-row{display:flex;align-items:center;gap:9px;padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;color:var(--fg-2)}
   .pk-row:hover{background:var(--panel-2)}.pk-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pk-row.up{color:var(--dim)}.pk-row .badge{margin:0}
@@ -156,7 +150,6 @@
   .pk-f .primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
   .pk-f .primary:hover{filter:brightness(1.06);color:var(--acc-contrast)}
   .proj .nm .pdir{opacity:.5;font-weight:400}
-  .hint{color:var(--faint);font-size:var(--fs-sm);line-height:1.5;margin:9px 4px 2px}
   button{background:var(--panel);border:1px solid var(--line);color:var(--fg-2);padding:var(--pad-ctl);
     border-radius:var(--r-sm);font:600 var(--fs-md) var(--sans);cursor:pointer;transition:border-color var(--t-fast),color var(--t-fast)}
   button:hover{border-color:var(--acc);color:var(--fg)}
@@ -369,6 +362,7 @@
   .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
   .fm-ico .ph{vertical-align:0}
   main>h2:not(:first-child){margin-top:var(--gap-sec)}
+  .mt-sec{margin-top:var(--gap-sec)}
   .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
   .chip{font:500 var(--fs-md) var(--sans);padding:4px 11px;border-radius:var(--r-pill);background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;user-select:none}
   .chip:hover{border-color:var(--acc);color:var(--fg-2)}

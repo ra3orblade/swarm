@@ -176,7 +176,7 @@ function renderFleet() {
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
     (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
-    (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
+    (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderClaims() +
     renderWorktrees();
 }
@@ -188,7 +188,7 @@ function renderClaims() {
   rows.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
   const badge = (st) => st === "orphaned" ? '<span class="badge warn">Orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">Expired</span>' : '<span class="badge ok">Held</span>';
   const orphans = rows.filter((c) => c.state === "orphaned").length;
-  return `<h2 style="margin-top:18px">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
+  return `<h2 class="mt-sec">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
     <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:140px">task</th><th style="width:120px">owner</th><th style="width:150px">lease</th><th>worktree</th><th style="width:150px">state</th><th style="width:120px"></th></tr></thead><tbody>${rows
       .map((c) => {
         const dot = c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active";
@@ -207,7 +207,7 @@ function renderWorktrees() {
   if (!rows.length) return "";
   const inside = (w) => state.sessions.filter((s) => s.state !== "ended" && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`)));
   const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
-  return `<h2 style="margin-top:18px">Worktrees <span>${rows.length}</span></h2>
+  return `<h2 class="mt-sec">Worktrees <span>${rows.length}</span></h2>
     <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:260px">branch</th><th style="width:80px">head</th><th>path</th><th style="width:180px">state</th><th style="width:160px">sessions</th></tr></thead><tbody>${rows
       .map((w) => {
         const ss = inside(w);
@@ -252,12 +252,12 @@ function renderSpend() {
      <div class="chart-card"><h3>Daily cost · last ${N} days <span>stacked by agent</span></h3>${viz.stackedColumns(days, series)}${agents.length > 1 ? viz.legend(agents) : ""}</div>
      <div class="cols">
        <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
-       <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 style="margin-top:18px">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
+       <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
      </div>
-     <div class="cols" style="margin-top:22px"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
-     <h2 style="margin-top:18px">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
+     <div class="cols" class="mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+     <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
-     <p class="dim" style="margin-top:14px">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+     <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
 }
 
 // ---------- timeline
