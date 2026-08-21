@@ -4,6 +4,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   desktop:
     runs-on: macos-latest
@@ -18,6 +21,7 @@ jobs:
       - run: bun run desktop:prep
       - uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Apple Developer ID cert + notarization — the SAME account creds Brainstorm uses,
           # mapped from its variable names to Tauri's. Set these as repo secrets.
           APPLE_CERTIFICATE: ${{ secrets.CSC_LINK }}
