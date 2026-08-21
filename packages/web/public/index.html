@@ -66,6 +66,18 @@
   kbd{font:11.5px var(--mono);background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--fg-2)}
   code{font:12px var(--mono);color:var(--fg-2)}
 
+  /* collapsed sidebar */
+  body.nosb{grid-template-columns:0 1fr}
+  body.nosb aside{display:none}
+  aside{grid-column:1;grid-row:2}
+  main{grid-column:2;grid-row:2}
+  #projects h4{display:flex;align-items:center}
+  .h4-act{margin-left:auto;cursor:pointer;color:var(--faint);display:inline-flex;padding:2px;border-radius:4px}
+  .h4-act:hover{color:var(--acc)}
+  .pk-h input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);
+    padding:5px 9px;border-radius:var(--r-sm);font:11.5px var(--mono);outline:none;min-width:0}
+  .pk-h input:focus{border-color:var(--acc)}
+
   /* header */
   header{grid-column:1/3;display:flex;align-items:center;gap:6px;padding:0 16px;
     border-bottom:1px solid var(--line);background:var(--panel);z-index:5}
@@ -131,6 +143,8 @@
 
   /* main */
   main{overflow:auto;padding:20px 22px}
+  h2.hrow{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  h2.hrow .s{margin:0}
   h2{font-size:12px;margin:0 0 12px;color:var(--dim);font-weight:600;text-transform:uppercase;
     letter-spacing:.07em;display:flex;gap:10px;align-items:baseline}
   h2 span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12px}
@@ -148,6 +162,28 @@
   tbody tr{cursor:pointer;transition:background .1s}
   tbody tr:hover{background:var(--panel-2)}
   td:first-child{overflow:visible}
+  /* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
+  .dt thead th{position:relative;user-select:none;-webkit-user-select:none}
+  .dt thead th[data-sort]{cursor:pointer}
+  .dt thead th[data-sort]:hover{color:var(--fg-2)}
+  .dt thead th.dragging{opacity:.4}
+  .dt .th-l{display:inline-flex;align-items:center;gap:5px}
+  .dt th.num .th-l{justify-content:flex-end;width:100%}
+  .dt .sort{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;display:inline-block}
+  .dt .sort.asc{border-bottom:5px solid var(--acc)}
+  .dt .sort.desc{border-top:5px solid var(--acc)}
+  .dt .th-grip{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2}
+  .dt .th-grip:hover{background:linear-gradient(to right,transparent 3px,var(--acc) 3px,var(--acc) 5px,transparent 5px)}
+  body.col-resizing{cursor:col-resize}
+  body.col-resizing .dt thead th{cursor:col-resize}
+  .dt .th-tools{text-align:right}
+  .dt .th-cols{cursor:pointer;color:var(--faint);display:inline-flex}
+  .dt .th-cols:hover{color:var(--fg-2)}
+  .dt tr.filters th{padding:4px 8px;background:var(--panel)}
+  .dt tr.filters input{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);
+    padding:3px 7px;border-radius:var(--r-sm);font:11px var(--mono);outline:none}
+  .dt tr.filters input:focus{border-color:var(--acc)}
+  .dt .tbl-empty td{color:var(--dim);text-align:center;padding:18px;cursor:default}
   td b{font-weight:600;color:var(--fg)}
   td.now,td.br{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
   td.now{color:var(--dim)}
@@ -324,6 +360,7 @@
 </head>
 <body>
 <header>
+  <button class="icon-btn" id="sbToggle" title="Toggle sidebar" aria-label="Toggle sidebar"><i data-icon="arrow-bar-left"></i></button>
   <span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 11" shape-rendering="crispEdges"><rect x="2" y="1" width="1" height="1" fill="#a3e635"/><rect x="6" y="1" width="1" height="1" fill="#7cc02f"/><rect x="7" y="1" width="1" height="1" fill="#7cc02f"/><rect x="8" y="1" width="1" height="1" fill="#7cc02f"/><rect x="9" y="1" width="1" height="1" fill="#4f7d24"/><rect x="4" y="3" width="1" height="1" fill="#a3e635"/><rect x="7" y="3" width="1" height="1" fill="#7cc02f"/><rect x="8" y="3" width="1" height="1" fill="#7cc02f"/><rect x="9" y="3" width="1" height="1" fill="#7cc02f"/><rect x="10" y="3" width="1" height="1" fill="#7cc02f"/><rect x="11" y="3" width="1" height="1" fill="#7cc02f"/><rect x="12" y="3" width="1" height="1" fill="#4f7d24"/><rect x="1" y="5" width="1" height="1" fill="#a3e635"/><rect x="5" y="5" width="1" height="1" fill="#a3e635"/><rect x="6" y="5" width="1" height="1" fill="#a3e635"/><rect x="7" y="5" width="1" height="1" fill="#a3e635"/><rect x="8" y="5" width="1" height="1" fill="#a3e635"/><rect x="9" y="5" width="1" height="1" fill="#a3e635"/><rect x="10" y="5" width="1" height="1" fill="#a3e635"/><rect x="11" y="5" width="1" height="1" fill="#a3e635"/><rect x="12" y="5" width="1" height="1" fill="#a3e635"/><rect x="13" y="5" width="1" height="1" fill="#4f7d24"/><rect x="4" y="7" width="1" height="1" fill="#a3e635"/><rect x="7" y="7" width="1" height="1" fill="#7cc02f"/><rect x="8" y="7" width="1" height="1" fill="#7cc02f"/><rect x="9" y="7" width="1" height="1" fill="#7cc02f"/><rect x="10" y="7" width="1" height="1" fill="#7cc02f"/><rect x="11" y="7" width="1" height="1" fill="#4f7d24"/><rect x="2" y="9" width="1" height="1" fill="#a3e635"/><rect x="6" y="9" width="1" height="1" fill="#7cc02f"/><rect x="7" y="9" width="1" height="1" fill="#7cc02f"/><rect x="8" y="9" width="1" height="1" fill="#7cc02f"/><rect x="9" y="9" width="1" height="1" fill="#4f7d24"/></svg>Swarm</span>
   <a href="#" data-view="fleet" class="nav on"><i data-icon="squares-four"></i>Fleet</a>
   <a href="#" data-view="timeline" class="nav"><i data-icon="clock-counter-clockwise"></i>Timeline</a>
@@ -335,18 +372,12 @@
 </header>
 <aside>
   <div id="projects"></div>
-  <div class="spacer"></div>
-  <form id="addForm" title="Add a project by absolute path">
-    <input id="addPath" placeholder="/path/to/repo" autocomplete="off" spellcheck="false">
-    <button type="button" id="browseBtn" title="Browse folders"><i data-icon="folder-simple"></i></button>
-    <button type="submit" title="Add project"><i data-icon="plus"></i></button>
-  </form>
-  <p class="hint">Folders where Swarm sees a Claude session appear automatically under <b>Unpinned</b>. Pin the ones you care about to keep them here.</p>
 </aside>
 <main id="main"></main>
 <div id="picker"></div>
 <script src="/icons.js"></script>
 <script src="/viz.js"></script>
+<script src="/table.js"></script>
 <script src="/app.js"></script>
 <script src="/menus.js" defer></script>
 </body>
