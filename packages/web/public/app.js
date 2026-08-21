@@ -10,6 +10,7 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
+const leaseLeft = (iso) => { const d = (new Date(iso) - Date.now()) / 1000; if (d <= 0) return "expired"; return d < 3600 ? `${(d / 60) | 0}m left` : `${(d / 3600).toFixed(1)}h left`; };
 const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size, cls) : "");
 const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
 // static <i data-icon> placeholders in index.html → inline SVG
@@ -78,7 +79,28 @@ function renderFleet() {
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
     (live.length ? table(live) : `<div class="empty">${ic("broadcast", 24)}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
+    renderClaims() +
     renderWorktrees();
+}
+
+function renderClaims() {
+  const rows = (state.claims ?? []).filter((c) => c.state !== "released" && (!state.sel || c.projectId === state.sel));
+  if (!rows.length) return "";
+  const order = { orphaned: 0, expired: 1, held: 2 };
+  rows.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
+  const badge = (st) => st === "orphaned" ? '<span class="badge warn">orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">expired</span>' : '<span class="badge ok">held</span>';
+  const orphans = rows.filter((c) => c.state === "orphaned").length;
+  return `<h2 style="margin-top:18px">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
+    <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:140px">task</th><th style="width:120px">owner</th><th style="width:150px">lease</th><th>worktree</th><th style="width:150px">state</th><th style="width:120px"></th></tr></thead><tbody>${rows
+      .map((c) => {
+        const dot = c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active";
+        const key = `${c.projectId}:${c.task}`;
+        const act = c.state === "orphaned"
+          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">force release</a>`
+          : `<a href="#" data-release="${key}">release</a>`;
+        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(c.projectId))}</td>`}<td><b>${esc(c.task)}</b></td><td>${esc(c.owner || "—")}</td><td class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</td><td class="now" title="${esc(c.worktree)}">${esc(short(c.worktree))}</td><td>${badge(c.state)}</td><td>${act}</td></tr>`;
+      })
+      .join("")}</tbody></table></div>`;
 }
 
 function renderWorktrees() {
@@ -258,13 +280,26 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
+  if (t.dataset.release || t.dataset.forcerelease) {
+    ev.preventDefault();
+    const force = Boolean(t.dataset.forcerelease);
+    const [projectId, task] = (t.dataset.release || t.dataset.forcerelease).split(":");
+    if (force && !confirm(`Force-release ${task}? This permanently discards its worktree and any uncommitted work.`)) return;
+    const r = await fetch("/v1/claims/release", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, task, force }) }).then((x) => x.json());
+    if (!r.ok) {
+      if (confirm(`${r.error}\n\nForce-release anyway (discards the work)?`)) {
+        await fetch("/v1/claims/release", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, task, force: true }) });
+      }
+    }
+    return refresh();
+  }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
