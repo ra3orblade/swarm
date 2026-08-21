@@ -28,7 +28,7 @@ Landed ahead of M1 by request. Reads each session's transcript JSONL (path from 
 | M0.8.7 | web: design system pass (theme-aware tokens light/dark, cards, refined type/tables/status); pin/unpin discovered projects; per-session live model + multi-model `+N`; latest-turn model via SQL | ✅ 2026-08-20 |
 | M0.8.6 | tooling: migrate vitest→bun:test, stop emitting per-package dist, biome 2.5 | ✅ |
 
-## M0.9 — Ship it (community-ready) ← current
+## M0.9 — Ship it (community-ready) ← current (M0.9.7 config is the last open item)
 Goal: a stranger clones or `npx`-installs Swarm and it works in under two minutes, with no dev paths, no manual daemon, and docs that answer the obvious questions. This is the open-source release track.
 
 | ID | Task | Depends | Status |
@@ -36,9 +36,9 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M0.9.1 | Daemon lifecycle: `~/.swarm/daemon.json` (port/pid/version), graceful shutdown, `swarm start/stop/restart`, client `ensureDaemon()` auto-spawn | M0.3 | ✅ 2026-08-20 daemon.json (port/pid/version), graceful SIGTERM cleanup, start/stop/restart, client ensureDaemon() auto-spawn |
 | M0.9.2 | Portable `install`: write bin commands that work both from a clone and from a global install (no hard-coded dev paths); `swarm setup` one-shot (ensure daemon → install hooks → open UI) | M0.9.1 | ✅ 2026-08-20 install writes portable command (bare bin under node_modules, else bun+abs path); `swarm setup` one-shot |
 | M0.9.3 | Community scaffolding: real README (quickstart, what/why, screenshots), CONTRIBUTING, CODE_OF_CONDUCT (Contributor Covenant), SECURITY.md, LICENSE headers, issue/PR templates | — | ✅ 2026-08-20 README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, issue/PR templates |
-| M0.9.4 | Package metadata for publish: description, keywords, repo/bugs/homepage, engines, `files`; decide publish name (OQ-1) | M0.9.1 | 🟡 name resolved → **swarm** (@ra3orblade/swarm); metadata + repo URLs set; `files`/bundling pending (M0.9.6) |
+| M0.9.4 | Package metadata for publish: description, keywords, repo/bugs/homepage, engines, `files`; decide publish name (OQ-1) | M0.9.1 | ✅ 2026-08-21 `@ra3orblade/swarm` (`npm/package.json`): metadata, engines, `files`, `publishConfig` |
 | M0.9.5 | `swarm doctor` as the setup guide: checks bun/claude/daemon/hooks/db and prints the exact next command for each gap | M0.9.1 | ✅ 2026-08-20 doctor checks bun/claude/daemon/hooks and prints the fix per gap |
-| M0.9.6 | Release: bundle bins with `bun build` into one publishable package; optional standalone single-file binaries per OS on GitHub Releases; CI publish workflow | M0.9.4 | ⚪ |
+| M0.9.6 | Release: bundle bins with `bun build` into one publishable package; optional standalone single-file binaries per OS on GitHub Releases; CI publish workflow | M0.9.4 | ✅ 2026-08-21 `tools/build-pkg.ts` → `npm/` (4 bundled bins + web, zero deps); `resolveBin()` makes hooks/MCP/daemon spawn work from clone, global install and `bunx`; verified by packing + installing into a clean prefix; `npm` job in release.yml (provenance, tag==version check) + CI builds the bundle; `tools/version.ts` bumps all version fields. Standalone per-OS CLI binaries left optional (desktop already ships the compiled sidecar) |
 | M0.9.7 | Config: `.swarm.toml` loader (optional, per-repo) + `~/.swarm/config.toml` (global: port, lease TTL, offline) | M0.9.1 | ⚪ |
 
 ## M1 — Hold things (ledger)

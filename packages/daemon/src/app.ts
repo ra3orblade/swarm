@@ -7,12 +7,18 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Store } from "./store";
 
-export const VERSION = "0.0.1";
+export const VERSION = process.env.SWARM_VERSION ?? "0.2.0";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
-const WEB_DIR =
-  process.env.SWARM_WEB_DIR ?? join(dirname(fileURLToPath(import.meta.url)), "../../web/public");
+/** Dashboard assets: explicit env → clone (`packages/web/public`) → published bundle (`../web`
+ *  next to `dist/swarmd.js`). */
+const WEB_DIR = (() => {
+  if (process.env.SWARM_WEB_DIR) return process.env.SWARM_WEB_DIR;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const dev = join(here, "../../web/public");
+  return existsSync(join(dev, "index.html")) ? dev : join(here, "../web");
+})();
 
 export function createApp(store = new Store()) {
   const app = new Hono();

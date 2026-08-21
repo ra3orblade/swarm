@@ -31,6 +31,6 @@ Boundaries:
 - `cli`, `mcp`, `hook`, `web` depend only on `client` + `core` types. They never touch SQLite.
 - Adapters for other agent CLIs would live in `core/adapters/<name>` and a matching ingestion route in `daemon`; nothing else changes.
 
-Distribution: one npm package `swarm` (bin: `swarm`, `swarmd`, `swarm-mcp`, `swarm-hook`) so `npx swarm install` is the whole onboarding. Single-file Bun executables per OS attached to GitHub Releases for people without Node/Bun.
+Distribution (M0.9.6, 2026-08-21): one npm package **`@ra3orblade/swarm`** (bin: `swarm`, `swarmd`, `swarm-mcp`, `swarm-hook`) so `bunx @ra3orblade/swarm setup` is the whole onboarding. It is assembled by `tools/build-pkg.ts` into `npm/` (not a workspace — its bins would shadow the dev ones): each bin is a self-contained `bun build --target bun` bundle in `npm/dist/`, the dashboard sits in `npm/web/`, and `npm/package.json` is the only committed file. Every bin resolves its siblings via `resolveBin()` in `client/src/bins.ts` — clone (`packages/*/src/bin.ts`) → bundle (sibling `dist/<name>.js`, absolute path so hook/MCP entries survive PATH changes and `npx`) → PATH. The daemon finds the dashboard the same way (`packages/web/public` → `../web` → `SWARM_WEB_DIR`). `release.yml` publishes on every `v*` tag with npm provenance (needs the `NPM_TOKEN` secret); `bun tools/version.ts <semver>` bumps every version field in one go. The desktop app (M6) ships the daemon as a compiled sidecar; standalone CLI binaries per OS are still optional/unscheduled.
 
-Naming: the npm name `swarm` is probably taken; see OQ-1.
+Naming: resolved in OQ-1 (`@ra3orblade/swarm`; bare `swarm` is taken).
