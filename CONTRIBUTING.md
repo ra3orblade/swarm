@@ -38,6 +38,16 @@ New behaviour ships with a test. Ledger and pricing semantics live in `packages/
 
 Read [`docs/02-architecture.md`](docs/02-architecture.md) and [`CLAUDE.md`](CLAUDE.md) before larger changes.
 
+## Dev workflow skills
+
+This repo ships Claude Code skills for its own development (`.claude/skills/`). Invoke with a slash command:
+
+- **/plan** — the roadmap as markdown tables (what's done, in progress, next).
+- **/review** — code-review the branch diff for correctness + Swarm invariants.
+- **/design-review** — review `packages/web` UI changes against the design system.
+- **/chores** — the pre-ship wrap-up: verify suite → review → docs → commit → PR.
+- **/pr** — open a PR from the current worktree.
+
 ## Ground rules
 
 - **Repo-agnostic is a hard constraint.** Nothing Swarm needs may live inside a monitored repository (the one exception is an *optional* `.swarm.toml`). Ask: does this work on an empty folder?
