@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    LogicalPosition, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
+    Manager, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_shell::ShellExt;
 
@@ -137,14 +137,21 @@ pub fn run() {
             // Build the window in Rust (not tauri.conf) so we can pin the macOS traffic lights
             // near the top-left instead of letting them center in the tall header. It loads a
             // splash (frontendDist); navigate_when_ready redirects it to the daemon once it's up.
-            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Swarm")
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(720.0, 480.0)
-                .title_bar_style(TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(LogicalPosition::new(19.0, 26.0))
-                .build()?;
+            #[allow(unused_mut)]
+            let mut builder =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Swarm")
+                    .inner_size(1280.0, 820.0)
+                    .min_inner_size(720.0, 480.0);
+            // Overlay title bar + traffic-light pinning are macOS-only builder APIs.
+            #[cfg(target_os = "macos")]
+            {
+                builder = builder
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::LogicalPosition::new(19.0, 26.0));
+            }
+            let win = builder.build()?;
             navigate_when_ready(win, port);
 
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
