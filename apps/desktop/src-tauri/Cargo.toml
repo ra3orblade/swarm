@@ -1,0 +1,20 @@
+[package]
+name = "swarm-desktop"
+version = "0.1.0"
+description = "Swarm — local control plane for AI-agent development"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+
+[lib]
+name = "swarm_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+strip = true
+lto = true

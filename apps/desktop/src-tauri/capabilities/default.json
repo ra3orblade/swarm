@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Swarm desktop capabilities",
+  "windows": ["main"],
+  "permissions": ["core:default", "shell:allow-execute"]
+}
