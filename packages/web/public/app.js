@@ -90,12 +90,19 @@ async function refresh() {
   render();
 }
 function render() {
+  // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
+  const af = document.activeElement;
+  const keep = af?.dataset?.filter ? { key: af.dataset.filter, tid: af.dataset.tid, pos: af.selectionStart } : null;
   renderProjects();
   renderHeader();
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
   else if (state.view === "timeline") renderTimeline();
   else renderFleet();
+  if (keep) {
+    const el = document.querySelector(`input[data-filter="${keep.key}"][data-tid="${keep.tid}"]`);
+    if (el) { el.focus(); el.setSelectionRange(keep.pos, keep.pos); }
+  }
 }
 function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
@@ -122,7 +129,7 @@ function renderProjects() {
   };
   const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
   $("#projects").innerHTML =
-    `<h4>Projects</h4>` +
+    `<h4>Projects <span class="h4-act" id="addProj" title="Add project">${ic("plus", 14)}</span></h4>` +
     `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
     pinned.map(row).join("") +
     (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
@@ -130,15 +137,37 @@ function renderProjects() {
 }
 
 // ---------- fleet
+// Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
+const FLEET_COLS = [
+  { key: "project", label: "project", width: 104, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
+  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}` },
+  { key: "branch", label: "branch", width: 134, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
+  { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\n")[0] : s.last) : s.last)}</span>` },
+  { key: "model", label: "model", width: 96, get: (s) => model(s.model), cell: (s) => `<span class="br">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</span>` },
+  { key: "trend", label: "trend", width: 100, sortable: false, filterable: false, get: () => null, cell: (s) => viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent)) },
+  { key: "out", label: "out", width: 66, num: true, get: (s) => s.tokens.output, cell: (s) => tok(s.tokens.output) },
+  { key: "ctx", label: "ctx", width: 72, num: true, get: (s) => s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite, cell: (s) => tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite) },
+  { key: "cost", label: "cost", width: 64, num: true, get: (s) => s.costUsd ?? 0, cell: (s) => usd(s.costUsd) },
+  { key: "age", label: "age", width: 56, num: true, get: (s) => new Date(s.lastSeenAt).getTime(), cell: (s) => `<span class="dim">${ago(s.lastSeenAt)}</span>` },
+];
+
 function renderFleet() {
   const base = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
   const agents = [...new Set(base.map((s) => s.agent))].sort();
   const rows = base.filter((s) => !state.agentFilter || s.agent === state.agentFilter);
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
-  const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th><th style="width:30px"></th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
-    .join("")}</tbody></table></div>`;
+  const cols = FLEET_COLS.filter((c) => !(c.key === "project" && state.sel));
+  const table = (list) =>
+    dataTable({
+      id: "fleet",
+      columns: cols,
+      rows: list,
+      leading: { width: 24, cell: (s) => `<span class="s ${s.state}"></span>` },
+      trailing: { width: 34, cell: (s) => `<span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span>` },
+      rowAttrs: (s) => `data-s="${s.id}" data-ctx="session" data-sid="${s.id}"`,
+      rerender: renderFleet,
+    });
   const chips = agents.length > 1
     ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">All</span>${agents
         .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${base.filter((s) => s.agent === a).length}</b></span>`)
@@ -271,7 +300,7 @@ function renderSession() {
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  $("#main").innerHTML = `<h2><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>
+  $("#main").innerHTML = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>
   <div class="sess"><div id="log">${sessionStream(s)}</div>
   <aside class="side">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
@@ -374,20 +403,39 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; state.session = null; return render(); }
 });
-$("#addForm").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const path = $("#addPath").value.trim();
+async function addProject(path) {
   if (!path) return;
   const r = await fetch("/v1/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
   if (!r.ok) return alert((await r.json()).error);
-  $("#addPath").value = "";
   refresh();
+}
+// "+" in the Projects header: menu of ways to add a project
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest?.("#addProj");
+  if (!t || !window.menus) return;
+  window.menus.open(t, { items: [
+    { label: "Browse folders\u2026", icon: "folder-simple", run: () => openPicker() },
+    { label: "Add by path\u2026", icon: "terminal-window", run: () => openPicker(true) },
+  ] });
 });
+// collapsible sidebar, persisted
+const sbApply = () => {
+  const off = localStorage.getItem("swarm.sidebar") === "off";
+  document.body.classList.toggle("nosb", off);
+  const b = $("#sbToggle");
+  if (b) b.innerHTML = ic(off ? "arrow-bar-right" : "arrow-bar-left", 15);
+};
+$("#sbToggle")?.addEventListener("click", () => {
+  localStorage.setItem("swarm.sidebar", document.body.classList.contains("nosb") ? "on" : "off");
+  sbApply();
+});
+sbApply();
 
 // ---------- folder picker
 const picker = { path: null };
-async function openPicker() {
-  await pickerGo($("#addPath").value.trim() || "");
+async function openPicker(focusPath = false) {
+  await pickerGo("");
+  if (focusPath) { const i = $("#pkPath"); if (i) { i.focus(); i.select(); } }
 }
 async function pickerGo(path) {
   let data;
@@ -403,7 +451,7 @@ async function pickerGo(path) {
   for (const e of data.entries)
     rows.push(`<div class="pk-row" data-go="${esc(base)}/${esc(e.name)}">${ic(e.repo ? "git-branch" : "folder-simple", 14)}<span class="nm">${esc(e.name)}</span>${e.repo ? '<span class="badge acc">git</span>' : ""}</div>`);
   $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
-    <div class="pk-h">${ic("folders", 15)}<span class="pk-path" title="${esc(data.path)}">${esc(data.path)}</span></div>
+    <div class="pk-h">${ic("folders", 15)}<input id="pkPath" value="${esc(data.path)}" spellcheck="false" autocomplete="off" title="Type a path and press Enter"></div>
     <div class="pk-list">${rows.join("") || '<div class="empty" style="padding:20px">No sub-folders.</div>'}</div>
     <div class="pk-f"><span class="grow"></span><button type="button" id="pkCancel">Cancel</button><button type="button" id="pkAdd" class="primary">Add this folder</button></div>
   </div>`;
@@ -413,10 +461,12 @@ $("#picker").addEventListener("click", (ev) => {
   if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
   const go = ev.target.closest("[data-go]");
   if (go) return void pickerGo(go.dataset.go);
-  if (ev.target.closest("#pkAdd")) { $("#addPath").value = picker.path; closePicker(); $("#addForm").requestSubmit(); }
+  if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
+});
+$("#picker").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.id === "pkPath") { ev.preventDefault(); pickerGo(ev.target.value.trim()); }
 });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
-$("#browseBtn").addEventListener("click", () => openPicker());
 
 // ---------- live
 function connect() {
