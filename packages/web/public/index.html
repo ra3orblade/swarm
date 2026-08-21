@@ -53,7 +53,11 @@
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 var(--sans);
-    -webkit-font-smoothing:antialiased;display:grid;grid-template-rows:48px 1fr;grid-template-columns:240px 1fr;overflow:hidden}
+    -webkit-font-smoothing:antialiased;display:grid;grid-template-rows:48px 1fr;grid-template-columns:240px 1fr;overflow:hidden;
+    animation:appin .32s ease both;user-select:none;-webkit-user-select:none}
+  @keyframes appin{from{opacity:0}to{opacity:1}}
+  /* Chrome (header, sidebar, controls) isn't selectable; real data stays selectable/copyable. */
+  input,textarea,tbody td,.mono,code,kbd{user-select:text;-webkit-user-select:text}
   ::selection{background:var(--acc-soft)}
   a{color:var(--acc);text-decoration:none}
   .dim{color:var(--dim)}.faint{color:var(--faint)}
@@ -65,6 +69,13 @@
   /* header */
   header{grid-column:1/3;display:flex;align-items:center;gap:6px;padding:0 16px;
     border-bottom:1px solid var(--line);background:var(--panel);z-index:5}
+  /* macOS desktop app: overlay title bar — pad the header clear of the traffic lights,
+     but reclaim the space in fullscreen where the lights are hidden. */
+  html.chrome-inset header{padding-left:96px}
+  html.chrome-inset.fs header{padding-left:16px}
+  /* Overlay title bar hides the native drag region; app.js wires header mousedown to
+     the Tauri window drag. Interactive controls keep the default cursor. */
+  html.chrome-inset header{cursor:default}
   header .logo{font-weight:700;letter-spacing:.02em;font-size:14px;margin-right:14px;display:flex;align-items:center;gap:8px}
   header .logo svg{width:22px;height:auto;image-rendering:pixelated;image-rendering:crisp-edges}
   header .nav{color:var(--dim);padding:6px 11px;border-radius:var(--r-sm);font-weight:500;transition:color .12s,background .12s}
@@ -296,6 +307,9 @@
   :root[data-theme="dark"]{--fm-surface-shadow:0 8px 24px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.4)}
   .fm-row--danger{color:var(--bad)}
   .fm-row--danger:hover{background:var(--bad-soft)}
+  /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
+  .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
+  .fm-ico .ph{vertical-align:0}
   main>h2:not(:first-child){margin-top:22px}
   .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
   .chip{font:500 12px var(--sans);padding:4px 11px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;user-select:none}
@@ -317,7 +331,7 @@
   <span class="sp"></span>
   <span id="today"></span>
   <span id="daemon"><span class="dot"></span><span class="lbl">Daemon</span></span>
-  <button class="icon-btn" id="settings" title="Settings" aria-label="Settings"><i data-icon="gear"></i></button>
+  <button class="icon-btn" id="settings" title="Settings" aria-label="Settings"><i data-icon="sliders"></i></button>
 </header>
 <aside>
   <div id="projects"></div>

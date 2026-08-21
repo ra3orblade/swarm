@@ -89,7 +89,10 @@ const configs = [0, 1, 2].map((depth) =>
     kind: MenuKind.Menu,
     group: "swarm",
     position: { minWidth: 200, maxWidth: 320 },
-    chrome: { title: (ctx) => (ctx.data as MenuSpec)?.title ?? "", role: "menu" },
+    // No chrome/title header — menus are anchored to what they act on, so a title bar is
+    // redundant (and fancy-menus renders it whenever the title config exists, even if empty).
+    // Submenus still get their own back-button header.
+    chrome: { role: "menu" },
     body: {
       kind: BodyKind.List,
       source: { kind: SourceKind.Prop, getItems: (d: MenuSpec) => d?.items ?? [] },

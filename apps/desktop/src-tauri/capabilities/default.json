@@ -3,5 +3,15 @@
   "identifier": "default",
   "description": "Swarm desktop capabilities",
   "windows": ["main"],
-  "permissions": ["core:default", "shell:allow-execute", "updater:default"]
+  "local": true,
+  "remote": {
+    "urls": ["http://localhost:*", "http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "shell:allow-execute",
+    "updater:default"
+  ]
 }
