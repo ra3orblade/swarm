@@ -343,6 +343,9 @@
   :root[data-theme="dark"]{--fm-surface-shadow:0 8px 24px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.4)}
   .fm-row--danger{color:var(--bad)}
   .fm-row--danger:hover{background:var(--bad-soft)}
+  /* pressed/active rows: soft accent tint, not the solid accent block */
+  .fm-row[data-pressed="true"]{background:var(--acc-soft);color:var(--fg)}
+  .fm-row[data-pressed="true"] .fm-ico{color:var(--acc)}
   /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
   .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
   .fm-ico .ph{vertical-align:0}
