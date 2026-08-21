@@ -8,12 +8,19 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use std::sync::Mutex;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+
+/// The daemon child this app spawned (None when reusing an already-running daemon).
+/// Killed on real exit so quitting Swarm doesn't leave a stray swarmd behind.
+struct Sidecar(Mutex<Option<CommandChild>>);
 
 fn health(port: u16) -> bool {
     TcpStream::connect_timeout(
@@ -129,7 +136,9 @@ pub fn run() {
                     if !web_dir.is_empty() {
                         cmd = cmd.env("SWARM_WEB_DIR", web_dir);
                     }
-                    let _ = cmd.spawn();
+                    if let Ok((_rx, child)) = cmd.spawn() {
+                        app.manage(Sidecar(Mutex::new(Some(child))));
+                    }
                 }
                 p
             });
@@ -152,6 +161,17 @@ pub fn run() {
                     .traffic_light_position(tauri::LogicalPosition::new(19.0, 26.0));
             }
             let win = builder.build()?;
+            // Closing the window hides it (the tray keeps the app alive); "Open Swarm" and the
+            // dock icon bring it back. Real quits go through ExitRequested below.
+            win.on_window_event({
+                let win = win.clone();
+                move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win.hide();
+                    }
+                }
+            });
             navigate_when_ready(win, port);
 
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
@@ -172,9 +192,27 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Swarm")
-        .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                api.prevent_exit();
+        .run(|app, event| match event {
+            // Explicit quits (tray Quit, Cmd+Q) carry an exit code — let those through.
+            // The code-less request (last window gone) keeps the tray app alive.
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                // Code-less request = last window gone; keep the tray app alive.
+                // Explicit quits (tray Quit, Cmd+Q) carry a code and fall through.
+                if code.is_none() {
+                    api.prevent_exit();
+                }
             }
+            // Fires on every quit path (macOS Cmd+Q terminates without ExitRequested):
+            // take the daemon down with us — only the one we spawned.
+            tauri::RunEvent::Exit => {
+                if let Some(sidecar) = app.try_state::<Sidecar>() {
+                    if let Some(child) = sidecar.0.lock().ok().and_then(|mut g| g.take()) {
+                        let _ = child.kill();
+                    }
+                }
+            }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => open_window(app),
+            _ => {}
         });
 }
