@@ -85,7 +85,15 @@ jobs:
           PKG=$(node -p "require('./npm/package.json').version")
           test "v$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != npm/package.json $PKG"; exit 1; }
       - run: bun npm/dist/swarm.js --help
-      - run: npm publish --provenance --access public
+      # Skip (don't fail the release) while the NPM_TOKEN secret isn't configured.
+      - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
+        run: npm publish --provenance --access public
         working-directory: npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Note when unpublished
+        if: env.TOKEN_SET == ''
+        run: echo "NPM_TOKEN not set — skipped npm publish."
+        env:
+          TOKEN_SET: ${{ secrets.NPM_TOKEN }}
