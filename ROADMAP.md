@@ -13,7 +13,7 @@ One dashboard shows every Claude Code session on the machine, live, across every
 ## Phase 0.9 — Ship it (community-ready) 🟡
 Make it installable and runnable by anyone in minutes.
 - ✅ Daemon lifecycle, portable install, `doctor`, product-agnostic docs, the `swarm` name
-- ⚪ `bunx` distribution (bundled package) and optional standalone binaries
+- ✅ `bunx @ra3orblade/swarm` distribution (bundled package, published from CI on tags); desktop app on GitHub Releases
 - 🟡 Config: `.swarm.toml` (per-repo) and `~/.swarm/config.toml` (global)
 
 ## Phase 1 — Hold things (the ledger) ⚪

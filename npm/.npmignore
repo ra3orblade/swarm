@@ -1,0 +1,2 @@
+# everything not in "files" is excluded already; keep bundler scratch out regardless
+*.tsbuildinfo

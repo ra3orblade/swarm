@@ -1,6 +1,7 @@
 import type { SwarmEvent } from "@swarm/core";
 import { resolveBaseUrl } from "./daemon";
 
+export * from "./bins";
 export * from "./daemon";
 
 export interface ClientOptions {

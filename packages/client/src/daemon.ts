@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { resolveBin } from "./bins";
 
 export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
 export const DEFAULT_PORT = Number(process.env.SWARM_PORT ?? 7777);
@@ -45,14 +45,9 @@ function alive(pid: number): boolean {
   }
 }
 
-/** Resolve the daemon entrypoint. Prefer `swarmd` on PATH (global install); fall back to the
- *  source bin relative to this file (clone / dev). Returns argv for spawning. */
+/** Resolve the daemon entrypoint (clone → bundle → PATH). Returns argv for spawning. */
 export function daemonCommand(): string[] {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // packages/client/src -> packages/daemon/src/bin.ts
-  const srcBin = resolve(here, "../../daemon/src/bin.ts");
-  if (existsSync(srcBin)) return ["bun", srcBin];
-  return ["swarmd"];
+  return resolveBin("swarmd");
 }
 
 export interface DaemonClientOptions {

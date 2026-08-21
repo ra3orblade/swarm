@@ -18,3 +18,5 @@ jobs:
       - run: bun run test
       - run: bun run smoke
       - run: bun run docs:check
+      - run: bun run build:pkg
+      - run: bun npm/dist/swarm.js --help

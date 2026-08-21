@@ -34,16 +34,27 @@ The rules teams write as prose in `CLAUDE.md` ("never edit in the shared tree", 
 
 ## Quickstart
 
+Install the CLI (bundled, zero runtime dependencies beyond Bun):
+
+```sh
+bun add -g @ra3orblade/swarm
+swarm setup        # starts the daemon, installs hooks, opens the dashboard
+```
+
+Or try it without installing: `bunx @ra3orblade/swarm setup`.
+
+Or from a clone (what contributors use):
+
 ```sh
 git clone https://github.com/ra3orblade/swarm.git
 cd swarm
 bun install
-bun run setup      # starts the daemon, installs hooks, opens the dashboard
+bun run setup      # same thing; the CLI is `bun run swarm <cmd>` from a clone
 ```
 
 That's it. Start `claude` in any folder and it appears in the dashboard at **http://127.0.0.1:7777**.
 
-The daemon runs in the background and auto-starts when needed. To stop it: `bun run swarm stop`.
+The daemon runs in the background and auto-starts when needed. To stop it: `swarm stop`. Prefer a native window and auto-updates? Grab the [desktop app](#desktop-app-optional) from GitHub Releases instead.
 
 ### CLI
 
@@ -70,12 +81,14 @@ bun run swarm uninstall       # remove Swarm hooks from Claude Code
 
 A native Tauri app that runs the daemon as a sidecar and shows the dashboard in its own window with a tray icon:
 
+Download the latest build from [GitHub Releases](https://github.com/ra3orblade/swarm/releases) — macOS `.dmg` (signed + notarized), Windows `.msi`/`.exe`, Linux `.deb`/`.AppImage`. The app checks the release feed and updates itself. The Windows and Linux builds are not code-signed yet.
+
+Building it yourself needs the Rust toolchain (`rustup`):
+
 ```sh
 bun run desktop:dev     # build web + compile the daemon sidecar, then run the app
-bun run desktop:build   # produce a .app / .dmg (macOS)
+bun run desktop:build   # produce the platform bundle (.dmg / .msi / .deb …)
 ```
-
-Requires the Rust toolchain (`rustup`). Auto-updates are planned (they need code-signing keys).
 
 ## How it works
 

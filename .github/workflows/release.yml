@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write   # npm provenance
 
 jobs:
   desktop:
@@ -59,3 +60,28 @@ jobs:
           releaseName: "Swarm ${{ github.ref_name }}"
           releaseDraft: true
           args: ${{ matrix.args }}
+
+  npm:
+    # Publishes @ra3orblade/swarm (bundled bins + dashboard) on every v* tag. Needs the NPM_TOKEN
+    # secret (granular token with publish rights on the @ra3orblade scope).
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - run: bun run build:pkg
+      - name: Tag must match package version
+        run: |
+          PKG=$(node -p "require('./npm/package.json').version")
+          test "v$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != npm/package.json $PKG"; exit 1; }
+      - run: bun npm/dist/swarm.js --help
+      - run: npm publish --provenance --access public
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

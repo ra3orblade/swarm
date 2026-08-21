@@ -12,7 +12,7 @@ Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing sur
 
 M0 + M0.8 done (2026-08-20): SQLite-backed. Reads Claude Code **transcripts** for tokens/cost/reasoning, not just hooks — the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `swarm install`), with project sidebar, Fleet and Session views. Events are still **in memory** — a daemon restart (including `--watch` reloads) wipes history; M0.3 SQLite is the next task. Dashboard is plain HTML/JS in `packages/web/public` (`index.html`, `app.js`, `viz.js`), served by the daemon. Three generated files sit beside them — `menus.js` (React island running `@react-fancy-menus/core`), `fm.css`, `icons.js` (Phosphor subset) — produced by `bun run build:web` (`packages/web/tools/build.ts`, runs on `postinstall`). Icons are **Phosphor** (regular) everywhere; menus are described as data in `app.js` (`menuSpec`) and rendered by `src/menus.tsx`.
 
-Onboarding is one command: `bun run setup` (ensures the daemon, installs hooks, opens the dashboard). Dev loop: `bun run dev` runs the daemon with hot reload; the CLI is `bun run swarm <cmd>` (`setup`, `start/stop/restart`, `status`, `add`, `doctor`, `tail`, `ui`, `install/uninstall`). The daemon auto-starts on any CLI command via `ensureDaemon()`; the hook shim never auto-starts (must stay fast, fails open). State + `daemon.json` live in `~/.swarm`.
+Distribution: `@ra3orblade/swarm` on npm (built by `tools/build-pkg.ts` into `npm/`, published by `release.yml` on `v*` tags) plus the Tauri desktop app on GitHub Releases; `resolveBin()` in `client` locates sibling bins for clone / global / `bunx` layouts. Onboarding is one command: `bun run setup` (ensures the daemon, installs hooks, opens the dashboard). Dev loop: `bun run dev` runs the daemon with hot reload; the CLI is `bun run swarm <cmd>` (`setup`, `start/stop/restart`, `status`, `add`, `doctor`, `tail`, `ui`, `install/uninstall`). The daemon auto-starts on any CLI command via `ensureDaemon()`; the hook shim never auto-starts (must stay fast, fails open). State + `daemon.json` live in `~/.swarm`.
 
 ## Planned stack (see docs/05)
 
@@ -24,6 +24,8 @@ Bun workspaces · TypeScript · Biome · Vitest · Hono (daemon) · `bun:sqlite`
 bun install
 bun run dev          # swarmd with --watch (SWARM_PORT, default 7777)
 bun run test         # bun test (bunfig root=packages)
+bun run build:pkg    # assemble the publishable @ra3orblade/swarm into npm/ (bundled bins + web)
+bun tools/version.ts 0.3.0   # bump every version field; then commit, tag v0.3.0, push --tags
 bun run typecheck    # tsc -b over project references
 bun run lint         # biome check .   (format: bun run format)
 bun run smoke        # in-process daemon: POST event → SSE replay
