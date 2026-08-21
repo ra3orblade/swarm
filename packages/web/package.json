@@ -11,11 +11,10 @@
     "build": "bun tools/build.ts"
   },
   "dependencies": {
-    "@phosphor-icons/core": "^2.1.1",
-    "@phosphor-icons/react": "^2.1.10",
     "@react-fancy-menus/core": "^0.2.1",
     "@swarm/client": "workspace:*",
     "@swarm/core": "workspace:*",
+    "pixelarticons": "^2.4.1",
     "react": "^19",
     "react-dom": "^19"
   },

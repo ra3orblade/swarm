@@ -13,6 +13,53 @@ const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
 const leaseLeft = (iso) => { const d = (new Date(iso) - Date.now()) / 1000; if (d <= 0) return "expired"; return d < 3600 ? `${(d / 60) | 0}m left` : `${(d / 3600).toFixed(1)}h left`; };
 const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size, cls) : "");
 const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
+// pixel-art illustrations for empty states (crispEdges, theme-green; won't clash with icon packs)
+function pixmap(rows, cell = 6) {
+  const C = { X: "var(--acc)", g: "var(--c5,#7fb069)", d: "var(--c4,#2f7d4f)" };
+  const w = Math.max(...rows.map((r) => r.length)) * cell;
+  const h = rows.length * cell;
+  let r = "";
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const f = C[row[x]];
+      if (f) r += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="${f}"/>`;
+    }
+  });
+  return `<svg class="px" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${r}</svg>`;
+}
+const PX = {
+  idle: () => pixmap([
+    "   X  X   ",
+    "   X  X   ",
+    " XXXXXXXX ",
+    " XXXXXXXX ",
+    " X  XX  X ",
+    " XXXXXXXX ",
+    " XX    XX ",
+    " XXXXXXXX ",
+    "  X    X  ",
+  ]),
+  folder: () => pixmap([
+    " XXXX     ",
+    "XXXXXXXXXX",
+    "XggggggggX",
+    "XggggggggX",
+    "XggggggggX",
+    "XggggggggX",
+    "XXXXXXXXXX",
+  ]),
+  clock: () => pixmap([
+    "  XXXXX  ",
+    " X     X ",
+    "X   X   X",
+    "X   X   X",
+    "X   XXX X",
+    "X       X",
+    "X       X",
+    " X     X ",
+    "  XXXXX  ",
+  ]),
+};
 // static <i data-icon> placeholders in index.html → inline SVG
 for (const el of document.querySelectorAll("i[data-icon]")) el.outerHTML = ic(el.dataset.icon, 15);
 // theme: "system" | "light" | "dark", persisted; CSS handles system via prefers-color-scheme
@@ -38,7 +85,7 @@ function render() {
 }
 function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
-  $("#today").innerHTML = `today <b>${usd(today)}</b>`;
+  $("#today").innerHTML = `Today <b>${usd(today)}</b>`;
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
 }
 
@@ -46,10 +93,18 @@ function renderProjects() {
   const live = (pid) => state.sessions.filter((s) => s.projectId === pid && (s.state === "active" || s.state === "waiting")).length;
   const pinned = state.projects.filter((p) => !p.discovered);
   const unpinned = state.projects.filter((p) => p.discovered);
+  const nameCount = {};
+  for (const p of state.projects) nameCount[p.name] = (nameCount[p.name] || 0) + 1;
+  const disamb = (p) => {
+    if ((nameCount[p.name] || 0) <= 1) return "";
+    const parts = String(p.root || "").split("/").filter(Boolean);
+    const parent = parts[parts.length - 2];
+    return parent ? `<span class="pdir">${esc(parent)}/</span>` : "";
+  };
   const row = (p) => {
     const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}">
-      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
   $("#projects").innerHTML =
@@ -57,7 +112,7 @@ function renderProjects() {
     `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
     pinned.map(row).join("") +
     (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
-    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${ic("folder-simple", 22)}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
+    (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${PX.folder()}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
 }
 
 // ---------- fleet
@@ -68,16 +123,16 @@ function renderFleet() {
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
   const table = (list) => `<div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:236px">session</th><th style="width:134px">branch</th><th>now</th><th style="width:88px">model</th><th style="width:100px" title="output tokens per turn, last 24 turns">trend</th><th class="num" style="width:66px">out</th><th class="num" style="width:70px">ctx</th><th class="num" style="width:62px">cost</th><th class="num" style="width:46px">age</th><th style="width:30px"></th></tr></thead><tbody>${list
-    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
+    .map((s) => `<tr data-s="${s.id}" data-ctx="session" data-sid="${s.id}"><td><span class="s ${s.state}"></span></td>${state.sel ? "" : `<td>${esc(projName(s.projectId))}</td>`}<td title="${s.id}">${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}</td><td class="br">${esc(s.branch ?? "")}</td><td class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\\n")[0] : s.last) : s.last)}</td><td class="br" title="${s.models > 1 ? `${s.models} models used this session` : ""}">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</td><td>${viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent))}</td><td class="num">${tok(s.tokens.output)}</td><td class="num" title="cache read + input">${tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite)}</td><td class="num">${usd(s.costUsd)}</td><td class="num dim">${ago(s.lastSeenAt)}</td><td><span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span></td></tr>`)
     .join("")}</tbody></table></div>`;
   const chips = agents.length > 1
-    ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">all</span>${agents
+    ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">All</span>${agents
         .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${base.filter((s) => s.agent === a).length}</b></span>`)
         .join("")}</div>`
     : "";
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live) : `<div class="empty">${ic("broadcast", 24)}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 style="margin-top:18px">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderClaims() +
     renderWorktrees();
@@ -88,7 +143,7 @@ function renderClaims() {
   if (!rows.length) return "";
   const order = { orphaned: 0, expired: 1, held: 2 };
   rows.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
-  const badge = (st) => st === "orphaned" ? '<span class="badge warn">orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">expired</span>' : '<span class="badge ok">held</span>';
+  const badge = (st) => st === "orphaned" ? '<span class="badge warn">Orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">Expired</span>' : '<span class="badge ok">Held</span>';
   const orphans = rows.filter((c) => c.state === "orphaned").length;
   return `<h2 style="margin-top:18px">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
     <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:140px">task</th><th style="width:120px">owner</th><th style="width:150px">lease</th><th>worktree</th><th style="width:150px">state</th><th style="width:120px"></th></tr></thead><tbody>${rows
@@ -96,8 +151,8 @@ function renderClaims() {
         const dot = c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active";
         const key = `${c.projectId}:${c.task}`;
         const act = c.state === "orphaned"
-          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">force release</a>`
-          : `<a href="#" data-release="${key}">release</a>`;
+          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">Force release</a>`
+          : `<a href="#" data-release="${key}">Release</a>`;
         return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(c.projectId))}</td>`}<td><b>${esc(c.task)}</b></td><td>${esc(c.owner || "—")}</td><td class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</td><td class="now" title="${esc(c.worktree)}">${esc(short(c.worktree))}</td><td>${badge(c.state)}</td><td>${act}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
@@ -114,8 +169,8 @@ function renderWorktrees() {
       .map((w) => {
         const ss = inside(w);
         const dot = ss.length ? "active" : w.dirty > 0 ? "waiting" : "ended";
-        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">clean</span>' : "";
-        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "dirty", "warn")}${badge(w.ahead, "unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
+        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">Clean</span>' : "";
+        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">Main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
 }
@@ -172,7 +227,7 @@ function renderTimeline() {
   const chip = (h) => `<a href="#" class="nav ${hours === h ? "on" : ""}" data-tl="${h}">${h}h</a>`;
   $("#main").innerHTML =
     `<h2>Timeline <span>${rows.length} sessions · last ${hours}h · ${usd(sumBy(rows, (s) => s.costUsd))}</span><span style="margin-left:auto;display:flex;gap:2px">${[3, 6, 12, 24, 72].map(chip).join("")}</span></h2>
-     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">No sessions in the last ${hours}h.</div>`}
+     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">${PX.clock()}No sessions in the last ${hours}h.</div>`}
      ${agents.length ? `<div style="margin-top:10px">${viz.legend(agents)}</div>` : ""}`;
 }
 
@@ -211,7 +266,7 @@ function renderSession() {
     ${subTurns.length ? stat("subagent turns", subTurns.length) : ""}
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
-    <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">none yet</span>'}
+    <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}
   </aside></div>`;
   if (atBottom) $("#log").scrollTop = $("#log").scrollHeight;
@@ -314,6 +369,40 @@ $("#addForm").addEventListener("submit", async (ev) => {
   $("#addPath").value = "";
   refresh();
 });
+
+// ---------- folder picker
+const picker = { path: null };
+async function openPicker() {
+  await pickerGo($("#addPath").value.trim() || "");
+}
+async function pickerGo(path) {
+  let data;
+  try {
+    const r = await fetch(`/v1/fs/ls?path=${encodeURIComponent(path)}`);
+    data = await r.json();
+    if (!r.ok) throw new Error(data.error || "cannot read folder");
+  } catch (e) { return alert(e.message); }
+  picker.path = data.path;
+  const rows = [];
+  if (data.parent) rows.push(`<div class="pk-row up" data-go="${esc(data.parent)}">${ic("arrow-left", 14)}<span class="nm">..</span></div>`);
+  const base = data.path.replace(/\/$/, "");
+  for (const e of data.entries)
+    rows.push(`<div class="pk-row" data-go="${esc(base)}/${esc(e.name)}">${ic(e.repo ? "git-branch" : "folder-simple", 14)}<span class="nm">${esc(e.name)}</span>${e.repo ? '<span class="badge acc">git</span>' : ""}</div>`);
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("folders", 15)}<span class="pk-path" title="${esc(data.path)}">${esc(data.path)}</span></div>
+    <div class="pk-list">${rows.join("") || '<div class="empty" style="padding:20px">No sub-folders.</div>'}</div>
+    <div class="pk-f"><span class="grow"></span><button type="button" id="pkCancel">Cancel</button><button type="button" id="pkAdd" class="primary">Add this folder</button></div>
+  </div>`;
+}
+const closePicker = () => { $("#picker").innerHTML = ""; };
+$("#picker").addEventListener("click", (ev) => {
+  if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
+  const go = ev.target.closest("[data-go]");
+  if (go) return void pickerGo(go.dataset.go);
+  if (ev.target.closest("#pkAdd")) { $("#addPath").value = picker.path; closePicker(); $("#addForm").requestSubmit(); }
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
+$("#browseBtn").addEventListener("click", () => openPicker());
 
 // ---------- live
 function connect() {

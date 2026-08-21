@@ -2,48 +2,6 @@
 // vanilla dashboard:  window.menus.open(anchor, { title?, items }) / .close()
 // Menus are described as data by app.js; this file owns rendering, positioning, keyboard.
 
-import {
-  ArrowLeft,
-  ArrowSquareOut,
-  ArrowsClockwise,
-  BookOpen,
-  Broadcast,
-  ChartBar,
-  Check,
-  Clock,
-  ClockCounterClockwise,
-  Coin,
-  Coins,
-  Copy,
-  CurrencyDollar,
-  DotsThree,
-  Eye,
-  FileText,
-  FolderSimple,
-  Folders,
-  Gear,
-  GitBranch,
-  Keyboard,
-  ListBullets,
-  Monitor,
-  Moon,
-  Play,
-  Plus,
-  Pulse,
-  PushPin,
-  PushPinSlash,
-  Robot,
-  Rows,
-  SquaresFour,
-  Sun,
-  TerminalWindow,
-  Timer,
-  Trash,
-  TreeStructure,
-  Warning,
-  Wrench,
-  X,
-} from "@phosphor-icons/react";
 import type { IconComponent, MenuCtx, RowSpec } from "@react-fancy-menus/core";
 import {
   BodyKind,
@@ -79,49 +37,20 @@ export interface MenuSpec {
 }
 type Anchor = Element | { x: number; y: number };
 
-const ICONS: Record<string, IconComponent> = {
-  "squares-four": SquaresFour as unknown as IconComponent,
-  timer: Timer as unknown as IconComponent,
-  coins: Coins as unknown as IconComponent,
-  pulse: Pulse as unknown as IconComponent,
-  "folder-simple": FolderSimple as unknown as IconComponent,
-  folders: Folders as unknown as IconComponent,
-  "push-pin": PushPin as unknown as IconComponent,
-  "push-pin-slash": PushPinSlash as unknown as IconComponent,
-  x: X as unknown as IconComponent,
-  plus: Plus as unknown as IconComponent,
-  "dots-three": DotsThree as unknown as IconComponent,
-  keyboard: Keyboard as unknown as IconComponent,
-  play: Play as unknown as IconComponent,
-  "tree-structure": TreeStructure as unknown as IconComponent,
-  robot: Robot as unknown as IconComponent,
-  coin: Coin as unknown as IconComponent,
-  "arrows-clockwise": ArrowsClockwise as unknown as IconComponent,
-  clock: Clock as unknown as IconComponent,
-  wrench: Wrench as unknown as IconComponent,
-  "file-text": FileText as unknown as IconComponent,
-  "git-branch": GitBranch as unknown as IconComponent,
-  "arrow-left": ArrowLeft as unknown as IconComponent,
-  warning: Warning as unknown as IconComponent,
-  check: Check as unknown as IconComponent,
-  copy: Copy as unknown as IconComponent,
-  "arrow-square-out": ArrowSquareOut as unknown as IconComponent,
-  moon: Moon as unknown as IconComponent,
-  sun: Sun as unknown as IconComponent,
-  monitor: Monitor as unknown as IconComponent,
-  gear: Gear as unknown as IconComponent,
-  "book-open": BookOpen as unknown as IconComponent,
-  trash: Trash as unknown as IconComponent,
-  "terminal-window": TerminalWindow as unknown as IconComponent,
-  "chart-bar": ChartBar as unknown as IconComponent,
-  "clock-counter-clockwise": ClockCounterClockwise as unknown as IconComponent,
-  eye: Eye as unknown as IconComponent,
-  broadcast: Broadcast as unknown as IconComponent,
-  "currency-dollar": CurrencyDollar as unknown as IconComponent,
-  rows: Rows as unknown as IconComponent,
-  "list-bullets": ListBullets as unknown as IconComponent,
-};
-const iconOf = (name?: string): IconComponent | undefined => (name ? ICONS[name] : undefined);
+declare global {
+  interface Window {
+    icon?: (name: string, size?: number, cls?: string) => string;
+  }
+}
+// Menu icons reuse the shared pixelarticons set (window.icon, from icons.js) so the dropdowns
+// match the rest of the pixel-art UI. Cached per name; icons.js loads before this island.
+const iconCache: Record<string, IconComponent> = {};
+const pxIcon = (name: string): IconComponent =>
+  (iconCache[name] ??= (() => (
+    // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted static SVG from our own icons.js
+    <span className="fm-ico" dangerouslySetInnerHTML={{ __html: window.icon?.(name, 16) ?? "" }} />
+  )) as unknown as IconComponent);
+const iconOf = (name?: string): IconComponent | undefined => (name ? pxIcon(name) : undefined);
 
 const rows = (depth: number): RowSpec<MenuItem>[] => [
   {

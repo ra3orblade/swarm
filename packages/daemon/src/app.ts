@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SwarmEvent } from "@swarm/core";
@@ -42,6 +43,28 @@ export function createApp(store = new Store()) {
       ? c.body(null, 204)
       : c.json({ error: "not found" }, 404),
   );
+
+  // ---- filesystem browser (for the "add project" folder picker). Localhost only; the daemon
+  // already has the user's file access. Directories only, hidden dirs skipped.
+  app.get("/v1/fs/ls", (c) => {
+    const q = c.req.query("path");
+    let dir: string;
+    try {
+      dir = realpathSync(q && existsSync(q) ? q : homedir());
+    } catch {
+      dir = homedir();
+    }
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => ({ name: e.name, repo: existsSync(join(dir, e.name, ".git")) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parent = dirname(dir);
+      return c.json({ path: dir, parent: parent === dir ? null : parent, entries });
+    } catch (e) {
+      return c.json({ error: (e as Error).message, path: dir }, 400);
+    }
+  });
 
   // ---- state for the dashboard
   app.get("/v1/state", (c) => c.json(store.snapshot()));
