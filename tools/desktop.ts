@@ -14,16 +14,6 @@ Bun.write(
   `<!doctype html><meta charset="utf-8"><title>Swarm</title>
 <style>html,body{margin:0;height:100%;background:#0e1013;color:#a3e635;font:14px system-ui;display:grid;place-items:center}</style>
 <body>starting Swarm…
-<script>
-const URL = "http://127.0.0.1:7777";
-(async () => {
-  for (let i = 0; i < 150; i++) {
-    try { const r = await fetch(URL + "/v1/health"); if (r.ok) { location.replace(URL); return; } } catch {}
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  document.body.textContent = "Could not reach the Swarm daemon.";
-})();
-</script>
 `,
 );
 

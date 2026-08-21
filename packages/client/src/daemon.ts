@@ -104,8 +104,10 @@ export async function ensureDaemon(
   });
   proc.unref();
 
-  const target = resolveBaseUrl(opts.baseUrl);
+  // Re-resolve each poll: the daemon may pick a free port when its preferred one is taken and
+  // records the real URL in daemon.json, so the target can change once it boots.
   for (let i = 0; i < 50; i++) {
+    const target = resolveBaseUrl(opts.baseUrl);
     if (await pingHealth(target, 300)) return target;
     await Bun.sleep(100);
   }
