@@ -83,12 +83,14 @@
   .gal .arr{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
     display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s;z-index:2}
   .gal .arr:hover{opacity:1;border-color:var(--acc);color:var(--acc)}
+  .gal .arr,.lb .x,.lb .n{padding:0;font:inherit}
   .gal .arr.l{left:-20px}.gal .arr.r{right:-20px}
   .gal .arr svg{width:18px;height:18px;image-rendering:pixelated}
   .gal .dots{display:flex;justify-content:center;gap:8px;margin-top:14px}
   .gal .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s,transform .15s}
   .gal .dots i.on{background:var(--acc);transform:scale(1.25)}
   @media (max-width:1040px){.gal .arr.l{left:6px}.gal .arr.r{right:6px}}
+  .lb svg{width:20px;height:20px;image-rendering:pixelated}
   .lb{position:fixed;inset:0;background:rgba(6,8,11,.94);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;padding:28px}
   .lb.open{display:flex}
   .lb img{max-width:min(1600px,100%);max-height:calc(100vh - 110px);width:auto;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 30px 80px rgba(0,0,0,.6)}
@@ -97,7 +99,6 @@
   .lb .x,.lb .n{position:absolute;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
   .lb .x{top:18px;right:18px}.lb .n{top:calc(50% - 22px)}.lb .n.l{left:18px}.lb .n.r{right:18px}
   .lb .x:hover,.lb .n:hover{border-color:var(--acc);color:var(--acc)}
-  .lb svg{width:20px;height:20px;image-rendering:pixelated}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
   .card .ic{margin-bottom:10px}
   .card b{display:block;margin-bottom:4px}
@@ -150,7 +151,7 @@
     <div class="ver" id="ver">&nbsp;</div>
     <div class="cli" id="cli" title="Copy"><span class="p">$</span> bunx @ra3orblade/swarm setup</div>
     <div class="gal" id="gal">
-      <div class="arr l" data-dir="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></div>
+      <button type="button" class="arr l" data-dir="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></button>
       <div class="track">
       <figure data-i="0"><img src="/screens/thumbs/fleet.png" data-full="/screens/fleet.png" width="1512" height="860" alt="Fleet view" loading="eager"><figcaption><b>Fleet.</b> Every Claude Code, Codex and Grok session on the machine — live tool, model, tokens, context, cost.</figcaption></figure>
       <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> The reasoning stream next to the numbers: cost, cached context, thinking share, cost per turn, tool mix.</figcaption></figure>
@@ -160,7 +161,7 @@
       <figure data-i="5"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> Cost by day, agent, model and project, while it's still today.</figcaption></figure>
       <figure data-i="6"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend and tokens, streaks, a year of activity, record holders.</figcaption></figure>
       </div>
-      <div class="arr r" data-dir="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></div>
+      <button type="button" class="arr r" data-dir="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></button>
       <div class="dots"><i data-i="0" class="on"></i><i data-i="1" class=""></i><i data-i="2" class=""></i><i data-i="3" class=""></i><i data-i="4" class=""></i><i data-i="5" class=""></i><i data-i="6" class=""></i></div>
     </div>
   </div>
@@ -247,22 +248,22 @@
     .catch(() => {});
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
-<div class="lb" id="lb" role="dialog" aria-modal="true"><div class="x" data-lb="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M7 19H5V17H7V19ZM19 19H17V17H19V19ZM9 15V17H7V15H9ZM17 17H15V15H17V17ZM11 15H9V13H11V15ZM15 15H13V13H15V15ZM13 13H11V11H13V13ZM11 11H9V9H11V11ZM15 11H13V9H15V11ZM9 9H7V7H9V9ZM17 9H15V7H17V9ZM7 7H5V5H7V7ZM19 7H17V5H19V7Z"/></svg></div><div class="n l" data-lb="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></div><img id="lbImg" alt=""><div class="cap" id="lbCap"></div><div class="n r" data-lb="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></div></div>
+<div class="lb" id="lb" role="dialog" aria-modal="true"><button type="button" class="x" data-lb="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M7 19H5V17H7V19ZM19 19H17V17H19V19ZM9 15V17H7V15H9ZM17 17H15V15H17V17ZM11 15H9V13H11V15ZM15 15H13V13H15V15ZM13 13H11V11H13V13ZM11 11H9V9H11V11ZM15 11H13V9H15V11ZM9 9H7V7H9V9ZM17 9H15V7H17V9ZM7 7H5V5H7V7ZM19 7H17V5H19V7Z"/></svg></button><button type="button" class="n l" data-lb="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></button><img id="lbImg" alt=""><div class="cap" id="lbCap"></div><button type="button" class="n r" data-lb="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></button></div>
 <script>
 (() => {
   const gal = document.getElementById("gal"), track = gal.querySelector(".track");
   const figs = [...track.querySelectorAll("figure")], dots = [...gal.querySelectorAll(".dots i")];
   let cur = 0;
   const go = (i, smooth = true) => { cur = (i + figs.length) % figs.length; track.scrollTo({ left: figs[cur].offsetLeft - track.offsetLeft, behavior: smooth ? "smooth" : "auto" }); };
-  const sync = () => { const x = track.scrollLeft + track.clientWidth / 2; let best = 0; figs.forEach((f, i) => { if (Math.abs(f.offsetLeft + f.offsetWidth / 2 - track.offsetLeft - x) < Math.abs(figs[best].offsetLeft + figs[best].offsetWidth / 2 - track.offsetLeft - x)) best = i; }); cur = best; dots.forEach((d, i) => d.classList.toggle("on", i === cur)); };
+  const sync = () => { const x = track.scrollLeft + track.clientWidth / 2; let best = 0; figs.forEach((f, i) => { if (Math.abs(f.offsetLeft + f.offsetWidth / 2 - track.offsetLeft - x) < Math.abs(figs[best].offsetLeft + figs[best].offsetWidth / 2 - track.offsetLeft - x)) best = i; }); cur = best; for (const [i, d] of dots.entries()) d.classList.toggle("on", i === cur); };
   track.addEventListener("scroll", () => requestAnimationFrame(sync), { passive: true });
-  gal.querySelectorAll(".arr").forEach((a) => a.addEventListener("click", () => go(cur + Number(a.dataset.dir))));
-  dots.forEach((d) => d.addEventListener("click", () => go(Number(d.dataset.i))));
+  for (const a of gal.querySelectorAll(".arr")) a.addEventListener("click", () => go(cur + Number(a.dataset.dir)));
+  for (const d of dots) d.addEventListener("click", () => go(Number(d.dataset.i)));
   const lb = document.getElementById("lb"), img = document.getElementById("lbImg"), cap = document.getElementById("lbCap");
   let li = 0;
   const show = (i) => { li = (i + figs.length) % figs.length; const f = figs[li]; const im = f.querySelector("img"); img.src = im.dataset.full; img.alt = im.alt; cap.innerHTML = f.querySelector("figcaption").innerHTML; lb.classList.add("open"); document.body.style.overflow = "hidden"; };
   const hide = () => { lb.classList.remove("open"); document.body.style.overflow = ""; };
-  figs.forEach((f, i) => f.addEventListener("click", () => show(i)));
+  for (const [i, f] of figs.entries()) f.addEventListener("click", () => show(i));
   lb.addEventListener("click", (e) => { const t = e.target.closest("[data-lb]"); if (t) { e.stopPropagation(); return t.dataset.lb === "close" ? hide() : show(li + Number(t.dataset.lb)); } if (e.target === lb) hide(); });
   document.addEventListener("keydown", (e) => { if (e.target.closest?.("input,textarea")) return; const open = lb.classList.contains("open"); if (open && e.key === "Escape") return hide(); if (e.key === "ArrowRight") return open ? show(li + 1) : go(cur + 1); if (e.key === "ArrowLeft") return open ? show(li - 1) : go(cur - 1); });
   let sx = null; lb.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }, { passive: true });
