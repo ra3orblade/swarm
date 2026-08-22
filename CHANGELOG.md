@@ -2,7 +2,9 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.6.0] — 2026-08-23
+
+The learn release: the data Swarm has been collecting starts paying back. Replay what an agent did, see what each task cost, turn an incident into a rule, resume a session that died, try a rule on history before switching it on, read your backlog from GitHub or Linear, and search everything Swarm remembers.
 
 ### Added
 - **Session Replay** — a **Replay** button on any session steps through its tool calls one at a time, showing the full input and output of each (Prev/Next, a slider, ←/→ keys). See exactly what an agent did, in order (M4.1).
@@ -12,8 +14,6 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 - **Auto-handoff, and resume where it died** — whenever a session working in a claimed worktree pauses or ends, Swarm derives a handoff from what it did: files edited, the last verification-looking command, the last request, the last thing it said. One `auto:` handoff per session, replaced on every pause, silenced by a handoff left on purpose. An ended session's page gets **Resume where it died**, which spawns a run on the task from that handoff plus the session's last actions; `swarm run resume <session-id>`; `GET/POST /v1/sessions/:id/resume` (M4.4).
 - **Rule dry-run** — **Dry-run rules** on the Incidents view replays a project's recorded tool calls through the rules under modes you pick: what would have been asked or denied, per rule, before you switch anything on. It also flags **flaky signals** — a rule that keeps firing on the same command that is then allowed through anyway. Nothing is recorded. `swarm rules dryrun [--set rule=mode,…]`; `GET /v1/rules/dryrun` (M4.6).
 - **GitHub Issues and Linear as task sources** — `[tasks] source = "github"` reads the repo's issues through the logged-in `gh` (optional `labels` filter); `source = "linear"` reads Linear through its API with `LINEAR_API_KEY` from the daemon's environment (optional `team`). Both land in the Board's Tasks, `swarm tasks` and `swarm_next_task` like a markdown backlog: closed/completed is done, in-progress is active, *depends on #n* / *blocked by* become dependencies. Read-only; no credential stored (M4.8).
-
-### Added
 - **What's New in the app** — the dashboard shows the release notes for the running version: a **What's New** item in the settings menu, in the desktop app's **Swarm** menu, and in the tray. It also opens once on its own the first time you run a new version. Notes are parsed from `CHANGELOG.md` into `release-notes.js` at build time, so they work offline with no repo checkout.
 - The desktop **Check for Updates…** is in the system menu bar (Swarm menu), not only the tray.
 
