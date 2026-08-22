@@ -13,7 +13,7 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -83,13 +83,14 @@ setTheme(getTheme());
 const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
 const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
-const agentBadge = (a) => (a && a !== "claude-code" ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
+const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
+  if (state.view === "prs") state.prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
   render();
 }
-const VIEWS = ["fleet", "board", "timeline", "spend"];
+const VIEWS = ["fleet", "board", "prs", "timeline", "spend"];
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -107,6 +108,7 @@ function render() {
   else if (state.view === "spend") renderSpend();
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
+  else if (state.view === "prs") renderPRs();
   else renderFleet();
   if (keep) {
     const el = document.querySelector(`input[data-filter="${keep.key}"][data-tid="${keep.tid}"]`);
@@ -189,6 +191,39 @@ function renderFleet() {
     "";
 }
 
+// ---------- PRs (one queue across GitHub + GitLab)
+function renderPRs() {
+  const rows = state.prs ?? [];
+  const chk = (c) => c === "pass" ? '<span class="badge ok">Checks ✓</span>'
+    : c === "fail" ? '<span class="badge warn">Checks ✗</span>'
+    : c === "pending" ? '<span class="badge">Running…</span>' : '<span class="dim">—</span>';
+  const rev = (r) => r === "approved" ? '<span class="badge ok">Approved</span>'
+    : r === "changes" ? '<span class="badge warn">Changes</span>' : '<span class="dim">—</span>';
+  const green = (p) => p.checks !== "fail" && p.mergeable && !p.draft;
+  const cols = [
+    { key: "repo", label: "repo", width: 170, get: (p) => p.repo, cell: (p) => `${ic(p.forge === "gitlab" ? "git-merge" : "git-pull-request", 13)} <span class="br">${esc(p.repo.split("/").pop())}</span>` },
+    { key: "title", label: "title", flex: true, get: (p) => p.title, cell: (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener"><b>#${p.number}</b> ${esc(p.title)}</a>${p.draft ? ' <span class="badge">Draft</span>' : ""}` },
+    { key: "branch", label: "branch", width: 170, get: (p) => p.branch, cell: (p) => `<span class="br">${esc(p.branch)}</span>` },
+    { key: "author", label: "author", width: 110, get: (p) => p.author, cell: (p) => esc(p.author) },
+    { key: "checks", label: "checks", width: 100, get: (p) => p.checks, cell: (p) => chk(p.checks) },
+    { key: "review", label: "review", width: 100, get: (p) => p.review, cell: (p) => rev(p.review) },
+    { key: "age", label: "age", width: 56, num: true, get: (p) => new Date(p.createdAt).getTime(), cell: (p) => `<span class="dim">${ago(p.createdAt)}</span>` },
+  ];
+  $("#main").innerHTML =
+    `<h2>Pull requests <span>${rows.length} open · GitHub + GitLab, merged from here</span></h2>` +
+    (rows.length
+      ? dataTable({
+          id: "prs",
+          columns: cols,
+          rows,
+          leading: { width: 24, cell: (p) => `<span class="s ${p.checks === "fail" ? "waiting" : p.checks === "pass" ? "active" : "idle"}"></span>` },
+          trailing: { width: 96, cell: (p) => (green(p) ? `<a href="#" data-merge="${p.projectId}:${p.number}" title="Squash-merge via ${p.forge === "gitlab" ? "glab" : "gh"}">Merge</a>` : "") },
+          rowAttrs: () => "",
+          rerender: render,
+        })
+      : `<div class="empty">${PX.idle()}No open pull requests.<br>Agent branches land here the moment they're pushed.</div>`);
+}
+
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
   const parts = [renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
@@ -237,7 +272,7 @@ function renderResources() {
       columns: cols,
       rows,
       leading: { width: 24, cell: () => '<span class="s active"></span>' },
-      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${r.projectId ?? ""}">Release</a>` },
+      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${esc(r.projectId ?? "")}">Release</a>` },
       rerender: render,
     });
 }
@@ -345,7 +380,7 @@ function renderSpend() {
        <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
        <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
      </div>
-     <div class="cols" class="mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+     <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
@@ -475,11 +510,11 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
-  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return render(); }
+  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
   if (t.dataset.release || t.dataset.forcerelease) {
@@ -496,6 +531,15 @@ document.addEventListener("click", async (ev) => {
     return refresh();
   }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
+  if (t.dataset.merge !== undefined) {
+    ev.preventDefault();
+    const [projectId, number] = t.dataset.merge.split(":");
+    if (!confirm(`Squash-merge #${number}?`)) return;
+    return fetch("/v1/prs/merge", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, number: Number(number) }),
+    }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
+  }
   if (t.dataset.resrelease !== undefined) {
     ev.preventDefault();
     const q = new URLSearchParams(); if (t.dataset.resproj) q.set("project", t.dataset.resproj);

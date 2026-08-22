@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { SwarmEvent } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { ForgeService } from "./forge";
 import { Store } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.2.2";
@@ -22,6 +23,7 @@ const WEB_DIR = (() => {
 
 export function createApp(store = new Store()) {
   const app = new Hono();
+  const forge = new ForgeService(store);
 
   app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
 
@@ -89,17 +91,30 @@ export function createApp(store = new Store()) {
       port?: number;
       leaseMinutes?: number;
     };
-    if (!b.name || !b.owner) return c.json({ error: "name and owner are required" }, 400);
+    if (!b.name || !b.owner)
+      return c.json({ ok: false, error: "name and owner are required" }, 400);
     const r = store.acquireResource({ ...b, name: b.name, owner: b.owner });
-    return r.ok ? c.json(r, 201) : c.json({ error: r.reason }, 409);
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
+  // ---- forge PRs (one queue across GitHub + GitLab)
+  app.get("/v1/prs", (c) => c.json(forge.prs()));
+  app.post("/v1/prs/merge", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; number?: number };
+    if (!b.projectId || !b.number)
+      return c.json({ error: "projectId and number are required" }, 400);
+    const r = await forge.merge(b.projectId, b.number);
+    return r.ok ? c.json(r) : c.json({ error: r.output || "merge failed" }, 409);
+  });
+
   app.delete("/v1/resources/:name", (c) => {
     const r = store.releaseResource(
       c.req.param("name"),
       c.req.query("project") ?? null,
       c.req.query("owner"),
     );
-    return r.ok ? c.json(r) : c.json({ error: r.reason }, 409);
+    return r.ok
+      ? c.json(r)
+      : c.json({ ok: false, error: r.reason }, r.reason === "not held" ? 404 : 409);
   });
 
   // ---- claims (M1)
@@ -206,5 +221,5 @@ export function createApp(store = new Store()) {
     });
   });
 
-  return { app, store };
+  return { app, store, forge };
 }

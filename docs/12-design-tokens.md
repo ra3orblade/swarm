@@ -1,4 +1,6 @@
-# Design tokens
+# 12 · Design tokens
+
+Status: current. The dashboard's CSS custom properties and the no-literals rule.
 
 The dashboard's entire visual language is defined as CSS custom properties in
 `packages/web/public/index.html` (`:root` blocks at the top of the stylesheet).

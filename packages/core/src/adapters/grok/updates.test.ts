@@ -33,7 +33,7 @@ describe("parseGrokUpdates", () => {
     expect(d.sessionId).toBe("gsess");
     expect(d.model).toBe("grok-4.5");
     expect(d.turns).toHaveLength(1);
-    const t = d.turns[0]!;
+    const t = d.turns[0] as NonNullable<(typeof d.turns)[0]>;
     expect(t.usage.cacheRead).toBe(82176);
     expect(t.usage.input).toBe(104800 - 82176);
     expect(t.usage.output).toBe(1042);
