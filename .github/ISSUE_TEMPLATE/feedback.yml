@@ -1,0 +1,33 @@
+name: Feedback
+description: Anything — what's confusing, what's missing, what you'd change. The dashboard's Feedback button lands here.
+title: "Feedback: "
+labels: [feedback]
+body:
+  - type: textarea
+    id: feedback
+    attributes:
+      label: What's on your mind?
+      description: A sentence is enough. Screenshots welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard
+        - Rules / incidents
+        - Claims / worktrees
+        - Runtime resources
+        - PRs / merge queue
+        - CLI
+        - MCP
+        - Desktop app
+        - Docs / website
+        - Other
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Prefilled by the dashboard; edit if wrong.
+      placeholder: swarm 0.3.0 · macOS · desktop
