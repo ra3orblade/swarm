@@ -5,8 +5,33 @@
  * tokens stored, no direct API calls. Polling is deliberately gentle (per-project cache,
  * default 2 min) so automated traffic stays far below anything rate-limit shaped.
  */
+
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { type ForgePR, normalizeGithub, normalizeGitlab, parseRemote } from "@swarm/core";
 import type { Store } from "./store";
+
+/** Where package managers put CLIs that a GUI-launched daemon won't have on PATH: the desktop
+ *  app (and launchd) start with the bare system PATH, so `gh` / `glab` from Homebrew, a Linux
+ *  prefix or `~/.local` would be invisible and the forge would silently go dark. */
+const EXTRA_BIN_DIRS = [
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/home/linuxbrew/.linuxbrew/bin",
+  join(homedir(), ".local", "bin"),
+  join(homedir(), "bin"),
+];
+export function findBin(name: string | undefined): string | null {
+  if (!name) return null;
+  const onPath = Bun.which(name);
+  if (onPath) return onPath;
+  for (const d of EXTRA_BIN_DIRS) {
+    const p = join(d, name);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 export interface ProjectPR extends ForgePR {
   projectId: string;
@@ -56,9 +81,9 @@ export class ForgeService {
   }
 
   private async run(cmd: string[], cwd: string): Promise<string | null> {
-    const bin = cmd[0];
-    if (!bin || !Bun.which(bin)) return null; // CLI not installed — forge silently unavailable
-    const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "ignore" });
+    const bin = findBin(cmd[0]);
+    if (!bin) return null; // CLI not installed — forge silently unavailable
+    const proc = Bun.spawn([bin, ...cmd.slice(1)], { cwd, stdout: "pipe", stderr: "ignore" });
     const out = await new Response(proc.stdout).text();
     return (await proc.exited) === 0 ? out : null;
   }
@@ -87,10 +112,9 @@ export class ForgeService {
       remote.forge === "github"
         ? ["gh", "pr", "merge", String(number), "--squash"]
         : ["glab", "mr", "merge", String(number), "--squash", "--yes"];
-    const bin = cmd[0];
-    if (!bin || !Bun.which(bin))
-      return { ok: false, output: `${bin ?? "forge CLI"} is not installed` };
-    const proc = Bun.spawn(cmd, { cwd: p.root, stdout: "pipe", stderr: "pipe" });
+    const bin = findBin(cmd[0]);
+    if (!bin) return { ok: false, output: `${cmd[0] ?? "forge CLI"} is not installed` };
+    const proc = Bun.spawn([bin, ...cmd.slice(1)], { cwd: p.root, stdout: "pipe", stderr: "pipe" });
     const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
     const ok = (await proc.exited) === 0;
     if (ok) this.cache.delete(projectId); // force re-poll so the queue updates promptly

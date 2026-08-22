@@ -124,6 +124,23 @@ try {
       line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: swarm start");
       line(st.installed, "hooks installed", "run: swarm install");
       line(st.mcp, "MCP server registered", "run: swarm install");
+      // Forge CLIs feed the PRs view. Informational: Swarm works without them.
+      const forge = (bin: string, auth: string[]) => {
+        const path = Bun.which(bin);
+        if (!path)
+          return console.log(
+            `· ${bin} not found — PRs view skips ${bin === "gh" ? "GitHub" : "GitLab"} repos`,
+          );
+        const ok =
+          Bun.spawnSync([path, ...auth], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+        line(ok, `${bin} authenticated (${path})`, `run: ${bin} auth login`);
+      };
+      forge("gh", ["auth", "status", "--active", "-h", "github.com"]);
+      forge("glab", ["auth", "status"]);
+      if (process.env.GITLAB_TOKEN)
+        console.log(
+          "· glab uses GITLAB_TOKEN from this shell — a daemon started by the desktop app won't see it; run `glab auth login` to store it instead",
+        );
       if (!running) process.exitCode = 1;
       console.log(
         `\nsettings: ${st.path}\ndaemon cmd: ${daemonCommand().join(" ")}\nurl: ${resolveBaseUrl()}`,
