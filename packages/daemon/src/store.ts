@@ -54,7 +54,7 @@ import {
   gitCommonDir,
   gitToplevel,
   heldWork,
-  listWorktrees,
+  listWorktreesAsync,
   type Worktree,
   worktreeAdd,
   worktreeRemove,
@@ -106,18 +106,21 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT, project_id TEXT, session_id TEXT, payload TEXT, raw TEXT);
 CREATE INDEX IF NOT EXISTS events_session ON events(session_id, seq);
+CREATE INDEX IF NOT EXISTS events_type_seq ON events(type, seq);
 CREATE TABLE IF NOT EXISTS turns (
   id TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, ts TEXT, model TEXT, effort TEXT, sidechain INTEGER,
   input INTEGER, output INTEGER, cache_write INTEGER, cache_write_1h INTEGER, cache_read INTEGER, thinking INTEGER,
   cost_usd REAL, text TEXT, tools TEXT
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, ts);
+CREATE INDEX IF NOT EXISTS turns_ts ON turns(ts);
 CREATE TABLE IF NOT EXISTS tails (path TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, offset INTEGER);
 CREATE TABLE IF NOT EXISTS resources (
   name TEXT, project_id TEXT, kind TEXT, owner TEXT, session_id TEXT,
   pid INTEGER, port INTEGER, acquired_at TEXT, expires_at TEXT, released INTEGER DEFAULT 0,
   PRIMARY KEY (name, project_id)
 );
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -133,22 +136,97 @@ export class Store {
   private home: string;
   private listeners = new Set<(e: SwarmEvent) => void>();
   private wtCache = new Map<string, { v: Worktree[]; t: number }>();
+  private wtInflight = new Map<string, Promise<Worktree[]>>();
+  /** cwd → project id, so a hook round-trip does not spawn `git rev-parse` twice. */
+  private cwdProject = new Map<string, { id: string; t: number }>();
+  /** Last time a session's transcript was tailed from the hook path (ms). */
+  private lastTail = new Map<string, number>();
+  /** Bumped on every write that can change an aggregate; memoised reads key on it. */
+  private gen = 0;
+  private memo = new Map<string, { gen: number; t: number; v: unknown }>();
 
   constructor(home = swarmHome()) {
     mkdirSync(home, { recursive: true });
     this.home = home;
     this.db = new Database(join(home, "swarm.db"));
     this.loadPricing();
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    this.db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA mmap_size=268435456; PRAGMA cache_size=-32000;",
+    );
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
-    // <0.3.1 recorded Claude Code Notification hooks as incident.opened; retype them so the
-    // Incidents grid only shows rule decisions (those carry a `rule` in the payload).
+    this.slimExistingEvents();
+    this.retypeNotificationIncidents();
+  }
+
+  /**
+   * One-time: <0.3.1 recorded Claude Code Notification hooks as incident.opened. Retype them so
+   * the Incidents grid only shows rule decisions (those carry a `rule` in the payload).
+   */
+  private retypeNotificationIncidents() {
+    if (this.meta("notifications_retyped") === "1") return;
     this.db.exec(
       "UPDATE events SET type = 'session.notification' WHERE type = 'incident.opened' AND payload NOT LIKE '%\"rule\"%'",
     );
+    this.setMeta("notifications_retyped", "1");
+  }
+
+  private meta(key: string): string | null {
+    const r = this.db.query("SELECT value FROM meta WHERE key = ?").get(key) as {
+      value: string;
+    } | null;
+    return r?.value ?? null;
+  }
+  private setMeta(key: string, value: string) {
+    this.db
+      .query(
+        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(key, value);
+  }
+
+  /**
+   * One-time: rows written before tool I/O was clipped hold the full tool_response twice
+   * (payload + raw). Rewrite them in storage shape and give the space back with VACUUM.
+   */
+  private slimExistingEvents() {
+    if (this.meta("events_slim") === "1") return;
+    const rows = this.db
+      .query("SELECT seq, payload, raw FROM events WHERE length(payload) > ? OR length(raw) > ?")
+      .all(TOOL_RESPONSE_MAX + TOOL_INPUT_MAX, TOOL_INPUT_MAX) as Array<{
+      seq: number;
+      payload: string;
+      raw: string | null;
+    }>;
+    const upd = this.db.query("UPDATE events SET payload = ?, raw = ? WHERE seq = ?");
+    this.db.transaction(() => {
+      for (const r of rows) {
+        let payload: unknown;
+        let raw: unknown;
+        try {
+          payload = JSON.parse(r.payload);
+          raw = r.raw ? JSON.parse(r.raw) : undefined;
+        } catch {
+          continue;
+        }
+        const slim = slimForStorage({ payload, raw } as SwarmEvent);
+        upd.run(
+          JSON.stringify(slim.payload ?? null),
+          slim.raw === undefined ? null : JSON.stringify(slim.raw),
+          r.seq,
+        );
+      }
+      this.setMeta("events_slim", "1");
+    })();
+    if (rows.length) {
+      try {
+        this.db.exec("VACUUM");
+      } catch {
+        /* another connection holds the db; next boot */
+      }
+    }
   }
 
   /**
@@ -176,28 +254,30 @@ export class Store {
     if (!src || !dst || from === into) return false;
     this.db.transaction(() => {
       for (const t of ["sessions", "events"])
-        this.db.prepare(`UPDATE ${t} SET project_id = ? WHERE project_id = ?`).run(into, from);
+        this.db.query(`UPDATE ${t} SET project_id = ? WHERE project_id = ?`).run(into, from);
       // keyed by (name|task, project_id): keep the live row on conflict
       this.db
-        .prepare("UPDATE OR IGNORE resources SET project_id = ? WHERE project_id = ?")
+        .query("UPDATE OR IGNORE resources SET project_id = ? WHERE project_id = ?")
         .run(into, from);
       this.db
-        .prepare("UPDATE OR IGNORE claims SET project_id = ? WHERE project_id = ?")
+        .query("UPDATE OR IGNORE claims SET project_id = ? WHERE project_id = ?")
         .run(into, from);
-      this.db.prepare("DELETE FROM resources WHERE project_id = ?").run(from);
-      this.db.prepare("DELETE FROM claims WHERE project_id = ?").run(from);
+      this.db.query("DELETE FROM resources WHERE project_id = ?").run(from);
+      this.db.query("DELETE FROM claims WHERE project_id = ?").run(from);
       if (!src.discovered)
         this.db
-          .prepare("UPDATE projects SET discovered = 0, name = ? WHERE id = ?")
+          .query("UPDATE projects SET discovered = 0, name = ? WHERE id = ?")
           .run(src.name, into);
-      this.db.prepare("DELETE FROM projects WHERE id = ?").run(from);
+      this.db.query("DELETE FROM projects WHERE id = ?").run(from);
     })();
+    this.cwdProject.clear();
+    this.touch();
     return true;
   }
 
   /** Add a column to an existing table if a prior schema version lacked it. */
   private ensureColumn(table: string, col: string, decl: string) {
-    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    const cols = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === col)) {
       this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
     }
@@ -207,7 +287,7 @@ export class Store {
     if (!existsSync(file)) return;
     try {
       const list = JSON.parse(readFileSync(file, "utf8")) as Project[];
-      const ins = this.db.prepare(
+      const ins = this.db.query(
         "INSERT OR IGNORE INTO projects (id, root, common_dir, name, discovered, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       );
       for (const p of list)
@@ -251,7 +331,7 @@ export class Store {
     const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
     const current = { id, toplevel: this.toplevel(cwd) };
     const rows = this.db
-      .prepare(
+      .query(
         "SELECT id, cwd, last_seen_at, state FROM sessions WHERE state != 'ended' AND last_seen_at > ?",
       )
       .all(new Date(Date.now() - 130_000).toISOString()) as Array<{
@@ -323,11 +403,9 @@ export class Store {
 
   reprice() {
     const rows = this.db
-      .prepare(
-        "SELECT id, model, input, output, cache_write, cache_write_1h, cache_read FROM turns",
-      )
+      .query("SELECT id, model, input, output, cache_write, cache_write_1h, cache_read FROM turns")
       .all() as Array<Record<string, number | string>>;
-    const up = this.db.prepare("UPDATE turns SET cost_usd = ? WHERE id = ?");
+    const up = this.db.query("UPDATE turns SET cost_usd = ? WHERE id = ?");
     const tx = this.db.transaction(() => {
       for (const r of rows)
         up.run(
@@ -351,7 +429,7 @@ export class Store {
   // ---------- projects
   projects(): Project[] {
     return (
-      this.db.prepare("SELECT * FROM projects ORDER BY discovered, name").all() as Array<
+      this.db.query("SELECT * FROM projects ORDER BY discovered, name").all() as Array<
         Record<string, unknown>
       >
     ).map((r) => ({
@@ -364,10 +442,48 @@ export class Store {
     }));
   }
   project(id: string): Project | undefined {
-    return this.projects().find((p) => p.id === id);
+    const r = this.db.query("SELECT * FROM projects WHERE id = ?").get(id) as Record<
+      string,
+      unknown
+    > | null;
+    if (!r) return undefined;
+    return {
+      id: r.id as string,
+      root: r.root as string,
+      commonDir: (r.common_dir as string) ?? null,
+      name: r.name as string,
+      discovered: Boolean(r.discovered),
+      createdAt: r.created_at as string,
+    };
+  }
+
+  /** Memoise a read until the next write (`gen`) or `ttlMs`, whichever comes first. */
+  private memoised<T>(key: string, ttlMs: number, compute: () => T): T {
+    const hit = this.memo.get(key);
+    const now = Date.now();
+    if (hit && hit.gen === this.gen && now - hit.t < ttlMs) return hit.v as T;
+    const v = compute();
+    this.memo.set(key, { gen: this.gen, t: now, v });
+    return v;
+  }
+  private touch() {
+    this.gen++;
   }
 
   resolveProject(path: string, explicit = false, name?: string): Project {
+    if (!explicit) {
+      const hit = this.cwdProject.get(path);
+      if (hit && Date.now() - hit.t < 60_000) {
+        const p = this.project(hit.id);
+        if (p) return p;
+      }
+    }
+    const p = this.resolveProjectUncached(path, explicit, name);
+    this.cwdProject.set(path, { id: p.id, t: Date.now() });
+    return p;
+  }
+
+  private resolveProjectUncached(path: string, explicit: boolean, name?: string): Project {
     const root = gitToplevel(path) ?? realpathSync(path);
     const ident = projectIdentity({ root, commonDir: gitCommonDir(root) });
     const existing = this.project(ident.id);
@@ -375,7 +491,7 @@ export class Store {
       const p: Project = { ...ident, discovered: !explicit, createdAt: new Date().toISOString() };
       if (name) p.name = name;
       this.db
-        .prepare(
+        .query(
           "INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .run(p.id, p.root, p.commonDir, p.name, p.discovered ? 1 : 0, p.createdAt);
@@ -384,7 +500,7 @@ export class Store {
     }
     if (explicit) {
       this.db
-        .prepare("UPDATE projects SET discovered = 0, name = ? WHERE id = ?")
+        .query("UPDATE projects SET discovered = 0, name = ? WHERE id = ?")
         .run(name ?? existing.name, existing.id);
       return { ...existing, discovered: false, name: name ?? existing.name };
     }
@@ -399,21 +515,24 @@ export class Store {
     if (!cur) return undefined;
     if (patch.pinned !== undefined)
       this.db
-        .prepare("UPDATE projects SET discovered = ? WHERE id = ?")
+        .query("UPDATE projects SET discovered = ? WHERE id = ?")
         .run(patch.pinned ? 0 : 1, id);
-    if (patch.name)
-      this.db.prepare("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
+    if (patch.name) this.db.query("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
     return this.project(id);
   }
 
   removeProject(id: string): boolean {
-    return this.db.prepare("DELETE FROM projects WHERE id = ?").run(id).changes > 0;
+    this.cwdProject.clear();
+    this.wtCache.delete(id);
+    this.touch();
+    return this.db.query("DELETE FROM projects WHERE id = ?").run(id).changes > 0;
   }
 
   // ---------- events
   append(e: SwarmEvent): SwarmEvent {
+    const slim = slimForStorage(e);
     const r = this.db
-      .prepare(
+      .query(
         "INSERT INTO events (ts, type, project_id, session_id, payload, raw) VALUES (?, ?, ?, ?, ?, ?)",
       )
       .run(
@@ -421,13 +540,29 @@ export class Store {
         e.type,
         e.projectId,
         e.sessionId,
-        JSON.stringify(e.payload ?? null),
-        e.raw === undefined ? null : JSON.stringify(e.raw),
+        JSON.stringify(slim.payload ?? null),
+        slim.raw === undefined ? null : JSON.stringify(slim.raw),
       );
     const stored = { ...e, seq: Number(r.lastInsertRowid) };
     this.projectSession(stored);
-    for (const l of this.listeners) l(stored);
+    this.touch();
+    // listeners get the wire shape: no raw hook input, no tool I/O — the dashboard reads hook/summary only
+    const wire = toWire(stored);
+    for (const l of this.listeners) l(wire);
     return stored;
+  }
+
+  /** Drop events older than `days` (keeping incidents) and reclaim space. Returns rows removed. */
+  prune(days = 30): number {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const n = this.db
+      .query("DELETE FROM events WHERE ts < ? AND type != 'incident.opened'")
+      .run(cutoff).changes;
+    // old rows keep their summary; the bulky columns are only useful for recent debugging
+    const old = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    this.db.query("UPDATE events SET raw = NULL WHERE ts < ? AND raw IS NOT NULL").run(old);
+    if (n > 0) this.touch();
+    return n;
   }
 
   ingestHook(event: string, raw: Record<string, unknown>): SwarmEvent {
@@ -436,9 +571,14 @@ export class Store {
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
     if (e.sessionId && typeof raw.transcript_path === "string") {
       this.db
-        .prepare("UPDATE sessions SET transcript_path = ? WHERE id = ? AND transcript_path IS NULL")
+        .query("UPDATE sessions SET transcript_path = ? WHERE id = ? AND transcript_path IS NULL")
         .run(raw.transcript_path, e.sessionId);
-      this.tailSession(e.sessionId);
+      // the 5 s tailer covers steady state; only tail inline when the hook is the first signal in a while
+      const last = this.lastTail.get(e.sessionId) ?? 0;
+      if (Date.now() - last > 2000) {
+        this.lastTail.set(e.sessionId, Date.now());
+        this.tailSession(e.sessionId);
+      }
     }
     return e;
   }
@@ -447,12 +587,12 @@ export class Store {
     if (!e.sessionId) return;
     const p = e.payload as { summary?: string; cwd?: string | null; hook?: string; tool?: string };
     const row = this.db
-      .prepare("SELECT id, tool_counts FROM sessions WHERE id = ?")
+      .query("SELECT id, tool_counts FROM sessions WHERE id = ?")
       .get(e.sessionId) as { id: string; tool_counts: string } | null;
     const branch = p.cwd && existsSync(p.cwd) ? currentBranch(p.cwd) : null;
     if (!row) {
       this.db
-        .prepare(
+        .query(
           "INSERT INTO sessions (id, project_id, kind, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', ?, ?, ?, ?, ?, ?, 'active')",
         )
         .run(
@@ -475,7 +615,7 @@ export class Store {
           ? "waiting"
           : "active";
     this.db
-      .prepare(
+      .query(
         `UPDATE sessions SET last_seen_at = ?, last = ?, last_type = ?, state = ?, tool_counts = ?,
            tool_calls = tool_calls + ?, subagents = MAX(0, subagents + ?),
            project_id = CASE WHEN ? != 'p_unknown' THEN ? ELSE project_id END,
@@ -524,7 +664,7 @@ export class Store {
   }
 
   private persistTurns(sessionId: string, agentId: string | null, turns: Turn[]) {
-    const up = this.db.prepare(
+    const up = this.db.query(
       `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, text, tools)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET input=excluded.input, output=excluded.output, cache_write=excluded.cache_write, cache_write_1h=excluded.cache_write_1h,
@@ -552,11 +692,12 @@ export class Store {
         );
       }
     });
+    if (turns.length) this.touch();
     tx(turns);
   }
 
   private tailFile(path: string, sessionId: string, agentId: string | null): number {
-    const row = this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+    const row = this.db.query("SELECT offset FROM tails WHERE path = ?").get(path) as {
       offset: number;
     } | null;
     const r = this.readFrom(path, row?.offset ?? 0);
@@ -566,7 +707,7 @@ export class Store {
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
     const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
     this.db
-      .prepare(
+      .query(
         "UPDATE sessions SET title = COALESCE(?, title), model = COALESCE(?, model), version = COALESCE(?, version), last_text = COALESCE(?, last_text), branch = COALESCE(branch, ?) WHERE id = ?",
       )
       .run(
@@ -578,7 +719,7 @@ export class Store {
         sessionId,
       );
     this.db
-      .prepare(
+      .query(
         "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
       )
       .run(path, sessionId, agentId, r.next);
@@ -586,9 +727,9 @@ export class Store {
   }
 
   tailSession(sessionId: string): number {
-    const s = this.db
-      .prepare("SELECT transcript_path FROM sessions WHERE id = ?")
-      .get(sessionId) as { transcript_path: string | null } | null;
+    const s = this.db.query("SELECT transcript_path FROM sessions WHERE id = ?").get(sessionId) as {
+      transcript_path: string | null;
+    } | null;
     if (!s?.transcript_path || !existsSync(s.transcript_path)) return 0;
     let n = this.tailFile(s.transcript_path, sessionId, null);
     const subDir = join(
@@ -596,20 +737,44 @@ export class Store {
       basename(s.transcript_path, ".jsonl"),
       "subagents",
     );
-    if (existsSync(subDir)) {
-      for (const f of readdirSync(subDir)) {
-        if (f.endsWith(".jsonl"))
-          n += this.tailFile(join(subDir, f), sessionId, f.replace(/^agent-|\.jsonl$/g, ""));
-      }
+    for (const f of this.subagentFiles(subDir)) {
+      n += this.tailFile(join(subDir, f), sessionId, f.replace(/^agent-|\.jsonl$/g, ""));
     }
     return n;
   }
 
   /** Called on a timer: tail every session that was active recently (long turns emit no hooks). */
+  /** Subagent file list per dir, re-read only when the directory mtime moves. A file that grows
+   *  without the dir changing is still tailed because the cached names are re-tailed each call. */
+  private subDirCache = new Map<string, { mtime: number; files: string[] }>();
+  private subagentFiles(dir: string): string[] {
+    let mtime: number;
+    try {
+      mtime = statSync(dir).mtimeMs;
+    } catch {
+      return [];
+    }
+    const hit = this.subDirCache.get(dir);
+    if (hit && hit.mtime === mtime) return hit.files;
+    const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+    this.subDirCache.set(dir, { mtime, files });
+    return files;
+  }
+
+  /** Any session seen in the last 10 minutes that has not ended. */
+  hasActiveSessions(): boolean {
+    const since = new Date(Date.now() - IDLE_MS).toISOString();
+    return (
+      this.db
+        .query("SELECT 1 AS x FROM sessions WHERE state != 'ended' AND last_seen_at > ? LIMIT 1")
+        .get(since) !== null
+    );
+  }
+
   tailActive(): number {
     const since = new Date(Date.now() - IDLE_MS).toISOString();
     const ids = this.db
-      .prepare(
+      .query(
         "SELECT id FROM sessions WHERE state != 'ended' AND last_seen_at > ? AND transcript_path IS NOT NULL",
       )
       .all(since) as Array<{ id: string }>;
@@ -665,6 +830,7 @@ export class Store {
   }
 
   /** Grok: ~/.grok/sessions/<url-encoded-cwd>/<session-id>/updates.jsonl (cwd is in the dir name). */
+  private grokSummary = new Map<string, { mtime: number; title: string | undefined }>();
   tailGrok(windowMs = 3 * 24 * 60 * 60_000): number {
     const root = this.grokRoot();
     if (!existsSync(root)) return 0;
@@ -694,20 +860,28 @@ export class Store {
         } catch {
           continue;
         }
+        // summary.json is re-read (and the title re-written) only when its mtime moves
+        const sumPath = join(cwdDir, sid, "summary.json");
         let title: string | undefined;
+        let fresh = false;
         try {
-          const sum = JSON.parse(readFileSync(join(cwdDir, sid, "summary.json"), "utf8")) as {
-            session_summary?: string;
-          };
-          title = sum.session_summary;
+          const m = statSync(sumPath).mtimeMs;
+          const hit = this.grokSummary.get(sumPath);
+          if (hit && hit.mtime === m) title = hit.title;
+          else {
+            const sum = JSON.parse(readFileSync(sumPath, "utf8")) as { session_summary?: string };
+            title = sum.session_summary;
+            this.grokSummary.set(sumPath, { mtime: m, title });
+            fresh = true;
+          }
         } catch {
           /* no summary */
         }
         n += this.ingestLog(path, "grok", parseGrokUpdates, cwd, title);
         // the dir name is the session id; backfill the title even when there are no new bytes
-        if (title) {
+        if (title && fresh) {
           this.db
-            .prepare("UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')")
+            .query("UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')")
             .run(title, sid);
         }
       }
@@ -723,7 +897,7 @@ export class Store {
     cwdHint?: string,
     titleHint?: string,
   ): number {
-    const off = (this.db.prepare("SELECT offset FROM tails WHERE path = ?").get(path) as {
+    const off = (this.db.query("SELECT offset FROM tails WHERE path = ?").get(path) as {
       offset: number;
     } | null) ?? { offset: 0 };
     const r = this.readFrom(path, off.offset);
@@ -744,7 +918,7 @@ export class Store {
     const state = Date.now() - mtime < 90_000 ? "active" : "ended";
     const lastSeen = new Date(mtime).toISOString();
     this.db
-      .prepare(
+      .query(
         "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
       )
       .run(
@@ -758,7 +932,7 @@ export class Store {
         sid,
       );
     this.db
-      .prepare(
+      .query(
         "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
       )
       .run(path, sid, r.next);
@@ -766,11 +940,11 @@ export class Store {
   }
 
   private ensureAgentSession(sid: string, agent: string, cwd: string, mtime: number) {
-    if (this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(sid)) return;
+    if (this.db.query("SELECT 1 FROM sessions WHERE id = ?").get(sid)) return;
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
     const ts = new Date(mtime).toISOString();
     this.db
-      .prepare(
+      .query(
         "INSERT INTO sessions (id, project_id, kind, agent, cwd, branch, started_at, last_seen_at, last, last_type, state) VALUES (?, ?, 'interactive', ?, ?, ?, ?, ?, '', '', 'active')",
       )
       .run(
@@ -787,7 +961,7 @@ export class Store {
   // ---------- claims (M1: fail-closed leases in isolated git worktrees)
   private claimRows(projectId: string): LeaseClaim[] {
     return (
-      this.db.prepare("SELECT * FROM claims WHERE project_id = ?").all(projectId) as Array<
+      this.db.query("SELECT * FROM claims WHERE project_id = ?").all(projectId) as Array<
         Record<string, unknown>
       >
     ).map((r) => ({
@@ -804,7 +978,7 @@ export class Store {
   claims(projectId?: string) {
     const rows = (
       this.db
-        .prepare(
+        .query(
           projectId
             ? "SELECT * FROM claims WHERE project_id = ? ORDER BY acquired_at DESC"
             : "SELECT * FROM claims ORDER BY acquired_at DESC",
@@ -846,10 +1020,11 @@ export class Store {
     mkdirSync(dirname(worktree), { recursive: true });
     const created = worktreeAdd(p.root, worktree, branch, baseRef);
     if (!created) return { ok: false as const, error: `git worktree add failed for ${task}` };
+    this.invalidateWorktrees(projectId);
     const expiresAt = nextExpiry(now);
     const acquiredAt = new Date(now).toISOString();
     this.db
-      .prepare(
+      .query(
         `INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, released_at, state)
          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'held')
          ON CONFLICT(project_id, task) DO UPDATE SET owner=excluded.owner, worktree=excluded.worktree, branch=excluded.branch,
@@ -868,12 +1043,12 @@ export class Store {
 
   renew(projectId: string, task: string) {
     const row = this.db
-      .prepare("SELECT state FROM claims WHERE project_id = ? AND task = ?")
+      .query("SELECT state FROM claims WHERE project_id = ? AND task = ?")
       .get(projectId, task) as { state: string } | null;
     if (!row) return { ok: false as const, error: `no claim on ${task}` };
     const expiresAt = nextExpiry(Date.now());
     this.db
-      .prepare("UPDATE claims SET expires_at = ?, state = 'held' WHERE project_id = ? AND task = ?")
+      .query("UPDATE claims SET expires_at = ?, state = 'held' WHERE project_id = ? AND task = ?")
       .run(expiresAt, projectId, task);
     this.append({
       ts: new Date().toISOString(),
@@ -888,7 +1063,7 @@ export class Store {
   release(projectId: string, task: string, force = false) {
     const p = this.project(projectId);
     const row = this.db
-      .prepare("SELECT * FROM claims WHERE project_id = ? AND task = ?")
+      .query("SELECT * FROM claims WHERE project_id = ? AND task = ?")
       .get(projectId, task) as Record<string, unknown> | null;
     if (!row) return { ok: false as const, error: `no claim on ${task}` };
     const worktree = (row.worktree as string) ?? "";
@@ -903,10 +1078,11 @@ export class Store {
         };
       if (p && !worktreeRemove(p.root, worktree, force))
         return { ok: false as const, error: `git worktree remove failed for ${worktree}` };
+      this.invalidateWorktrees(projectId);
     }
     const releasedAt = new Date().toISOString();
     this.db
-      .prepare(
+      .query(
         "UPDATE claims SET state = 'released', released_at = ? WHERE project_id = ? AND task = ?",
       )
       .run(releasedAt, projectId, task);
@@ -934,9 +1110,12 @@ export class Store {
         const action = reapAction({ ...c, state: "held" }, now, exists, work);
         if (action === "not-expired") continue;
         if (action === "reap") {
-          if (exists && p) worktreeRemove(p.root, c.worktree, false);
+          if (exists && p) {
+            worktreeRemove(p.root, c.worktree, false);
+            this.invalidateWorktrees(pid);
+          }
           this.db
-            .prepare(
+            .query(
               "UPDATE claims SET state = 'reaped', released_at = ? WHERE project_id = ? AND task = ?",
             )
             .run(new Date(now).toISOString(), pid, c.task);
@@ -949,7 +1128,7 @@ export class Store {
           });
         } else {
           this.db
-            .prepare("UPDATE claims SET state = 'orphaned' WHERE project_id = ? AND task = ?")
+            .query("UPDATE claims SET state = 'orphaned' WHERE project_id = ? AND task = ?")
             .run(pid, c.task);
           this.append({
             ts: new Date(now).toISOString(),
@@ -970,27 +1149,35 @@ export class Store {
   }
 
   // ---------- reads
-  since(seq: number, limit = 5000): SwarmEvent[] {
-    return (
-      this.db
-        .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?")
-        .all(seq, limit) as Array<Record<string, unknown>>
-    ).map(rowToEvent);
+  /** Events after `seq`, in wire shape (no raw / tool I/O). `full` restores the stored columns. */
+  since(seq: number, limit = 5000, full = false): SwarmEvent[] {
+    const rows = this.db
+      .query(`SELECT ${full ? "*" : WIRE_COLS} FROM events WHERE seq > ? ORDER BY seq LIMIT ?`)
+      .all(seq, limit) as Array<Record<string, unknown>>;
+    return rows.map(full ? rowToEvent : wireRowToEvent);
   }
-  sessionEvents(id: string, limit = 500): SwarmEvent[] {
-    return (
-      this.db
-        .prepare(
-          "SELECT * FROM (SELECT * FROM events WHERE session_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
-        )
-        .all(id, limit) as Array<Record<string, unknown>>
-    ).map(rowToEvent);
+  /** Last `limit` events of a session in wire shape; `after` makes it incremental (seq > after). */
+  sessionEvents(id: string, limit = 500, after = 0): SwarmEvent[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM (SELECT ${WIRE_COLS} FROM events WHERE session_id = ? AND seq > ? ORDER BY seq DESC LIMIT ?) ORDER BY seq`,
+      )
+      .all(id, after, limit) as Array<Record<string, unknown>>;
+    return rows.map(wireRowToEvent);
   }
-  sessionTurns(id: string, limit = 500) {
+  /** One stored event with everything (payload incl. clipped tool I/O, raw hook input). */
+  event(seq: number): SwarmEvent | null {
+    const r = this.db.query("SELECT * FROM events WHERE seq = ?").get(seq) as Record<
+      string,
+      unknown
+    > | null;
+    return r ? rowToEvent(r) : null;
+  }
+  sessionTurns(id: string, limit = 500, afterTs?: string) {
     return (
       this.db
-        .prepare("SELECT * FROM turns WHERE session_id = ? ORDER BY ts DESC LIMIT ?")
-        .all(id, limit) as Array<Record<string, unknown>>
+        .query("SELECT * FROM turns WHERE session_id = ? AND ts > ? ORDER BY ts DESC LIMIT ?")
+        .all(id, afterTs ?? "", limit) as Array<Record<string, unknown>>
     )
       .reverse()
       .map((r) => ({
@@ -1015,19 +1202,46 @@ export class Store {
     return () => this.listeners.delete(l);
   }
 
-  worktrees(projectId: string): Worktree[] {
-    const p = this.project(projectId);
-    if (!p) return [];
+  /**
+   * Worktrees for a project from cache; never spawns git on the caller's thread. A stale or missing
+   * entry kicks an async refresh and the caller gets the previous value (or [] the very first time).
+   */
+  worktrees(projectId: string, ttlMs = 15_000): Worktree[] {
     const hit = this.wtCache.get(projectId);
-    if (hit && Date.now() - hit.t < 3000) return hit.v;
-    const v = listWorktrees(p.root);
-    this.wtCache.set(projectId, { v, t: Date.now() });
-    return v;
+    if (!hit || Date.now() - hit.t >= ttlMs) void this.refreshWorktrees(projectId);
+    return hit?.v ?? [];
+  }
+
+  /** Re-list one project's worktrees off the event loop; concurrent calls share one run. */
+  refreshWorktrees(projectId: string): Promise<Worktree[]> {
+    const inflight = this.wtInflight.get(projectId);
+    if (inflight) return inflight;
+    const p = this.project(projectId);
+    if (!p) return Promise.resolve([]);
+    const run = listWorktreesAsync(p.root)
+      .then((v) => {
+        this.wtCache.set(projectId, { v, t: Date.now() });
+        return v;
+      })
+      .finally(() => this.wtInflight.delete(projectId));
+    this.wtInflight.set(projectId, run);
+    return run;
+  }
+
+  /** Forget cached worktrees (after claim/release) so the next snapshot re-lists. */
+  invalidateWorktrees(projectId?: string) {
+    if (projectId) this.wtCache.delete(projectId);
+    else this.wtCache.clear();
+  }
+
+  /** Refresh every project's worktrees; for the background tick. */
+  async refreshAllWorktrees() {
+    await Promise.all(this.projects().map((p) => this.refreshWorktrees(p.id)));
   }
 
   sessions(): SessionView[] {
     const rows = this.db
-      .prepare(
+      .query(
         `SELECT s.*, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
                 COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read, COALESCE(SUM(t.thinking),0) AS thinking,
                 SUM(t.cost_usd) AS cost_usd, MAX(t.cost_usd IS NULL AND t.id IS NOT NULL) AS unpriced,
@@ -1040,7 +1254,7 @@ export class Store {
     const idleBefore = Date.now() - IDLE_MS;
     // Per-session sparkline: the last 24 top-level turns (output tokens + cost), oldest first.
     const sparkRows = this.db
-      .prepare(
+      .query(
         `SELECT session_id, output, cost_usd FROM (
            SELECT t.session_id, t.output, t.cost_usd, t.ts,
                   ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY t.ts DESC) AS rn
@@ -1102,7 +1316,7 @@ export class Store {
     const today = dayStart.toISOString();
     const q = (where: string, by: string) =>
       this.db
-        .prepare(
+        .query(
           `SELECT ${by} AS key, SUM(t.cost_usd) AS cost, SUM(t.input + t.cache_write + t.cache_read) AS input, SUM(t.output) AS output, COUNT(*) AS turns
            FROM turns t JOIN sessions s ON s.id = t.session_id ${where} GROUP BY key`,
         )
@@ -1114,7 +1328,7 @@ export class Store {
         turns: number;
       }>;
     const daily = this.db
-      .prepare(
+      .query(
         `SELECT date(t.ts, 'localtime') AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
                 SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-90 days') GROUP BY day, projectId, agent ORDER BY day`,
@@ -1129,7 +1343,7 @@ export class Store {
     }>;
     // Weekday × hour activity over the last 4 weeks, in local time (SQLite 'localtime' modifier).
     const hourly = this.db
-      .prepare(
+      .query(
         `SELECT CAST(strftime('%w', t.ts, 'localtime') AS INTEGER) AS dow, CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour,
                 s.project_id AS projectId, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-28 days') GROUP BY dow, hour, projectId`,
@@ -1161,7 +1375,7 @@ export class Store {
     const scope = projectId ? "s.project_id = ?" : "? IS NULL";
     const arg = projectId ?? null;
     const totals = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(t.id) AS turns, COUNT(DISTINCT t.session_id) AS sessions,
                 COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
                 COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read,
@@ -1171,14 +1385,14 @@ export class Store {
       )
       .get(arg) as Record<string, number | string | null>;
     const sess = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(*) AS sessions, COALESCE(SUM(s.tool_calls),0) AS tool_calls, COALESCE(SUM(s.subagents),0) AS subagents,
                 SUM(s.kind = 'subagent') AS subagent_sessions
          FROM sessions s WHERE ${scope}`,
       )
       .get(arg) as Record<string, number>;
     const daily = this.db
-      .prepare(
+      .query(
         `SELECT date(t.ts, 'localtime') AS day, SUM(t.input) AS input, SUM(t.output) AS output, SUM(t.cache_write) AS cacheWrite,
                 SUM(t.cache_read) AS cacheRead, SUM(t.thinking) AS thinking, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} AND t.ts > datetime('now', '-366 days') GROUP BY day ORDER BY day`,
@@ -1194,27 +1408,27 @@ export class Store {
       turns: number;
     }>;
     const byHour = this.db
-      .prepare(
+      .query(
         `SELECT CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour, COUNT(*) AS turns, SUM(t.output) AS output, SUM(t.cost_usd) AS cost
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} GROUP BY hour ORDER BY hour`,
       )
       .all(arg) as Array<{ hour: number; turns: number; output: number; cost: number | null }>;
     const byModel = this.db
-      .prepare(
+      .query(
         `SELECT t.model AS model, COUNT(*) AS turns, SUM(t.output) AS output, SUM(t.cost_usd) AS cost
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} GROUP BY t.model ORDER BY output DESC`,
       )
       .all(arg) as Array<{ model: string; turns: number; output: number; cost: number | null }>;
     const tools: Record<string, number> = {};
     for (const r of this.db
-      .prepare(`SELECT s.tool_counts AS tc FROM sessions s WHERE ${scope}`)
+      .query(`SELECT s.tool_counts AS tc FROM sessions s WHERE ${scope}`)
       .all(arg) as Array<{ tc: string }>) {
       for (const [k, v] of Object.entries(JSON.parse(r.tc || "{}") as Record<string, number>))
         tools[k] = (tools[k] ?? 0) + v;
     }
     const sessionRow = (order: string) =>
       this.db
-        .prepare(
+        .query(
           `SELECT s.id, s.title, s.project_id AS projectId, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt,
                   COUNT(t.id) AS turns, SUM(t.cost_usd) AS cost, SUM(t.output) AS output, s.tool_calls AS toolCalls
            FROM sessions s JOIN turns t ON t.session_id = s.id WHERE ${scope} AND s.kind != 'subagent'
@@ -1222,7 +1436,7 @@ export class Store {
         )
         .get(arg) as Record<string, unknown> | null;
     const biggestTurn = this.db
-      .prepare(
+      .query(
         `SELECT t.session_id AS sessionId, s.title, t.ts, t.output, t.thinking, t.cost_usd AS cost, t.model
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} ORDER BY t.output DESC LIMIT 1`,
       )
@@ -1266,7 +1480,7 @@ export class Store {
   /** Recent guard incidents (newest first), read straight from the event log. */
   incidents(limit = 50) {
     const rows = this.db
-      .prepare(
+      .query(
         "SELECT seq, ts, project_id, session_id, payload FROM events WHERE type = 'incident.opened' ORDER BY seq DESC LIMIT ?",
       )
       .all(limit) as Array<{
@@ -1315,11 +1529,11 @@ export class Store {
     const rows = (
       projectId
         ? this.db
-            .prepare(
+            .query(
               "SELECT * FROM resources WHERE released = 0 AND (project_id = ? OR project_id = '')",
             )
             .all(projectId)
-        : this.db.prepare("SELECT * FROM resources WHERE released = 0").all()
+        : this.db.query("SELECT * FROM resources WHERE released = 0").all()
     ) as Record<string, unknown>[];
     return rows.map((r) => this.rowToResource(r));
   }
@@ -1330,14 +1544,14 @@ export class Store {
     // are swept by the periodic reap and lazily on acquire.
     return (
       this.db
-        .prepare("SELECT port FROM resources WHERE released = 0 AND port IS NOT NULL")
+        .query("SELECT port FROM resources WHERE released = 0 AND port IS NOT NULL")
         .all() as Array<{ port: number }>
     ).map((r) => r.port);
   }
 
   /** Dead pid / expired lease → release + record the reap. Returns the number reaped. */
   reapResources(): number {
-    const rows = this.db.prepare("SELECT * FROM resources WHERE released = 0").all() as Record<
+    const rows = this.db.query("SELECT * FROM resources WHERE released = 0").all() as Record<
       string,
       unknown
     >[];
@@ -1350,7 +1564,7 @@ export class Store {
   private reapIfDead(r: Resource, now = Date.now()): boolean {
     if (r.released || isAliveHolding(r, now, Store.pidAlive)) return false;
     this.db
-      .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
+      .query("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
       .run(r.name, r.projectId ?? "");
     this.append({
       ts: new Date().toISOString(),
@@ -1365,7 +1579,7 @@ export class Store {
   /** Only session ids the ledger already knows — anything else would mint a phantom session. */
   private knownSession(id: string | null | undefined): string | null {
     if (!id) return null;
-    return this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) ? id : null;
+    return this.db.query("SELECT 1 FROM sessions WHERE id = ?").get(id) ? id : null;
   }
 
   acquireResource(input: {
@@ -1380,7 +1594,7 @@ export class Store {
   }): { ok: true; resource: Resource } | { ok: false; reason: string } {
     const key = input.projectId ?? "";
     const raw = this.db
-      .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ?")
+      .query("SELECT * FROM resources WHERE name = ? AND project_id = ?")
       .get(input.name, key) as Record<string, unknown> | undefined;
     let existing = raw ? this.rowToResource(raw) : null;
     if (existing && this.reapIfDead(existing)) existing = null; // lazy reap of this row only
@@ -1406,7 +1620,7 @@ export class Store {
       released: false,
     };
     this.db
-      .prepare(
+      .query(
         `INSERT INTO resources (name, project_id, kind, owner, session_id, pid, port, acquired_at, expires_at, released)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
          ON CONFLICT(name, project_id) DO UPDATE SET
@@ -1451,7 +1665,7 @@ export class Store {
     force = false,
   ): { ok: boolean; reason?: string } {
     const raw = this.db
-      .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ? AND released = 0")
+      .query("SELECT * FROM resources WHERE name = ? AND project_id = ? AND released = 0")
       .get(name, projectId ?? "") as Record<string, unknown> | undefined;
     if (!raw) return { ok: false, reason: "not held" };
     const r = this.rowToResource(raw);
@@ -1460,7 +1674,7 @@ export class Store {
       if (r.owner !== owner) return { ok: false, reason: `held by ${r.owner}, not ${owner}` };
     }
     this.db
-      .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
+      .query("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
       .run(name, projectId ?? "");
     this.append({
       ts: new Date().toISOString(),
@@ -1477,24 +1691,95 @@ export class Store {
     return { ok: true };
   }
 
+  /** Latest event seq — cheap, read from the primary key. */
+  seq(): number {
+    return (
+      this.db.query("SELECT COALESCE(MAX(seq),0) AS seq FROM events").get() as { seq: number }
+    ).seq;
+  }
+
   snapshot() {
     const worktrees: Record<string, Worktree[]> = {};
     const projects = this.projects();
     for (const p of projects) worktrees[p.id] = this.worktrees(p.id);
-    const seq = (
-      this.db.prepare("SELECT COALESCE(MAX(seq),0) AS seq FROM events").get() as { seq: number }
-    ).seq;
     return {
       projects,
       worktrees,
-      sessions: this.sessions(),
-      spend: this.spend(),
+      // sessions/spend/incidents only change on writes; `ago`-style fields are computed client-side
+      sessions: this.memoised("sessions", 2000, () => this.sessions()),
+      spend: this.memoised("spend", 30_000, () => this.spend()),
       claims: this.claims(),
-      incidents: this.incidents(20),
+      incidents: this.memoised("incidents", 30_000, () => this.incidents(20)),
       resources: this.resources(),
-      seq,
+      seq: this.seq(),
     };
   }
+}
+
+/** Columns the dashboard and CLI actually consume; payload is reduced to hook + summary + small keys. */
+const WIRE_COLS =
+  "seq, ts, type, project_id, session_id, json_remove(payload, '$.toolInput', '$.toolResponse', '$.prompt') AS payload";
+
+/** Tool I/O keys across adapters (Claude Code snake_case, Grok/Codex camelCase). */
+const RAW_TOOL_KEYS = ["tool_input", "tool_response", "toolInput", "toolResponse", "toolResult"];
+const TOOL_INPUT_MAX = 2048;
+const TOOL_RESPONSE_MAX = 4096;
+
+/** Clip a JSON value to `max` serialised bytes; keeps a preview and the original size. */
+function clip(v: unknown, max: number): unknown {
+  if (v === undefined) return undefined;
+  const s = JSON.stringify(v);
+  if (s.length <= max) return v;
+  return { truncated: true, bytes: s.length, preview: s.slice(0, max) };
+}
+
+/**
+ * Storage shape: tool I/O is clipped in `payload` and removed from `raw` (it would otherwise be
+ * stored twice, and a single `Read` of a big file is 500 KB). Everything else in `raw` is kept.
+ */
+function slimForStorage(e: SwarmEvent): { payload: unknown; raw: unknown } {
+  const p = e.payload as Record<string, unknown> | null;
+  let payload: unknown = p;
+  if (p && typeof p === "object" && ("toolInput" in p || "toolResponse" in p)) {
+    payload = {
+      ...p,
+      toolInput: clip(p.toolInput, TOOL_INPUT_MAX),
+      toolResponse: clip(p.toolResponse, TOOL_RESPONSE_MAX),
+    };
+  }
+  let raw = e.raw;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    if (RAW_TOOL_KEYS.some((k) => k in r)) {
+      const rest: Record<string, unknown> = {};
+      for (const k of Object.keys(r)) if (!RAW_TOOL_KEYS.includes(k)) rest[k] = r[k];
+      raw = rest;
+    }
+  }
+  return { payload, raw };
+}
+
+/** Wire shape for SSE and lists: drop `raw` and the tool I/O; the UI renders hook/summary only. */
+function toWire(e: SwarmEvent): SwarmEvent {
+  const { raw: _raw, ...rest } = e;
+  const p = rest.payload as Record<string, unknown> | null;
+  if (p && typeof p === "object" && ("toolInput" in p || "toolResponse" in p || "prompt" in p)) {
+    const { toolInput: _a, toolResponse: _b, prompt: _c, ...small } = p;
+    return { ...rest, payload: small };
+  }
+  return rest;
+}
+
+function wireRowToEvent(r: Record<string, unknown>): SwarmEvent {
+  const p = JSON.parse((r.payload as string) ?? "null") as Record<string, unknown> | null;
+  return {
+    seq: r.seq as number,
+    ts: r.ts as string,
+    type: r.type as SwarmEvent["type"],
+    projectId: r.project_id as string,
+    sessionId: (r.session_id as string) ?? null,
+    payload: p,
+  };
 }
 
 function rowToEvent(r: Record<string, unknown>): SwarmEvent {

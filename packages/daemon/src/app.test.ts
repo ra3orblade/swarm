@@ -439,3 +439,92 @@ describe("runtime resources (Phase 1)", () => {
     expect(j.hookSpecificOutput?.permissionDecision).toBe("ask");
   });
 });
+
+describe("event storage and wire shape (perf)", () => {
+  const hook = (app: ReturnType<typeof createApp>["app"], event: string, extra: object) =>
+    app.request(`/v1/hook/${event}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s_big",
+        cwd: process.cwd(),
+        tool_name: "Read",
+        ...extra,
+      }),
+    });
+
+  it("clips tool I/O in storage, drops it from raw, and keeps it off the wire", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const big = "x".repeat(100_000);
+    const seen: unknown[] = [];
+    store.subscribe((e) => seen.push(e));
+    await hook(app, "PostToolUse", {
+      tool_input: { file_path: "/a" },
+      tool_response: { content: big },
+    });
+    // stored: payload clipped, raw without tool_* keys
+    const stored = store.event(1);
+    expect(stored).not.toBeNull();
+    const payload = stored?.payload as { toolResponse: { truncated: boolean; bytes: number } };
+    expect(payload.toolResponse.truncated).toBe(true);
+    expect(payload.toolResponse.bytes).toBeGreaterThan(100_000);
+    const raw = stored?.raw as Record<string, unknown>;
+    expect(raw.tool_name).toBe("Read");
+    expect(raw.tool_response).toBeUndefined();
+    expect(JSON.stringify(stored).length).toBeLessThan(10_000);
+    // wire: no raw, no tool I/O, summary kept
+    const wire = seen[0] as { raw?: unknown; payload: Record<string, unknown> };
+    expect(wire.raw).toBeUndefined();
+    expect(wire.payload.toolResponse).toBeUndefined();
+    expect(wire.payload.summary).toBe("Read /a");
+    const listed = store.sessionEvents("s_big")[0] as { payload: Record<string, unknown> };
+    expect(listed.payload.toolResponse).toBeUndefined();
+    expect(listed.payload.hook).toBe("PostToolUse");
+    expect(store.since(0)[0]?.raw).toBeUndefined();
+    expect(store.since(0, 10, true)[0]?.raw).toBeDefined();
+  });
+
+  it("serves session events incrementally", async () => {
+    const { app } = createApp(new Store(tmpHome()));
+    await hook(app, "PreToolUse", { tool_input: { file_path: "/a" } });
+    await hook(app, "PostToolUse", { tool_input: { file_path: "/a" }, tool_response: "ok" });
+    await hook(app, "PreToolUse", { tool_input: { file_path: "/b" } });
+    const all = (await (await app.request("/v1/sessions/s_big/events")).json()) as {
+      events: Array<{ seq: number }>;
+      seq: number;
+    };
+    expect(all.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(all.seq).toBe(3);
+    const inc = (await (await app.request("/v1/sessions/s_big/events?after=2")).json()) as {
+      events: Array<{ seq: number }>;
+    };
+    expect(inc.events.map((e) => e.seq)).toEqual([3]);
+    const one = await app.request("/v1/events/2");
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { raw: { tool_name: string } }).raw.tool_name).toBe("Read");
+    expect((await app.request("/v1/events/99")).status).toBe(404);
+  });
+
+  it("prunes old events but keeps incidents", () => {
+    const store = new Store(tmpHome());
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    const base = { projectId: "p", sessionId: "s", payload: {} } as const;
+    store.append({ ...base, ts: old, type: "tool.requested" });
+    store.append({ ...base, ts: old, type: "incident.opened" });
+    store.append({ ...base, ts: new Date().toISOString(), type: "tool.requested" });
+    expect(store.prune(30)).toBe(1);
+    expect(store.since(0).map((e) => e.type)).toEqual(["incident.opened", "tool.requested"]);
+  });
+
+  it("resolves a cwd to its project without re-spawning git, and snapshots worktrees off-thread", async () => {
+    const store = new Store(tmpHome());
+    const a = store.resolveProject(process.cwd());
+    const b = store.resolveProject(process.cwd());
+    expect(b.id).toBe(a.id);
+    // first snapshot: no cached worktrees yet, nothing blocks
+    expect(store.snapshot().worktrees[a.id]).toEqual([]);
+    const wts = await store.refreshWorktrees(a.id);
+    expect(wts.length).toBeGreaterThan(0);
+    expect(store.snapshot().worktrees[a.id]).toBe(wts);
+  });
+});

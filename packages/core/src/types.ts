@@ -37,7 +37,11 @@ export interface SwarmEvent<T = unknown> {
   projectId: string;
   sessionId: string | null;
   payload: T;
-  /** Raw upstream object (Claude Code hook input, stream-json line). Never dropped. */
+  /**
+   * Raw upstream object (Claude Code hook input, stream-json line). Always present in memory (rules
+   * read it); the daemon persists it minus `tool_input`/`tool_response`, which live clipped in
+   * `payload`, and never puts it on the wire.
+   */
   raw?: unknown;
 }
 
