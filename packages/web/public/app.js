@@ -13,7 +13,7 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -191,7 +191,7 @@ function renderFleet() {
 
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
-  const parts = [renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Claims, worktrees, and incidents appear here.</div>`;
@@ -215,6 +215,29 @@ function renderIncidents() {
       leading: { width: 24, cell: (i) => `<span class="s ${i.action === "deny" ? "waiting" : "idle"}"></span>` },
       trailing: { width: 34, cell: () => "" },
       rowAttrs: (i) => (i.sessionId ? `data-s="${i.sessionId}"` : ""),
+      rerender: render,
+    });
+}
+
+function renderResources() {
+  const rows = (state.resources ?? []).filter((r) => !state.sel || r.projectId === state.sel || r.projectId === null);
+  if (!rows.length) return "";
+  const cols = [
+    { key: "name", label: "resource", width: 170, get: (r) => r.name, cell: (r) => `<b>${esc(r.name)}</b>` },
+    { key: "kind", label: "kind", width: 90, get: (r) => r.kind, cell: (r) => `<span class="badge">${esc(r.kind)}</span>` },
+    { key: "project", label: "project", width: 104, get: (r) => (r.projectId ? projName(r.projectId) : "global"), cell: (r) => (r.projectId ? esc(projName(r.projectId)) : '<span class="dim">global</span>') },
+    { key: "owner", label: "owner", width: 130, get: (r) => r.owner, cell: (r) => esc(r.owner) },
+    { key: "pid", label: "pid", width: 76, num: true, get: (r) => r.pid ?? 0, cell: (r) => (r.pid ?? '<span class="dim">—</span>') },
+    { key: "port", label: "port", width: 76, num: true, get: (r) => r.port ?? 0, cell: (r) => (r.port ?? '<span class="dim">—</span>') },
+    { key: "held", label: "held", flex: true, get: (r) => r.acquiredAt, cell: (r) => `<span class="dim">${ago(r.acquiredAt)}${r.expiresAt ? ` · lease ${leaseLeft(r.expiresAt)}` : r.pid ? " · pid-tracked" : ""}</span>` },
+  ].filter((c) => !(c.key === "project" && state.sel));
+  return `<h2>Resources <span>${rows.length} held · ports auto-protected</span></h2>` +
+    dataTable({
+      id: "resources",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: () => '<span class="s active"></span>' },
+      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${r.projectId ?? ""}">Release</a>` },
       rerender: render,
     });
 }
@@ -450,7 +473,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -471,6 +494,11 @@ document.addEventListener("click", async (ev) => {
     return refresh();
   }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
+  if (t.dataset.resrelease !== undefined) {
+    ev.preventDefault();
+    const q = new URLSearchParams(); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
+    return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
+  }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; return render(); }

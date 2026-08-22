@@ -129,7 +129,9 @@ describe("codex ingestion", () => {
 describe("shared-tree guard (M2.1)", () => {
   it("asks before `git add -A` when another live session shares the checkout", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
-    const cwd = process.cwd();
+    // hermetic checkout: a tmp git repo, so this repo's own .swarm.toml can't change the answer
+    const cwd = require("node:fs").mkdtempSync(join(tmpdir(), "swarm-guard-repo-"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd });
     // two sessions active in the same tree
     for (const id of ["sess-a", "sess-b"]) {
       await app.request("/v1/hook/PreToolUse", {
@@ -314,5 +316,47 @@ describe("rules + incidents (Phase 2)", () => {
     const j = (await r.json()) as { hookSpecificOutput?: unknown };
     expect(j.hookSpecificOutput).toBeUndefined();
     expect(store.incidents(5).length).toBe(0);
+  });
+});
+
+describe("runtime resources (Phase 1)", () => {
+  it("acquire is fail-closed; same owner refreshes; release frees", () => {
+    const store = new Store(tmpHome());
+    const a = store.acquireResource({ name: "dev-server", owner: "agent-a", port: 3000 });
+    expect(a.ok).toBe(true);
+    const b = store.acquireResource({ name: "dev-server", owner: "agent-b" });
+    expect(b.ok).toBe(false);
+    expect(store.acquireResource({ name: "dev-server", owner: "agent-a" }).ok).toBe(true);
+    expect(store.releaseResource("dev-server", null, "agent-b").ok).toBe(false); // wrong owner
+    expect(store.releaseResource("dev-server", null, "agent-a").ok).toBe(true);
+    expect(store.acquireResource({ name: "dev-server", owner: "agent-b" }).ok).toBe(true);
+  });
+
+  it("dead pid is reaped and stops blocking", () => {
+    const store = new Store(tmpHome());
+    // spawn a real short-lived process to get a dead pid
+    const p = Bun.spawnSync(["true"]);
+    const deadPid = 999999; // beyond pid range on macOS → ESRCH
+    const a = store.acquireResource({ name: "worker", owner: "agent-a", pid: deadPid });
+    expect(a.ok).toBe(true);
+    expect(store.resources().find((r) => r.name === "worker")).toBeUndefined(); // reaped on read
+    expect(store.acquireResource({ name: "worker", owner: "agent-b" }).ok).toBe(true);
+  });
+
+  it("held ports feed the protected-ports rule", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    store.acquireResource({ name: "db", owner: "agent-a", port: 54329 });
+    const r = await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-res",
+        cwd: "/tmp",
+        tool_name: "Bash",
+        tool_input: { command: "lsof -ti:54329 | xargs kill -9" },
+      }),
+    });
+    const j = (await r.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(j.hookSpecificOutput?.permissionDecision).toBe("ask");
   });
 });

@@ -76,6 +76,32 @@ export function createApp(store = new Store()) {
   app.get("/v1/state", (c) => c.json(store.snapshot()));
   app.get("/v1/incidents", (c) => c.json(store.incidents(Number(c.req.query("limit") ?? 50))));
 
+  // ---- runtime resources (Phase 1)
+  app.get("/v1/resources", (c) => c.json(store.resources(c.req.query("project"))));
+  app.post("/v1/resources", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      projectId?: string;
+      kind?: "port" | "process" | "custom";
+      owner?: string;
+      sessionId?: string;
+      pid?: number;
+      port?: number;
+      leaseMinutes?: number;
+    };
+    if (!b.name || !b.owner) return c.json({ error: "name and owner are required" }, 400);
+    const r = store.acquireResource({ ...b, name: b.name, owner: b.owner });
+    return r.ok ? c.json(r, 201) : c.json({ error: r.reason }, 409);
+  });
+  app.delete("/v1/resources/:name", (c) => {
+    const r = store.releaseResource(
+      c.req.param("name"),
+      c.req.query("project") ?? null,
+      c.req.query("owner"),
+    );
+    return r.ok ? c.json(r) : c.json({ error: r.reason }, 409);
+  });
+
   // ---- claims (M1)
   app.get("/v1/claims", (c) => c.json(store.claims(c.req.query("project"))));
   app.post("/v1/claims", async (c) => {

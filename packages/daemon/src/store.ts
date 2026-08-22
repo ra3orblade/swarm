@@ -15,10 +15,13 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
+  acquireRefusalMessage,
+  canAcquire,
   canClaim,
   canRelease,
   claimRefusalMessage,
   costUsd,
+  DEFAULT_RESOURCE_LEASE_MINUTES,
   fromLiteLLM,
   type GuardDecision,
   guardBash,
@@ -36,6 +39,7 @@ import {
   parseGrokUpdates,
   parseTranscriptChunk,
   projectIdentity,
+  type Resource,
   type RulesConfig,
   reapAction,
   releaseRefusalMessage,
@@ -108,6 +112,11 @@ CREATE TABLE IF NOT EXISTS turns (
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, ts);
 CREATE TABLE IF NOT EXISTS tails (path TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, offset INTEGER);
+CREATE TABLE IF NOT EXISTS resources (
+  name TEXT, project_id TEXT, kind TEXT, owner TEXT, session_id TEXT,
+  pid INTEGER, port INTEGER, acquired_at TEXT, expires_at TEXT, released INTEGER DEFAULT 0,
+  PRIMARY KEY (name, project_id)
+);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -206,7 +215,11 @@ export class Store {
       lastSeenAt: r.last_seen_at,
       state: r.state,
     }));
-    const d = guardBash(cmd, current, sessions, Date.now(), this.rulesFor(current.toplevel));
+    const modes = this.rulesFor(current.toplevel);
+    const d = guardBash(cmd, current, sessions, Date.now(), {
+      ...modes,
+      protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
+    });
     if (d.action === "allow") return null;
     // Record the decision as an incident: visible on the dashboard and in the event stream.
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
@@ -1110,6 +1123,177 @@ export class Store {
     }));
   }
 
+  // ---------- runtime resources (Phase 1)
+  private static pidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private rowToResource(r: Record<string, unknown>): Resource {
+    return {
+      name: r.name as string,
+      kind: (r.kind as Resource["kind"]) ?? "custom",
+      projectId: (r.project_id as string) || null,
+      owner: r.owner as string,
+      sessionId: (r.session_id as string) || null,
+      pid: (r.pid as number) ?? null,
+      port: (r.port as number) ?? null,
+      acquiredAt: r.acquired_at as string,
+      expiresAt: (r.expires_at as string) || null,
+      released: !!r.released,
+    };
+  }
+
+  resources(projectId?: string): Resource[] {
+    this.reapResources();
+    const rows = (
+      projectId
+        ? this.db
+            .prepare(
+              "SELECT * FROM resources WHERE released = 0 AND (project_id = ? OR project_id = '')",
+            )
+            .all(projectId)
+        : this.db.prepare("SELECT * FROM resources WHERE released = 0").all()
+    ) as Record<string, unknown>[];
+    return rows.map((r) => this.rowToResource(r));
+  }
+
+  /** Ports of live holdings — merged into the protected-ports rule automatically. */
+  heldPorts(): number[] {
+    return this.resources()
+      .map((r) => r.port)
+      .filter((p): p is number => p != null);
+  }
+
+  /** Dead pid / expired lease → release + record the reap. */
+  reapResources() {
+    const rows = this.db.prepare("SELECT * FROM resources WHERE released = 0").all() as Record<
+      string,
+      unknown
+    >[];
+    const now = Date.now();
+    for (const raw of rows) {
+      const r = this.rowToResource(raw);
+      const alive =
+        r.pid != null
+          ? Store.pidAlive(r.pid)
+          : r.expiresAt != null
+            ? new Date(r.expiresAt).getTime() > now
+            : true;
+      if (!alive) {
+        this.db
+          .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
+          .run(r.name, r.projectId ?? "");
+        this.append({
+          ts: new Date().toISOString(),
+          type: "resource.reaped",
+          projectId: r.projectId ?? "p_unknown",
+          sessionId: r.sessionId,
+          payload: { name: r.name, owner: r.owner, pid: r.pid, port: r.port },
+        });
+      }
+    }
+  }
+
+  acquireResource(input: {
+    name: string;
+    projectId?: string | null;
+    kind?: Resource["kind"];
+    owner: string;
+    sessionId?: string | null;
+    pid?: number | null;
+    port?: number | null;
+    leaseMinutes?: number;
+  }): { ok: true; resource: Resource } | { ok: false; reason: string } {
+    const key = input.projectId ?? "";
+    const raw = this.db
+      .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ?")
+      .get(input.name, key) as Record<string, unknown> | undefined;
+    const existing = raw ? this.rowToResource(raw) : null;
+    const d = canAcquire(existing, { owner: input.owner }, Date.now(), Store.pidAlive);
+    if (!d.ok) return { ok: false, reason: acquireRefusalMessage(d.holder) };
+    const expiresAt =
+      input.pid != null
+        ? null
+        : new Date(
+            Date.now() + (input.leaseMinutes ?? DEFAULT_RESOURCE_LEASE_MINUTES) * 60_000,
+          ).toISOString();
+    const resource: Resource = {
+      name: input.name,
+      kind: input.kind ?? (input.port != null ? "port" : input.pid != null ? "process" : "custom"),
+      projectId: input.projectId ?? null,
+      owner: input.owner,
+      sessionId: input.sessionId ?? null,
+      pid: input.pid ?? null,
+      port: input.port ?? null,
+      acquiredAt: new Date().toISOString(),
+      expiresAt,
+      released: false,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO resources (name, project_id, kind, owner, session_id, pid, port, acquired_at, expires_at, released)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+         ON CONFLICT(name, project_id) DO UPDATE SET
+           kind=excluded.kind, owner=excluded.owner, session_id=excluded.session_id, pid=excluded.pid,
+           port=excluded.port, acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released=0`,
+      )
+      .run(
+        resource.name,
+        key,
+        resource.kind,
+        resource.owner,
+        resource.sessionId,
+        resource.pid,
+        resource.port,
+        resource.acquiredAt,
+        resource.expiresAt,
+      );
+    this.append({
+      ts: resource.acquiredAt,
+      type: "resource.acquired",
+      projectId: resource.projectId ?? "p_unknown",
+      sessionId: resource.sessionId,
+      payload: {
+        name: resource.name,
+        kind: resource.kind,
+        owner: resource.owner,
+        pid: resource.pid,
+        port: resource.port,
+      },
+    });
+    return { ok: true, resource };
+  }
+
+  releaseResource(
+    name: string,
+    projectId?: string | null,
+    owner?: string,
+  ): { ok: boolean; reason?: string } {
+    const raw = this.db
+      .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ? AND released = 0")
+      .get(name, projectId ?? "") as Record<string, unknown> | undefined;
+    if (!raw) return { ok: false, reason: "not held" };
+    const r = this.rowToResource(raw);
+    if (owner && r.owner !== owner)
+      return { ok: false, reason: `held by ${r.owner}, not ${owner}` };
+    this.db
+      .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
+      .run(name, projectId ?? "");
+    this.append({
+      ts: new Date().toISOString(),
+      type: "resource.released",
+      projectId: r.projectId ?? "p_unknown",
+      sessionId: r.sessionId,
+      payload: { name: r.name, owner: r.owner },
+    });
+    return { ok: true };
+  }
+
   snapshot() {
     const worktrees: Record<string, Worktree[]> = {};
     const projects = this.projects();
@@ -1124,6 +1308,7 @@ export class Store {
       spend: this.spend(),
       claims: this.claims(),
       incidents: this.incidents(20),
+      resources: this.resources(),
       seq,
     };
   }

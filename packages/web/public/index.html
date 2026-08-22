@@ -88,9 +88,9 @@
 
   /* collapsed sidebar */
   body.nosb{grid-template-columns:0 1fr}
-  body.nosb aside{display:none}
-  aside{grid-column:1;grid-row:2}
-  main{grid-column:2;grid-row:2}
+  body.nosb>aside{display:none}
+  body>aside{grid-column:1;grid-row:2}
+  body>main{grid-column:2;grid-row:2}
   #projects h4{display:flex;align-items:center}
   .h4-act{margin-left:auto;cursor:pointer;color:var(--faint);display:inline-flex;padding:2px;border-radius:var(--r-xs)}
   .h4-act:hover{color:var(--acc)}
@@ -121,7 +121,7 @@
   #daemon .dot.on{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
 
   /* sidebar */
-  aside{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto;display:flex;flex-direction:column}
+  body>aside{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto;display:flex;flex-direction:column}
   aside h4{margin:14px 8px 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.09em}
   aside h4:first-child{margin-top:2px}
   .proj{padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:9px;
