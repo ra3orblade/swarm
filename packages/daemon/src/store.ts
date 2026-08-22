@@ -36,6 +36,7 @@ import {
   guardWrite,
   type Handoff,
   type HeldWorktree,
+  incidentKey,
   isActive,
   isAliveHolding,
   isInside,
@@ -64,6 +65,7 @@ import {
   releaseRefusalMessage,
   type SwarmEvent,
   shouldAutoRenew,
+  suggestFromIncident,
   type Task,
   type TaskView,
   type TrackedProcess,
@@ -2113,7 +2115,7 @@ export class Store {
       payload: string;
       acked_at: string | null;
     }>;
-    return rows.map((r) => ({
+    const list = rows.map((r) => ({
       seq: r.seq,
       ts: r.ts,
       projectId: r.project_id,
@@ -2121,6 +2123,31 @@ export class Store {
       acked: r.acked_at,
       ...(JSON.parse(r.payload || "{}") as Record<string, unknown>),
     }));
+    // M4.3: how many times each (rule, target) has fired across all incidents in scope, so the
+    // suggestion can escalate a recurring `ask` to `deny`.
+    const counts = new Map<string, number>();
+    for (const i of list) {
+      const key = incidentKey(i as unknown as { rule: string; command: string });
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return list.map((i) => {
+      const incident = i as unknown as {
+        rule?: string;
+        action?: string;
+        command?: string;
+        reason?: string;
+      };
+      if (!incident.rule) return i;
+      const key = incidentKey(incident as { rule: string; command: string });
+      const suggestion = suggestFromIncident({
+        rule: incident.rule,
+        action: incident.action ?? "",
+        command: incident.command ?? "",
+        reason: incident.reason ?? "",
+        count: counts.get(key) ?? 1,
+      });
+      return { ...i, count: counts.get(key) ?? 1, suggestion };
+    });
   }
 
   /** Open (un-acked) incident count, for the nav badge. */

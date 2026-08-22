@@ -398,6 +398,25 @@ function renderIncidents() {
 }
 
 // ---------- incidents view (M2.3): the denied-action feed, with ack
+// M4.3: turn an incident into a .swarm.toml rule + a CLAUDE.md lesson, both copyable.
+function codifyIncident(seq) {
+  const i = (state.allIncidents ?? []).find((x) => x.seq === Number(seq));
+  if (!i?.suggestion) return;
+  const sg = i.suggestion;
+  $("#picker").innerHTML = `<div class="pk wn" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("shield", 15)}<b>Codify</b><span class="grow"></span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <h3>${esc(sg.title)}</h3>
+      <div class="date">from a <span class="br">${esc(i.rule)}</span> incident${i.count > 1 ? ` \u00b7 seen ${i.count}\u00d7` : ""}</div>
+      ${sg.toml ? `<h4>.swarm.toml <a href="#" class="cbtn" data-copy-toml="${seq}">${ic("copy", 12)} copy</a></h4><pre class="snip" id="toml-${seq}">${esc(sg.toml)}</pre>` : ""}
+      <h4>CLAUDE.md lesson <a href="#" class="cbtn" data-copy-lesson="${seq}">${ic("copy", 12)} copy</a></h4>
+      <pre class="snip" id="lesson-${seq}">- ${esc(sg.lesson)}</pre>
+      ${sg.toml ? '<p class="dim" style="font-size:var(--fs-sm)">Merge the block into the repo\'s <code>.swarm.toml</code>; the daemon picks it up within ~30s.</p>' : '<p class="dim" style="font-size:var(--fs-sm)">No config rule fits this one \u2014 the lesson is the takeaway.</p>'}
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="pkCancel">Close</button></div>
+  </div>`;
+}
+
 function renderIncidentsView() {
   const all = state.allIncidents;
   const rows = (all ?? []).filter((i) => !state.sel || i.projectId === state.sel);
@@ -415,7 +434,7 @@ function renderIncidentsView() {
           columns: incidentColumns(true),
           rows,
           leading: { width: 24, cell: incidentDot },
-          trailing: { width: 44, cell: ackLink },
+          trailing: { width: 120, cell: (i) => `${i.suggestion ? `<a href="#" data-codify="${i.seq}" title="Turn this into a rule / lesson">${ic("shield", 12)} Codify</a> ` : ""}${ackLink(i)}` },
           rowAttrs: () => "",
           rerender: touch,
         })
@@ -1080,6 +1099,7 @@ document.addEventListener("click", async (ev) => {
     if (!r.ok) alert(r.error); else state.tasks = null;
     return refresh();
   }
+  if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) {
     ev.preventDefault(); ev.stopPropagation();
@@ -1224,6 +1244,9 @@ $("#picker").addEventListener("click", (ev) => {
   if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
   const go = ev.target.closest("[data-go]");
   if (go) return void pickerGo(go.dataset.go);
+  const ctoml = ev.target.closest("[data-copy-toml]"), cles = ev.target.closest("[data-copy-lesson]");
+  if (ctoml) { ev.preventDefault(); copy($(`#toml-${ctoml.dataset.copyToml}`)?.textContent); ctoml.lastChild.textContent = " copied"; return; }
+  if (cles) { ev.preventDefault(); copy($(`#lesson-${cles.dataset.copyLesson}`)?.textContent); cles.lastChild.textContent = " copied"; return; }
   if (ev.target.closest("#rnCancel")) return closePicker();
   const rnGo = ev.target.closest("#rnGo"); if (rnGo) return submitRun(rnGo.dataset.task);
   if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
