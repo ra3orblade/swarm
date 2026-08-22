@@ -46,15 +46,19 @@ export function buildServer(): McpServer {
     async () => {
       const pid = await projectId();
       const claims = await api<unknown[]>(`/v1/claims?project=${pid}`);
+      const resources = await api<unknown[]>(`/v1/resources?project=${pid}`);
       const state = await api<{
         sessions: Array<{ projectId: string; agent: string; state: string; last: string }>;
       }>("/v1/state");
       const live = state.sessions.filter((s) => s.projectId === pid && s.state !== "ended");
+      const nClaims = (claims as unknown[]).length;
+      const nRes = (resources as unknown[]).length;
       return ok(
-        `project ${pid}: ${(claims as unknown[]).length} claims, ${live.length} live sessions`,
+        `project ${pid}: ${nClaims} claims, ${live.length} live sessions, ${nRes} resources`,
         {
           claims,
           live,
+          resources,
         },
       );
     },
@@ -153,7 +157,7 @@ export function buildServer(): McpServer {
         "Claim a named singleton (a port, a dev server, a database) so parallel agents don't fight over it. Fails closed while another owner holds it. Pass pid to track a process (auto-released when it dies) or port to protect the port from other agents' kills.",
       inputSchema: {
         name: z.string().describe('singleton name, e.g. "dev-server" or "port:3000"'),
-        owner: z.string().describe("who holds it (agent/session name)"),
+        owner: z.string().optional().describe("who holds it (defaults to SWARM_OWNER)"),
         pid: z.number().optional().describe("tracked process id"),
         port: z.number().optional().describe("port this resource occupies"),
         leaseMinutes: z.number().optional(),
@@ -164,7 +168,14 @@ export function buildServer(): McpServer {
       const r = await api<{ ok?: boolean; resource?: unknown; error?: string }>("/v1/resources", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, owner, pid, port, leaseMinutes, projectId: project }),
+        body: JSON.stringify({
+          name,
+          owner: owner ?? OWNER,
+          pid,
+          port,
+          leaseMinutes,
+          projectId: project,
+        }),
       });
       return r.error ? fail(`REFUSED: ${r.error}`) : ok(`acquired ${name}`, r.resource);
     },
@@ -174,6 +185,8 @@ export function buildServer(): McpServer {
     "swarm_release_resource",
     {
       title: "Release a runtime resource",
+      description:
+        "Release a named singleton you hold. Pass owner to refuse if someone else holds it.",
       inputSchema: { name: z.string(), owner: z.string().optional() },
     },
     async ({ name, owner }) => {
@@ -194,6 +207,7 @@ export function buildServer(): McpServer {
     "swarm_resources",
     {
       title: "List held runtime resources",
+      description: "Named singletons currently held in this project (and machine-global ones).",
       inputSchema: {},
     },
     async () => {

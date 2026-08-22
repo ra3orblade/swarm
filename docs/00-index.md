@@ -15,5 +15,7 @@ Status: draft (design phase, nothing built yet). Read in order.
 | 08 | [interface](08-interface.md) | Dashboard views (wireframes), CLI surface, MCP tools |
 | 09 | [features](09-features.md) | Feature catalog: available, in progress, planned |
 | 10 | [development-guidelines](10-development-guidelines.md) | Invariants, boundaries, definition of done, discipline |
+| 12 | [design-tokens](12-design-tokens.md) | Dashboard CSS custom properties; no raw values in rules |
+| 13 | [config](13-config.md) | Global + per-repo TOML, rule modes, protected ports |
 
 Conventions: specs before code; nothing is built from a doc marked `draft` without flagging it. Decisions are marked `> **Decision:**`. Task IDs in the roadmap are immutable.

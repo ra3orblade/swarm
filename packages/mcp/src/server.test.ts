@@ -62,6 +62,9 @@ describe("swarm-mcp", () => {
         "swarm_release",
         "swarm_renew",
         "swarm_reap",
+        "swarm_acquire_resource",
+        "swarm_release_resource",
+        "swarm_resources",
       ]),
     );
   });
@@ -82,5 +85,20 @@ describe("swarm-mcp", () => {
   it("releases the claim", async () => {
     const r = await client.callTool({ name: "swarm_release", arguments: { task: "T1" } });
     expect(text(r)).toContain("released T1");
+  });
+
+  it("acquires a resource, then fails closed on a second owner", async () => {
+    const a = await client.callTool({
+      name: "swarm_acquire_resource",
+      arguments: { name: "dev-server", port: 3400 },
+    });
+    expect(text(a)).toContain("acquired dev-server");
+
+    const b = await client.callTool({
+      name: "swarm_acquire_resource",
+      arguments: { name: "dev-server", owner: "someone-else" },
+    });
+    expect(b.isError).toBe(true);
+    expect(text(b)).toContain("REFUSED");
   });
 });

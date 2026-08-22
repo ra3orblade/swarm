@@ -26,6 +26,8 @@ import {
   type GuardDecision,
   guardBash,
   isActive,
+  isAliveHolding,
+  isTrackedPid,
   type LeaseClaim,
   type LiveSession,
   type LogParseResult,
@@ -1140,7 +1142,7 @@ export class Store {
       projectId: (r.project_id as string) || null,
       owner: r.owner as string,
       sessionId: (r.session_id as string) || null,
-      pid: (r.pid as number) ?? null,
+      pid: isTrackedPid(r.pid as number) ? (r.pid as number) : null,
       port: (r.port as number) ?? null,
       acquiredAt: r.acquired_at as string,
       expiresAt: (r.expires_at as string) || null,
@@ -1178,13 +1180,7 @@ export class Store {
     const now = Date.now();
     for (const raw of rows) {
       const r = this.rowToResource(raw);
-      const alive =
-        r.pid != null
-          ? Store.pidAlive(r.pid)
-          : r.expiresAt != null
-            ? new Date(r.expiresAt).getTime() > now
-            : true;
-      if (!alive) {
+      if (!isAliveHolding(r, now, Store.pidAlive)) {
         this.db
           .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
           .run(r.name, r.projectId ?? "");
@@ -1209,6 +1205,7 @@ export class Store {
     port?: number | null;
     leaseMinutes?: number;
   }): { ok: true; resource: Resource } | { ok: false; reason: string } {
+    this.reapResources();
     const key = input.projectId ?? "";
     const raw = this.db
       .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ?")
@@ -1216,19 +1213,20 @@ export class Store {
     const existing = raw ? this.rowToResource(raw) : null;
     const d = canAcquire(existing, { owner: input.owner }, Date.now(), Store.pidAlive);
     if (!d.ok) return { ok: false, reason: acquireRefusalMessage(d.holder) };
+    const pid = isTrackedPid(input.pid) ? input.pid : null;
     const expiresAt =
-      input.pid != null
+      pid != null
         ? null
         : new Date(
             Date.now() + (input.leaseMinutes ?? DEFAULT_RESOURCE_LEASE_MINUTES) * 60_000,
           ).toISOString();
     const resource: Resource = {
       name: input.name,
-      kind: input.kind ?? (input.port != null ? "port" : input.pid != null ? "process" : "custom"),
+      kind: input.kind ?? (input.port != null ? "port" : pid != null ? "process" : "custom"),
       projectId: input.projectId ?? null,
       owner: input.owner,
       sessionId: input.sessionId ?? null,
-      pid: input.pid ?? null,
+      pid,
       port: input.port ?? null,
       acquiredAt: new Date().toISOString(),
       expiresAt,

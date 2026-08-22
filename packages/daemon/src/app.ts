@@ -89,9 +89,10 @@ export function createApp(store = new Store()) {
       port?: number;
       leaseMinutes?: number;
     };
-    if (!b.name || !b.owner) return c.json({ error: "name and owner are required" }, 400);
+    if (!b.name || !b.owner)
+      return c.json({ ok: false, error: "name and owner are required" }, 400);
     const r = store.acquireResource({ ...b, name: b.name, owner: b.owner });
-    return r.ok ? c.json(r, 201) : c.json({ error: r.reason }, 409);
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
   app.delete("/v1/resources/:name", (c) => {
     const r = store.releaseResource(
@@ -99,7 +100,9 @@ export function createApp(store = new Store()) {
       c.req.query("project") ?? null,
       c.req.query("owner"),
     );
-    return r.ok ? c.json(r) : c.json({ error: r.reason }, 409);
+    return r.ok
+      ? c.json(r)
+      : c.json({ ok: false, error: r.reason }, r.reason === "not held" ? 404 : 409);
   });
 
   // ---- claims (M1)

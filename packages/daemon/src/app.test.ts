@@ -334,13 +334,20 @@ describe("runtime resources (Phase 1)", () => {
 
   it("dead pid is reaped and stops blocking", () => {
     const store = new Store(tmpHome());
-    // spawn a real short-lived process to get a dead pid
-    const p = Bun.spawnSync(["true"]);
-    const deadPid = 999999; // beyond pid range on macOS → ESRCH
+    const deadPid = 999_999; // beyond pid range on macOS → ESRCH
     const a = store.acquireResource({ name: "worker", owner: "agent-a", pid: deadPid });
     expect(a.ok).toBe(true);
     expect(store.resources().find((r) => r.name === "worker")).toBeUndefined(); // reaped on read
     expect(store.acquireResource({ name: "worker", owner: "agent-b" }).ok).toBe(true);
+  });
+
+  it("pid 0 is ignored so the holding gets a lease instead of a fake live process", () => {
+    const store = new Store(tmpHome());
+    const a = store.acquireResource({ name: "web", owner: "agent-a", pid: 0 });
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    expect(a.resource.pid).toBeNull();
+    expect(a.resource.expiresAt).not.toBeNull();
   });
 
   it("held ports feed the protected-ports rule", async () => {

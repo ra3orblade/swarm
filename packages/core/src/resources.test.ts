@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { canAcquire, isAliveHolding, type Resource } from "./resources";
+import { canAcquire, isAliveHolding, isTrackedPid, type Resource } from "./resources";
 
 const base: Resource = {
   name: "dev-server",
@@ -43,5 +43,22 @@ describe("resources", () => {
     expect(canAcquire({ ...base, released: true }, { owner: "agent-b" }, now, () => true).ok).toBe(
       true,
     );
+  });
+
+  it("lease-tracked holding fails closed for another owner", () => {
+    const live = { ...base, pid: null, expiresAt: new Date(now + 60_000).toISOString() };
+    const d = canAcquire(live, { owner: "agent-b" }, now, () => false);
+    expect(d.ok).toBe(false);
+    expect(canAcquire(live, { owner: "agent-a" }, now, () => false).ok).toBe(true);
+  });
+
+  it("pid 0 is not a tracked process (kill(0) is the process group)", () => {
+    expect(isTrackedPid(0)).toBe(false);
+    expect(isTrackedPid(-1)).toBe(false);
+    expect(isTrackedPid(1)).toBe(true);
+    const leased = { ...base, pid: 0, expiresAt: new Date(now + 60_000).toISOString() };
+    expect(isAliveHolding(leased, now, () => true)).toBe(true);
+    const expired = { ...base, pid: 0, expiresAt: new Date(now - 1).toISOString() };
+    expect(isAliveHolding(expired, now, () => true)).toBe(false);
   });
 });

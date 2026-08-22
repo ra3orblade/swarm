@@ -33,6 +33,11 @@ export const DEFAULT_RESOURCE_LEASE_MINUTES = 60;
 
 export type AcquireDecision = { ok: true } | { ok: false; reason: "held"; holder: Resource };
 
+/** A real OS pid. 0 means "current process group" to `kill(2)` and would never look dead. */
+export function isTrackedPid(pid: number | null | undefined): pid is number {
+  return pid != null && pid > 0;
+}
+
 /** A holding blocks a new acquire only while it is still alive. */
 export function isAliveHolding(
   r: Pick<Resource, "released" | "pid" | "expiresAt">,
@@ -40,7 +45,7 @@ export function isAliveHolding(
   pidAlive: (pid: number) => boolean,
 ): boolean {
   if (r.released) return false;
-  if (r.pid != null) return pidAlive(r.pid);
+  if (isTrackedPid(r.pid)) return pidAlive(r.pid);
   if (r.expiresAt != null) return new Date(r.expiresAt).getTime() > now;
   return true; // unbounded holding: alive until released
 }
@@ -58,12 +63,11 @@ export function canAcquire(
 }
 
 export function acquireRefusalMessage(holder: Resource): string {
-  const via =
-    holder.pid != null
-      ? `pid ${holder.pid}`
-      : holder.expiresAt
-        ? `lease until ${holder.expiresAt}`
-        : "unbounded";
+  const via = isTrackedPid(holder.pid)
+    ? `pid ${holder.pid}`
+    : holder.expiresAt
+      ? `lease until ${holder.expiresAt}`
+      : "unbounded";
   return (
     `Resource "${holder.name}" is held by ${holder.owner} (${via}).` +
     ` Pick another name, coordinate with the holder, or wait for release/reap.`

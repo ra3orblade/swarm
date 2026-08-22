@@ -47,7 +47,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M1.1 | Claims: claim/renew/release/list/reap with worktree create/remove; fail-closed; dirty/unpushed refusal | M0 | ✅ 2026-08-20 daemon `claims` table + real `git worktree add/remove`, `heldWork` dirty/unpushed gate, events; `swarm claim/renew/release/claims/reap` CLI; validated end-to-end incl. fail-closed + dirty-refusal |
 | M1.2 | Auto-renew on holder activity; orphan detection + incidents | M1.1 | ⚪ |
 | M1.3 | Handoff/resume payloads; injected via `SessionStart` context | M1.1 | ⚪ |
-| M1.4 | Runtime resources + process registry (`serve`, `proc`; port allocation; pid-based liveness) (port of `serve.ts`, `workers.ts`) | M0 | ⚪ |
+| M1.4 | Runtime resources + process registry (`serve`, `proc`; port allocation; pid-based liveness) (port of `serve.ts`, `workers.ts`) | M0 | 🟡 2026-08-22 Phase 1: named singletons (acquire/release/reap, pid+lease liveness, held ports auto-protected); MCP + CLI + Board; `serve`/`proc`/port-alloc still ⚪ |
 | M1.5 | `mcp` server with the claim tools; registered by `swarm install` | M1.1 | ✅ 2026-08-21 stdio MCP server: `swarm_status/claim/renew/release/reap` forwarding to the daemon (project from cwd); registered in `~/.claude/settings.json` by install; integration-tested via an MCP client → fail-closed claim into a worktree |
 | M1.6 | Claims board in the dashboard (lease countdown, orphan highlighting, release/force-release); `.swarm.toml` task source deferred | M1.1 | 🟡 2026-08-21 Claims section in Fleet: held/expired/orphaned with lease countdown, release + force-release actions, orphans surfaced first; task-source parsing still ⚪ |
 

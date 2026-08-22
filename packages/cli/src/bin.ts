@@ -28,6 +28,8 @@ const help = `swarm — control plane for AI-agent development
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
+  res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name>
+                          named singletons (ports, processes); fail-closed
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
@@ -243,6 +245,13 @@ try {
           toolCalls: number;
           costUsd: number | null;
         }>;
+        resources?: Array<{
+          name: string;
+          owner: string;
+          projectId: string | null;
+          pid: number | null;
+          port: number | null;
+        }>;
       };
       if (json) {
         console.log(JSON.stringify(s));
@@ -255,7 +264,94 @@ try {
           `${x.state === "active" ? "●" : "◐"} ${name(x.projectId).padEnd(16)} ${x.id.slice(0, 8)}  ${x.last.slice(0, 60).padEnd(60)} ${x.costUsd != null ? `$${x.costUsd.toFixed(2)}` : ""}`,
         );
       if (!live.length) console.log("no live sessions");
+      for (const r of s.resources ?? []) {
+        const via = r.port != null ? `:${r.port}` : r.pid != null ? `pid ${r.pid}` : "";
+        console.log(
+          `  res ${r.name.padEnd(16)} ${r.owner.padEnd(12)} ${r.projectId ? name(r.projectId) : "global"} ${via}`,
+        );
+      }
       break;
+    }
+    case "res": {
+      await ensureDaemon({ quiet: true });
+      const positionals = rest.filter((a) => !a.startsWith("--") && a !== "--json");
+      const sub = positionals[0];
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const numFlag = (n: string) => {
+        const v = flag(n);
+        const x = v != null ? Number(v) : undefined;
+        return x != null && Number.isFinite(x) ? x : undefined;
+      };
+      if (sub === "ls" || !sub) {
+        const list = (await api("/v1/resources")) as Array<{
+          name: string;
+          owner: string;
+          kind: string;
+          pid: number | null;
+          port: number | null;
+        }>;
+        if (json) console.log(JSON.stringify(list));
+        else if (!list.length) console.log("no resources held");
+        else
+          for (const r of list)
+            console.log(
+              `${r.kind.padEnd(8)} ${r.name.padEnd(16)} ${r.owner.padEnd(12)} ${r.port != null ? `:${r.port}` : r.pid != null ? `pid ${r.pid}` : ""}`,
+            );
+        break;
+      }
+      if (sub === "acquire") {
+        const name = positionals[1];
+        if (!name)
+          throw new Error("usage: swarm res acquire <name> [--owner n] [--pid n] [--port n]");
+        const proj = (await api("/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: resolve(".") }),
+        })) as { id: string };
+        const r = (await fetch(`${new SwarmClient().baseUrl}/v1/resources`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name,
+            owner: flag("--owner") ?? process.env.USER ?? "me",
+            pid: numFlag("--pid"),
+            port: numFlag("--port"),
+            projectId: proj.id,
+          }),
+        }).then((x) => x.json())) as { ok?: boolean; error?: string; resource?: unknown };
+        if (json) console.log(JSON.stringify(r));
+        else if (r.ok) console.log(`acquired ${name}`);
+        else {
+          console.error(`REFUSED: ${r.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+      if (sub === "release") {
+        const name = positionals[1];
+        if (!name) throw new Error("usage: swarm res release <name>");
+        const proj = (await api("/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: resolve(".") }),
+        })) as { id: string };
+        const q = new URLSearchParams({ project: proj.id });
+        const r = (await fetch(
+          `${new SwarmClient().baseUrl}/v1/resources/${encodeURIComponent(name)}?${q}`,
+          { method: "DELETE" },
+        ).then((x) => x.json())) as { ok?: boolean; error?: string };
+        if (json) console.log(JSON.stringify(r));
+        else if (r.ok) console.log(`released ${name}`);
+        else {
+          console.error(`REFUSED: ${r.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+      throw new Error("usage: swarm res ls | acquire <name> | release <name>");
     }
     case "tail": {
       await ensureDaemon({ quiet: true });
