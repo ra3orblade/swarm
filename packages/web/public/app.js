@@ -13,11 +13,13 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
+// `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
-const hhmm = (iso) => new Date(iso).toTimeString().slice(0, 8);
+// p2 (zero-pad) is defined in viz.js, which loads first
+const hhmm = (iso) => { const d = new Date(iso); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
 const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : id);
 const short = (p) => String(p ?? "").replace(/^\/Users\/[^/]+/, "~");
 const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
@@ -85,11 +87,25 @@ const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
+// One render per animation frame, whatever triggered it (SSE, polls, clicks).
+let raf = 0;
+const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+const touch = () => { state.dirty = true; schedule(); };
+// Last snapshot body + last render time: an unchanged snapshot (same seq, same data) skips the render
+// unless the UI changed, or `ago`-style cells are older than 30s.
+let lastSnap = "", lastRenderAt = 0;
 async function refresh() {
-  Object.assign(state, await (await fetch("/v1/state")).json());
+  const txt = await (await fetch("/v1/state")).text();
+  const same = txt === lastSnap;
+  if (!same) { lastSnap = txt; Object.assign(state, JSON.parse(txt)); }
   if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; }).catch(() => {});
-  if (state.view === "prs") state.prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
-  render();
+  let prsChanged = false;
+  if (state.view === "prs" && !state.session) {
+    const prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
+    prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
+    state.prs = prs;
+  }
+  if (!same || prsChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 const VIEWS = ["fleet", "board", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
@@ -103,11 +119,13 @@ function render() {
   // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
   const af = document.activeElement;
   const keep = af?.dataset?.filter ? { key: af.dataset.filter, tid: af.dataset.tid, pos: af.selectionStart } : null;
+  state.dirty = false;
+  lastRenderAt = Date.now();
   renderProjects();
   renderHeader();
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
-  else if (state.view === "stats") renderStats();
+  else if (state.view === "stats") { loadStats(); renderStats(); } // loadStats is a no-op while the cache is fresh
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
   else if (state.view === "prs") renderPRs();
@@ -117,14 +135,24 @@ function render() {
     if (el) { el.focus(); el.setSelectionRange(keep.pos, keep.pos); }
   }
 }
+let todayHtml = "";
 function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
-  $("#today").innerHTML = `Today <b>${usd(today)}</b>`;
+  const html = `Today <b>${usd(today)}</b>`;
+  if (html !== todayHtml) { todayHtml = html; $("#today").innerHTML = html; }
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
 }
 
+const isLive = (s) => s.state === "active" || s.state === "waiting";
+// One pass over sessions → live count per project (+ "" for all), instead of a filter per sidebar row.
+function liveCounts() {
+  const m = new Map();
+  for (const s of state.sessions) if (isLive(s)) { m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); m.set("", (m.get("") ?? 0) + 1); }
+  return m;
+}
 function renderProjects() {
-  const live = (pid) => state.sessions.filter((s) => s.projectId === pid && (s.state === "active" || s.state === "waiting")).length;
+  const lc = liveCounts();
+  const live = (pid) => lc.get(pid) ?? 0;
   const pinned = state.projects.filter((p) => !p.discovered);
   const unpinned = state.projects.filter((p) => p.discovered);
   const nameCount = {};
@@ -140,7 +168,7 @@ function renderProjects() {
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}">
       <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
-  const liveAll = state.sessions.filter((s) => s.state === "active" || s.state === "waiting").length;
+  const liveAll = live("");
   $("#projects").innerHTML =
     `<h4>Projects <span class="h4-act" id="addProj" title="Add project">${ic("plus", 14)}</span></h4>` +
     `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
@@ -167,10 +195,11 @@ const FLEET_COLS = [
 
 function renderFleet() {
   const base = state.sessions.filter((s) => !state.sel || s.projectId === state.sel);
-  const agents = [...new Set(base.map((s) => s.agent))].sort();
-  const rows = base.filter((s) => !state.agentFilter || s.agent === state.agentFilter);
-  const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
-  const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
+  const agentCount = new Map();
+  for (const s of base) agentCount.set(s.agent, (agentCount.get(s.agent) ?? 0) + 1);
+  const agents = [...agentCount.keys()].sort();
+  const live = [], rest = [];
+  for (const s of base) if (!state.agentFilter || s.agent === state.agentFilter) (isLive(s) ? live : rest).push(s);
   const cols = FLEET_COLS.filter((c) => !(c.key === "project" && state.sel));
   // Live and Earlier are separate grids: each keeps its own column order/widths/visibility.
   const table = (list, id) =>
@@ -181,11 +210,11 @@ function renderFleet() {
       leading: { width: 24, cell: (s) => `<span class="s ${s.state}"></span>` },
       trailing: { width: 34, cell: (s) => `<span class="more" data-menu="session" data-sid="${s.id}" title="Session actions">${ic("dots-three", 15)}</span>` },
       rowAttrs: (s) => `data-s="${s.id}" data-ctx="session" data-sid="${s.id}"`,
-      rerender: renderFleet,
+      rerender: touch,
     });
   const chips = agents.length > 1
     ? `<div class="chips"><span class="chip ${!state.agentFilter ? "on" : ""}" data-agent="">All</span>${agents
-        .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${base.filter((s) => s.agent === a).length}</b></span>`)
+        .map((a) => `<span class="chip ${state.agentFilter === a ? "on" : ""}" data-agent="${a}">${esc(agentLabel(a))} <b>${agentCount.get(a)}</b></span>`)
         .join("")}</div>`
     : "";
   $("#main").innerHTML = chips +
@@ -223,7 +252,7 @@ function renderPRs() {
           leading: { width: 24, cell: (p) => `<span class="s ${p.checks === "fail" ? "waiting" : p.checks === "pass" ? "active" : "idle"}"></span>` },
           trailing: { width: 96, cell: (p) => (green(p) ? `<a href="#" data-merge="${p.projectId}:${p.number}" title="Squash-merge via ${p.forge === "gitlab" ? "glab" : "gh"}">Merge</a>` : "") },
           rowAttrs: () => "",
-          rerender: render,
+          rerender: touch,
         })
       : `<div class="empty">${PX.idle()}No open pull requests.<br>Agent branches land here the moment they're pushed.</div>`);
 }
@@ -254,7 +283,7 @@ function renderIncidents() {
       leading: { width: 24, cell: (i) => `<span class="s ${i.action === "deny" ? "waiting" : "idle"}"></span>` },
       trailing: { width: 34, cell: () => "" },
       rowAttrs: (i) => (i.sessionId ? `data-s="${i.sessionId}"` : ""),
-      rerender: render,
+      rerender: touch,
     });
 }
 
@@ -277,7 +306,7 @@ function renderResources() {
       rows,
       leading: { width: 24, cell: () => '<span class="s active"></span>' },
       trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${esc(r.projectId ?? "")}">Release</a>` },
-      rerender: render,
+      rerender: touch,
     });
 }
 
@@ -308,7 +337,7 @@ function renderClaims() {
           ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">Force release</a>`
           : `<a href="#" data-release="${key}">Release</a>`;
       } },
-      rerender: render,
+      rerender: touch,
     });
 }
 
@@ -316,7 +345,14 @@ function renderWorktrees() {
   const ids = state.sel ? [state.sel] : state.projects.map((p) => p.id);
   const rows = ids.flatMap((id) => (state.worktrees[id] ?? []).map((w) => ({ ...w, projectId: id })));
   if (!rows.length) return "";
-  const inside = (w) => state.sessions.filter((s) => s.state !== "ended" && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`)));
+  // worktree path → sessions inside it, built once (not per cell, per row)
+  const byPath = new Map(rows.map((w) => [w.path, []]));
+  const paths = [...byPath.keys()];
+  for (const s of state.sessions) {
+    if (s.state === "ended") continue;
+    for (const p of paths) if (s.cwd === p || s.cwd.startsWith(`${p}/`)) byPath.get(p).push(s);
+  }
+  const inside = (w) => byPath.get(w.path);
   const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
   const cols = [
     { key: "project", label: "project", width: 104, get: (w) => projName(w.projectId), cell: (w) => esc(projName(w.projectId)) },
@@ -333,7 +369,7 @@ function renderWorktrees() {
       rows,
       leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
       trailing: { width: 34, cell: () => "" },
-      rerender: render,
+      rerender: touch,
     });
 }
 
@@ -348,14 +384,22 @@ function renderSpend() {
   const days = [];
   for (let i = N - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(viz.localDay(d)); }
   const inRange = sp.daily.filter((d) => inSel(d) && d.day >= days[0]);
-  const agents = [...new Set(inRange.map((d) => d.agent))].sort(viz.agentSort);
-  const series = Object.fromEntries(agents.map((a) => [a, days.map((day) => sumBy(inRange.filter((d) => d.day === day && d.agent === a), (d) => d.cost))]));
-  const total14 = sumBy(inRange, (d) => d.cost);
   const today = days.at(-1);
-  const todayCost = sumBy(inRange.filter((d) => d.day === today), (d) => d.cost);
-  const todayTurns = sumBy(inRange.filter((d) => d.day === today), (d) => d.turns);
-  const activeDays = new Set(inRange.filter((d) => d.cost).map((d) => d.day)).size;
-  const prevDays = new Set(inRange.filter((d) => d.cost && d.day !== today).map((d) => d.day)).size;
+  // one pass: "day|agent" → cost, plus the headline sums
+  const cell = new Map(), agentSet = new Set(), active = new Set();
+  let total14 = 0, todayCost = 0, todayTurns = 0;
+  for (const d of inRange) {
+    const k = `${d.day}|${d.agent}`, c = d.cost ?? 0;
+    cell.set(k, (cell.get(k) ?? 0) + c);
+    agentSet.add(d.agent);
+    total14 += c;
+    if (c) active.add(d.day);
+    if (d.day === today) { todayCost += c; todayTurns += d.turns ?? 0; }
+  }
+  const agents = [...agentSet].sort(viz.agentSort);
+  const series = Object.fromEntries(agents.map((a) => [a, days.map((day) => cell.get(`${day}|${a}`) ?? 0)]));
+  const activeDays = active.size;
+  const prevDays = activeDays - (active.has(today) ? 1 : 0);
   const avg = prevDays ? (total14 - todayCost) / prevDays : 0;
   const rangeChips = `<span class="seg" style="margin-left:auto">${[7, 14, 30, 90].map((n) => `<a href="#" class="${N === n ? "on" : ""}" data-days="${n}">${n}d</a>`).join("")}</span>`;
   const byAgentToday = state.sel ? null : sp.byAgentToday;
@@ -373,7 +417,7 @@ function renderSpend() {
       ],
       rows: rows.slice().sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0)),
       trailing: { width: 34, cell: () => "" },
-      rerender: render,
+      rerender: touch,
     });
   const hm = sp.hourly.filter(inSel).map((c) => ({ dow: c.dow, hour: c.hour, v: c.cost ?? 0 }));
   $("#main").innerHTML =
@@ -401,7 +445,7 @@ async function loadStats() {
   try {
     const data = await (await fetch(`/v1/stats${key ? `?project=${encodeURIComponent(key)}` : ""}`)).json();
     Object.assign(statsCache, { key, at: Date.now(), data });
-    if (state.view === "stats" && !state.session) renderStats();
+    if (state.view === "stats" && !state.session) touch();
   } finally { statsCache.busy = false; }
 }
 const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(Math.round(n)));
@@ -409,7 +453,6 @@ const toolName = (t) => String(t).replace(/^mcp__([^_]+(?:_[^_]+)*)__/, "$1 · "
 const pct = (a, b) => (b ? `${((100 * a) / b).toFixed(0)}%` : "—");
 const dur = (ms) => (ms < 3600e3 ? `${Math.round(ms / 60e3)}m` : ms < 86400e3 ? `${(ms / 3600e3).toFixed(1)}h` : `${(ms / 86400e3).toFixed(1)}d`);
 function renderStats() {
-  loadStats();
   const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
   const scope = state.sel ? esc(projName(state.sel)) : "all projects";
   if (!st) { $("#main").innerHTML = `<h2>Stats <span>${scope}</span></h2><div class="empty">${PX.clock()}Crunching numbers…</div>`; return; }
@@ -514,36 +557,83 @@ function renderTimeline() {
 }
 
 // ---------- session
+const LOG_CAP = 500;
+// Re-polling the open session fetches only what is newer than what we hold (events by seq, turns by ts)
+// and appends, deduping against rows the SSE stream already pushed. A different session starts over.
+let sessionFetch = null;
 async function openSession(id) {
-  state.session = id;
-  const d = await (await fetch(`/v1/sessions/${id}/events`)).json();
-  state.log = d.events;
-  state.turns = d.turns;
-  render();
+  const same = state.session === id && sessionFetch === id;
+  if (!same) { state.session = id; state.log = []; state.turns = []; rowCache.clear(); logRendered = null; state.dirty = true; }
+  const q = new URLSearchParams();
+  if (same) {
+    let seq = 0, ts = "";
+    for (const e of state.log) if (e.seq > seq) seq = e.seq;
+    for (const t of state.turns) if (t.ts > ts) ts = t.ts;
+    if (seq) q.set("after", String(seq));
+    if (ts) q.set("afterTs", ts);
+  }
+  const qs = q.toString();
+  const d = await (await fetch(`/v1/sessions/${id}/events${qs ? `?${qs}` : ""}`)).json();
+  if (state.session !== id) return; // user moved on while we were fetching
+  sessionFetch = id;
+  let changed = !same;
+  if (same) {
+    const seen = new Set(state.log.map((e) => e.seq));
+    for (const e of d.events) if (!seen.has(e.seq)) { state.log.push(e); changed = true; }
+    const tid = new Set(state.turns.map((t) => t.id));
+    for (const t of d.turns) if (!tid.has(t.id)) { state.turns.push(t); changed = true; }
+    if (d.events.length) state.log.sort((a, b) => a.seq - b.seq); // SSE pushes and the fetch may interleave
+    if (d.turns.length) state.turns.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  } else { state.log = d.events; state.turns = d.turns; }
+  if (state.log.length > LOG_CAP) state.log.splice(0, state.log.length - LOG_CAP);
+  if (changed) schedule();
 }
-function sessionStream(s) {
-  const items = [
-    ...state.log.filter((e) => e.payload?.hook !== "PostToolUse").map((e) => ({ ts: e.ts, kind: e.payload?.hook ?? e.type, text: e.payload?.summary ?? "", cls: e.type })),
-    ...state.turns.filter((t) => t.text).map((t) => ({ ts: t.ts, kind: t.sidechain ? "subagent" : "assistant", text: t.text, cls: "assistant", cost: t.costUsd, out: t.output })),
-  ].sort((a, b) => (a.ts < b.ts ? -1 : 1));
-  return items.map((i) => `<div class="ev ${i.cls}"><span class="t">${hhmm(i.ts)}</span><span class="k">${esc(i.kind)}</span><span class="m">${esc(i.text)}${i.out ? `<span class="dim"> · ${tok(i.out)} out${i.cost != null ? ` · $${i.cost.toFixed(3)}` : ""}</span>` : ""}</span></div>`).join("");
+// Rendered log rows, keyed per event seq / turn id (+ the mutable turn fields) so only new rows are formatted.
+const rowCache = new Map();
+let logRendered = null; // keys of the rows currently in #log, in order — enables append-only updates
+const evRow = (i) => `<div class="ev ${i.cls}"><span class="t">${hhmm(i.ts)}</span><span class="k">${esc(i.kind)}</span><span class="m">${esc(i.text)}${i.out ? `<span class="dim"> · ${tok(i.out)} out${i.cost != null ? ` · $${i.cost.toFixed(3)}` : ""}</span>` : ""}</span></div>`;
+// Merge the two ts-sorted inputs (events by seq ≈ ts, turns by ts) in one pass → [{key, html}].
+function sessionStream() {
+  const out = [];
+  const log = state.log, turns = state.turns;
+  let i = 0, j = 0;
+  const pushEv = (e) => {
+    const key = `e${e.seq}`;
+    let html = rowCache.get(key);
+    if (!html) rowCache.set(key, (html = evRow({ ts: e.ts, kind: e.payload?.hook ?? e.type, text: e.payload?.summary ?? "", cls: e.type })));
+    out.push({ key, html });
+  };
+  const pushTurn = (t) => {
+    const key = `t${t.id}:${t.costUsd ?? ""}:${t.output ?? ""}:${t.text.length}`;
+    let html = rowCache.get(key);
+    if (!html) rowCache.set(key, (html = evRow({ ts: t.ts, kind: t.sidechain ? "subagent" : "assistant", text: t.text, cls: "assistant", cost: t.costUsd, out: t.output })));
+    out.push({ key, html });
+  };
+  while (i < log.length || j < turns.length) {
+    if (i < log.length && log[i].payload?.hook === "PostToolUse") { i++; continue; }
+    if (j < turns.length && !turns[j].text) { j++; continue; }
+    if (j >= turns.length || (i < log.length && log[i].ts < turns[j].ts)) pushEv(log[i++]);
+    else pushTurn(turns[j++]);
+  }
+  return out;
 }
+// True when `rows` only extends the rows already in #log (same session, same prefix) → append, don't rebuild.
+const isAppend = (rows) => logRendered && rows.length >= logRendered.length && logRendered.every((k, n) => rows[n].key === k);
 function renderSession() {
   const s = state.sessions.find((x) => x.id === state.session);
   if (!s) return;
   const logEl = $("#log");
   const atBottom = !logEl || logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 40;
   const prevTop = logEl ? logEl.scrollTop : 0;
+  const rows = sessionStream();
   const tools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]);
   const t = s.tokens;
   const ctx = t.input + t.cacheRead + t.cacheWrite;
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  $("#main").innerHTML = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>
-  <div class="sess"><div id="log">${sessionStream(s)}</div>
-  <aside class="side">
-    <div class="stats">
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>`;
+  const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
     ${stat("started", `${ago(s.startedAt)} ago`)}${stat("last seen", `${ago(s.lastSeenAt)} ago`)}
@@ -552,8 +642,17 @@ function renderSession() {
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
-    ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}
-  </aside></div>`;
+    ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}`;
+  if (logEl && isAppend(rows)) {
+    // Same session, rows only appended: patch header + sidebar, append the new rows — #log keeps its
+    // scroll position (and its DOM) untouched.
+    $("#main > h2").outerHTML = head;
+    $("#main .side").innerHTML = side;
+    if (rows.length > logRendered.length) logEl.insertAdjacentHTML("beforeend", rows.slice(logRendered.length).map((r) => r.html).join(""));
+  } else {
+    $("#main").innerHTML = `${head}<div class="sess"><div id="log">${rows.map((r) => r.html).join("")}</div><aside class="side">${side}</aside></div>`;
+  }
+  logRendered = rows.map((r) => r.key);
   // Follow the tail when pinned to the bottom; otherwise keep the reading position —
   // innerHTML replacement resets scroll to the top on every live update.
   const nl = $("#log");
@@ -570,10 +669,10 @@ function menuSpec(kind, d) {
     if (!p) return null;
     const live = state.sessions.filter((s) => s.projectId === p.id && (s.state === "active" || s.state === "waiting")).length;
     return { title: p.name, items: [
-      { label: "Show sessions", icon: "squares-four", caption: live ? `${live} live` : undefined, run: () => { state.sel = p.id; state.view = "fleet"; state.session = null; render(); } },
-      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = p.id; state.view = "timeline"; state.session = null; render(); } },
-      { label: "Spend", icon: "coins", run: () => { state.sel = p.id; state.view = "spend"; state.session = null; render(); } },
-      { label: "Stats", icon: "chart-bar", run: () => { state.sel = p.id; state.view = "stats"; state.session = null; render(); } },
+      { label: "Show sessions", icon: "squares-four", caption: live ? `${live} live` : undefined, run: () => { state.sel = p.id; state.view = "fleet"; state.session = null; touch(); } },
+      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = p.id; state.view = "timeline"; state.session = null; touch(); } },
+      { label: "Spend", icon: "coins", run: () => { state.sel = p.id; state.view = "spend"; state.session = null; touch(); } },
+      { label: "Stats", icon: "chart-bar", run: () => { state.sel = p.id; state.view = "stats"; state.session = null; touch(); } },
       { divider: true },
       p.discovered ? { label: "Pin project", icon: "push-pin", run: () => pinProject(p.id, true) } : { label: "Unpin project", icon: "push-pin-slash", run: () => pinProject(p.id, false) },
       { label: "Copy path", icon: "copy", caption: tail(p.root), run: () => copy(p.root) },
@@ -586,7 +685,7 @@ function menuSpec(kind, d) {
     if (!s) return null;
     return { title: s.title ?? s.id.slice(0, 8), items: [
       { label: "Open session", icon: "terminal-window", run: () => openSession(s.id) },
-      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = s.projectId; state.view = "timeline"; state.session = null; render(); } },
+      { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = s.projectId; state.view = "timeline"; state.session = null; touch(); } },
       { divider: true },
       { section: "Copy" },
       { label: "Session id", icon: "copy", caption: s.id.slice(0, 8), run: () => copy(s.id) },
@@ -640,10 +739,10 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.id === "feedback") { ev.preventDefault(); return window.open(feedbackUrl(), "_blank"); }
-  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return refresh(); }
-  if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
-  if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
-  if (t.dataset.sdays) { ev.preventDefault(); state.statsDays = Number(t.dataset.sdays); return render(); }
+  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
+  if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
+  if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return touch(); }
+  if (t.dataset.sdays) { ev.preventDefault(); state.statsDays = Number(t.dataset.sdays); return touch(); }
   if (t.dataset.release || t.dataset.forcerelease) {
     ev.preventDefault();
     const force = Boolean(t.dataset.forcerelease);
@@ -657,7 +756,7 @@ document.addEventListener("click", async (ev) => {
     }
     return refresh();
   }
-  if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
+  if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return touch(); }
   if (t.dataset.merge !== undefined) {
     ev.preventDefault();
     const [projectId, number] = t.dataset.merge.split(":");
@@ -672,9 +771,9 @@ document.addEventListener("click", async (ev) => {
     const q = new URLSearchParams({ force: "1" }); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
     return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
   }
-  if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
+  if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
-  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; return render(); }
+  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; return touch(); }
 });
 async function addProject(path) {
   if (!path) return;
@@ -742,21 +841,33 @@ $("#picker").addEventListener("keydown", (ev) => {
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
 
 // ---------- live
+// Poll for whatever the stream doesn't carry (turn costs, worktrees, PRs); SSE events coalesce into one
+// fetch 400 ms later. Both pause while the tab is hidden and resume on the next visibilitychange.
+const poll = () => (state.session ? openSession(state.session) : refresh());
+let pending = false;
+const pollSoon = () => { if (!pending) { pending = true; setTimeout(() => { pending = false; poll(); }, 400); } };
+let backoff = 1500;
 function connect() {
   const es = new EventSource(`/v1/events?since=${state.seq}`);
-  const on = () => $("#daemon .dot").classList.add("on");
+  const on = () => { backoff = 1500; $("#daemon .dot").classList.add("on"); };
   es.addEventListener("open", on);
   es.addEventListener("ping", on);
-  es.onerror = () => { $("#daemon .dot").classList.remove("on"); es.close(); setTimeout(connect, 1500); };
-  let pending = false;
+  es.onerror = () => { $("#daemon .dot").classList.remove("on"); es.close(); setTimeout(connect, backoff); backoff = Math.min(30_000, backoff * 2); };
   const onAny = (e) => {
-    on();
+    $("#daemon .dot").classList.add("on");
     const ev = JSON.parse(e.data);
+    // Replayed events (reconnect) only bump the seq; the coalesced poll below picks up the rest.
+    const fresh = ev.seq > state.seq;
     state.seq = Math.max(state.seq, ev.seq);
-    if (state.session && ev.sessionId === state.session) { state.log.push(ev); renderSession(); }
-    if (!pending) { pending = true; setTimeout(() => { pending = false; state.session ? openSession(state.session) : refresh(); }, 400); }
+    if (fresh && state.session && ev.sessionId === state.session && !state.log.some((x) => x.seq === ev.seq)) {
+      state.log.push(ev);
+      if (state.log.length > LOG_CAP) state.log.shift();
+      schedule();
+    }
+    pollSoon();
   };
   for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
 }
 refresh().then(connect);
-setInterval(() => { if (state.session) openSession(state.session); else refresh(); }, 5000);
+setInterval(() => { if (!document.hidden) poll(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });

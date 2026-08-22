@@ -21,6 +21,19 @@ const WEB_DIR = (() => {
   return existsSync(join(dev, "index.html")) ? dev : join(here, "../web");
 })();
 
+const REPLAY_TAIL = 200;
+
+/** Stringify each broadcast event once, however many SSE clients are attached. */
+const wireCache = new WeakMap<object, string>();
+function wireJson(e: object): string {
+  let s = wireCache.get(e);
+  if (!s) {
+    s = JSON.stringify(e);
+    wireCache.set(e, s);
+  }
+  return s;
+}
+
 export function createApp(store = new Store()) {
   const app = new Hono();
   const forge = new ForgeService(store);
@@ -146,10 +159,23 @@ export function createApp(store = new Store()) {
     const b = (await c.req.json().catch(() => ({}))) as { projectId?: string };
     return c.json({ reaped: store.reap(b.projectId) });
   });
+  // incremental: `?after=<seq>` returns only newer events, `?afterTs=<iso>` only newer turns
   app.get("/v1/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    return c.json({ events: store.sessionEvents(id), turns: store.sessionTurns(id) });
+    const after = Number(c.req.query("after") ?? 0);
+    const afterTs = c.req.query("afterTs") || undefined;
+    return c.json({
+      events: store.sessionEvents(id, 500, after),
+      turns: store.sessionTurns(id, 500, afterTs),
+      seq: store.seq(),
+    });
   });
+  // one event with everything that was stored (clipped tool I/O, raw hook input)
+  app.get("/v1/events/:seq", (c) => {
+    const e = store.event(Number(c.req.param("seq")));
+    return e ? c.json(e) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/v1/spend", (c) => c.json(store.spend()));
 
   app.post("/v1/pricing/refresh", async (c) => {
     try {
@@ -189,15 +215,20 @@ export function createApp(store = new Store()) {
   });
 
   // ---- SSE
+  // `since=<seq>` replays newer events (wire shape; `full=1` includes raw + clipped tool I/O).
+  // Omitting `since` (or 0) starts from the last REPLAY_TAIL events rather than the whole table.
   app.get("/v1/events", (c) => {
-    const since = Number(c.req.query("since") ?? 0);
+    const full = c.req.query("full") === "1";
+    const raw = Number(c.req.query("since") ?? 0);
+    const since = raw > 0 ? raw : Math.max(0, store.seq() - REPLAY_TAIL);
     return streamSSE(c, async (stream) => {
-      for (const e of store.since(since)) {
+      for (const e of store.since(since, 5000, full)) {
         await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
       }
       await new Promise<void>((resolve) => {
         const off = store.subscribe((e) => {
-          void stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
+          // serialised once per event by the store's wire cache; full replay is for `since` only
+          void stream.writeSSE({ id: String(e.seq), event: e.type, data: wireJson(e) });
         });
         const beat = setInterval(() => void stream.writeSSE({ event: "ping", data: "" }), 15000);
         stream.onAbort(() => {

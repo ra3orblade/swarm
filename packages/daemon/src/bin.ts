@@ -32,17 +32,30 @@ const backfillDays = Number(process.env.SWARM_CODEX_BACKFILL_DAYS ?? 30);
 const backfillMs = backfillDays * 24 * 60 * 60_000;
 store.tailCodex(backfillMs);
 store.tailGrok(backfillMs);
+let tick = 0;
 const tailer = setInterval(() => {
+  tick++;
   store.tailActive();
-  store.tailCodex();
-  store.tailGrok();
+  // codex/grok discovery walks directories; every 3rd tick (15 s) is plenty when idle
+  if (tick % 3 === 0 || store.hasActiveSessions()) {
+    store.tailCodex();
+    store.tailGrok();
+  }
   store.reapResources(); // dead pids / expired leases; the hook path never probes
 }, 5000);
+// worktree status (git status / rev-list per worktree) is refreshed here, off the request path
+void store.refreshAllWorktrees();
+const wtRefresh = setInterval(() => void store.refreshAllWorktrees(), 15_000);
+// retention: drop events older than 30 days, clear raw hook input after 7, once a day
+store.prune();
+const pruner = setInterval(() => store.prune(), 24 * 60 * 60_000);
 if (process.env.SWARM_OFFLINE !== "1") store.refreshPricing().catch(() => {});
 console.log(`swarmd ${VERSION} listening on http://127.0.0.1:${port}`);
 
 function shutdown() {
   clearInterval(tailer);
+  clearInterval(wtRefresh);
+  clearInterval(pruner);
   clearDaemonInfo();
   server.stop(true);
   process.exit(0);
