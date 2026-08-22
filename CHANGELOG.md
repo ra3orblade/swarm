@@ -4,6 +4,11 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- **PRs view went dark under the desktop app.** A daemon launched from the Dock gets macOS's bare GUI `PATH`, so Homebrew's `gh` / `glab` were invisible and the forge silently returned nothing. The daemon now also looks in `/opt/homebrew/bin`, `/usr/local/bin`, Linuxbrew and `~/.local/bin`; `swarm doctor` reports forge CLI auth and warns when `glab` relies on a shell-only `GITLAB_TOKEN`.
+- Icons are vertically centred on their text again (`vertical-align: middle` instead of a fixed `-3px` tuned for the old type scale).
+- npm publish moves to **trusted publishing** (OIDC, no `NPM_TOKEN`), the same setup as fancy-menus.
+
 ## [0.4.0] — 2026-08-22
 
 The enforcement release: rules that watch file writes, not just Bash; a backlog Swarm can read; servers Swarm starts and stops by pid; and an Incidents feed you can clear.
@@ -64,7 +69,7 @@ The coordination release: rules you can configure, runtime resources agents can 
 - Session view is two equal columns again (a bare `aside` selector in the sidebar-collapse CSS captured the session side panel); the log keeps your scroll position across live updates and follows the tail only when pinned to the bottom.
 - A pinned project whose root vanished is merged into the live same-name entry (repo renames produced duplicate sidebar rows); the sidebar `⋯` appears on hover in the count's slot and reserves no space.
 - Desktop: quit actually quits, window close hides (macOS convention) and the dock icon restores it, and the `swarmd` sidecar dies with the app. Dev builds serve the repo's live dashboard instead of a stale staged snapshot.
-- Release pipeline: npm publish is skipped cleanly when `NPM_TOKEN` is absent.
+- Release pipeline: npm publish is skipped cleanly when `NPM_TOKEN` is absent (since 0.4.1: trusted publishing, no token).
 
 ## [0.2.2] — 2026-08-21
 

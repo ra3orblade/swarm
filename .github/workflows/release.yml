@@ -82,18 +82,27 @@ jobs:
           args: ${{ matrix.args }}
 
   npm:
-    # Publishes @ra3orblade/swarm (bundled bins + dashboard) on every v* tag. Needs the NPM_TOKEN
-    # secret (granular token with publish rights on the @ra3orblade scope).
+    # Publishes @ra3orblade/swarm (bundled bins + dashboard) on every v* tag via npm Trusted
+    # Publishing (OIDC) — no NPM_TOKEN secret, same setup as fancy-menus. Authorized by the
+    # trusted-publisher rule on npmjs.com that pins this repo + this workflow filename
+    # (release.yml). Provenance is emitted automatically under OIDC.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing + provenance
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: latest }
+      # No `registry-url`: with it, setup-node writes an empty `_authToken` to .npmrc, which
+      # shadows the OIDC exchange and makes `npm publish` 404.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles an older one.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
       - run: bun run build:pkg
       - name: Tag must match package version
@@ -101,15 +110,6 @@ jobs:
           PKG=$(node -p "require('./npm/package.json').version")
           test "v$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != npm/package.json $PKG"; exit 1; }
       - run: bun npm/dist/swarm.js --help
-      # Skip (don't fail the release) while the NPM_TOKEN secret isn't configured.
       - name: Publish to npm
-        if: env.NODE_AUTH_TOKEN != ''
-        run: npm publish --provenance --access public
+        run: npm publish --access public
         working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Note when unpublished
-        if: env.TOKEN_SET == ''
-        run: echo "NPM_TOKEN not set — skipped npm publish."
-        env:
-          TOKEN_SET: ${{ secrets.NPM_TOKEN }}
