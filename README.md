@@ -17,6 +17,8 @@ A local-first control plane for AI-agent development on any repository.</p>
   <a href="https://github.com/ra3orblade/swarm/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/ra3orblade/swarm?display_name=tag&color=a3e635&labelColor=0e1013"></a>
   <a href="https://www.npmjs.com/package/@ra3orblade/swarm"><img alt="npm" src="https://img.shields.io/npm/v/%40ra3orblade%2Fswarm?color=a3e635&labelColor=0e1013"></a>
   <a href="https://github.com/ra3orblade/swarm/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ra3orblade/swarm/ci.yml?branch=main&label=ci&labelColor=0e1013"></a>
+  <a href="https://github.com/ra3orblade/swarm/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/ra3orblade/swarm/total?label=downloads&color=a3e635&labelColor=0e1013"></a>
+  <a href="https://www.npmjs.com/package/@ra3orblade/swarm"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40ra3orblade%2Fswarm?label=npm%2Fmonth&color=a3e635&labelColor=0e1013"></a>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-lightgrey?labelColor=0e1013"></a>
 </p>
 
