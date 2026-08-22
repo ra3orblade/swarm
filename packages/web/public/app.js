@@ -324,6 +324,7 @@ function renderSession() {
   if (!s) return;
   const logEl = $("#log");
   const atBottom = !logEl || logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 40;
+  const prevTop = logEl ? logEl.scrollTop : 0;
   const tools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]);
   const t = s.tokens;
   const ctx = t.input + t.cacheRead + t.cacheWrite;
@@ -342,7 +343,10 @@ function renderSession() {
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}
   </aside></div>`;
-  if (atBottom) $("#log").scrollTop = $("#log").scrollHeight;
+  // Follow the tail when pinned to the bottom; otherwise keep the reading position —
+  // innerHTML replacement resets scroll to the top on every live update.
+  const nl = $("#log");
+  if (nl) nl.scrollTop = atBottom ? nl.scrollHeight : prevTop;
 }
 
 
