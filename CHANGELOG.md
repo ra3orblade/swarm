@@ -4,6 +4,8 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-22
+
 ### Fixed
 - **PRs view went dark under the desktop app.** A daemon launched from the Dock gets macOS's bare GUI `PATH`, so Homebrew's `gh` / `glab` were invisible and the forge silently returned nothing. The daemon now also looks in `/opt/homebrew/bin`, `/usr/local/bin`, Linuxbrew and `~/.local/bin`; `swarm doctor` reports forge CLI auth and warns when `glab` relies on a shell-only `GITLAB_TOKEN`.
 - Icons are vertically centred on their text again (`vertical-align: middle` instead of a fixed `-3px` tuned for the old type scale).
@@ -85,6 +87,7 @@ The coordination release: rules you can configure, runtime resources agents can 
 
 First signed and notarized macOS desktop build; `release.yml` became a three-OS matrix (macOS / Windows / Linux) with a native sidecar per runner.
 
+[0.4.1]: https://github.com/ra3orblade/swarm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ra3orblade/swarm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ra3orblade/swarm/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ra3orblade/swarm/compare/v0.0.6...v0.2.2
