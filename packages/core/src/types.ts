@@ -18,6 +18,7 @@ export type EventType =
   | "claim.orphaned"
   | "resource.acquired"
   | "resource.released"
+  | "resource.reaped"
   | "process.started"
   | "process.exited"
   | "gate.recorded"

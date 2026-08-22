@@ -145,5 +145,63 @@ export function buildServer(): McpServer {
     },
   );
 
+  server.registerTool(
+    "swarm_acquire_resource",
+    {
+      title: "Acquire a runtime resource",
+      description:
+        "Claim a named singleton (a port, a dev server, a database) so parallel agents don't fight over it. Fails closed while another owner holds it. Pass pid to track a process (auto-released when it dies) or port to protect the port from other agents' kills.",
+      inputSchema: {
+        name: z.string().describe('singleton name, e.g. "dev-server" or "port:3000"'),
+        owner: z.string().describe("who holds it (agent/session name)"),
+        pid: z.number().optional().describe("tracked process id"),
+        port: z.number().optional().describe("port this resource occupies"),
+        leaseMinutes: z.number().optional(),
+      },
+    },
+    async ({ name, owner, pid, port, leaseMinutes }) => {
+      const project = await projectId();
+      const r = await api<{ ok?: boolean; resource?: unknown; error?: string }>("/v1/resources", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, owner, pid, port, leaseMinutes, projectId: project }),
+      });
+      return r.error ? fail(`REFUSED: ${r.error}`) : ok(`acquired ${name}`, r.resource);
+    },
+  );
+
+  server.registerTool(
+    "swarm_release_resource",
+    {
+      title: "Release a runtime resource",
+      inputSchema: { name: z.string(), owner: z.string().optional() },
+    },
+    async ({ name, owner }) => {
+      const project = await projectId();
+      const q = new URLSearchParams({ project });
+      if (owner) q.set("owner", owner);
+      const r = await api<{ ok: boolean; error?: string }>(
+        `/v1/resources/${encodeURIComponent(name)}?${q}`,
+        {
+          method: "DELETE",
+        },
+      );
+      return r.ok ? ok(`released ${name}`, r) : fail(`REFUSED: ${r.error}`);
+    },
+  );
+
+  server.registerTool(
+    "swarm_resources",
+    {
+      title: "List held runtime resources",
+      inputSchema: {},
+    },
+    async () => {
+      const project = await projectId();
+      const r = await api<unknown[]>(`/v1/resources?project=${project}`);
+      return ok(`${(r as unknown[]).length} held`, r);
+    },
+  );
+
   return server;
 }

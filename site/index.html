@@ -5,26 +5,28 @@
 <title>Swarm — local-first control plane for AI agents</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Watch every Claude Code, Codex, and Grok session on your machine. One dashboard: live sessions, cost, worktrees, claims, and enforced rules. Local-first, open source.">
-<meta property="og:title" content="Swarm">
-<meta property="og:description" content="The local-first control plane for AI-agent development.">
+<meta property="og:title" content="Swarm — see every agent, stop the collisions">
+<meta property="og:description" content="The local-first control plane for AI-agent development: live sessions, cost, worktrees, claims, and enforced rules for Claude Code, Codex, and Grok.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://getswarm.vercel.app/">
+<meta property="og:image" content="https://getswarm.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Swarm — see every agent, stop the collisions">
+<meta name="twitter:description" content="The local-first control plane for AI-agent development.">
+<meta name="twitter:image" content="https://getswarm.vercel.app/og.png">
+<meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Crect%20width%3D%2220%22%20height%3D%2220%22%20rx%3D%224%22%20fill%3D%22%230e1013%22/%3E%3Cg%20transform%3D%22translate%282%2C4%29%22%3E%3Crect%20x%3D%222%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22%20fill%3D%22%23a3e635%22/%3E%3Crect%20x%3D%226%22%20y%3D%221%22%20width%3D%224%22%20height%3D%221%22%20fill%3D%22%237cc02f%22/%3E%3Crect%20x%3D%224%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22%20fill%3D%22%23a3e635%22/%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%226%22%20height%3D%221%22%20fill%3D%22%237cc02f%22/%3E%3Crect%20x%3D%221%22%20y%3D%225%22%20width%3D%2213%22%20height%3D%221%22%20fill%3D%22%23a3e635%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22%20fill%3D%22%23a3e635%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%225%22%20height%3D%221%22%20fill%3D%22%237cc02f%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22%20fill%3D%22%23a3e635%22/%3E%3Crect%20x%3D%226%22%20y%3D%229%22%20width%3D%224%22%20height%3D%221%22%20fill%3D%22%237cc02f%22/%3E%3C/g%3E%3C/svg%3E">
 <style>
   :root{
-    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#f0f2f5; --line:#e4e7ec;
-    --fg:#1a1d21; --fg-2:#3d4650; --dim:#8b929c; --faint:#aab1bb;
-    --acc:#4d7c0f; --acc-soft:rgba(132,204,22,.15); --acc-contrast:#ffffff;
+    --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932; --line-2:#1e222a;
+    --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
+    --acc:#a3e635; --acc-soft:rgba(163,230,53,.14); --acc-contrast:#0e1013;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
-    --r:9px; --r-sm:6px;
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932;
-      --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
-      --acc:#a3e635; --acc-soft:rgba(163,230,53,.14); --acc-contrast:#0e1013;
-      --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
-    }
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
+    --r:9px; --r-sm:6px; --r-pill:20px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
@@ -37,26 +39,27 @@
   header nav a{color:var(--fg-2)}
   header nav a:hover{color:var(--acc)}
 
-  .hero{padding:64px 0 40px;text-align:center;position:relative}
-  /* pixel-field cover: scattered brand pixels + a soft glow, fading out radially */
-  .hero::before{content:"";position:absolute;inset:-30px -80px 0;z-index:-1;pointer-events:none;
-    background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22240%22%20height%3D%22240%22%3E%3Crect%20x%3D%22120%22%20y%3D%2254%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2224%22%20y%3D%22204%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.25%22/%3E%3Crect%20x%3D%22222%22%20y%3D%2218%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%2212%22%20y%3D%2230%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2290%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%2218%22%20y%3D%22216%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%22222%22%20y%3D%2218%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%2218%22%20y%3D%2284%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%22108%22%20y%3D%22156%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22216%22%20y%3D%22114%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%2236%22%20y%3D%22222%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%22138%22%20y%3D%2236%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22216%22%20y%3D%2218%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%22186%22%20y%3D%22204%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.25%22/%3E%3Crect%20x%3D%22174%22%20y%3D%22222%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.25%22/%3E%3Crect%20x%3D%22114%22%20y%3D%2290%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%2230%22%20y%3D%22216%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%22126%22%20y%3D%22168%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2242%22%20y%3D%22192%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.35%22/%3E%3Crect%20x%3D%22126%22%20y%3D%2254%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%2212%22%20y%3D%2224%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.25%22/%3E%3Crect%20x%3D%22126%22%20y%3D%22132%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%22222%22%20y%3D%22174%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22102%22%20y%3D%22180%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2218%22%20y%3D%22114%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%22108%22%20y%3D%22144%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.25%22/%3E%3C/svg%3E") repeat;background-size:240px 240px;opacity:.35;
+  .hero{padding:60px 0 56px;text-align:center;position:relative}
+  .hero::before{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22240%22%20height%3D%22240%22%3E%3Crect%20x%3D%22168%22%20y%3D%22210%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%22192%22%20y%3D%22222%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%22192%22%20y%3D%22180%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%2236%22%20y%3D%22168%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%2230%22%20y%3D%22204%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22228%22%20y%3D%22150%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%22234%22%20y%3D%220%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2218%22%20y%3D%2212%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%22228%22%20y%3D%226%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.2%22/%3E%3Crect%20x%3D%22168%22%20y%3D%22222%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%22108%22%20y%3D%22186%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22174%22%20y%3D%22102%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2296%22%20y%3D%22120%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.2%22/%3E%3Crect%20x%3D%226%22%20y%3D%2224%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22150%22%20y%3D%2236%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%2224%22%20y%3D%226%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%2278%22%20y%3D%2278%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.7%22/%3E%3Crect%20x%3D%22144%22%20y%3D%22150%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22216%22%20y%3D%2272%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%234f7d24%22%20opacity%3D%220.2%22/%3E%3Crect%20x%3D%22126%22%20y%3D%2230%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%237cc02f%22%20opacity%3D%220.2%22/%3E%3Crect%20x%3D%220%22%20y%3D%22156%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%2290%22%20y%3D%2236%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.5%22/%3E%3Crect%20x%3D%22174%22%20y%3D%22186%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3Crect%20x%3D%22168%22%20y%3D%22192%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23a3e635%22%20opacity%3D%220.3%22/%3E%3C/svg%3E") repeat;background-size:240px 240px;opacity:.5;
     -webkit-mask-image:radial-gradient(ellipse 75% 85% at 50% 32%,#000 0%,transparent 72%);
     mask-image:radial-gradient(ellipse 75% 85% at 50% 32%,#000 0%,transparent 72%)}
-  .hero::after{content:"";position:absolute;inset:-30px -80px 0;z-index:-2;pointer-events:none;
-    background:radial-gradient(ellipse 60% 55% at 50% 30%,var(--acc-soft),transparent 65%)}
-  .hero .mark{width:180px;image-rendering:pixelated;margin-bottom:22px}
+  .hero::after{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 55% 50% at 50% 28%,var(--acc-soft),transparent 65%)}
+  .hero>*{position:relative;z-index:1}
+  .hero .mark{width:180px;image-rendering:pixelated;margin-bottom:24px}
+  .hero .mark rect{animation:sweep 1.8s ease-in-out infinite}
+  @keyframes sweep{0%,100%{opacity:.32}50%{opacity:1}}
+  @media (prefers-reduced-motion: reduce){.hero .mark rect{animation:none}}
   h1{font-size:40px;margin:0 0 10px;letter-spacing:-.01em}
   .tag{color:var(--dim);font-size:18px;max-width:560px;margin:0 auto 30px}
   .cta{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:12px}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:var(--r);
-    font-weight:600;font-size:15px;border:1px solid var(--line);color:var(--fg-2);background:var(--panel);
-    box-shadow:var(--shadow);transition:border-color .12s,color .12s}
+    font-weight:600;font-size:15px;border:1px solid var(--line);color:var(--fg-2);background:var(--panel)}
   .btn:hover{border-color:var(--acc);color:var(--fg)}
   .btn.primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
   .btn.primary:hover{filter:brightness(1.06);color:var(--acc-contrast)}
   .ver{color:var(--faint);font-size:13px;margin-top:14px;font-variant-numeric:tabular-nums}
-
   .cli{margin:16px auto 0;display:inline-block;background:var(--panel);border:1px solid var(--line);
     border-radius:var(--r-sm);padding:10px 16px;font:13.5px var(--mono);color:var(--fg-2);cursor:pointer}
   .cli:hover{border-color:var(--acc)}
@@ -65,33 +68,41 @@
 
   section{padding:34px 0}
   h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin:0 0 16px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .ic{width:22px;height:22px;color:var(--acc);display:block}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
+  .card .ic{margin-bottom:10px}
   .card b{display:block;margin-bottom:4px}
   .card p{margin:0;color:var(--dim);font-size:14px}
 
-  .dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
-  .dl .card{display:flex;flex-direction:column}
-  .dl .os{color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-  .dl .card.mine{border-color:var(--acc)}
-  .dl .links{margin-top:auto;padding-top:14px;display:flex;flex-direction:column;gap:8px}
-  .dl .dbtn{display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 14px;
-    border-radius:var(--r-sm);background:var(--acc);color:var(--acc-contrast);font-weight:600;font-size:14px}
-  .dl .dbtn:hover{filter:brightness(1.06)}
-  .dl .dbtn small{font-weight:500;opacity:.75;font-size:12px}
-  .dl .dsub{display:flex;gap:14px;justify-content:center;font-size:13px}
-  .dl .dsub a{color:var(--dim)}
-  .dl .dsub a:hover{color:var(--acc)}
-  .dl .dsub small{color:var(--faint)}
+  .dl{padding:0;overflow:hidden}
+  .dl .row{display:flex;align-items:center;gap:16px;padding:16px 18px;border-bottom:1px solid var(--line-2)}
+  .dl .row:last-child{border-bottom:0}
+  .dl .row.mine{background:var(--acc-soft)}
+  .dl .row .ic{width:20px;height:20px;flex:none}
+  .dl .who b{display:block;font-size:15px}
+  .dl .who span{color:var(--dim);font-size:13px}
+  .dl .links{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .dl .pill{display:inline-flex;align-items:baseline;gap:6px;padding:6px 13px;border-radius:var(--r-pill);
+    border:1px solid var(--line);color:var(--fg-2);font-size:13.5px;font-weight:600;background:var(--panel-2)}
+  .dl .pill small{color:var(--dim);font-weight:500;font-size:12px}
+  .dl .pill:hover{border-color:var(--acc);color:var(--fg)}
+  .dl .pill.primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
+  .dl .pill.primary small{color:var(--acc-contrast);opacity:.7}
+  .dl .pill.primary:hover{filter:brightness(1.06)}
+  .dl .pill.mono{font-family:var(--mono);font-weight:500}
+  @media (max-width:680px){.dl .row{flex-wrap:wrap}.dl .links{margin-left:36px;justify-content:flex-start}}
 
   footer{padding:36px 0 44px;color:var(--faint);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
   footer a{color:var(--dim)}
+  footer a:hover{color:var(--acc)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="18" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="30" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="48" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="24" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="18" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>
+    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="6" height="6" fill="#a3e635"/><rect x="36" y="30" width="6" height="6" fill="#a3e635"/><rect x="42" y="30" width="6" height="6" fill="#a3e635"/><rect x="48" y="30" width="6" height="6" fill="#a3e635"/><rect x="54" y="30" width="6" height="6" fill="#a3e635"/><rect x="60" y="30" width="6" height="6" fill="#a3e635"/><rect x="66" y="30" width="6" height="6" fill="#a3e635"/><rect x="72" y="30" width="6" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>
     <b>Swarm</b>
     <nav>
       <a href="#downloads">Downloads</a>
@@ -101,7 +112,7 @@
   </header>
 
   <div class="hero">
-    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="6" height="6" fill="#a3e635"/><rect x="36" y="30" width="6" height="6" fill="#a3e635"/><rect x="42" y="30" width="6" height="6" fill="#a3e635"/><rect x="48" y="30" width="6" height="6" fill="#a3e635"/><rect x="54" y="30" width="6" height="6" fill="#a3e635"/><rect x="60" y="30" width="6" height="6" fill="#a3e635"/><rect x="66" y="30" width="6" height="6" fill="#a3e635"/><rect x="72" y="30" width="6" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>
+    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635" style="animation-delay:120ms"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:360ms"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24" style="animation-delay:540ms"/><rect x="24" y="18" width="6" height="6" fill="#a3e635" style="animation-delay:240ms"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:540ms"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:600ms"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:660ms"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24" style="animation-delay:720ms"/><rect x="6" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:60ms"/><rect x="30" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:300ms"/><rect x="36" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:360ms"/><rect x="42" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:420ms"/><rect x="48" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:480ms"/><rect x="54" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:540ms"/><rect x="60" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:600ms"/><rect x="66" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:660ms"/><rect x="72" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:720ms"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24" style="animation-delay:780ms"/><rect x="24" y="42" width="6" height="6" fill="#a3e635" style="animation-delay:240ms"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:540ms"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:600ms"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24" style="animation-delay:660ms"/><rect x="12" y="54" width="6" height="6" fill="#a3e635" style="animation-delay:120ms"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:360ms"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24" style="animation-delay:540ms"/></svg>
     <h1>See every agent. Stop the collisions.</h1>
     <p class="tag">Swarm is the local-first control plane for AI-agent development: one dashboard for every Claude Code, Codex, and Grok session on your machine — live activity, cost, worktrees, task claims, and enforced rules.</p>
     <div class="cta">
@@ -109,28 +120,26 @@
       <a class="btn" href="https://github.com/ra3orblade/swarm">View on GitHub</a>
     </div>
     <div class="ver" id="ver">&nbsp;</div>
-    <div class="cli" id="cli" title="Copy">
-      <span class="p">$</span> bunx @ra3orblade/swarm setup
-    </div>
+    <div class="cli" id="cli" title="Copy"><span class="p">$</span> bunx @ra3orblade/swarm setup</div>
   </div>
 
   <section>
     <h2>What it does</h2>
     <div class="grid">
-      <div class="card"><b>Fleet, live</b><p>Every agent session on the machine, streaming: current tool, tokens, context, cost — across all your repos, zero instrumentation.</p></div>
-      <div class="card"><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
-      <div class="card"><b>Worktrees &amp; claims</b><p>A fail-closed ledger: tasks are claimed into isolated git worktrees, so parallel agents can't clobber each other.</p></div>
-      <div class="card"><b>Rules &amp; incidents</b><p>Broad <code>git add -A</code> in a shared checkout, pattern kills, protected ports — asked or denied, every decision recorded.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zM2 4h2v16H2zm2 7h16v2H4zm16-7h2v16h-2z"/>  <path d="M11 4h2v18h-2z"/>  <path d="M4 20h16v2H4z"/></svg><b>Fleet, live</b><p>Every agent session on the machine, streaming: current tool, tokens, context, cost — across all your repos, zero instrumentation.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h6v2H6zM4 4h2v2H4zm8 0h2v2h-2zm-8 8h2v2H4zm8 0h2v2h-2zm-6 2h6v2H6zM2 6h2v6H2zm12 0h2v6h-2z"/>  <path d="M14 8h4v2h-4zm-4 10h2v2h-2zm8-8h2v2h-2zm-6 10h2v2h-2zm6-2h2v2h-2z"/>  <path d="M12 20h6v2h-6zm-4-6h2v4H8zm12-2h2v6h-2zM7 6h4v2H7z"/>  <path d="M9 6h2v6H9zm6 8h2v4h-2zm-1-2h3v2h-3z"/></svg><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 14h4v2H4zm0 6h4v2H4zm-2-4h2v4H2zm6 0h2v4H8zm8-14h4v2h-4zm0 6h4v2h-4zm-2-4h2v4h-2zm6 0h2v4h-2zm-8 13h5v2h-5zm5-5h2v5h-2zM5 2h2v10H5z"/></svg><b>Worktrees &amp; claims</b><p>A fail-closed ledger: tasks are claimed into isolated git worktrees, so parallel agents can't clobber each other.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM20 4h2v16h-2zM2 4h2v16H2zm9 2h2v8h-2zm0 10h2v2h-2z"/></svg><b>Rules &amp; incidents</b><p>Broad <code>git add -A</code> in a shared checkout, pattern kills, protected ports — asked or denied, every decision recorded.</p></div>
     </div>
   </section>
 
   <section id="downloads">
     <h2>Downloads <span id="rel" style="text-transform:none;letter-spacing:0"></span></h2>
-    <div class="dl" id="dl">
-      <div class="card" data-os="mac"><span class="os">macOS</span><b>Swarm.dmg</b><p>Apple silicon · signed &amp; notarized · auto-updates</p><div class="links"></div></div>
-      <div class="card" data-os="win"><span class="os">Windows</span><b>Swarm Setup</b><p>x64 · .msi and .exe · auto-updates</p><div class="links"></div></div>
-      <div class="card" data-os="linux"><span class="os">Linux</span><b>swarm.deb / .rpm</b><p>x86_64 packages</p><div class="links"></div></div>
-      <div class="card"><span class="os">CLI / any platform</span><b>@ra3orblade/swarm</b><p>Runs with <a href="https://bun.sh">Bun</a>: daemon, dashboard, and CLI in one package.</p><div class="links"><a class="dbtn" style="font-family:var(--mono);font-size:13px" href="https://www.npmjs.com/package/@ra3orblade/swarm">bunx @ra3orblade/swarm setup</a></div></div>
+    <div class="dl card">
+      <div class="row" data-os="mac"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M11 8h3v2h-3zm3-2h4v2h-4zm4 2h2v3h-2zm-2 3h2v4h-2zm2 4h2v5h-2zm-4 5h4v2h-4zm-3-2h3v2h-3zm-4 2h4v2H7zm-2-2h2v2H5zm-2-8h2v8H3zm2-2h2v2H5zm2-2h4v2H7zm5-3h2v2h-2zm2-2h2v2h-2z"/></svg><div class="who"><b>macOS</b><span>Apple silicon · signed &amp; notarized · auto-updates</span></div><div class="links"></div></div>
+      <div class="row" data-os="win"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 3h16v2H4zm0 16h16v2H4zM2 5h2v14H2zm18 0h2v14h-2zM4 7h16v2H4zm8-2h2v2h-2zm4 0h2v2h-2z"/></svg><div class="who"><b>Windows</b><span>x64 · auto-updates</span></div><div class="links"></div></div>
+      <div class="row" data-os="linux"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 22H9v-2h6v2Zm-6-2H7v-2h2v2Zm8 0h-2v-2h2v2ZM3 14h4v4H5v-2H1v-4h2v2Zm20 2h-4v2h-2v-4h4v-2h2v4Zm-10-3h-2v-2H9V9h6v2h-2v2Zm-8-1H3v-2h2v2Zm16 0h-2v-2h2v2ZM7 10H5V8h2v2Zm12 0h-2V8h2v2ZM9 8H7V4h2v4Zm8 0h-2V4h2v4Zm-2-4H9V2h6v2Z"/></svg><div class="who"><b>Linux</b><span>x86_64 · .deb and .rpm</span></div><div class="links"></div></div>
+      <div class="row"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM6 16h2v2H6zm2-2h2v2H8zm-2-2h2v2H6z"/></svg><div class="who"><b>CLI</b><span>any platform with <a href="https://bun.sh">Bun</a></span></div><div class="links"><a class="pill mono" href="https://www.npmjs.com/package/@ra3orblade/swarm">bunx @ra3orblade/swarm setup</a></div></div>
     </div>
   </section>
 
@@ -143,7 +152,6 @@
 </div>
 
 <script>
-  // Copy the CLI one-liner
   document.getElementById("cli").addEventListener("click", () => {
     navigator.clipboard?.writeText("bunx @ra3orblade/swarm setup");
     const el = document.getElementById("cli");
@@ -151,44 +159,30 @@
     setTimeout(() => { el.innerHTML = '<span class="p">$</span> bunx @ra3orblade/swarm setup'; }, 1400);
   });
 
-  // Latest release assets from GitHub (client-side; degrades to the releases page).
   const os = /Mac/i.test(navigator.platform) ? "mac" : /Win/i.test(navigator.platform) ? "win" : /Linux/i.test(navigator.platform) ? "linux" : null;
-  if (os) document.querySelector(`.dl .card[data-os="${os}"]`)?.classList.add("mine");
+  if (os) document.querySelector(`.dl .row[data-os="${os}"]`)?.classList.add("mine");
   fetch("https://api.github.com/repos/ra3orblade/swarm/releases/latest")
     .then((r) => r.json())
     .then((rel) => {
       if (!rel?.assets) return;
       document.getElementById("ver").textContent = `${rel.tag_name} · ${new Date(rel.published_at).toLocaleDateString()}`;
       document.getElementById("rel").textContent = ` · ${rel.tag_name}`;
-      // First pattern is the platform's primary download; the rest are quiet alternatives.
       const buckets = { mac: [/\.dmg$/], win: [/-setup\.exe$/, /\.msi$/], linux: [/\.deb$/, /\.rpm$/] };
       const ext = (n) => n.match(/(\.[a-z0-9]+)$/i)?.[1] ?? n;
       const mb = (b) => `${(b / 1048576).toFixed(0)} MB`;
       let mine = null;
       for (const [key, pats] of Object.entries(buckets)) {
-        const links = document.querySelector(`.dl .card[data-os="${key}"] .links`);
+        const links = document.querySelector(`.dl .row[data-os="${key}"] .links`);
         if (!links) continue;
         const found = pats.map((p) => rel.assets.find((a) => p.test(a.name))).filter(Boolean);
-        const [first, ...rest] = found;
-        if (first) {
+        found.forEach((a, i) => {
           const el = document.createElement("a");
-          el.className = "dbtn";
-          el.href = first.browser_download_url;
-          el.innerHTML = `Download ${ext(first.name)} <small>${mb(first.size)}</small>`;
+          el.className = `pill${key === os && i === 0 ? " primary" : ""}`;
+          el.href = a.browser_download_url;
+          el.innerHTML = `${ext(a.name)} <small>${mb(a.size)}</small>`;
           links.appendChild(el);
-          if (key === os) mine = first.browser_download_url;
-        }
-        if (rest.length) {
-          const row = document.createElement("div");
-          row.className = "dsub";
-          for (const a of rest) {
-            const el = document.createElement("a");
-            el.href = a.browser_download_url;
-            el.innerHTML = `${ext(a.name)} <small>· ${mb(a.size)}</small>`;
-            row.appendChild(el);
-          }
-          links.appendChild(row);
-        }
+          if (key === os && i === 0) mine = a.browser_download_url;
+        });
       }
       if (mine) {
         const btn = document.getElementById("dlMain");
@@ -198,5 +192,6 @@
     })
     .catch(() => {});
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
