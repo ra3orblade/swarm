@@ -889,6 +889,36 @@ function menuSpec(kind, d) {
   }
   return null;
 }
+// Star nudge: once a month at most, never on first open, dismissable for good. Pure localStorage —
+// nothing leaves the machine; clicking Star just opens the repo in a browser.
+const STAR = { key: "swarm.star", firstAfterMs: 2 * 86_400_000, everyMs: 30 * 86_400_000 };
+function starState() { try { return JSON.parse(localStorage.getItem(STAR.key) || "{}"); } catch { return {}; } }
+function starSave(patch) { try { localStorage.setItem(STAR.key, JSON.stringify({ ...starState(), ...patch })); } catch {} }
+function maybeStarNudge() {
+  const st = starState();
+  const now = Date.now();
+  if (!st.since) return starSave({ since: now });
+  if (st.done || st.never) return;
+  if (now - st.since < STAR.firstAfterMs) return;
+  if (st.last && now - st.last < STAR.everyMs) return;
+  if (document.querySelector(".nudge")) return;
+  starSave({ last: now });
+  const el = document.createElement("div");
+  el.className = "nudge";
+  el.innerHTML = `${ic("star", 18, "ic")}<div><b>Enjoying Swarm?</b>A star on GitHub helps other people find it — and tells us it's worth the evenings.
+    <div class="row"><button class="pri" data-star="go">${ic("star", 13)} Star on GitHub</button><button data-star="later">Later</button><a href="#" class="dim" data-star="never">Don't ask again</a></div></div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-star]"); if (!t) return;
+    ev.preventDefault();
+    if (t.dataset.star === "go") { starSave({ done: now }); window.open(REPO_URL, "_blank"); }
+    else if (t.dataset.star === "never") starSave({ never: now });
+    el.remove();
+  });
+}
+window.swarmStarNudge = (force) => { if (force) starSave({ since: 1, last: 0, done: 0, never: 0 }); maybeStarNudge(); };
+setTimeout(maybeStarNudge, 4000);
+
 // Feedback lands in a GitHub issue form, prefilled with the environment so people don't have to type it.
 const REPO_URL = "https://github.com/ra3orblade/swarm";
 function feedbackUrl() {

@@ -401,6 +401,16 @@
   .seg a:hover{color:var(--fg-2)}
   .seg a.on{background:var(--acc-soft);color:var(--acc)}
   .chip b{font-weight:700}
+  /* star nudge (once a month, dismissable) */
+  .nudge{position:fixed;right:18px;bottom:18px;z-index:40;max-width:400px;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--r);box-shadow:var(--shadow-pop);padding:14px 16px;display:flex;gap:12px;align-items:flex-start;
+    font:var(--fs-md) var(--sans);color:var(--fg-2);line-height:1.5}
+  .nudge .ic{color:var(--acc);flex:none;margin-top:2px}
+  .nudge b{color:var(--fg);display:block;margin-bottom:2px}
+  .nudge .row{display:flex;gap:8px;margin-top:10px;align-items:center;white-space:nowrap}
+  .nudge button.pri{background:var(--acc-soft);border-color:transparent;color:var(--acc)}
+  .nudge a.dim{color:var(--dim);font-size:var(--fs-sm);margin-left:auto}
+  body.nosb .nudge{right:18px}
 </style>
 </head>
 <body>
