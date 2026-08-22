@@ -94,3 +94,7 @@ Layouts are saved per table in the browser, so the Live and Earlier lists, for i
 ## Settings and feedback
 
 The sliders button in the header opens settings: **Theme** (System, Light, Dark), **Refresh pricing** (fetches the LiteLLM price list now), **Copy dashboard URL**, **Documentation**, and **Send feedback**. The speech-bubble button next to it is the same feedback action: it opens a GitHub issue form with your Swarm version, OS and shell (browser or desktop) prefilled.
+
+## Running an agent from the Board
+
+With a [task source](04-claims-and-worktrees.md#a-task-source) configured, every **Ready** task row (and any task you already hold) has a **Run** action. It opens a drawer with the prompt prefilled from the task, the permission mode (`acceptEdits` by default), an optional model and a max-turns cap; **Run** (or ⌘⏎) claims the task and the daemon spawns `claude -p` in its worktree — the same thing `swarm run` does from the CLI. You land on the session page, marked ▷ spawned, with a box at the bottom to send it messages and a **Stop** button; cost and tokens accrue like any other session.

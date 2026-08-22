@@ -149,6 +149,19 @@
   .pk-row{display:flex;align-items:center;gap:9px;padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;color:var(--fg-2)}
   .pk-row:hover{background:var(--panel-2)}.pk-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pk-row.up{color:var(--dim)}.pk-row .badge{margin:0}
+  .pk-b{padding:12px 14px;display:grid;gap:10px}
+  .pk-b label{display:grid;gap:4px;font:500 var(--fs-sm) var(--sans);color:var(--dim)}
+  .pk-b input,.pk-b textarea,.pk-b select{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);
+    border-radius:var(--r-sm);padding:7px 9px;font:var(--fs-md) var(--sans);outline:none}
+  .pk-b textarea{min-height:120px;resize:vertical;font-family:var(--mono);font-size:var(--fs-sm);line-height:1.5}
+  .pk-b input:focus,.pk-b textarea:focus,.pk-b select:focus{border-color:var(--acc)}
+  .pk-b .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  /* stdin box for spawned sessions (M3.3) */
+  .stdin{display:flex;gap:8px;margin-top:10px;align-items:center}
+  .stdin input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:8px 10px;font:var(--fs-md) var(--sans);outline:none}
+  .stdin input:focus{border-color:var(--acc)}
+  .stdin button.danger{color:var(--warn);border-color:var(--warn-soft)}
+  .stdin .hint{color:var(--dim);font-size:var(--fs-sm)}
   .pk-f{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
   .pk-f button{flex:none}.pk-f .grow{flex:1}
   .pk-f .primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
@@ -239,6 +252,7 @@
   /* session detail */
   .sess{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
   .sess>*{height:calc(100vh - 140px);min-height:320px}
+  .sess.has-stdin>*{height:calc(100vh - 196px)}
   @media (max-width:980px){.sess{grid-template-columns:1fr}.sess>*{height:auto;max-height:calc(100vh - 140px)}}
   #log{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
     padding:6px 0;overflow:auto}

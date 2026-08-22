@@ -67,7 +67,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 |----|------|---------|--------|
 | M3.1 | `swarm run`: spawn `claude -p` stream-json in a claimed worktree; ingest; stdin steering | M1 | ✅ 2026-08-22 `daemon/runner.ts`: claim (reuses the caller's held worktree), `claude -p --output-format stream-json --input-format stream-json --session-id <uuid>` spawned by the daemon in the worktree with stdin kept open; prompt + `run send` go in as stream-json user messages; session pre-registered as `spawned` so hooks/transcripts ingest it like any session; `result` lines → `run.result` (cost, turns, error); pid in the process registry (stop = close stdin, then TERM/KILL by pid + start time); `GET/POST /v1/runs`, `POST /v1/runs/:id/send`, `DELETE /v1/runs/:id`; CLI `swarm run --task --prompt|--prompt-file [--model] [--permission-mode] [--allowed-tools] [--max-turns]`, `run ls|send|stop`; verified against Claude Code 2.1.240 |
 | M3.2 | Permission broker via `--permission-prompt-tool` → rules → dashboard | M3.1, M2.1 | ⚪ |
-| M3.3 | Run from dashboard; stop/kill; cost + token rollups per project | M3.1 | ⚪ |
+| M3.3 | Run from dashboard; stop/kill; cost + token rollups per project | M3.1 | ✅ 2026-08-22 **Run** on ready/held task rows → drawer (prompt prefilled from the task, permission mode, model, max turns; ⌘⏎) → `POST /v1/runs` → opens the session; spawned sessions get a stdin box (Enter to send) + **Stop** with run id / pid / cost so far; cost + tokens roll up through the transcript like any session (Spend by project) |
 
 ## M4 — Learn (the data pays off)
 | ID | Task | Depends | Status |

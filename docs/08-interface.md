@@ -10,7 +10,7 @@ This document is the spec; the wireframes below describe where the product is go
 
 - **Nav**: Fleet / Board / PRs / Timeline / Spend / Stats, plus a Session detail reached from any session row. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
 - **Board** = Claims + Worktrees + Resources + Incidents for the selected project. It is "View 2 — Project" below without the TASKS / PROCESSES / RECENT GATES blocks. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.
-- **Not yet**: the keyboard map, the ⌘K palette, the permission-broker Allow/Deny on Fleet rows, the Settings page, and the Session input box (nothing is spawned yet, so there is no stdin to write to).
+- **Not yet**: the keyboard map, the ⌘K palette, the permission-broker Allow/Deny on Fleet rows, the Settings page. The Session input box exists for spawned runs (M3.3).
 - **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves.
 
 ---
@@ -135,7 +135,7 @@ web-app · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok �
 - Left: event log. One line per tool call with status and duration; `assistant` text collapsed to first line, expand on click; subagents render as nested rows, click to open their own Session view. Follows the tail unless you scroll up (then a "↓ 12 new" pill).
 - Token deltas stream in place when `--include-partial-messages` is on; off by default to keep the log readable.
 - Right: what the agent holds and what it has been denied — the same `additionalContext` the agent itself receives on `SessionStart`.
-- Bottom input exists only for **spawned** sessions (writes to stdin). For interactive sessions it is replaced by "this is your terminal session; type there".
+- Bottom input exists only for **spawned** sessions (writes to the run's stdin as a stream-json user message; **Stop** closes stdin then signals the pid). Interactive sessions have no box — type in your terminal.
 - Pause = stop forwarding permission approvals (agent blocks at next ask). Stop = SIGTERM then SIGKILL, release resources, keep the claim as orphaned if dirty.
 
 ### View 4 — Incidents

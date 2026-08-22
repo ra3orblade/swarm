@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -136,6 +136,13 @@ async function refresh() {
     prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
     state.prs = prs;
   }
+  let runsChanged = false;
+  const openSpawned = state.session && state.sessions.find((x) => x.id === state.session)?.kind === "spawned";
+  if (openSpawned || (state.view === "board" && !state.session) || (state.view === "fleet" && !state.session)) {
+    const runs = await fetch("/v1/runs").then((r) => r.json()).catch(() => state.runs ?? []);
+    runsChanged = JSON.stringify(runs) !== JSON.stringify(state.runs);
+    state.runs = runs;
+  }
   let tasksChanged = false;
   if (state.view === "board" && state.sel && !state.session) {
     const [t, g] = await Promise.all([
@@ -152,7 +159,7 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
@@ -529,7 +536,7 @@ function renderTasks() {
           columns: cols,
           rows,
           leading: { width: 24, cell: (t) => `<span class="s ${t.claimedBy ? "active" : t.ready ? "waiting" : "idle"}"></span>` },
-          trailing: { width: 70, cell: (t) => (t.ready ? `<a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : "") },
+          trailing: { width: 120, cell: (t) => (t.ready ? `<a href="#" data-run="${esc(t.id)}" title="Claim and spawn claude -p in a worktree">${ic("play", 12)} Run</a> · <a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : t.claimedBy ? `<a href="#" data-run="${esc(t.id)}" title="Spawn claude -p in the held worktree">${ic("play", 12)} Run</a>` : "") },
           rowAttrs: () => "",
           rerender: touch,
         })
@@ -845,6 +852,26 @@ function sessionStream() {
 }
 // True when `rows` only extends the rows already in #log (same session, same prefix) → append, don't rebuild.
 const isAppend = (rows) => logRendered && rows.length >= logRendered.length && logRendered.every((k, n) => rows[n].key === k);
+// Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
+function stdinBox(s) {
+  if (s.kind !== "spawned") return "";
+  const run = (state.runs ?? []).find((r) => r.sessionId === s.id);
+  if (!run) return `<div class="stdin"><span class="hint">${ic("play", 12)} spawned by swarm run · no longer live</span></div>`;
+  return `<div class="stdin" id="stdin"><input id="stdinText" placeholder="Send a message to this run… (Enter)" autocomplete="off" spellcheck="false"><button id="stdinSend">${ic("arrow-right", 13)} Send</button><button class="danger" data-runstop="${esc(run.id)}">Stop</button><span class="hint">run ${esc(run.id)} · pid ${run.pid}${run.result ? ` · $${run.result.costUsd.toFixed(2)} so far` : ""}</span></div>`;
+}
+async function sendStdin() {
+  const s = state.sessions.find((x) => x.id === state.session);
+  const run = (state.runs ?? []).find((r) => r.sessionId === s?.id);
+  const el = $("#stdinText"); const text = el?.value.trim();
+  if (!run || !text) return;
+  el.value = "";
+  const r = await fetch(`/v1/runs/${encodeURIComponent(run.id)}/send`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+  if (!r.ok) alert((await r.json()).error);
+  refresh();
+}
+document.addEventListener("click", (ev) => { if (ev.target.closest("#stdinSend")) sendStdin(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.id === "stdinText") { ev.preventDefault(); sendStdin(); } });
+
 function renderSession() {
   const s = state.sessions.find((x) => x.id === state.session);
   if (!s) return;
@@ -874,9 +901,13 @@ function renderSession() {
     // scroll position (and its DOM) untouched.
     $("#main > h2").outerHTML = head;
     $("#main .side").innerHTML = side;
+    const sb = stdinBox(s); const cur = $("#main .stdin");
+    if (cur && cur.outerHTML !== sb && document.activeElement?.id !== "stdinText") cur.outerHTML = sb;
+    else if (!cur && sb) $("#main").insertAdjacentHTML("beforeend", sb);
     if (rows.length > logRendered.length) logEl.insertAdjacentHTML("beforeend", rows.slice(logRendered.length).map((r) => r.html).join(""));
   } else {
-    $("#main").innerHTML = `${head}<div class="sess"><div id="log">${rows.map((r) => r.html).join("")}</div><aside class="side">${side}</aside></div>`;
+    const sb = stdinBox(s);
+    $("#main").innerHTML = `${head}<div class="sess ${sb ? "has-stdin" : ""}"><div id="log">${rows.map((r) => r.html).join("")}</div><aside class="side">${side}</aside></div>${sb}`;
   }
   logRendered = rows.map((r) => r.key);
   // Follow the tail when pinned to the bottom; otherwise keep the reading position —
@@ -990,7 +1021,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -998,6 +1029,12 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
   if (t.dataset.taskFilter) { state.taskFilter = t.dataset.taskFilter; return touch(); }
+  if (t.dataset.run) { ev.preventDefault(); return openRunDrawer(t.dataset.run); }
+  if (t.dataset.runstop) {
+    ev.preventDefault();
+    if (!confirm("Stop this run? Its stdin is closed, then the process is signalled by pid.")) return;
+    return fetch(`/v1/runs/${encodeURIComponent(t.dataset.runstop)}`, { method: "DELETE" }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
+  }
   if (t.dataset.claim) {
     ev.preventDefault();
     const r = await fetch("/v1/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task: t.dataset.claim, owner: "dashboard" }) }).then((x) => x.json());
@@ -1081,6 +1118,45 @@ sbApply();
 
 // ---------- folder picker
 const picker = { path: null };
+// Run drawer (M3.3): prompt prefilled from the task row; submit = POST /v1/runs.
+function openRunDrawer(taskId) {
+  const task = (state.tasks?.tasks ?? []).find((t) => t.id === taskId);
+  const title = task ? `${task.id} — ${task.title}` : taskId;
+  const prompt = task
+    ? `Task ${task.id}: ${task.title}\n\nWork only inside this worktree. When done: commit, push, then call swarm_handoff with what was done and what remains, and record the required gates with swarm_gate_record.`
+    : "";
+  const last = (() => { try { return JSON.parse(localStorage.getItem("swarm.runOpts") || "{}"); } catch { return {}; } })();
+  const opt = (v, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${v || "default"}</option>`;
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("play", 15)}<b>Run</b><span class="dim now" style="flex:1;margin-left:8px">${esc(title)}</span></div>
+    <div class="pk-b">
+      <label>prompt<textarea id="rnPrompt" spellcheck="false">${esc(prompt)}</textarea></label>
+      <div class="row">
+        <label>permission mode<select id="rnMode">${["acceptEdits", "auto", "plan", "dontAsk", "manual", "bypassPermissions"].map((m) => opt(m, last.mode ?? "acceptEdits")).join("")}</select></label>
+        <label>model<input id="rnModel" placeholder="default" value="${esc(last.model ?? "")}"></label>
+        <label>max turns<input id="rnTurns" type="number" min="1" placeholder="∞" value="${esc(last.turns ?? "")}"></label>
+      </div>
+      <div class="dim" style="font-size:var(--fs-sm)">Claims <b>${esc(taskId)}</b> (or reuses your held worktree) and spawns <code>claude -p</code> there. The session appears in Fleet; steer it from its page.</div>
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="rnCancel">Cancel</button><button class="primary" id="rnGo" data-task="${esc(taskId)}">${ic("play", 13)} Run</button></div>
+  </div>`;
+  $("#rnPrompt")?.focus();
+}
+async function submitRun(taskId) {
+  const prompt = $("#rnPrompt")?.value.trim();
+  if (!prompt) return alert("A prompt is required.");
+  const mode = $("#rnMode")?.value, model = $("#rnModel")?.value.trim(), turns = $("#rnTurns")?.value;
+  localStorage.setItem("swarm.runOpts", JSON.stringify({ mode, model, turns }));
+  closePicker();
+  const r = await fetch("/v1/runs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+    projectId: state.sel, task: taskId, prompt, owner: "dashboard", permissionMode: mode, model: model || undefined, maxTurns: turns ? Number(turns) : undefined,
+  }) }).then((x) => x.json());
+  if (!r.ok) return alert(r.error);
+  state.tasks = null;
+  await refresh();
+  openSession(r.run.sessionId);
+}
+
 async function openPicker(focusPath = false) {
   await pickerGo("");
   if (focusPath) { const i = $("#pkPath"); if (i) { i.focus(); i.select(); } }
@@ -1109,10 +1185,13 @@ $("#picker").addEventListener("click", (ev) => {
   if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
   const go = ev.target.closest("[data-go]");
   if (go) return void pickerGo(go.dataset.go);
+  if (ev.target.closest("#rnCancel")) return closePicker();
+  const rnGo = ev.target.closest("#rnGo"); if (rnGo) return submitRun(rnGo.dataset.task);
   if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
 });
 $("#picker").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.id === "pkPath") { ev.preventDefault(); pickerGo(ev.target.value.trim()); }
+  if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && ev.target.id === "rnPrompt") { ev.preventDefault(); submitRun($("#rnGo")?.dataset.task); }
 });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
 
