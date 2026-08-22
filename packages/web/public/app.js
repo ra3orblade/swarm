@@ -188,17 +188,28 @@ function renderClaims() {
   rows.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
   const badge = (st) => st === "orphaned" ? '<span class="badge warn">Orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">Expired</span>' : '<span class="badge ok">Held</span>';
   const orphans = rows.filter((c) => c.state === "orphaned").length;
-  return `<h2 class="mt-sec">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>
-    <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:140px">task</th><th style="width:120px">owner</th><th style="width:150px">lease</th><th>worktree</th><th style="width:150px">state</th><th style="width:120px"></th></tr></thead><tbody>${rows
-      .map((c) => {
-        const dot = c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active";
+  const cols = [
+    { key: "project", label: "project", width: 104, get: (c) => projName(c.projectId), cell: (c) => esc(projName(c.projectId)) },
+    { key: "task", label: "task", width: 140, get: (c) => c.task, cell: (c) => `<b>${esc(c.task)}</b>` },
+    { key: "owner", label: "owner", width: 120, get: (c) => c.owner || "", cell: (c) => esc(c.owner || "—") },
+    { key: "lease", label: "lease", width: 130, get: (c) => (c.state === "held" ? new Date(c.expiresAt).getTime() : 0), cell: (c) => `<span class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</span>` },
+    { key: "worktree", label: "worktree", flex: true, get: (c) => c.worktree, cell: (c) => `<span class="now" title="${esc(c.worktree)}">${esc(short(c.worktree))}</span>` },
+    { key: "state", label: "state", width: 150, get: (c) => c.state, cell: (c) => badge(c.state) },
+  ].filter((c) => !(c.key === "project" && state.sel));
+  return `<h2 class="mt-sec">Claims <span>${rows.length}${orphans ? ` · ${orphans} orphaned` : ""}</span></h2>` +
+    dataTable({
+      id: "claims",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: (c) => `<span class="s ${c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active"}"></span>` },
+      trailing: { width: 120, cell: (c) => {
         const key = `${c.projectId}:${c.task}`;
-        const act = c.state === "orphaned"
+        return c.state === "orphaned"
           ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">Force release</a>`
           : `<a href="#" data-release="${key}">Release</a>`;
-        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(c.projectId))}</td>`}<td><b>${esc(c.task)}</b></td><td>${esc(c.owner || "—")}</td><td class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</td><td class="now" title="${esc(c.worktree)}">${esc(short(c.worktree))}</td><td>${badge(c.state)}</td><td>${act}</td></tr>`;
-      })
-      .join("")}</tbody></table></div>`;
+      } },
+      rerender: render,
+    });
 }
 
 function renderWorktrees() {
@@ -207,15 +218,23 @@ function renderWorktrees() {
   if (!rows.length) return "";
   const inside = (w) => state.sessions.filter((s) => s.state !== "ended" && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`)));
   const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
-  return `<h2 class="mt-sec">Worktrees <span>${rows.length}</span></h2>
-    <div class="card"><table><thead><tr><th style="width:24px"></th>${state.sel ? "" : '<th style="width:104px">project</th>'}<th style="width:260px">branch</th><th style="width:80px">head</th><th>path</th><th style="width:180px">state</th><th style="width:160px">sessions</th></tr></thead><tbody>${rows
-      .map((w) => {
-        const ss = inside(w);
-        const dot = ss.length ? "active" : w.dirty > 0 ? "waiting" : "ended";
-        const clean = w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">Clean</span>' : "";
-        return `<tr><td><span class="s ${dot}"></span></td>${state.sel ? "" : `<td>${esc(projName(w.projectId))}</td>`}<td class="br">${esc(w.branch ?? "(detached)")}${w.main ? ' <span class="badge">Main tree</span>' : ""}</td><td class="br">${esc(w.head)}</td><td class="now" title="${esc(w.path)}">${esc(short(w.path))}</td><td>${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${clean}</td><td>${ss.map((s) => `<a href="#" data-s="${s.id}">${esc(s.title ?? s.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>'}</td></tr>`;
-      })
-      .join("")}</tbody></table></div>`;
+  const cols = [
+    { key: "project", label: "project", width: 104, get: (w) => projName(w.projectId), cell: (w) => esc(projName(w.projectId)) },
+    { key: "branch", label: "branch", width: 240, get: (w) => w.branch ?? "", cell: (w) => `<span class="br">${esc(w.branch ?? "(detached)")}</span>${w.main ? ' <span class="badge">Main tree</span>' : ""}` },
+    { key: "head", label: "head", width: 90, get: (w) => w.head, cell: (w) => `<span class="br">${esc(w.head)}</span>` },
+    { key: "path", label: "path", flex: true, get: (w) => w.path, cell: (w) => `<span class="now" title="${esc(w.path)}">${esc(short(w.path))}</span>` },
+    { key: "state", label: "state", width: 170, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">Clean</span>' : ""}` },
+    { key: "sessions", label: "sessions", width: 160, get: (w) => inside(w).length, cell: (w) => inside(w).map((x) => `<a href="#" data-s="${x.id}">${esc(x.title ?? x.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>' },
+  ].filter((c) => !(c.key === "project" && state.sel));
+  return `<h2 class="mt-sec">Worktrees <span>${rows.length}</span></h2>` +
+    dataTable({
+      id: "worktrees",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
+      trailing: { width: 34, cell: () => "" },
+      rerender: render,
+    });
 }
 
 // ---------- spend
@@ -241,10 +260,21 @@ function renderSpend() {
   const rangeChips = `<span class="seg" style="margin-left:auto">${[7, 14, 30, 90].map((n) => `<a href="#" class="${N === n ? "on" : ""}" data-days="${n}">${n}d</a>`).join("")}</span>`;
   const byAgentToday = state.sel ? null : sp.byAgentToday;
   const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
-  const tbl = (rows, label, name, color) => `<div class="card"><table><thead><tr><th>${label}</th><th class="num" style="width:88px">cost</th><th class="num" style="width:88px">in+cache</th><th class="num" style="width:84px">out</th><th class="num" style="width:64px">turns</th></tr></thead><tbody>${rows
-    .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
-    .map((r) => `<tr><td>${color ? `<i class="sw" style="background:${color(r.key)}"></i>` : ""}${esc(name(r.key))}</td><td class="num">${usd(r.cost)}</td><td class="num">${tok(r.input)}</td><td class="num">${tok(r.output)}</td><td class="num">${r.turns}</td></tr>`)
-    .join("")}</tbody></table></div>`;
+  // Tables of the same shape share one grid id (sort/widths apply to both today/all-time).
+  const tbl = (rows, label, name, color) =>
+    dataTable({
+      id: `spend-${label}`,
+      columns: [
+        { key: "key", label, flex: true, get: (r) => name(r.key), cell: (r) => `${color ? `<i class="sw" style="background:${color(r.key)}"></i>` : ""}${esc(name(r.key))}` },
+        { key: "cost", label: "cost", width: 88, num: true, get: (r) => r.cost ?? 0, cell: (r) => usd(r.cost) },
+        { key: "input", label: "in+cache", width: 88, num: true, get: (r) => r.input ?? 0, cell: (r) => tok(r.input) },
+        { key: "output", label: "out", width: 84, num: true, get: (r) => r.output ?? 0, cell: (r) => tok(r.output) },
+        { key: "turns", label: "turns", width: 64, num: true, get: (r) => r.turns ?? 0, cell: (r) => String(r.turns) },
+      ],
+      rows: rows.slice().sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0)),
+      trailing: { width: 34, cell: () => "" },
+      rerender: render,
+    });
   const hm = sp.hourly.filter(inSel).map((c) => ({ dow: c.dow, hour: c.hour, v: c.cost ?? 0 }));
   $("#main").innerHTML =
     `<h2>Spend <span>${state.sel ? esc(projName(state.sel)) : "all projects"}</span>${rangeChips}</h2>
