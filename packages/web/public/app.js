@@ -13,7 +13,7 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -87,9 +87,10 @@ const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.age
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
+  if (state.view === "prs") state.prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
   render();
 }
-const VIEWS = ["fleet", "board", "timeline", "spend"];
+const VIEWS = ["fleet", "board", "prs", "timeline", "spend"];
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -107,6 +108,7 @@ function render() {
   else if (state.view === "spend") renderSpend();
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
+  else if (state.view === "prs") renderPRs();
   else renderFleet();
   if (keep) {
     const el = document.querySelector(`input[data-filter="${keep.key}"][data-tid="${keep.tid}"]`);
@@ -187,6 +189,39 @@ function renderFleet() {
     (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     "";
+}
+
+// ---------- PRs (one queue across GitHub + GitLab)
+function renderPRs() {
+  const rows = state.prs ?? [];
+  const chk = (c) => c === "pass" ? '<span class="badge ok">Checks ✓</span>'
+    : c === "fail" ? '<span class="badge warn">Checks ✗</span>'
+    : c === "pending" ? '<span class="badge">Running…</span>' : '<span class="dim">—</span>';
+  const rev = (r) => r === "approved" ? '<span class="badge ok">Approved</span>'
+    : r === "changes" ? '<span class="badge warn">Changes</span>' : '<span class="dim">—</span>';
+  const green = (p) => p.checks !== "fail" && p.mergeable && !p.draft;
+  const cols = [
+    { key: "repo", label: "repo", width: 170, get: (p) => p.repo, cell: (p) => `${ic(p.forge === "gitlab" ? "git-merge" : "git-pull-request", 13)} <span class="br">${esc(p.repo.split("/").pop())}</span>` },
+    { key: "title", label: "title", flex: true, get: (p) => p.title, cell: (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener"><b>#${p.number}</b> ${esc(p.title)}</a>${p.draft ? ' <span class="badge">Draft</span>' : ""}` },
+    { key: "branch", label: "branch", width: 170, get: (p) => p.branch, cell: (p) => `<span class="br">${esc(p.branch)}</span>` },
+    { key: "author", label: "author", width: 110, get: (p) => p.author, cell: (p) => esc(p.author) },
+    { key: "checks", label: "checks", width: 100, get: (p) => p.checks, cell: (p) => chk(p.checks) },
+    { key: "review", label: "review", width: 100, get: (p) => p.review, cell: (p) => rev(p.review) },
+    { key: "age", label: "age", width: 56, num: true, get: (p) => new Date(p.createdAt).getTime(), cell: (p) => `<span class="dim">${ago(p.createdAt)}</span>` },
+  ];
+  $("#main").innerHTML =
+    `<h2>Pull requests <span>${rows.length} open · GitHub + GitLab, merged from here</span></h2>` +
+    (rows.length
+      ? dataTable({
+          id: "prs",
+          columns: cols,
+          rows,
+          leading: { width: 24, cell: (p) => `<span class="s ${p.checks === "fail" ? "waiting" : p.checks === "pass" ? "active" : "idle"}"></span>` },
+          trailing: { width: 96, cell: (p) => (green(p) ? `<a href="#" data-merge="${p.projectId}:${p.number}" title="Squash-merge via ${p.forge === "gitlab" ? "glab" : "gh"}">Merge</a>` : "") },
+          rowAttrs: () => "",
+          rerender: render,
+        })
+      : `<div class="empty">${PX.idle()}No open pull requests.<br>Agent branches land here the moment they're pushed.</div>`);
 }
 
 // ---------- board (coordination: claims, worktrees, incidents)
@@ -475,11 +510,11 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
-  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return render(); }
+  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
   if (t.dataset.release || t.dataset.forcerelease) {
@@ -496,6 +531,15 @@ document.addEventListener("click", async (ev) => {
     return refresh();
   }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
+  if (t.dataset.merge !== undefined) {
+    ev.preventDefault();
+    const [projectId, number] = t.dataset.merge.split(":");
+    if (!confirm(`Squash-merge #${number}?`)) return;
+    return fetch("/v1/prs/merge", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, number: Number(number) }),
+    }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
+  }
   if (t.dataset.resrelease !== undefined) {
     ev.preventDefault();
     const q = new URLSearchParams(); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
