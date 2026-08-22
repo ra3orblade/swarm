@@ -155,6 +155,14 @@ export function createApp(store = new Store()) {
       : c.json({ ok: false, error: r.reason }, r.reason === "not held" ? 404 : 409);
   });
 
+  // ---- task source (M1.6)
+  app.get("/v1/tasks", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    const t = store.tasks(project);
+    return c.json(t ?? { source: null, tasks: [] });
+  });
+
   // ---- claims (M1)
   app.get("/v1/claims", (c) => c.json(store.claims(c.req.query("project"))));
   app.post("/v1/claims", async (c) => {

@@ -8,4 +8,5 @@ export * from "./pricing";
 export * from "./project-id";
 export * from "./resources";
 export * from "./rules";
+export * from "./tasks";
 export * from "./types";

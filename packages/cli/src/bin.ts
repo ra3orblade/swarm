@@ -28,6 +28,7 @@ const help = `swarm — control plane for AI-agent development
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
+  tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
                           named singletons (ports, processes); fail-closed
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
@@ -218,6 +219,41 @@ try {
           console.log(
             `${c.state.padEnd(9)} ${c.task.padEnd(16)} ${(c.owner || "").padEnd(12)} ${c.worktree}`,
           );
+      break;
+    }
+    case "tasks": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const t = (await api(`/v1/tasks?project=${proj.id}`)) as {
+        source: string | null;
+        tasks: Array<{
+          id: string;
+          title: string;
+          depends: string[];
+          status: string;
+          statusText: string;
+          ready: boolean;
+          claimedBy: string | null;
+        }>;
+      };
+      const ready = rest.includes("--ready");
+      const rows = ready ? t.tasks.filter((x) => x.ready) : t.tasks;
+      if (json) console.log(JSON.stringify(rows));
+      else if (!t.source)
+        console.log('no task source — add `[tasks] source = "path/to/plan.md"` to .swarm.toml');
+      else if (!rows.length)
+        console.log(ready ? "nothing ready to claim" : `no tasks in ${t.source}`);
+      else
+        for (const x of rows) {
+          const st = x.claimedBy ? `held:${x.claimedBy}` : x.ready ? "ready" : x.status;
+          console.log(
+            `${st.padEnd(14)} ${x.id.padEnd(8)} ${x.title.slice(0, 60).padEnd(60)} ${x.depends.join(",")}`,
+          );
+        }
       break;
     }
     case "ls": {

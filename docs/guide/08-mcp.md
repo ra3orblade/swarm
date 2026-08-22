@@ -76,11 +76,15 @@ Returns the resource record. Fails closed while another owner holds the name; th
 
 Inputs: none. Lists resources held in this project plus machine-global ones.
 
+### `swarm_next_task`
+
+Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claims-and-worktrees.md#a-task-source) that is unclaimed, not done, and whose dependencies are done — what to pick up next. `all: true` lists every ready task. Fails with a hint when the repo has no `[tasks] source`.
+
 ## An agent's flow
 
 A session asked to "implement the login form" might do this:
 
-1. `swarm_status` — `login-form` is free; `payments` is held by another session.
+1. `swarm_status` — `login-form` is free; `payments` is held by another session. (Or `swarm_next_task`, when the repo has a task source.)
 2. `swarm_claim { task: "login-form" }` — gets `/Users/you/.swarm/worktrees/my-app/login-form` on branch `task/login-form`.
 3. `cd` into the worktree. From here the [`shared_tree`](03-rules-and-config.md) rule cannot fire: no other session shares this checkout.
 4. Start the dev server and `swarm_acquire_resource { name: "dev-server", port: 3000, pid: 48213 }`. Now `lsof -ti:3000 | xargs kill` from any other session is asked about or denied.

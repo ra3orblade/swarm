@@ -8,6 +8,7 @@ Status: living
 - **OQ-4 Worktree location.** `.worktrees/` inside the repo (needs gitignore + test-runner exclusions) vs `~/.swarm/worktrees/<project>/<task>` (zero footprint, matches repo-agnostic). Leaning outside the repo by default, `.swarm.toml` can override.
   > **Decision (2026-08-20):** default `~/.swarm/worktrees/<project>/<task>`; `.swarm.toml` `worktrees =` overrides. Zero footprint in the monitored repo and no vitest/gitignore exclusions needed.
 - **OQ-5 Task source for M1.6.** Markdown tables only, or also a `tasks.json`? Keep markdown-table only until a second format is actually needed.
+  > **Decision (2026-08-22):** markdown tables only. `[tasks] source` in `.swarm.toml` names one markdown file; every `ID | Task | … | Status` table in it is parsed (✅ done / 🟡 active / ⚪ todo, `Depends` may name a task or a milestone prefix). A second format waits for a real request.
 - **OQ-6 Web stack.** Vite+React+shadcn (familiar, batteries-included) vs plain HTML/htmx over SSE (no build, smaller). Dashboard will get interactive (stdin, run control); React.
 - **OQ-7 Schema drift.** How to pin tested Claude Code versions and detect new hook/stream event types — `doctor` warning plus `raw` passthrough is the proposal.
 - **OQ-8 Non-Claude agents.** Out of scope for v1; keep the adapter seam but do not design for it.

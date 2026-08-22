@@ -103,6 +103,19 @@ The **Board** view lists every claim that isn't released, orphaned ones first: t
 
 Below it, **Worktrees** lists every worktree of the project, including ones you made by hand with `git worktree add`: branch, head, path, **Dirty** / **Unpushed** / **Clean**, and which live sessions are inside. That is the fastest way to spot the worktree nobody owns.
 
+## A task source
+
+Swarm doesn't own your backlog, but it can read it. Point `.swarm.toml` at a markdown file:
+
+```toml
+[tasks]
+source = "docs/plan.md"
+```
+
+Every table in that file with `ID` and `Task` columns is parsed — optionally `Depends` and `Status` too. Status is read from the first glyph or word: ✅ / `done` is done, 🟡 / `in progress` is active, anything else is todo. `Depends` may name tasks (`M1.1, M1.2`) or a whole milestone prefix (`M0`, meaning every `M0.x`). Swarm's own `docs/06-roadmap.md` is written this way and is its own task source.
+
+With a source set, the Board's **Tasks** section lists what's **Ready** — todo, dependencies done, not claimed — with a *Claim* action per row; **Open** and **All** show the rest. `swarm tasks --ready` prints the same list and the MCP tool `swarm_next_task` hands an agent the first one.
+
 ## Where things live
 
 - Worktrees: `~/.swarm/worktrees/<project-name>/<task>/` (under `SWARM_HOME` if set)

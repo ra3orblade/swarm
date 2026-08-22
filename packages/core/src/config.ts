@@ -40,10 +40,15 @@ export interface SwarmConfig {
     port: number;
   };
   rules: RulesConfig;
+  tasks: {
+    /** Markdown file (relative to the repo root) whose `ID | Task | Depends | Status` tables are the backlog. */
+    source: string | null;
+  };
 }
 
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
+  tasks: { source: null },
   rules: {
     shared_tree: "ask",
     destructive_git: "ask",
@@ -83,9 +88,16 @@ function validate(c: SwarmConfig): SwarmConfig {
   const mode = (v: unknown, fallback: RuleMode): RuleMode =>
     MODES.includes(v as RuleMode) ? (v as RuleMode) : fallback;
   const port = Number(c.daemon?.port);
+  const source = c.tasks?.source;
   return {
     ...c,
     daemon: { port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777 },
+    tasks: {
+      source:
+        typeof source === "string" && source.trim() && !source.startsWith("/")
+          ? source.trim()
+          : null,
+    },
     rules: {
       ...c.rules,
       shared_tree: mode(c.rules?.shared_tree, "ask"),

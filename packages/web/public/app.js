@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], allIncidents: null, incFilter: "open", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -136,6 +136,12 @@ async function refresh() {
     prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
     state.prs = prs;
   }
+  let tasksChanged = false;
+  if (state.view === "board" && state.sel && !state.session) {
+    const t = await (await fetch(`/v1/tasks?project=${encodeURIComponent(state.sel)}`)).json().catch(() => state.tasks);
+    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks);
+    state.tasks = t;
+  }
   let incChanged = false;
   if (state.view === "incidents" && !state.session) {
     const q = new URLSearchParams({ limit: "500" }); if (state.incFilter === "open") q.set("open", "1");
@@ -143,7 +149,7 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
-  if (!same || prsChanged || incChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
@@ -336,10 +342,10 @@ function renderPRs() {
 
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
-  const parts = [renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderTasks(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
-    : `<div class="empty">${PX.idle()}Nothing on the board.<br>Claims, worktrees, and incidents appear here.</div>`;
+    : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, claims, worktrees, and incidents appear here.</div>`;
 }
 
 // Incident columns are shared by the Board section (open only, recent) and the Incidents view (feed).
@@ -423,6 +429,39 @@ function renderResources() {
       trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${esc(r.projectId ?? "")}">Release</a>` },
       rerender: touch,
     });
+}
+
+// TASKS: the project's backlog from `.swarm.toml [tasks] source` (M1.6). Only with a project selected.
+function renderTasks() {
+  if (!state.sel || !state.tasks?.source) return "";
+  const all = state.tasks.tasks ?? [];
+  const ready = all.filter((t) => t.ready);
+  const rows = state.taskFilter === "ready" ? ready : state.taskFilter === "open" ? all.filter((t) => t.status !== "done") : all;
+  const chip = (k, label, n) => `<span class="chip ${state.taskFilter === k ? "on" : ""}" data-task-filter="${k}">${label}${n != null ? ` <b>${n}</b>` : ""}</span>`;
+  const st = (t) => t.claimedBy ? `<span class="badge ok">Held · ${esc(t.claimedBy)}</span>`
+    : t.status === "done" ? '<span class="badge">Done</span>'
+    : t.status === "active" ? '<span class="badge acc">In progress</span>'
+    : t.ready ? '<span class="badge ok">Ready</span>' : '<span class="badge">Blocked</span>';
+  const cols = [
+    { key: "id", label: "id", width: 70, get: (t) => t.id, cell: (t) => `<b>${esc(t.id)}</b>` },
+    { key: "title", label: "task", flex: true, get: (t) => t.title, cell: (t) => `<span class="now" title="${esc(t.statusText)}">${esc(t.title)}</span>` },
+    { key: "milestone", label: "milestone", width: 160, get: (t) => t.milestone ?? "", cell: (t) => `<span class="dim now">${esc((t.milestone ?? "").split(" — ")[0])}</span>` },
+    { key: "depends", label: "depends", width: 130, get: (t) => t.depends.join(" "), cell: (t) => `<span class="br">${esc(t.depends.join(" ")) || "—"}</span>` },
+    { key: "state", label: "state", width: 150, get: (t) => (t.claimedBy ? 0 : t.ready ? 1 : t.status === "active" ? 2 : t.status === "done" ? 4 : 3), cell: st },
+  ];
+  return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(state.tasks.source)}</span></h2>` +
+    `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}</div>` +
+    (rows.length
+      ? dataTable({
+          id: "tasks",
+          columns: cols,
+          rows,
+          leading: { width: 24, cell: (t) => `<span class="s ${t.claimedBy ? "active" : t.ready ? "waiting" : "idle"}"></span>` },
+          trailing: { width: 70, cell: (t) => (t.ready ? `<a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : "") },
+          rowAttrs: () => "",
+          rerender: touch,
+        })
+      : `<div class="empty">${PX.idle()}${state.taskFilter === "ready" ? "Nothing ready — every open task is blocked or held." : "No tasks."}</div>`);
 }
 
 function renderClaims() {
@@ -849,13 +888,20 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.id === "feedback") { ev.preventDefault(); return window.open(feedbackUrl(), "_blank"); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
+  if (t.dataset.taskFilter) { state.taskFilter = t.dataset.taskFilter; return touch(); }
+  if (t.dataset.claim) {
+    ev.preventDefault();
+    const r = await fetch("/v1/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task: t.dataset.claim, owner: "dashboard" }) }).then((x) => x.json());
+    if (!r.ok) alert(r.error); else state.tasks = null;
+    return refresh();
+  }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) {
     ev.preventDefault(); ev.stopPropagation();
@@ -896,7 +942,7 @@ document.addEventListener("click", async (ev) => {
   }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
-  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; return touch(); }
+  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; state.tasks = null; state.dirty = true; return refresh(); }
 });
 async function addProject(path) {
   if (!path) return;

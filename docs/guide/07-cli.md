@@ -59,6 +59,7 @@ swarm renew <task>               # extend the lease by 45 minutes from now
 swarm release <task> [--force]   # remove the worktree; refuses dirty/unpushed work without --force
 swarm claims                     # state · task · owner · worktree
 swarm reap                       # release expired claims; keep (orphan) ones holding work
+swarm tasks [--ready] [--json]   # the repo's task source; --ready = unclaimed with dependencies done
 ```
 
 Details and semantics: [Claims and worktrees](04-claims-and-worktrees.md).

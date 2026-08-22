@@ -44,6 +44,7 @@ import {
   type Project,
   parseCodexRollout,
   parseGrokUpdates,
+  parseMarkdownTasks,
   parseTranscriptChunk,
   projectIdentity,
   type Resource,
@@ -51,7 +52,10 @@ import {
   reapAction,
   releaseRefusalMessage,
   type SwarmEvent,
+  type Task,
+  type TaskView,
   type Turn,
+  taskBoard,
   WRITE_TOOLS,
 } from "@swarm/core";
 import {
@@ -318,6 +322,28 @@ export class Store {
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
   /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
   private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  // ---------- task source (M1.6)
+  private taskCache = new Map<string, { path: string; mtime: number; tasks: Task[] }>();
+  /** The project's backlog from its `.swarm.toml` `[tasks] source`, decorated with claim state.
+   *  null when the project declares no source. Re-parsed when the file's mtime moves. */
+  tasks(projectId: string): { source: string; tasks: TaskView[] } | null {
+    const p = this.project(projectId);
+    if (!p) return null;
+    const source = loadConfig({ repoRoot: p.root }).tasks.source;
+    if (!source) return null;
+    const path = join(p.root, source);
+    if (!existsSync(path)) return { source, tasks: [] };
+    const mtime = statSync(path).mtimeMs;
+    let hit = this.taskCache.get(projectId);
+    if (!hit || hit.path !== path || hit.mtime !== mtime) {
+      hit = { path, mtime, tasks: parseMarkdownTasks(readFileSync(path, "utf8")) };
+      this.taskCache.set(projectId, hit);
+    }
+    const now = Date.now();
+    const active = this.claimRows(projectId).filter((c) => isActive(c, now));
+    return { source, tasks: taskBoard(hit.tasks, active) };
+  }
+
   rulesFor(repoRoot: string | null): RulesConfig {
     const key = repoRoot ?? "";
     const hit = this.rulesCache.get(key);

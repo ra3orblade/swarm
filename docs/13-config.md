@@ -36,6 +36,11 @@ claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a 
 [rules.protected]
 # Ports agents must not kill/free (dev servers, databases, the daemon itself).
 ports = []                # e.g. [3000, 5432, 7777]
+
+[tasks]
+# Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
+# tables are the task list. Feeds the Board's Tasks section, `swarm tasks` and `swarm_next_task`.
+# source = "docs/plan.md"
 ```
 
 ## How rules are enforced

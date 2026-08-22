@@ -69,7 +69,7 @@ FLEET                                                    4 live · 2 idle · $3.
 
 ### View 2 — Project
 
-> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS, PROCESSES and RECENT GATES are not built (no task source, no process registry, no gates yet).
+> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS ships when the repo declares `[tasks] source` (Ready / Open / All, Claim); PROCESSES and RECENT GATES are not built (no process registry, no gates yet).
 
 Board for one repository: claims, worktrees, resources, gates, and the task list if a task source is configured.
 
@@ -246,6 +246,7 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
 | `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
 | `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
+| `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
 
 **Planned**
 
@@ -254,7 +255,6 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_handoff` | `{task, done, remaining, files[], verify}` | ack |
 | `swarm_resume` | `{task}` | last handoff payload |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
-| `swarm_next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
 | `swarm_note` | `{text}` | attaches a note to the session, visible in the dashboard |
 | `swarm_permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
 

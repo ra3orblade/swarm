@@ -10,3 +10,7 @@ protected_ports = "deny"
 [rules.protected]
 # The Swarm daemon itself.
 ports = [7777]
+
+[tasks]
+# The roadmap is the backlog: Board shows what's ready, `swarm tasks --ready` / swarm_next_task answer "what next".
+source = "docs/06-roadmap.md"

@@ -67,6 +67,30 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_next_task",
+    {
+      title: "Next claimable task",
+      description:
+        "The first unclaimed task in this repo's task source whose dependencies are done — what to pick up next. Needs `[tasks] source` in .swarm.toml. Pass all=true to list every ready task.",
+      inputSchema: { all: z.boolean().optional() },
+    },
+    async ({ all }) => {
+      const pid = await projectId();
+      const t = await api<{
+        source: string | null;
+        tasks: Array<{ id: string; title: string; depends: string[]; ready: boolean }>;
+      }>(`/v1/tasks?project=${pid}`);
+      if (!t.source)
+        return fail('no task source: add `[tasks] source = "path/to/plan.md"` to .swarm.toml');
+      const ready = t.tasks.filter((x) => x.ready);
+      if (!ready.length) return ok(`nothing ready in ${t.source}`, { ready: [] });
+      if (all) return ok(ready.map((x) => `${x.id} — ${x.title}`).join("\n"), { ready });
+      const n = ready[0] as (typeof ready)[number];
+      return ok(`next: ${n.id} — ${n.title} (claim it with swarm_claim)`, n);
+    },
+  );
+
+  server.registerTool(
     "swarm_claim",
     {
       title: "Claim a task",
