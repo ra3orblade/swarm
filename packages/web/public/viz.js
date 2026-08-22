@@ -10,6 +10,8 @@ const agentSort = (a, b) => (AGENT_SLOT[a] ?? 99) - (AGENT_SLOT[b] ?? 99);
 
 const fmtUsd = (n) => (n == null ? "—" : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const fmtTok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
+const p2 = (n) => (n < 10 ? `0${n}` : String(n));
+const hm = (ts) => { const d = new Date(ts); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; }; // cheap "HH:MM" (toTimeString is slow)
 const attr = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 /** Legend: swatch + label per series, in fixed order. */
@@ -99,7 +101,16 @@ function hbars(rows, color = "var(--acc)") {
 }
 
 /** Per-turn column strip for a session: cost per turn over time. turns: [{ts, costUsd, output, model}] */
+// Memoised on (count, last turn id, height): the session view re-renders on every event, the turns rarely change.
+let stripMemo = { key: "", svg: "" };
 function turnStrip(turns, { height = 64 } = {}) {
+  const key = `${turns.length}|${turns[turns.length - 1]?.id ?? ""}|${turns[turns.length - 1]?.costUsd ?? ""}|${height}`;
+  if (stripMemo.key === key) return stripMemo.svg;
+  const svg = turnStripRender(turns, height);
+  stripMemo = { key, svg };
+  return svg;
+}
+function turnStripRender(turns, height) {
   const pts = turns.filter((t) => !t.sidechain && !t.agentId);
   if (!pts.length) return "";
   const vals = pts.map((t) => t.costUsd ?? 0);
@@ -109,7 +120,7 @@ function turnStrip(turns, { height = 64 } = {}) {
     .map((t, i) => {
       const h = ((t.costUsd ?? 0) / max) * (H - 8);
       const x = i * slot + (slot - bw) / 2;
-      const tip = `<b>turn ${i + 1}</b> · ${new Date(t.ts).toTimeString().slice(0, 5)}<br>${fmtUsd(t.costUsd)} · ${fmtTok(t.output)} out${t.thinking ? ` · ${fmtTok(t.thinking)} thinking` : ""}<br><span>${attr(t.model ?? "")}</span>`;
+      const tip = `<b>turn ${i + 1}</b> · ${hm(t.ts)}<br>${fmtUsd(t.costUsd)} · ${fmtTok(t.output)} out${t.thinking ? ` · ${fmtTok(t.thinking)} thinking` : ""}<br><span>${attr(t.model ?? "")}</span>`;
       return `<g data-tip="${attr(tip)}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/><path d="${roundTop(x, H - 2 - h, bw, h, 2)}" fill="var(--acc)"/></g>`;
     })
     .join("");
@@ -138,7 +149,7 @@ function timeline(sessions, { from, to, projName, now = Date.now() } = {}) {
         const a = Math.max(from, new Date(s.startedAt).getTime());
         const b = Math.min(to, new Date(s.lastSeenAt).getTime());
         const live = s.state === "active" || s.state === "waiting";
-        const tip = `<b>${attr(s.title ?? s.id.slice(0, 8))}</b><br><i style="background:${agentColor(s.agent)}"></i>${agentName(s.agent)} · ${s.state}<br>${new Date(s.startedAt).toTimeString().slice(0, 5)} → ${new Date(s.lastSeenAt).toTimeString().slice(0, 5)} · ${fmtUsd(s.costUsd)} · ${s.turns} turns`;
+        const tip = `<b>${attr(s.title ?? s.id.slice(0, 8))}</b><br><i style="background:${agentColor(s.agent)}"></i>${agentName(s.agent)} · ${s.state}<br>${hm(s.startedAt)} → ${hm(s.lastSeenAt)} · ${fmtUsd(s.costUsd)} · ${s.turns} turns`;
         return `<div class="tl-row" data-s="${s.id}"><span class="tl-name">${attr(s.title ?? s.id.slice(0, 8))}</span><span class="tl-track">${gridLines}<i data-tip="${attr(tip)}" class="${live ? "live" : ""}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%;background:${agentColor(s.agent)};color:${agentColor(s.agent)}"></i></span></div>`;
       })
       .join("");
@@ -238,19 +249,23 @@ function niceTicks(max, n) {
   const tip = document.createElement("div");
   tip.id = "tip";
   document.body.appendChild(tip);
-  let cur = null;
+  let cur = null, rect = null, raf = 0, last = null;
+  const place = () => {
+    raf = 0;
+    if (!cur || !last) return;
+    rect ??= tip.getBoundingClientRect(); // measured once per tooltip content, not per mouse move
+    const left = Math.min(window.innerWidth - rect.width - 8, last.x + 14);
+    const top = last.y + 16 + rect.height > window.innerHeight ? last.y - rect.height - 8 : last.y + 16;
+    tip.style.transform = `translate(${left}px,${top}px)`;
+  };
   document.addEventListener("mousemove", (e) => {
     const el = e.target.closest?.("[data-tip]");
     if (el !== cur) {
       cur = el;
+      rect = null;
       if (el) { tip.innerHTML = el.dataset.tip; tip.style.display = "block"; } else tip.style.display = "none";
     }
-    if (el) {
-      const r = tip.getBoundingClientRect();
-      const left = Math.min(window.innerWidth - r.width - 8, e.clientX + 14);
-      const top = e.clientY + 16 + r.height > window.innerHeight ? e.clientY - r.height - 8 : e.clientY + 16;
-      tip.style.transform = `translate(${left}px,${top}px)`;
-    }
+    if (el) { last = { x: e.clientX, y: e.clientY }; if (!raf) raf = requestAnimationFrame(place); }
   });
 })();
 

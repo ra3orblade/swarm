@@ -10,14 +10,25 @@
 
 (() => {
   const LS = (id) => `swarm.table.${id}`;
+  // Persisted state per grid: localStorage is read once per id, then written through on every mutation.
+  const cache = new Map();
   const load = (id) => {
-    try {
-      return JSON.parse(localStorage.getItem(LS(id)) || "{}");
-    } catch {
-      return {};
+    let st = cache.get(id);
+    if (!st) {
+      try {
+        st = JSON.parse(localStorage.getItem(LS(id)) || "{}");
+      } catch {
+        st = {};
+      }
+      cache.set(id, st);
     }
+    return st;
   };
-  const save = (id, st) => localStorage.setItem(LS(id), JSON.stringify(st));
+  const save = (id, st) => {
+    cache.set(id, st);
+    localStorage.setItem(LS(id), JSON.stringify(st));
+  };
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   const registry = new Map(); // id -> { columns, leading, trailing, rerender }
 
   // Merge persisted state with the column defaults, dropping keys that no longer exist.
@@ -43,26 +54,27 @@
     const visible = st.order.map((k) => byKey[k]).filter((c) => c && !st.hidden.includes(c.key));
 
     // ---- sort + filter the rows
-    let view = rows.slice();
-    for (const [k, raw] of Object.entries(st.filters)) {
-      const q = String(raw || "").trim().toLowerCase();
-      const col = byKey[k];
-      if (!q || !col) continue;
-      view = view.filter((r) => String(col.get?.(r) ?? "").toLowerCase().includes(q));
-    }
-    if (st.sort) {
-      const col = byKey[st.sort.key];
+    let view = rows;
+    const needles = Object.entries(st.filters)
+      .map(([k, raw]) => [byKey[k], String(raw || "").trim().toLowerCase()])
+      .filter(([col, q]) => col && q);
+    if (needles.length) view = view.filter((r) => needles.every(([col, q]) => String(col.get?.(r) ?? "").toLowerCase().includes(q)));
+    const col = st.sort ? byKey[st.sort.key] : null;
+    if (col) {
+      // keys computed once per row (get() may format), then sort indices
       const dir = st.sort.dir === "desc" ? -1 : 1;
-      if (col)
-        view.sort((a, b) => {
-          const x = col.get?.(a),
-            y = col.get?.(b);
-          if (x == null && y == null) return 0;
-          if (x == null) return 1;
-          if (y == null) return -1;
-          const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
-          return c * dir;
-        });
+      const keys = view.map((r) => col.get?.(r));
+      const idx = keys.map((_, i) => i);
+      idx.sort((i, j) => {
+        const x = keys[i],
+          y = keys[j];
+        if (x == null && y == null) return 0;
+        if (x == null) return 1;
+        if (y == null) return -1;
+        const c = typeof x === "number" && typeof y === "number" ? x - y : collator.compare(String(x), String(y));
+        return c * dir;
+      });
+      view = idx.map((i) => view[i]);
     }
 
     // ---- header

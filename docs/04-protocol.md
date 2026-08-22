@@ -24,7 +24,7 @@ Latency budget 50 ms; the shim times out at 200 ms and fails open unless the mat
 
 ## Egress
 
-- **SSE** `GET /v1/events?project=&session=&since=` — the normalized event stream, replayable by `seq`. The dashboard and `swarm tail` use this.
+- **SSE** `GET /v1/events?project=&session=&since=` — the normalized event stream, replayable by `seq`. The dashboard and `swarm tail` use this. Frames are the *wire shape*: `raw` and tool I/O are stripped (`payload.hook` / `payload.summary` are what consumers render); `GET /v1/events/:seq` returns the stored event in full. In storage `tool_input` is clipped at 2 KB and `tool_response` at 4 KB, and neither is duplicated in `raw`.
 - **REST** — current state (`GET /v1/state`, `/v1/claims`, `/v1/resources`, `/v1/incidents`, `/v1/prs`, …) and `POST` for mutations (claim, release, acquire, merge, …). The exact route table lives in [08-interface.md](08-interface.md#d-http-routes-what-the-daemon-serves-today); CLI and MCP are thin wrappers over it.
 - **Unix socket** `~/.swarm/swarmd.sock` — planned; today clients discover the port from `~/.swarm/daemon.json`.
 

@@ -284,9 +284,11 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
 | `GET /v1/prs` · `POST /v1/prs/merge` | the forge queue (`{projectId, number}` to squash-merge via `gh` / `glab`) |
 | `GET /v1/pricing` · `POST /v1/pricing/refresh` | the price table and its LiteLLM refresh |
-| `GET /v1/sessions/:id/events` · `POST /v1/sessions/:id/tail` | one session's events + turns; force a transcript re-tail |
+| `GET /v1/sessions/:id/events?after=&afterTs=` · `POST /v1/sessions/:id/tail` | one session's last 500 events + turns (wire shape; incremental with `after`/`afterTs`); force a transcript re-tail |
+| `GET /v1/events/:seq` | one stored event in full: clipped tool I/O in `payload`, upstream hook input in `raw` |
+| `GET /v1/spend` | the spend rollup on its own (also inside `/v1/state`) |
 | `POST /v1/hook/:event` | hook ingestion; on `PreToolUse` returns the rule decision (`permissionDecision` ask / deny) |
-| `POST /v1/events` · `GET /v1/events?since=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` |
+| `POST /v1/events` · `GET /v1/events?since=&full=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` (wire shape — no `raw`/tool I/O unless `full=1`; `since=0` replays the last 200) |
 | `GET /` · `GET /:file.(js|css)` | the dashboard |
 
 Not built: a unix socket, `/v1/processes`, `/v1/gates`, `/v1/sessions/:id/input`, incident ack.

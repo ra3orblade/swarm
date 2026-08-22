@@ -2,6 +2,18 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Changed — performance
+- **Daemon never spawns `git` on a request.** Worktree status (`git worktree list` + `status`/`rev-list` per worktree, ~0.8 s across a fleet) moves to a 15 s background refresh with async `Bun.spawn`; `/v1/state` serves the cache (612 ms → ~15 ms). Claim/release invalidate it.
+- **Hook round-trips are two indexed statements**, not two `git rev-parse` spawns plus a transcript-directory scan: `cwd → project` is cached 60 s, the inline transcript tail is debounced to once per 2 s per session (the 5 s tailer covers steady state), and subagent directories are re-listed only when their mtime moves.
+- **Events store ~2 KB, not ~10 KB.** `tool_input` is clipped at 2 KB and `tool_response` at 4 KB in `payload` (`{truncated, bytes, preview}`), and the tool I/O is no longer duplicated in `raw`. Existing databases are rewritten once on boot and `VACUUM`ed (96 MB → 27 MB here). Retention: events older than 30 days are pruned daily (incidents kept), `raw` is cleared after 7 days.
+- **Wire shape.** SSE frames, `GET /v1/events` replays and `GET /v1/sessions/:id/events` carry `seq/ts/type/projectId/sessionId/payload{hook,summary,…}` only — no `raw`, no tool I/O (a 5.5 MB session fetch is now ~150 KB). `GET /v1/events/:seq` returns one stored event in full; `?full=1` on the SSE replay does the same. `?since=0` replays the last 200 events, not the table.
+- **Incremental session view** — `GET /v1/sessions/:id/events?after=<seq>&afterTs=<iso>`; the dashboard appends instead of re-fetching 500 events + 500 turns on every hook.
+- **Dashboard render loop** — one `requestAnimationFrame` scheduler, snapshot `seq` short-circuit, paused while the tab is hidden, exponential SSE reconnect backoff; session log merges two sorted lists and caches rendered rows; data-grid memoises persisted layout and uses one `Intl.Collator`; charts memoise the turn strip.
+- SQLite: indexes on `events(type, seq)` and `turns(ts)`, `mmap_size` 256 MB, cached prepared statements (`db.query`), `sessions`/`spend`/`incidents` memoised per write generation; `/v1/spend` is its own endpoint.
+- Background tick: Codex/Grok discovery every 15 s when idle; Grok `summary.json` re-read only on mtime change.
+
 ## [0.3.0] — 2026-08-22
 
 The coordination release: rules you can configure, runtime resources agents can hold, and the merge queue at the end of the loop.

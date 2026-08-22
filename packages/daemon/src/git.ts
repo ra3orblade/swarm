@@ -39,9 +39,7 @@ export interface Worktree {
   ahead: number; // commits not on upstream; -1 = no upstream/unknown
 }
 
-export function listWorktrees(root: string): Worktree[] {
-  const out = git(root, ["worktree", "list", "--porcelain"]);
-  if (!out) return [];
+function parseWorktreeList(out: string): Worktree[] {
   const wts: Worktree[] = [];
   let cur: Partial<Worktree> | null = null;
   const flush = () => {
@@ -67,12 +65,54 @@ export function listWorktrees(root: string): Worktree[] {
     else if (line === "") flush();
   }
   flush();
+  return wts;
+}
+
+function applyStatus(w: Worktree, st: string | null, ah: string | null) {
+  w.dirty = st === null ? -1 : st.split("\n").filter(Boolean).length;
+  const a = ah?.trim();
+  w.ahead = a === undefined || a === "" ? -1 : Number(a);
+}
+
+/** Synchronous listing — blocks the event loop for ~30 ms per worktree; use only off the request path. */
+export function listWorktrees(root: string): Worktree[] {
+  const out = git(root, ["worktree", "list", "--porcelain"]);
+  if (!out) return [];
+  const wts = parseWorktreeList(out);
   for (const w of wts) {
-    const st = git(w.path, ["status", "--porcelain", "--untracked-files=no"]);
-    w.dirty = st === null ? -1 : st.split("\n").filter(Boolean).length;
-    const ah = git(w.path, ["rev-list", "--count", "@{upstream}..HEAD"])?.trim();
-    w.ahead = ah === undefined || ah === "" ? -1 : Number(ah);
+    applyStatus(
+      w,
+      git(w.path, ["status", "--porcelain", "--untracked-files=no"]),
+      git(w.path, ["rev-list", "--count", "@{upstream}..HEAD"]),
+    );
   }
+  return wts;
+}
+
+async function gitAsync(cwd: string, args: string[]): Promise<string | null> {
+  try {
+    const p = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    return code === 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Non-blocking listing: one `worktree list` plus status/ahead per worktree, all spawned concurrently. */
+export async function listWorktreesAsync(root: string): Promise<Worktree[]> {
+  const out = await gitAsync(root, ["worktree", "list", "--porcelain"]);
+  if (!out) return [];
+  const wts = parseWorktreeList(out);
+  await Promise.all(
+    wts.map(async (w) => {
+      const [st, ah] = await Promise.all([
+        gitAsync(w.path, ["status", "--porcelain", "--untracked-files=no"]),
+        gitAsync(w.path, ["rev-list", "--count", "@{upstream}..HEAD"]),
+      ]);
+      applyStatus(w, st, ah);
+    }),
+  );
   return wts;
 }
 
