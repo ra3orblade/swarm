@@ -6,8 +6,6 @@ import { resolveBin } from "./bins";
 export function swarmHome(): string {
   return process.env.SWARM_HOME ?? join(homedir(), ".swarm");
 }
-/** Snapshot at load. Tests that mutate `SWARM_HOME` should call `swarmHome()` / the info helpers. */
-export const SWARM_HOME = swarmHome();
 export const DEFAULT_PORT = Number(process.env.SWARM_PORT ?? 7777);
 const infoFile = () => join(swarmHome(), "daemon.json");
 

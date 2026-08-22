@@ -36,6 +36,7 @@ const tailer = setInterval(() => {
   store.tailActive();
   store.tailCodex();
   store.tailGrok();
+  store.reapResources(); // dead pids / expired leases; the hook path never probes
 }, 5000);
 if (process.env.SWARM_OFFLINE !== "1") store.refreshPricing().catch(() => {});
 console.log(`swarmd ${VERSION} listening on http://127.0.0.1:${port}`);

@@ -45,11 +45,13 @@ export function buildServer(): McpServer {
     },
     async () => {
       const pid = await projectId();
-      const claims = await api<unknown[]>(`/v1/claims?project=${pid}`);
-      const resources = await api<unknown[]>(`/v1/resources?project=${pid}`);
-      const state = await api<{
-        sessions: Array<{ projectId: string; agent: string; state: string; last: string }>;
-      }>("/v1/state");
+      const [claims, resources, state] = await Promise.all([
+        api<unknown[]>(`/v1/claims?project=${pid}`),
+        api<unknown[]>(`/v1/resources?project=${pid}`),
+        api<{
+          sessions: Array<{ projectId: string; agent: string; state: string; last: string }>;
+        }>("/v1/state"),
+      ]);
       const live = state.sessions.filter((s) => s.projectId === pid && s.state !== "ended");
       const nClaims = (claims as unknown[]).length;
       const nRes = (resources as unknown[]).length;
@@ -186,13 +188,17 @@ export function buildServer(): McpServer {
     {
       title: "Release a runtime resource",
       description:
-        "Release a named singleton you hold. Pass owner to refuse if someone else holds it.",
-      inputSchema: { name: z.string(), owner: z.string().optional() },
+        "Release a named singleton you hold. Refused if another owner holds it (fail-closed, like claims) unless force is set.",
+      inputSchema: {
+        name: z.string(),
+        owner: z.string().optional().describe("defaults to SWARM_OWNER"),
+        force: z.boolean().optional().describe("release even if held by someone else"),
+      },
     },
-    async ({ name, owner }) => {
+    async ({ name, owner, force }) => {
       const project = await projectId();
-      const q = new URLSearchParams({ project });
-      if (owner) q.set("owner", owner);
+      const q = new URLSearchParams({ project, owner: owner ?? OWNER });
+      if (force) q.set("force", "1");
       const r = await api<{ ok: boolean; error?: string }>(
         `/v1/resources/${encodeURIComponent(name)}?${q}`,
         {

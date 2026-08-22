@@ -28,8 +28,9 @@ const help = `swarm — control plane for AI-agent development
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
-  res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name>
+  res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
                           named singletons (ports, processes); fail-closed
+  stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
@@ -272,9 +273,65 @@ try {
       }
       break;
     }
+    case "stats": {
+      await ensureDaemon({ quiet: true });
+      let q = "";
+      if (rest.includes("-p")) {
+        const proj = (await api("/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: resolve(".") }),
+        })) as { id: string };
+        q = `?project=${encodeURIComponent(proj.id)}`;
+      }
+      const st = (await api(`/v1/stats${q}`)) as {
+        totals: {
+          turns: number;
+          sessions: number;
+          toolCalls: number;
+          input: number;
+          output: number;
+          cacheRead: number;
+          cacheWrite: number;
+          thinking: number;
+          cost: number | null;
+          firstTs: string | null;
+        };
+        daily: Array<{ day: string; turns: number }>;
+        byModel: Array<{ model: string; turns: number; output: number }>;
+        records: { busiestDay: { day: string; turns: number; cost: number | null } | null };
+      };
+      if (json) {
+        console.log(JSON.stringify(st));
+        break;
+      }
+      const T = st.totals;
+      const usd = (n: number | null) => (n == null ? "—" : `$${n.toFixed(2)}`);
+      console.log(
+        `since ${T.firstTs?.slice(0, 10) ?? "—"}: ${T.turns} turns, ${T.sessions} sessions, ${T.toolCalls} tool calls, ${usd(T.cost)}`,
+      );
+      console.log(
+        `tokens: in ${T.input} · out ${T.output} · cache read ${T.cacheRead} · cache write ${T.cacheWrite} · thinking ${T.thinking}`,
+      );
+      console.log(`active days (365d): ${st.daily.filter((d) => d.turns).length}`);
+      for (const m of st.byModel.slice(0, 5))
+        console.log(`  ${m.model.padEnd(28)} ${String(m.turns).padStart(6)} turns ${m.output} out`);
+      if (st.records.busiestDay)
+        console.log(
+          `busiest day: ${st.records.busiestDay.day} (${st.records.busiestDay.turns} turns, ${usd(st.records.busiestDay.cost)})`,
+        );
+      break;
+    }
     case "res": {
       await ensureDaemon({ quiet: true });
-      const positionals = rest.filter((a) => !a.startsWith("--") && a !== "--json");
+      const valueFlags = new Set(["--owner", "--pid", "--port"]);
+      const positionals: string[] = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i] as string;
+        if (valueFlags.has(a))
+          i++; // skip the flag's value
+        else if (!a.startsWith("--")) positionals.push(a);
+      }
       const sub = positionals[0];
       const flag = (n: string) => {
         const i = rest.indexOf(n);
@@ -332,13 +389,17 @@ try {
       }
       if (sub === "release") {
         const name = positionals[1];
-        if (!name) throw new Error("usage: swarm res release <name>");
+        if (!name) throw new Error("usage: swarm res release <name> [--owner n] [--force]");
         const proj = (await api("/v1/projects", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ path: resolve(".") }),
         })) as { id: string };
-        const q = new URLSearchParams({ project: proj.id });
+        const q = new URLSearchParams({
+          project: proj.id,
+          owner: flag("--owner") ?? process.env.USER ?? "me",
+        });
+        if (rest.includes("--force")) q.set("force", "1");
         const r = (await fetch(
           `${new SwarmClient().baseUrl}/v1/resources/${encodeURIComponent(name)}?${q}`,
           { method: "DELETE" },
@@ -351,7 +412,7 @@ try {
         }
         break;
       }
-      throw new Error("usage: swarm res ls | acquire <name> | release <name>");
+      throw new Error("usage: swarm res ls | acquire <name> | release <name> [--force]");
     }
     case "tail": {
       await ensureDaemon({ quiet: true });

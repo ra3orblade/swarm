@@ -169,8 +169,12 @@ swarm resume <task>                              print handoff payload (for the 
 swarm reap                                       expire stale leases; orphan dirty ones
 swarm wt ls|path <task>|adopt <task>
 
-swarm res acquire <name> [--ttl]   e.g. web, worker, db, port:3000
-swarm res release <name>
+swarm res ls                                              held singletons (project + machine-global)
+swarm res acquire <name> [--owner n] [--pid n] [--port n]  e.g. web, worker, db, port:3000
+                                   pid → alive while the process is; else a lease (default 30m)
+                                   port → auto-added to the protected-ports rule while held
+swarm res release <name> [--owner n] [--force]            refuses if another owner holds it
+swarm stats [-p] --json            the Stats view's numbers (totals, per-day classes, records)
 swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked
 swarm serve stop [name]
 swarm proc ls|stop <pid>           only processes this session/project started
@@ -206,8 +210,9 @@ Server name `swarm`; project inferred from the server's `cwd`. Every tool return
 | `swarm.handoff` | `{task, done, remaining, files[], verify}` | ack |
 | `swarm.resume` | `{task}` | last handoff payload |
 | `swarm.release` | `{task, force?}` | ack or `{refused: "dirty"|"unpushed", files[]}` |
-| `swarm.resource.acquire` | `{name, ttl?}` | `{port?}` or `{held_by}` |
-| `swarm.resource.release` | `{name}` | ack |
+| `swarm.acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
+| `swarm.release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
+| `swarm.resources` | `{}` | held singletons for this project (and machine-global ones) |
 | `swarm.gate.record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
 | `swarm.next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
 | `swarm.note` | `{text}` | attaches a note to the session, visible in the dashboard |

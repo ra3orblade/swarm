@@ -79,6 +79,17 @@ describe("turns and spend", () => {
     expect(sess?.tokens.output).toBe(2000);
     expect(sess?.costUsd).toBeGreaterThan(0);
     expect(store.spend().byProjectAll.find((x) => x.key === "p1")?.output).toBe(2000);
+    const st = store.stats();
+    expect(st.totals.output).toBe(2000);
+    expect(st.totals.cacheRead).toBe(5000);
+    expect(st.totals.turns).toBe(1);
+    expect(st.daily).toEqual([
+      expect.objectContaining({ day: "2026-08-20", output: 2000, turns: 1 }),
+    ]);
+    expect(st.byModel[0]?.model).toBe("claude-opus-4-5");
+    expect(st.records.costliestSession?.id).toBe("s1");
+    expect(store.stats("nope").totals.turns).toBe(0);
+    expect(store.stats("p1").totals.output).toBe(2000);
     // idempotent re-tail (offset held): no new turns
     expect(store.tailSession("s1")).toBe(0);
   });
@@ -319,17 +330,78 @@ describe("rules + incidents (Phase 2)", () => {
   });
 });
 
+describe("moved projects", () => {
+  it("a pinned row whose root vanished is merged into the live same-name project", () => {
+    const fs = require("node:fs");
+    const home = tmpHome();
+    const store = new Store(home);
+    const oldRoot = join(tmpHome(), "app");
+    const newRoot = join(tmpHome(), "app");
+    fs.mkdirSync(oldRoot);
+    fs.mkdirSync(newRoot);
+    const old = store.resolveProject(oldRoot, true);
+    store.append({
+      ts: "2026-08-20T00:00:00Z",
+      type: "session.started",
+      projectId: old.id,
+      sessionId: "s-old",
+      payload: {},
+    });
+    fs.rmSync(oldRoot, { recursive: true });
+    const fresh = store.resolveProject(newRoot);
+    expect(fresh.id).not.toBe(old.id);
+    const projects = store.projects();
+    expect(projects.map((p) => p.id)).toEqual([fresh.id]);
+    expect(projects[0]?.discovered).toBe(false); // pin carried over
+    expect(store.sessions().find((s) => s.id === "s-old")?.projectId).toBe(fresh.id);
+  });
+});
+
 describe("runtime resources (Phase 1)", () => {
   it("acquire is fail-closed; same owner refreshes; release frees", () => {
     const store = new Store(tmpHome());
     const a = store.acquireResource({ name: "dev-server", owner: "agent-a", port: 3000 });
     expect(a.ok).toBe(true);
+    expect(store.heldPorts()).toEqual([3000]);
     const b = store.acquireResource({ name: "dev-server", owner: "agent-b" });
     expect(b.ok).toBe(false);
     expect(store.acquireResource({ name: "dev-server", owner: "agent-a" }).ok).toBe(true);
     expect(store.releaseResource("dev-server", null, "agent-b").ok).toBe(false); // wrong owner
+    expect(store.releaseResource("dev-server", null).ok).toBe(false); // no owner: fail-closed
     expect(store.releaseResource("dev-server", null, "agent-a").ok).toBe(true);
+    expect(store.heldPorts()).toEqual([]);
     expect(store.acquireResource({ name: "dev-server", owner: "agent-b" }).ok).toBe(true);
+    expect(store.releaseResource("dev-server", null, "agent-a", true).ok).toBe(true); // force
+  });
+
+  it("DELETE without owner is refused; force=1 overrides", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    store.acquireResource({ name: "web", owner: "agent-a" });
+    expect((await app.request("/v1/resources/web", { method: "DELETE" })).status).toBe(409);
+    expect(
+      (await app.request("/v1/resources/web?owner=agent-b", { method: "DELETE" })).status,
+    ).toBe(409);
+    expect((await app.request("/v1/resources/web?force=1", { method: "DELETE" })).status).toBe(200);
+  });
+
+  it("an unknown sessionId does not mint a phantom session", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const r = await app.request("/v1/resources", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "web", owner: "a", sessionId: "ghost" }),
+    });
+    expect(r.status).toBe(201);
+    expect(store.sessions().find((s) => s.id === "ghost")).toBeUndefined();
+    expect(store.resources()[0]?.sessionId).toBeNull();
+  });
+
+  it("a dead holding is reaped lazily on acquire, not on the hook path", () => {
+    const store = new Store(tmpHome());
+    store.acquireResource({ name: "worker", owner: "agent-a", pid: 999_999, port: 4100 });
+    expect(store.heldPorts()).toEqual([4100]); // cheap read: no probe, still listed
+    expect(store.acquireResource({ name: "worker", owner: "agent-b" }).ok).toBe(true);
+    expect(store.resources().find((r) => r.name === "worker")?.owner).toBe("agent-b");
   });
 
   it("dead pid is reaped and stops blocking", () => {
