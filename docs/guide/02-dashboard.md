@@ -119,6 +119,10 @@ An ended session's page has **Resume where it died**: it shows the handoff Swarm
 
 On the Incidents view with a project selected, **Dry-run rules** replays the project's recorded tool calls under rule modes you choose and shows what would have fired — plus *flaky signals*, rules that keep asking about something that is then allowed anyway. Nothing is recorded. See [trying a rule before turning it on](03-rules-and-config.md#trying-a-rule-before-turning-it-on).
 
+## Search
+
+The **Search** view is full-text search over what Swarm remembers: handoffs (what was done, what's left), incidents (the command a rule stopped and why), gate runs (rubric and evidence) and what each session last said — for the selected project, or all of them. Never your code; agents grep that better. Words are AND-ed and the last one is a prefix, `"a phrase"` is a phrase, `kind:incident` / `task:M1.2` filter; the chips do the same. Each hit shows a snippet and opens its session. It's plain SQLite FTS5 inside `swarm.db` — no model, no network.
+
 ## Notifications
 
 Turn on **Desktop notifications** in the settings menu to be pinged when a spawned run is waiting on a permission, or a claim is orphaned with unfinished work — the things worth walking away for. Clicking the notification opens the spot to act. They stay quiet while you're looking at the dashboard.

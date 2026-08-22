@@ -208,6 +208,7 @@ swarm run --task <id> --prompt "…"|--prompt-file f [--model] [--permission-mod
 swarm run ls | send <task|id> "text" | stop <task|id>     steer over stdin / stop by pid
 swarm run resume <session-id> [--model] [--permission-mode]   spawn a run that picks up where a dead session stopped (handoff + tail)
 swarm rules dryrun [--set rule=mode,…] [--limit n]        replay this repo's history under rule modes; what would fire + flaky signals
+swarm search <query…> [-p] [--kind handoff|incident|gate|session]   memory over Swarm's own data (never the codebase)
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -251,6 +252,7 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
 | `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
 | `swarm_handoff` | `{task, done, remaining, files?, verify?}` | records a handoff; needs done + remaining |
+| `swarm_search` | `{query, kind?, all_projects?, limit?}` | full-text search over Swarm's memory: handoffs, incidents, gates, what sessions said |
 | `swarm_resume` | `{task}` | latest handoff, formatted (`auto:` handoffs are derived by the daemon at Stop/SessionEnd) |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
@@ -288,6 +290,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/claims` · `POST /v1/claims` · `POST /v1/claims/renew` · `POST /v1/claims/release` · `POST /v1/claims/reap` | the claim ledger (fail-closed; `release` refuses dirty/unpushed unless `force`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/memory?q=&project=&kind=&task=&limit=` | full-text search (FTS5/BM25) over handoffs, incidents, gates and session text; hits carry a snippet with `\u0001`/`\u0002` around matches |
 | `GET /v1/rules/dryrun?project=&<rule>=ask\|deny\|off&limit=` | replay recorded tool calls under (overridden) rule modes: per-rule ask/deny counts, hits, flaky signals; records nothing |
 | `GET /v1/sessions/:id/resume` · `POST /v1/sessions/:id/resume` | the resume plan for a session (task, owner, prompt built from its latest handoff + last actions) / spawn a run from it (`RunInput` overrides accepted) |
 | `GET /v1/prs` · `POST /v1/prs/merge` | the forge queue (`{projectId, number}` to squash-merge via `gh` / `glab`) |
