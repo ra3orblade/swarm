@@ -56,7 +56,7 @@ const MAP: Record<HookEventName, EventType> = {
   SubagentStop: "subagent.stopped",
   Stop: "agent.text",
   SessionEnd: "session.ended",
-  Notification: "incident.opened",
+  Notification: "session.notification",
   PreCompact: "agent.text",
 };
 

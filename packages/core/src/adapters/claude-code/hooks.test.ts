@@ -13,6 +13,15 @@ describe("normalizeHook", () => {
     expect(e.payload.summary).toBe("Bash bun test");
     expect(e.raw).toMatchObject({ tool_name: "Bash" });
   });
+  it("maps Notification to session.notification, never to an incident", () => {
+    const e = normalizeHook(
+      "Notification",
+      { session_id: "s1", cwd: "/r", message: "Claude is waiting for your input" },
+      "p1",
+    );
+    expect(e.type).toBe("session.notification");
+  });
+
   it("summarizes file tools by path", () => {
     expect(summarizeToolInput("Edit", { file_path: "a/b.ts" })).toBe("a/b.ts");
   });

@@ -756,7 +756,7 @@ function connect() {
     if (state.session && ev.sessionId === state.session) { state.log.push(ev); renderSession(); }
     if (!pending) { pending = true; setTimeout(() => { pending = false; state.session ? openSession(state.session) : refresh(); }, 400); }
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
 }
 refresh().then(connect);
 setInterval(() => { if (state.session) openSession(state.session); else refresh(); }, 5000);

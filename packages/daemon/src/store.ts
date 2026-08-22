@@ -144,6 +144,11 @@ export class Store {
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
+    // <0.3.1 recorded Claude Code Notification hooks as incident.opened; retype them so the
+    // Incidents grid only shows rule decisions (those carry a `rule` in the payload).
+    this.db.exec(
+      "UPDATE events SET type = 'session.notification' WHERE type = 'incident.opened' AND payload NOT LIKE '%\"rule\"%'",
+    );
   }
 
   /**
@@ -466,7 +471,7 @@ export class Store {
     const state =
       e.type === "session.ended"
         ? "ended"
-        : p.hook === "Stop" || e.type === "incident.opened"
+        : p.hook === "Stop" || e.type === "session.notification"
           ? "waiting"
           : "active";
     this.db
