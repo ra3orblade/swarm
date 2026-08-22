@@ -1,7 +1,7 @@
 {
   "name": "swarm-monorepo",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Local-first control plane for AI-agent development: watch every Claude Code session, ledger tasks/worktrees/resources, enforce rules.",
   "license": "Apache-2.0",
   "engines": {
@@ -38,6 +38,8 @@
     "test:watch": "bun test --watch",
     "smoke": "bun tools/smoke.ts",
     "docs:check": "bun tools/docs-check.ts",
+    "site:build": "bun tools/build-site.ts",
+    "site:deploy": "vercel deploy --prod",
     "postinstall": "bun run --filter @swarm/web build",
     "build:web": "bun run --filter @swarm/web build",
     "desktop:prep": "bun tools/desktop.ts",
@@ -51,6 +53,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.4",
     "@types/bun": "latest",
+    "marked": "^18.0.10",
     "typescript": "^5.9.2"
   }
 }

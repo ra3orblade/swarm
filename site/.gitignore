@@ -1,2 +1,4 @@
 .vercel
 .env*
+docs/
+changelog.html

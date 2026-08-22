@@ -106,7 +106,8 @@
     <b>Swarm</b>
     <nav>
       <a href="#downloads">Downloads</a>
-      <a href="https://github.com/ra3orblade/swarm#readme">Docs</a>
+      <a href="/docs/">Docs</a>
+      <a href="/changelog">Changelog</a>
       <a href="https://github.com/ra3orblade/swarm">GitHub</a>
     </nav>
   </header>
@@ -130,11 +131,13 @@
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h6v2H6zM4 4h2v2H4zm8 0h2v2h-2zm-8 8h2v2H4zm8 0h2v2h-2zm-6 2h6v2H6zM2 6h2v6H2zm12 0h2v6h-2z"/>  <path d="M14 8h4v2h-4zm-4 10h2v2h-2zm8-8h2v2h-2zm-6 10h2v2h-2zm6-2h2v2h-2z"/>  <path d="M12 20h6v2h-6zm-4-6h2v4H8zm12-2h2v6h-2zM7 6h4v2H7z"/>  <path d="M9 6h2v6H9zm6 8h2v4h-2zm-1-2h3v2h-3z"/></svg><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 14h4v2H4zm0 6h4v2H4zm-2-4h2v4H2zm6 0h2v4H8zm8-14h4v2h-4zm0 6h4v2h-4zm-2-4h2v4h-2zm6 0h2v4h-2zm-8 13h5v2h-5zm5-5h2v5h-2zM5 2h2v10H5z"/></svg><b>Worktrees &amp; claims</b><p>A fail-closed ledger: tasks are claimed into isolated git worktrees, so parallel agents can't clobber each other.</p></div>
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM20 4h2v16h-2zM2 4h2v16H2zm9 2h2v8h-2zm0 10h2v2h-2z"/></svg><b>Rules &amp; incidents</b><p>Broad <code>git add -A</code> in a shared checkout, pattern kills, protected ports — asked or denied, every decision recorded.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M5 2h4v2H5zM3 4h2v4H3zm6 0h2v4H9zM5 8h4v2H5zm0 4h4v2H5zm-2 2h2v4H3zm6 0h2v4H9zm-4 4h4v2H5zm10-16h4v2h-4zm-2 2h2v4h-2zm6 0h2v4h-2zm-4 4h4v2h-4zm1 2h2v6h-2zm-1 6h4v2h-4zM11 11h2v2h-2z"/></svg><b>PRs, one queue</b><p>Open pull requests across GitHub and GitLab through your own <code>gh</code> / <code>glab</code> — checks, review, mergeable — and merge on green from the dashboard. No tokens stored.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M3 3h18v2H3zm0 2h2v14H3zm16 0h2v14h-2zM3 19h18v2H3zM7 7h10v2H7zm0 4h6v2H7zm0 4h8v2H7z"/></svg><b>Runtime resources</b><p>Dev servers, databases, ports held as named singletons — fail-closed, pid- and lease-tracked. A held port is protected from every other agent's <code>kill</code>, no config needed.</p></div>
     </div>
   </section>
 
   <section id="downloads">
-    <h2>Downloads <span id="rel" style="text-transform:none;letter-spacing:0"></span></h2>
+    <h2>Downloads <span id="rel" style="text-transform:none;letter-spacing:0"></span> <a href="/changelog" style="text-transform:none;letter-spacing:0;font-weight:500;margin-left:8px">release notes →</a></h2>
     <div class="dl card">
       <div class="row" data-os="mac"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M11 8h3v2h-3zm3-2h4v2h-4zm4 2h2v3h-2zm-2 3h2v4h-2zm2 4h2v5h-2zm-4 5h4v2h-4zm-3-2h3v2h-3zm-4 2h4v2H7zm-2-2h2v2H5zm-2-8h2v8H3zm2-2h2v2H5zm2-2h4v2H7zm5-3h2v2h-2zm2-2h2v2h-2z"/></svg><div class="who"><b>macOS</b><span>Apple silicon · signed &amp; notarized · auto-updates</span></div><div class="links"></div></div>
       <div class="row" data-os="win"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 3h16v2H4zm0 16h16v2H4zM2 5h2v14H2zm18 0h2v14h-2zM4 7h16v2H4zm8-2h2v2h-2zm4 0h2v2h-2z"/></svg><div class="who"><b>Windows</b><span>x64 · auto-updates</span></div><div class="links"></div></div>
@@ -146,6 +149,7 @@
   <footer>
     <span>Apache-2.0</span>
     <a href="https://github.com/ra3orblade/swarm">github.com/ra3orblade/swarm</a>
+    <a href="/changelog">Changelog</a>
     <a href="https://github.com/ra3orblade/swarm/releases">All releases</a>
     <a href="https://github.com/ra3orblade/swarm/issues">Issues</a>
   </footer>
