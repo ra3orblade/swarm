@@ -3,13 +3,20 @@
  *  docs/*.md        → site/docs/design/<slug>.html   (design docs — "Internals")
  *  CHANGELOG.md     → site/changelog.html.  All output is gitignored.
  *  Usage: bun run site:build   (then: bun run site:deploy) */
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { marked } from "marked";
 
 const root = join(import.meta.dir, "..");
 const docsDir = join(root, "docs");
 const outDir = join(root, "site", "docs");
+// Screenshots: the README's docs/art/screens/*.jpg, served at /screens/ (gitignored in site/).
+{
+  const src = join(root, "docs", "art", "screens");
+  const dst = join(root, "site", "screens");
+  mkdirSync(dst, { recursive: true });
+  for (const f of readdirSync(src)) if (/\.(jpe?g|png|webp)$/i.test(f)) copyFileSync(join(src, f), join(dst, f));
+}
 const REPO = "https://github.com/ra3orblade/swarm";
 const SITE = "https://getswarm.vercel.app";
 
