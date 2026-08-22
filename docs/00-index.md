@@ -11,6 +11,8 @@ Status: draft (design phase, nothing built yet). Read in order.
 | 05 | [repo-layout](05-repo-layout.md) | Monorepo packages and their boundaries |
 | 06 | [roadmap](06-roadmap.md) | Milestones, each ending in something usable on real projects |
 | 11 | [desktop-signing](11-desktop-signing.md) | Signing, notarization & autoupdate (reusing Apple creds) |
+| 12 | [design-tokens](12-design-tokens.md) | Dashboard design tokens — no raw values in CSS rules |
+| 13 | [config](13-config.md) | Configuration: global + per-repo TOML, rule modes |
 | 07 | [open-questions](07-open-questions.md) | `OQ-N` — resolve here, never inline |
 | 08 | [interface](08-interface.md) | Dashboard views (wireframes), CLI surface, MCP tools |
 | 09 | [features](09-features.md) | Feature catalog: available, in progress, planned |

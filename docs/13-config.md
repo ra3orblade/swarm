@@ -1,4 +1,6 @@
-# Configuration
+# 13 · Configuration
+
+Status: current. The TOML config layers and the rule modes they control.
 
 Two TOML layers, deep-merged over built-in defaults — later wins:
 
