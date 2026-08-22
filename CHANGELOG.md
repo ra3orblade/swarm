@@ -5,6 +5,12 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- **Session Replay** — a **Replay** button on any session steps through its tool calls one at a time, showing the full input and output of each (Prev/Next, a slider, ←/→ keys). See exactly what an agent did, in order (M4.1).
+- **Cost by task** — the Spend view attributes cost and tokens to each task (matched to a claim by the session's worktree), plus a **Context budget** table ranking sessions by how much context they re-processed — a signal for agents re-reading the same material. `GET /v1/attribution` (M4.2).
+- **Codify an incident** — the Incidents feed has a **Codify** action that turns an incident into a `.swarm.toml` rule snippet and a CLAUDE.md lesson, both copyable. A rule that keeps firing as `ask` suggests hardening to `deny` (M4.3).
+- **Desktop notifications** — opt-in native notifications (settings menu) for a spawned run waiting on a permission, or a claim orphaned with unfinished work; clicking opens the Allow/Deny card or the Board. Quiet while you're looking at the dashboard (M4.7).
+
+### Added
 - **What's New in the app** — the dashboard shows the release notes for the running version: a **What's New** item in the settings menu, in the desktop app's **Swarm** menu, and in the tray. It also opens once on its own the first time you run a new version. Notes are parsed from `CHANGELOG.md` into `release-notes.js` at build time, so they work offline with no repo checkout.
 - The desktop **Check for Updates…** is in the system menu bar (Swarm menu), not only the tray.
 
