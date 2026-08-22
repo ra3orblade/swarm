@@ -21,8 +21,8 @@
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     /* type scale (px) — use these, never literals */
-    --fs-2xs:10px; --fs-xs:10.5px; --fs-sm:11px; --fs-mono:11.5px; --fs-md:12px;
-    --fs-menu:12.5px; --fs-lg:13px; --fs-xl:14px; --fs-2xl:22px;
+    --fs-2xs:11px; --fs-xs:11.5px; --fs-sm:12px; --fs-mono:12.5px; --fs-md:13px;
+    --fs-menu:13.5px; --fs-lg:14px; --fs-xl:15px; --fs-2xl:24px;
     /* elevation */
     --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
     --shadow-pop:0 8px 24px rgba(16,24,40,.14),0 1px 3px rgba(16,24,40,.08);
@@ -72,6 +72,8 @@
 
   *{box-sizing:border-box}
   html,body{height:100%}
+  /* UI zoom (desktop app: ⌘/Ctrl +, −, 0) — scales the whole page, persisted by app.js */
+  html{zoom:var(--ui-zoom,1)}
   body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs-lg)/1.5 var(--sans);
     -webkit-font-smoothing:antialiased;display:grid;grid-template-rows:var(--hdr-h) 1fr;grid-template-columns:var(--sb-w) 1fr;overflow:hidden;
     animation:appin var(--t-in) ease both;user-select:none;-webkit-user-select:none}
@@ -91,7 +93,7 @@
   body.nosb>aside{display:none}
   body>aside{grid-column:1;grid-row:2}
   body>main{grid-column:2;grid-row:2}
-  #projects h4{display:flex;align-items:center}
+  #projects h4{display:flex;align-items:center;gap:5px}
   .h4-act{margin-left:auto;cursor:pointer;color:var(--faint);display:inline-flex;padding:2px;border-radius:var(--r-xs)}
   .h4-act:hover{color:var(--acc)}
   .pk-h input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);
@@ -152,6 +154,9 @@
   .pk-f .primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
   .pk-f .primary:hover{filter:brightness(1.06);color:var(--acc-contrast)}
   .proj .nm .pdir{opacity:.5;font-weight:400}
+  /* drag-to-reorder (pinned rows only) */
+  .proj[draggable]{cursor:grab}
+  .proj.dragging{opacity:.35;background:var(--panel-2);outline:1px dashed var(--acc)}
   button{background:var(--panel);border:1px solid var(--line);color:var(--fg-2);padding:var(--pad-ctl);
     border-radius:var(--r-sm);font:600 var(--fs-md) var(--sans);cursor:pointer;transition:border-color var(--t-fast),color var(--t-fast)}
   button:hover{border-color:var(--acc);color:var(--fg)}
@@ -237,10 +242,10 @@
   @media (max-width:980px){.sess{grid-template-columns:1fr}.sess>*{height:auto;max-height:calc(100vh - 140px)}}
   #log{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
     padding:6px 0;overflow:auto}
-  .ev{display:grid;grid-template-columns:64px 96px 1fr;gap:12px;padding:5px 14px;align-items:baseline}
+  .ev{display:grid;grid-template-columns:68px 112px 1fr;gap:12px;padding:5px 14px;align-items:baseline}
   .ev:hover{background:var(--panel-2)}
   .ev .t{color:var(--faint);font:var(--fs-sm) var(--mono)}
-  .ev .k{color:var(--dim);font:500 var(--fs-sm) var(--mono);text-transform:lowercase}
+  .ev .k{color:var(--dim);font:500 var(--fs-sm) var(--mono);text-transform:lowercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ev .m{white-space:pre-wrap;word-break:break-word;color:var(--fg-2);font-size:var(--fs-menu)}
   .ev.assistant .k{color:var(--violet)}
   .ev.assistant .m{color:var(--fg)}

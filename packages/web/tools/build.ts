@@ -97,8 +97,8 @@ const NAME_MAP: Record<string, string> = {
   clock: "clock",
   wrench: "gear",
   "file-text": "file-text",
-  "git-branch": "git-branch",
-  "git-commit": "git-commit",
+  "git-branch": "git-branch-sharp",
+  "git-commit": "git-commit-sharp",
   "arrow-left": "arrow-left",
   warning: "square-alert",
   check: "check",
@@ -125,6 +125,8 @@ const NAME_MAP: Record<string, string> = {
   "currency-dollar": "dollar",
   rows: "bulletlist",
   "list-bullets": "bulletlist",
+  // the plain git glyphs are 1px-sparse at 15px; the sharp variants keep their weight
+  "git-pull-request": "git-pull-request-sharp",
 };
 const iconDir = join(here, "../node_modules/pixelarticons/svg");
 const paths: Record<string, string> = {};
