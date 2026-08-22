@@ -130,6 +130,31 @@ Projects are identified by their git repository, so `swarm claim` works the same
 
 Agents don't need you to run the CLI. The MCP server registered by setup exposes the same operations as tools — `swarm_status`, `swarm_claim`, `swarm_renew`, `swarm_release`, `swarm_reap` — resolved against the session's working directory. The recommended flow is: check status, claim, `cd` into the returned worktree, work, commit and push, release. See [MCP](08-mcp.md).
 
+## Handing off
+
+When you stop before a task is finished — end of session, context nearly full, someone else picking it up — leave a handoff:
+
+```sh
+swarm handoff login-form --done "form + validation" --remaining "submit handler, then tests" --files src/auth/form.ts --verify "bun test auth"
+```
+
+Over MCP the agent calls `swarm_handoff` with the same fields; `done` and `remaining` are required, the rest optional. `swarm resume login-form` (or `swarm_resume`) prints the latest one.
+
+You rarely need to ask for it. **The next session that starts inside that worktree receives it automatically** as context, together with what it holds and how long the lease has left, the task's gate status, any held resources, and the repo's rules:
+
+```
+[swarm] you hold login-form (41m left, renews while you work) in /Users/you/.swarm/worktrees/my-app/login-form
+[swarm] handoff on login-form from alice (2026-08-22 14:43):
+  done: form + validation
+  remaining: submit handler, then tests
+  files: src/auth/form.ts
+  verify: bun test auth
+[swarm] gates on login-form: review not run, tests not run — record with swarm_gate_record (rubric required)
+[swarm] rules: shared_tree=deny destructive_git=deny pattern_kill=ask protected_ports=deny no_foreign_worktree=ask
+```
+
+A session starting in the shared checkout is instead told which tasks others hold, so it claims its own rather than editing theirs.
+
 ## Gates
 
 A gate is a named verification — `review`, `tests`, `security`, whatever the repo decides — recorded against a task with a **rubric**: what was actually checked. Declare the ones every task must pass:

@@ -32,6 +32,8 @@ const help = `swarm — control plane for AI-agent development
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   record a verification run (rubric required)
   gate ls [task]          latest verdict per gate (and the run history for one task)
+  handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   leave notes for the next holder
+  resume <task>           print the latest handoff (the next session gets it automatically on start)
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
                           named singletons (ports, processes); fail-closed
   serve start [--name web] [--from-port 3400 | --port n] -- <cmd>
@@ -243,6 +245,57 @@ try {
           console.log(
             `${c.state.padEnd(9)} ${c.task.padEnd(16)} ${(c.owner || "").padEnd(12)} ${c.worktree}`,
           );
+      break;
+    }
+    case "handoff":
+    case "resume": {
+      await ensureDaemon({ quiet: true });
+      const task = arg();
+      if (!task) throw new Error(`usage: swarm ${cmd} <task> …`);
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      if (cmd === "resume") {
+        const r = await fetch(
+          `${new SwarmClient().baseUrl}/v1/handoffs?project=${proj.id}&task=${encodeURIComponent(task)}`,
+        );
+        const j = (await r.json()) as { handoff: unknown; text: string | null };
+        if (json) console.log(JSON.stringify(j.handoff));
+        else console.log(j.text ?? `no handoff on ${task}`);
+        break;
+      }
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/handoffs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: proj.id,
+          task,
+          done: flag("--done"),
+          remaining: flag("--remaining"),
+          files: (flag("--files") ?? "")
+            .split(",")
+            .map((f) => f.trim())
+            .filter(Boolean),
+          verify: flag("--verify") ?? null,
+          by: flag("--by") ?? process.env.USER ?? null,
+          sessionId: process.env.CLAUDE_SESSION_ID ?? null,
+        }),
+      }).then((x) => x.json())) as { ok: boolean; error?: string };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok)
+        console.log(
+          `handoff recorded on ${task} — the next session in its worktree sees it on start`,
+        );
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      }
       break;
     }
     case "gate": {

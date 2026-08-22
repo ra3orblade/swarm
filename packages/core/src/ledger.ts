@@ -135,3 +135,45 @@ export function releaseRefusalMessage(
     ? `${worktree} has uncommitted changes. Commit and push them, or re-run with --force to discard.`
     : `${worktree} has unpushed commits. Push them, or re-run with --force to discard the worktree.`;
 }
+
+// ---------- handoffs (M1.3): what the previous holder leaves for the next one
+
+export interface Handoff {
+  task: string;
+  /** What was finished. */
+  done: string;
+  /** What is left, in the order to do it. */
+  remaining: string;
+  /** Files touched or worth reading first. */
+  files: string[];
+  /** How to verify the work so far (commands, expected output). */
+  verify: string | null;
+  by: string | null;
+  createdAt: string;
+}
+
+export type HandoffDecision = { ok: true } | { ok: false; reason: string };
+
+/** A handoff must say what was done and what remains; the rest is optional. */
+export function validateHandoff(h: Pick<Handoff, "task"> & Partial<Handoff>): HandoffDecision {
+  if (!h.task?.trim()) return { ok: false, reason: "task is required" };
+  if (!h.done?.trim() || !h.remaining?.trim())
+    return {
+      ok: false,
+      reason:
+        "a handoff needs both `done` (what was finished) and `remaining` (what is left, in order)",
+    };
+  return { ok: true };
+}
+
+/** The text injected into the next session's context. Short, scannable, no prose. */
+export function formatHandoff(h: Handoff): string {
+  const lines = [
+    `[swarm] handoff on ${h.task}${h.by ? ` from ${h.by}` : ""} (${h.createdAt.slice(0, 16).replace("T", " ")}):`,
+    `  done: ${h.done.trim()}`,
+    `  remaining: ${h.remaining.trim()}`,
+  ];
+  if (h.files.length) lines.push(`  files: ${h.files.join(", ")}`);
+  if (h.verify) lines.push(`  verify: ${h.verify.trim()}`);
+  return lines.join("\n");
+}

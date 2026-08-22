@@ -201,6 +201,8 @@ swarm proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, without a po
 swarm tasks [--ready]                                     the repo's task source
 swarm gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   rubric required; latest run wins
 swarm gate ls [task]                                      required gates + verdicts (+ history for one task)
+swarm handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   notes for the next holder
+swarm resume <task>                                       latest handoff (also injected on SessionStart)
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -210,8 +212,6 @@ Env: `SWARM_URL`, `SWARM_PORT` (default 7777), `SWARM_HOME` (`~/.swarm`).
 
 ```
 swarm rm <name>                                  unregister a project
-swarm handoff <task> --done … --remaining … --verify …
-swarm resume <task>                              print handoff payload (for the next agent)
 swarm wt ls|path <task>|adopt <task>
 
 swarm run -p <project> --task <id> [--prompt … | --prompt-file …] [--model] [--permission-mode] [--detach]
@@ -246,6 +246,8 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
 | `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
 | `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
+| `swarm_handoff` | `{task, done, remaining, files?, verify?}` | records a handoff; needs done + remaining |
+| `swarm_resume` | `{task}` | latest handoff, formatted |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
@@ -254,12 +256,10 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `swarm_handoff` | `{task, done, remaining, files[], verify}` | ack |
-| `swarm_resume` | `{task}` | last handoff payload |
 | `swarm_note` | `{text}` | attaches a note to the session, visible in the dashboard |
 | `swarm_permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
 
-Context injection (planned; not a tool — arrives automatically via hooks) on `SessionStart` and each prompt:
+Context injection (shipped on `SessionStart`, built by `store.sessionContext(cwd)`; per-prompt injection not built) — the hook returns `additionalContext` like:
 
 ```
 [swarm] project web-app · you hold M0.6 (38m left) in ~/.swarm/wt/web-app/m0.6 · resources: web:3401

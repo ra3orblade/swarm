@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SwarmEvent } from "@swarm/core";
+import { formatHandoff, type SwarmEvent } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
@@ -200,6 +200,44 @@ export function createApp(store = new Store()) {
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
 
+  // ---- handoffs (M1.3)
+  app.get("/v1/handoffs", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    const task = c.req.query("task");
+    if (task) {
+      const h = store.latestHandoff(project, task);
+      return h
+        ? c.json({ handoff: h, text: formatHandoff(h) })
+        : c.json({ handoff: null, text: null }, 404);
+    }
+    return c.json(store.handoffs(project));
+  });
+  app.post("/v1/handoffs", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      task?: string;
+      done?: string;
+      remaining?: string;
+      files?: string[];
+      verify?: string | null;
+      by?: string | null;
+      sessionId?: string | null;
+    };
+    if (!b.projectId || !b.task)
+      return c.json({ ok: false, error: "projectId and task required" }, 400);
+    const r = store.recordHandoff(b.projectId, {
+      task: b.task,
+      done: b.done ?? "",
+      remaining: b.remaining ?? "",
+      files: Array.isArray(b.files) ? b.files : [],
+      verify: b.verify ?? null,
+      by: b.by ?? null,
+      sessionId: b.sessionId ?? null,
+    });
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 400);
+  });
+
   // ---- gates (M2.2)
   app.get("/v1/gates", (c) => {
     const project = c.req.query("project");
@@ -304,6 +342,15 @@ export function createApp(store = new Store()) {
     const event = c.req.param("event");
     const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     store.ingestHook(event, raw);
+    // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
+    if (event === "SessionStart" && typeof raw.cwd === "string") {
+      const ctx = store.sessionContext(raw.cwd);
+      if (ctx)
+        return c.json({
+          additionalContext: ctx,
+          hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx },
+        });
+    }
     // M2.1 guard: on PreToolUse, ask before a shared-tree collision (broad git add, destructive git,
     // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
     if (event === "PreToolUse" && process.env.SWARM_GUARD !== "off") {

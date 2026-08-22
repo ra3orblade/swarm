@@ -25,6 +25,7 @@ import {
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
+  formatHandoff,
   fromLiteLLM,
   type GateInput,
   type GateRun,
@@ -33,6 +34,7 @@ import {
   gatesSatisfied,
   guardBash,
   guardWrite,
+  type Handoff,
   type HeldWorktree,
   isActive,
   isAliveHolding,
@@ -68,6 +70,7 @@ import {
   type Turn,
   taskBoard,
   validateGateRun,
+  validateHandoff,
   WRITE_TOOLS,
 } from "@swarm/core";
 import {
@@ -153,6 +156,11 @@ CREATE TABLE IF NOT EXISTS gates (
   rubric TEXT, evidence TEXT, session_id TEXT, created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS gates_task ON gates(project_id, task, created_at);
+CREATE TABLE IF NOT EXISTS handoffs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, done TEXT, remaining TEXT,
+  files TEXT, verify TEXT, by TEXT, session_id TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS handoffs_task ON handoffs(project_id, task, created_at);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -350,6 +358,156 @@ export class Store {
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
   /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
   private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  // ---------- handoffs (M1.3): what the last holder left for the next one
+  recordHandoff(
+    projectId: string,
+    h: {
+      task: string;
+      done?: string;
+      remaining?: string;
+      files?: string[];
+      verify?: string | null;
+      by?: string | null;
+      sessionId?: string | null;
+    },
+  ): { ok: true; handoff: Handoff } | { ok: false; reason: string } {
+    if (!this.project(projectId)) return { ok: false, reason: "unknown project" };
+    const v = validateHandoff(h);
+    if (!v.ok) return v;
+    const handoff: Handoff = {
+      task: h.task.trim(),
+      done: (h.done as string).trim(),
+      remaining: (h.remaining as string).trim(),
+      files: (h.files ?? [])
+        .map((f) => f.trim())
+        .filter(Boolean)
+        .slice(0, 50),
+      verify: h.verify?.trim() || null,
+      by: h.by?.trim() || null,
+      createdAt: new Date().toISOString(),
+    };
+    const sessionId = this.knownSession(h.sessionId);
+    this.db
+      .query(
+        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        projectId,
+        handoff.task,
+        handoff.done,
+        handoff.remaining,
+        JSON.stringify(handoff.files),
+        handoff.verify,
+        handoff.by,
+        sessionId,
+        handoff.createdAt,
+      );
+    this.append({
+      ts: handoff.createdAt,
+      type: "handoff.recorded",
+      projectId,
+      sessionId,
+      payload: { task: handoff.task, by: handoff.by, summary: `handoff on ${handoff.task}` },
+    });
+    this.touch();
+    return { ok: true, handoff };
+  }
+
+  /** Latest handoff on a task, or null. */
+  latestHandoff(projectId: string, task: string): Handoff | null {
+    const r = this.db
+      .query("SELECT * FROM handoffs WHERE project_id = ? AND task = ? ORDER BY id DESC LIMIT 1")
+      .get(projectId, task) as Record<string, unknown> | null;
+    if (!r) return null;
+    return {
+      task: r.task as string,
+      done: r.done as string,
+      remaining: r.remaining as string,
+      files: JSON.parse((r.files as string) || "[]") as string[],
+      verify: (r.verify as string) ?? null,
+      by: (r.by as string) ?? null,
+      createdAt: r.created_at as string,
+    };
+  }
+
+  /** Handoffs across a project, newest first (Board). */
+  handoffs(projectId: string, limit = 50): Array<Handoff & { sessionId: string | null }> {
+    return (
+      this.db
+        .query("SELECT * FROM handoffs WHERE project_id = ? ORDER BY id DESC LIMIT ?")
+        .all(projectId, limit) as Array<Record<string, unknown>>
+    ).map((r) => ({
+      task: r.task as string,
+      done: r.done as string,
+      remaining: r.remaining as string,
+      files: JSON.parse((r.files as string) || "[]") as string[],
+      verify: (r.verify as string) ?? null,
+      by: (r.by as string) ?? null,
+      createdAt: r.created_at as string,
+      sessionId: (r.session_id as string) ?? null,
+    }));
+  }
+
+  /**
+   * SessionStart context (M1.3): what this session holds (cwd inside a claimed worktree), the
+   * latest handoff on that task, held resources, required gates and the repo's rule modes.
+   * Returns null when there is nothing worth saying — no claim, no resources, default rules.
+   */
+  sessionContext(cwd: string): string | null {
+    if (!cwd || !existsSync(cwd)) return null;
+    const toplevel = this.toplevel(cwd);
+    const project = this.resolveProject(cwd);
+    const lines: string[] = [];
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (held) {
+      const left = Math.max(
+        0,
+        Math.round((new Date(held.expiresAt).getTime() - Date.now()) / 60_000),
+      );
+      lines.push(
+        `[swarm] you hold ${held.task} (${left}m left, renews while you work) in ${held.worktree}`,
+      );
+      const h = this.latestHandoff(held.projectId, held.task);
+      if (h) lines.push(formatHandoff(h));
+      const required = this.requiredGates(held.projectId);
+      if (required.length) {
+        const st = gateStatus(this.gateRuns(held.projectId, held.task), required);
+        lines.push(
+          `[swarm] gates on ${held.task}: ${st.map((g) => `${g.gate} ${g.verdict ?? "not run"}`).join(", ")} — record with swarm_gate_record (rubric required)`,
+        );
+      }
+    } else if (project) {
+      const active = this.claimRows(project.id).filter((c) => isActive(c, Date.now()));
+      if (active.length)
+        lines.push(
+          `[swarm] ${project.name}: held by others — ${active.map((c) => `${c.task} (${c.owner})`).join(", ")}. Claim a task (swarm_claim) to get your own worktree.`,
+        );
+    }
+    const res = this.resources(project?.id).filter((r) => !r.released);
+    if (res.length)
+      lines.push(
+        `[swarm] resources held: ${res.map((r) => `${r.name}${r.port ? `:${r.port}` : ""} (${r.owner})`).join(", ")} — their ports are protected; don't kill them`,
+      );
+    const modes = this.rulesFor(toplevel);
+    const on = (
+      [
+        "shared_tree",
+        "destructive_git",
+        "pattern_kill",
+        "protected_ports",
+        "no_foreign_worktree",
+        "claim_required_to_write",
+      ] as const
+    )
+      .filter((k) => modes[k] !== "off")
+      .map((k) => `${k}=${modes[k]}`);
+    // Worth a line on its own when the repo hard-denies something; otherwise only alongside other news.
+    if (on.length && (lines.length || on.some((x) => x.endsWith("=deny"))))
+      lines.push(`[swarm] rules: ${on.join(" ")}`);
+    return lines.length ? lines.join("\n") : null;
+  }
+
   // ---------- gates (M2.2): latest run wins, fails are never deleted, rubric required
   private rowToGate(r: Record<string, unknown>): GateRun {
     return {

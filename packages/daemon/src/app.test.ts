@@ -270,6 +270,71 @@ describe("auto-renew + orphan detection (M1.2)", () => {
   });
 });
 
+describe("handoffs + SessionStart context (M1.3)", () => {
+  it("records a handoff and injects it into the next session starting in the worktree", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-handoff-")));
+    const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    sh("git", "init", "-q", "-b", "main");
+    sh("git", "config", "user.email", "t@t");
+    sh("git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    sh("git", "add", "README.md");
+    sh("git", "commit", "-qm", "init");
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[gates]\nrequired = ["review"]\n`);
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "auth", "alice");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    let r = await app.request("/v1/handoffs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: p.id, task: "auth", done: "login form" }),
+    });
+    expect(r.status).toBe(400); // remaining missing
+    r = await app.request("/v1/handoffs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: p.id,
+        task: "auth",
+        done: "login form",
+        remaining: "logout, tests",
+        files: ["src/auth.ts"],
+        verify: "bun test",
+        by: "alice",
+      }),
+    });
+    expect(r.status).toBe(201);
+    // A session starting inside the worktree gets the context…
+    r = await app.request("/v1/hook/SessionStart", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s-next", cwd: c.worktree, source: "startup" }),
+    });
+    const j = (await r.json()) as {
+      additionalContext?: string;
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    expect(j.additionalContext).toContain("you hold auth");
+    expect(j.additionalContext).toContain("remaining: logout, tests");
+    expect(j.additionalContext).toContain("files: src/auth.ts");
+    expect(j.additionalContext).toContain("review not run");
+    expect(j.hookSpecificOutput?.additionalContext).toBe(j.additionalContext);
+    // …a session in the shared checkout is told what others hold.
+    r = await app.request("/v1/hook/SessionStart", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s-main", cwd: dir, source: "startup" }),
+    });
+    const k = (await r.json()) as { additionalContext?: string };
+    expect(k.additionalContext).toContain("auth (alice)");
+    expect(store.latestHandoff(p.id, "auth")?.remaining).toBe("logout, tests");
+    store.release(p.id, "auth", true);
+  });
+});
+
 describe("gates (M2.2)", () => {
   it("rejects a run without a rubric, latest run wins, a fail opens an incident", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
@@ -307,7 +372,13 @@ describe("gates (M2.2)", () => {
     const g = (await (await app.request(`/v1/gates?project=${p.id}&task=M1`)).json()) as {
       required: string[];
       runs: unknown[];
-      status: Array<{ gate: string; verdict: string | null; runs: number; fails: number; latest: unknown }>;
+      status: Array<{
+        gate: string;
+        verdict: string | null;
+        runs: number;
+        fails: number;
+        latest: unknown;
+      }>;
     };
     expect(g.required).toEqual(["review", "tests"]);
     expect(g.runs.length).toBe(2); // the fail is kept

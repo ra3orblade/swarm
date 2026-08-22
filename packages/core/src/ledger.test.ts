@@ -3,12 +3,14 @@ import {
   canClaim,
   canRelease,
   claimRefusalMessage,
+  formatHandoff,
   isActive,
   isExpired,
   type LeaseClaim,
   nextExpiry,
   reapAction,
   shouldAutoRenew,
+  validateHandoff,
 } from "./ledger";
 
 const NOW = Date.parse("2026-08-20T12:00:00Z");
@@ -99,5 +101,25 @@ describe("auto-renew (M1.2)", () => {
     expect(shouldAutoRenew({ state: "held", expiresAt: at(-1) }, now)).toBe(false); // expired
     expect(shouldAutoRenew({ state: "released", expiresAt: at(5) }, now)).toBe(false);
     expect(shouldAutoRenew({ state: "held", expiresAt: at(25) }, now, 60)).toBe(true); // 60-min lease
+  });
+});
+
+describe("handoffs (M1.3)", () => {
+  it("needs done + remaining; formats compactly", () => {
+    expect(validateHandoff({ task: "t", done: "x" }).ok).toBe(false);
+    expect(validateHandoff({ task: "", done: "x", remaining: "y" }).ok).toBe(false);
+    expect(validateHandoff({ task: "t", done: "x", remaining: "y" }).ok).toBe(true);
+    const txt = formatHandoff({
+      task: "M1.3",
+      done: "table + routes",
+      remaining: "CLI, MCP, docs",
+      files: ["store.ts", "app.ts"],
+      verify: "bun test",
+      by: "alice",
+      createdAt: "2026-08-22T15:00:00.000Z",
+    });
+    expect(txt).toBe(
+      "[swarm] handoff on M1.3 from alice (2026-08-22 15:00):\n  done: table + routes\n  remaining: CLI, MCP, docs\n  files: store.ts, app.ts\n  verify: bun test",
+    );
   });
 });

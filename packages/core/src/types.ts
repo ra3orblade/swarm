@@ -22,6 +22,7 @@ export type EventType =
   | "process.started"
   | "process.exited"
   | "gate.recorded"
+  | "handoff.recorded"
   | "session.notification"
   | "incident.opened"
   | "incident.acked"

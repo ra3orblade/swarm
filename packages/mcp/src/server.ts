@@ -92,6 +92,59 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_handoff",
+    {
+      title: "Leave a handoff",
+      description:
+        "Before stopping or releasing a task, record what was done, what remains (in order), files worth reading first, and how to verify. The next session that starts in this task's worktree receives it automatically as context; `swarm_resume` reads it on demand.",
+      inputSchema: {
+        task: z.string(),
+        done: z.string().describe("what was finished"),
+        remaining: z.string().describe("what is left, in the order to do it"),
+        files: z.array(z.string()).optional().describe("files touched or to read first"),
+        verify: z.string().optional().describe("how to verify the work so far"),
+      },
+    },
+    async ({ task, done, remaining, files, verify }) => {
+      const pid = await projectId();
+      const r = await api<{ ok: boolean; error?: string; handoff?: unknown }>("/v1/handoffs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: pid,
+          task,
+          done,
+          remaining,
+          files: files ?? [],
+          verify: verify ?? null,
+          by: OWNER,
+          sessionId: SESSION,
+        }),
+      });
+      if (!r.ok) return fail(`REFUSED: ${r.error}`);
+      return ok(`handoff recorded on ${task}`, r.handoff);
+    },
+  );
+
+  server.registerTool(
+    "swarm_resume",
+    {
+      title: "Read the latest handoff",
+      description:
+        "The latest handoff on a task: done, remaining, files, verify. Read it before continuing someone else's work.",
+      inputSchema: { task: z.string() },
+    },
+    async ({ task }) => {
+      const pid = await projectId();
+      const j = await api<{ handoff: unknown; text: string | null }>(
+        `/v1/handoffs?project=${pid}&task=${encodeURIComponent(task)}`,
+      );
+      if (!j.text) return ok(`no handoff on ${task}`, null);
+      return ok(j.text, j.handoff);
+    },
+  );
+
+  server.registerTool(
     "swarm_gate_record",
     {
       title: "Record a verification gate",
