@@ -96,7 +96,24 @@ export function createApp(store = new Store()) {
   // ---- state for the dashboard
   app.get("/v1/state", (c) => c.json(store.snapshot()));
   app.get("/v1/stats", (c) => c.json(store.stats(c.req.query("project") || undefined)));
-  app.get("/v1/incidents", (c) => c.json(store.incidents(Number(c.req.query("limit") ?? 50))));
+  app.get("/v1/incidents", (c) =>
+    c.json(
+      store.incidents(Number(c.req.query("limit") ?? 50), {
+        open: c.req.query("open") === "1",
+        projectId: c.req.query("project") || undefined,
+      }),
+    ),
+  );
+  app.post("/v1/incidents/ack", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { project?: string };
+    return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined) });
+  });
+  app.post("/v1/incidents/:seq/ack", (c) => {
+    const seq = Number(c.req.param("seq"));
+    if (!Number.isInteger(seq) || !store.ackIncident(seq))
+      return c.json({ ok: false, error: "no such incident" }, 404);
+    return c.json({ ok: true });
+  });
 
   // ---- runtime resources (Phase 1)
   app.get("/v1/resources", (c) => c.json(store.resources(c.req.query("project"))));

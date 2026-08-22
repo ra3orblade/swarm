@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], allIncidents: null, incFilter: "open", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -136,9 +136,16 @@ async function refresh() {
     prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
     state.prs = prs;
   }
-  if (!same || prsChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  let incChanged = false;
+  if (state.view === "incidents" && !state.session) {
+    const q = new URLSearchParams({ limit: "500" }); if (state.incFilter === "open") q.set("open", "1");
+    const inc = await (await fetch(`/v1/incidents?${q}`)).json().catch(() => state.allIncidents ?? []);
+    incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
+    state.allIncidents = inc;
+  }
+  if (!same || prsChanged || incChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
-const VIEWS = ["fleet", "board", "prs", "timeline", "spend", "stats"];
+const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -161,6 +168,7 @@ function render() {
   else if (state.view === "stats") { loadStats(); renderStats(); } // loadStats is a no-op while the cache is fresh
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
+  else if (state.view === "incidents") renderIncidentsView();
   else if (state.view === "prs") renderPRs();
   else renderFleet();
   if (keep) {
@@ -173,6 +181,8 @@ function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
   const html = `Today <b>${usd(today)}</b>`;
   if (html !== todayHtml) { todayHtml = html; $("#today").innerHTML = html; }
+  const ic_ = $("#incCount"); const n = state.openIncidents ?? 0;
+  if (ic_) { ic_.hidden = !n; ic_.textContent = n > 99 ? "99+" : String(n); }
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
 }
 
@@ -332,26 +342,64 @@ function renderBoard() {
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Claims, worktrees, and incidents appear here.</div>`;
 }
 
+// Incident columns are shared by the Board section (open only, recent) and the Incidents view (feed).
+function incidentColumns(full) {
+  const sess = (id) => state.sessions.find((s) => s.id === id);
+  return [
+    { key: "ts", label: "when", width: 76, get: (i) => i.ts, cell: (i) => `<span class="dim" title="${esc(i.ts)}">${ago(i.ts)}</span>` },
+    { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
+    { key: "session", label: "session", width: 150, get: (i) => sess(i.sessionId)?.title ?? i.sessionId ?? "", cell: (i) => (i.sessionId ? `<a href="#" data-s="${i.sessionId}">${esc(sess(i.sessionId)?.title ?? i.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
+    { key: "rule", label: "rule", width: 150, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
+    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : '<span class="badge acc">Asked</span>') },
+    { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
+    ...(full ? [
+      { key: "reason", label: "reason", width: 260, get: (i) => i.reason ?? "", cell: (i) => `<span class="dim now" title="${esc(i.reason ?? "")}">${esc(i.reason ?? "")}</span>` },
+      { key: "acked", label: "acked", width: 80, get: (i) => i.acked ?? "", cell: (i) => (i.acked ? `<span class="dim" title="${esc(i.acked)}">${ago(i.acked)}</span>` : '<span class="badge warn">Open</span>') },
+    ] : []),
+  ].filter((c) => !(c.key === "project" && state.sel) && !(c.key === "session" && !full));
+}
+const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" ? "waiting" : "idle"}"></span>`;
+const ackLink = (i) => (i.acked ? "" : `<a href="#" data-ack="${i.seq}" title="Mark as seen">Ack</a>`);
+
 function renderIncidents() {
   const rows = (state.incidents ?? []).filter((i) => !state.sel || i.projectId === state.sel);
   if (!rows.length) return "";
-  const cols = [
-    { key: "ts", label: "when", width: 76, get: (i) => i.ts, cell: (i) => `<span class="dim">${ago(i.ts)}</span>` },
-    { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
-    { key: "rule", label: "rule", width: 130, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
-    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : '<span class="badge acc">Asked</span>') },
-    { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
-  ].filter((c) => !(c.key === "project" && state.sel));
-  return `<h2 class="mt-sec">Incidents <span>${rows.length} · what the rules stopped</span></h2>` +
+  const open = state.sel ? rows.length : (state.openIncidents ?? rows.length);
+  return `<h2 class="mt-sec">Incidents <span>${open} open · what the rules stopped · <a href="#" data-view="incidents">all incidents</a></span></h2>` +
     dataTable({
       id: "incidents",
-      columns: cols,
+      columns: incidentColumns(false),
       rows,
-      leading: { width: 24, cell: (i) => `<span class="s ${i.action === "deny" ? "waiting" : "idle"}"></span>` },
-      trailing: { width: 34, cell: () => "" },
+      leading: { width: 24, cell: incidentDot },
+      trailing: { width: 44, cell: ackLink },
       rowAttrs: (i) => (i.sessionId ? `data-s="${i.sessionId}"` : ""),
       rerender: touch,
     });
+}
+
+// ---------- incidents view (M2.3): the denied-action feed, with ack
+function renderIncidentsView() {
+  const all = state.allIncidents;
+  const rows = (all ?? []).filter((i) => !state.sel || i.projectId === state.sel);
+  const open = rows.filter((i) => !i.acked).length;
+  const chip = (k, label) => `<span class="chip ${state.incFilter === k ? "on" : ""}" data-inc="${k}">${label}</span>`;
+  const byRule = new Map();
+  for (const i of rows) byRule.set(i.rule, (byRule.get(i.rule) ?? 0) + 1);
+  const rules = [...byRule.entries()].sort((a, b) => b[1] - a[1]).map(([r, n]) => `<span class="br">${esc(r)}</span> <b>${n}</b>`).join(" · ");
+  $("#main").innerHTML =
+    `<h2>Incidents <span>${all === null ? "loading…" : `${open} open · ${rows.length} shown`} · every ask/deny the rules made${rules ? ` · ${rules}` : ""}</span></h2>` +
+    `<div class="chips">${chip("open", "Open")}${chip("all", "All")}${open ? `<span class="chip" data-ackall="1" title="Mark every open incident${state.sel ? " in this project" : ""} as seen">Ack all <b>${open}</b></span>` : ""}</div>` +
+    (rows.length
+      ? dataTable({
+          id: "incidents-feed",
+          columns: incidentColumns(true),
+          rows,
+          leading: { width: 24, cell: incidentDot },
+          trailing: { width: 44, cell: ackLink },
+          rowAttrs: () => "",
+          rerender: touch,
+        })
+      : `<div class="empty">${PX.idle()}${state.incFilter === "open" ? "No open incidents." : "No incidents yet."}<br>Every <code>ask</code> or <code>deny</code> a rule makes lands here; ack it once you've seen it.</div>`);
 }
 
 function renderResources() {
@@ -801,13 +849,21 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.id === "feedback") { ev.preventDefault(); return window.open(feedbackUrl(), "_blank"); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
+  if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
+  if (t.dataset.ack) {
+    ev.preventDefault(); ev.stopPropagation();
+    return fetch(`/v1/incidents/${t.dataset.ack}/ack`, { method: "POST" }).then(refresh);
+  }
+  if (t.dataset.ackall) {
+    return fetch("/v1/incidents/ack", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: state.sel || undefined }) }).then(refresh);
+  }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return touch(); }
   if (t.dataset.sdays) { ev.preventDefault(); state.statsDays = Number(t.dataset.sdays); return touch(); }
   if (t.dataset.release || t.dataset.forcerelease) {

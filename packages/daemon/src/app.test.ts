@@ -374,6 +374,36 @@ describe("rules + incidents (Phase 2)", () => {
     store.release(p.id, "auth", true);
   });
 
+  it("incidents can be acked, singly and all at once (M2.3)", async () => {
+    const dir = repo();
+    const { app, store } = createApp(new Store(tmpHome()));
+    for (const n of [1, 2, 3])
+      await hook(app, {
+        session_id: `s-ack-${n}`,
+        cwd: dir,
+        tool_name: "Bash",
+        tool_input: { command: "pkill -f node" },
+      });
+    expect(store.openIncidents()).toBe(3);
+    const first = store.incidents(10)[0] as { seq: number; acked: string | null };
+    expect(first.acked).toBeNull();
+    let r = await app.request(`/v1/incidents/${first.seq}/ack`, { method: "POST" });
+    expect(r.status).toBe(200);
+    expect(store.openIncidents()).toBe(2);
+    expect((store.incidents(10)[0] as { acked: string | null }).acked).not.toBeNull();
+    expect(store.incidents(10, { open: true }).length).toBe(2);
+    r = await app.request("/v1/incidents/999999/ack", { method: "POST" });
+    expect(r.status).toBe(404);
+    r = await app.request("/v1/incidents/ack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(((await r.json()) as { acked: number }).acked).toBe(2);
+    expect(store.openIncidents()).toBe(0);
+    expect((store.snapshot() as { openIncidents: number }).openIncidents).toBe(0);
+  });
+
   it("off disables a rule per-repo", async () => {
     const fs = require("node:fs");
     const dir = repo();

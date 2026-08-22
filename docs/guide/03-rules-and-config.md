@@ -133,6 +133,10 @@ Bash is not covered — a `cat` is not a write — and neither are paths outside
 
 Rules are **guardrails against accidents, not a security boundary**. They classify the Bash command or file write Claude Code is about to make; they do not sandbox the agent. An agent that is denied `git add -A` can still write the same command into a script, a Makefile target or a heredoc and run that, and it can edit files directly without Bash at all. Swarm's rules exist to stop the common collisions — the broad stage that sweeps up a colleague's work, the `pkill -f` that takes down a neighbour's dev server — and to leave a record when they fire. They are not a defence against an agent that is trying to get around them; for that you need Claude Code's own permission system, and worktree isolation via [claims](04-claims-and-worktrees.md), which removes the shared checkout rather than guarding it.
 
+## Incidents
+
+Every `ask` and `deny` is recorded as an incident — rule, decision, the command or path, the reason the agent saw, and which session it was. The **Incidents** view is the feed: *Open* shows what you haven't looked at yet (the count sits in the nav), *All* is history. **Ack** a row once you've seen it, or **Ack all**; the Board shows only open incidents. Over HTTP: `GET /v1/incidents?open=1`, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`.
+
 ## ask, deny, off
 
 - **`ask`** — Claude Code pauses and asks you to approve the command, showing Swarm's reason (prefixed `[swarm]`). The default for every rule.

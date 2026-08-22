@@ -9,7 +9,7 @@ Three doors into the same state: the **dashboard** (for the human watching), the
 This document is the spec; the wireframes below describe where the product is going. What exists now:
 
 - **Nav**: Fleet / Board / PRs / Timeline / Spend / Stats, plus a Session detail reached from any session row. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
-- **Board** = Claims + Worktrees + Resources + Incidents for the selected project. It is "View 2 — Project" below without the TASKS / PROCESSES / RECENT GATES blocks. "View 4 — Incidents" ships as the Incidents section of the Board; there is no ack yet.
+- **Board** = Claims + Worktrees + Resources + Incidents for the selected project. It is "View 2 — Project" below without the TASKS / PROCESSES / RECENT GATES blocks. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.
 - **Not yet**: the keyboard map, the ⌘K palette, the permission-broker Allow/Deny on Fleet rows, the Settings page, and the Session input box (nothing is spawned yet, so there is no stdin to write to).
 - **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves.
 
@@ -140,7 +140,7 @@ web-app · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok �
 
 ### View 4 — Incidents
 
-> Shipped as the **Incidents** section of the Board (what the rules stopped, newest first). No ack yet; kinds today are rule hits only.
+> Shipped as the **Incidents** view: a data-grid feed (when, project, session, rule, asked/denied, command, reason, acked) with Open / All chips, per-row **Ack** and **Ack all**; the nav badge is the open count. Kinds today are rule hits only (`denied` / `asked`); orphaned claims and gate failures are still to come.
 
 Chronological list of things that went wrong or were prevented. Each is one line + ack.
 

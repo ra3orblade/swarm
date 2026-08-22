@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS resources (
   PRIMARY KEY (name, project_id)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS incident_acks (seq INTEGER PRIMARY KEY, acked_at TEXT);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -1540,26 +1541,76 @@ export class Store {
     };
   }
 
-  /** Recent guard incidents (newest first), read straight from the event log. */
-  incidents(limit = 50) {
+  /** Recent guard incidents (newest first), read straight from the event log; `acked` is the
+   *  ack timestamp or null. `open` restricts to un-acked ones. */
+  incidents(limit = 50, opts: { open?: boolean; projectId?: string | undefined } = {}) {
+    const where = ["e.type = 'incident.opened'"];
+    const args: (string | number)[] = [];
+    if (opts.open) where.push("a.seq IS NULL");
+    if (opts.projectId) {
+      where.push("e.project_id = ?");
+      args.push(opts.projectId);
+    }
+    args.push(limit);
     const rows = this.db
       .query(
-        "SELECT seq, ts, project_id, session_id, payload FROM events WHERE type = 'incident.opened' ORDER BY seq DESC LIMIT ?",
+        `SELECT e.seq, e.ts, e.project_id, e.session_id, e.payload, a.acked_at FROM events e
+         LEFT JOIN incident_acks a ON a.seq = e.seq WHERE ${where.join(" AND ")} ORDER BY e.seq DESC LIMIT ?`,
       )
-      .all(limit) as Array<{
+      .all(...args) as Array<{
       seq: number;
       ts: string;
       project_id: string;
       session_id: string | null;
       payload: string;
+      acked_at: string | null;
     }>;
     return rows.map((r) => ({
       seq: r.seq,
       ts: r.ts,
       projectId: r.project_id,
       sessionId: r.session_id,
+      acked: r.acked_at,
       ...(JSON.parse(r.payload || "{}") as Record<string, unknown>),
     }));
+  }
+
+  /** Open (un-acked) incident count, for the nav badge. */
+  openIncidents(projectId?: string): number {
+    const r = this.db
+      .query(
+        `SELECT COUNT(*) AS n FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
+         WHERE e.type = 'incident.opened' AND a.seq IS NULL${projectId ? " AND e.project_id = ?" : ""}`,
+      )
+      .get(...(projectId ? [projectId] : [])) as { n: number };
+    return r.n;
+  }
+
+  /** Acknowledge one incident (idempotent). Returns false if no such incident. */
+  ackIncident(seq: number): boolean {
+    const row = this.db
+      .query("SELECT seq FROM events WHERE seq = ? AND type = 'incident.opened'")
+      .get(seq);
+    if (!row) return false;
+    this.db
+      .query("INSERT OR IGNORE INTO incident_acks (seq, acked_at) VALUES (?, ?)")
+      .run(seq, new Date().toISOString());
+    this.touch();
+    return true;
+  }
+
+  /** Acknowledge every open incident (optionally one project's). Returns how many. */
+  ackAllIncidents(projectId?: string): number {
+    const at = new Date().toISOString();
+    const r = this.db
+      .query(
+        `INSERT OR IGNORE INTO incident_acks (seq, acked_at)
+         SELECT e.seq, ? FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
+         WHERE e.type = 'incident.opened' AND a.seq IS NULL${projectId ? " AND e.project_id = ?" : ""}`,
+      )
+      .run(at, ...(projectId ? [projectId] : []));
+    this.touch();
+    return Number(r.changes);
   }
 
   // ---------- runtime resources (Phase 1)
@@ -1772,7 +1823,8 @@ export class Store {
       sessions: this.memoised("sessions", 2000, () => this.sessions()),
       spend: this.memoised("spend", 30_000, () => this.spend()),
       claims: this.claims(),
-      incidents: this.memoised("incidents", 30_000, () => this.incidents(20)),
+      incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),
+      openIncidents: this.memoised("openIncidents", 30_000, () => this.openIncidents()),
       resources: this.resources(),
       seq: this.seq(),
     };

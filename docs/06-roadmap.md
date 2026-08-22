@@ -60,7 +60,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 |----|------|---------|--------|
 | M2.1 | Rule engine + built-ins: `shared-tree-readonly`, `no-pattern-kill`, `claim-required-to-write`, `protected-ports`, `no-foreign-worktree` | M1 | ✅ 2026-08-22 rules v2 in `core/rules.ts`, each configurable per repo as `ask` / `deny` / `off` (13-config): `shared_tree` / `destructive_git` / `pattern_kill` / `protected_ports` on Bash; `no_foreign_worktree` (default ask) and `claim_required_to_write` (opt-in) on Write/Edit/MultiEdit/NotebookEdit paths and Bash cwd, with holding inferred from the session cwd being inside a claimed worktree; held resource ports auto-protected; `deny` returned to Claude Code as a real permission denial |
 | M2.2 | Gates: record/query, latest-run-wins, rubric required; `swarm gate` + MCP tool | M1 | ⚪ |
-| M2.3 | Incidents view; ack; denied-action feed | M2.1 | 🟡 2026-08-22 every rule hit is recorded (`incident.opened`), served by `GET /v1/incidents` and inside `/v1/state`, rendered as the Incidents section on the Board; ack + a dedicated view still ⚪ |
+| M2.3 | Incidents view; ack; denied-action feed | M2.1 | ✅ 2026-08-22 every rule hit is recorded (`incident.opened`); **Incidents** view = the denied-action feed (Open / All, per-rule counts, reason, session link) with per-row Ack and Ack-all (`incident_acks` table, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`); `GET /v1/incidents?open=1&project=`; open count in the nav badge and `/v1/state.openIncidents`; the Board keeps a short open-only section |
 
 ## M3 — Drive (spawned agents)
 | ID | Task | Depends | Status |
