@@ -74,6 +74,7 @@ export function createApp(store = new Store()) {
 
   // ---- state for the dashboard
   app.get("/v1/state", (c) => c.json(store.snapshot()));
+  app.get("/v1/incidents", (c) => c.json(store.incidents(Number(c.req.query("limit") ?? 50))));
 
   // ---- claims (M1)
   app.get("/v1/claims", (c) => c.json(store.claims(c.req.query("project"))));
@@ -131,7 +132,7 @@ export function createApp(store = new Store()) {
         return c.json({
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
-            permissionDecision: "ask",
+            permissionDecision: guard.action,
             permissionDecisionReason: `[swarm] ${guard.reason}`,
           },
         });

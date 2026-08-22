@@ -13,7 +13,7 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
+const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -178,7 +178,30 @@ function renderFleet() {
     (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
     renderClaims() +
-    renderWorktrees();
+    renderWorktrees() +
+    renderIncidents();
+}
+
+function renderIncidents() {
+  const rows = (state.incidents ?? []).filter((i) => !state.sel || i.projectId === state.sel);
+  if (!rows.length) return "";
+  const cols = [
+    { key: "ts", label: "when", width: 76, get: (i) => i.ts, cell: (i) => `<span class="dim">${ago(i.ts)}</span>` },
+    { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
+    { key: "rule", label: "rule", width: 130, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
+    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : '<span class="badge acc">Asked</span>') },
+    { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
+  ].filter((c) => !(c.key === "project" && state.sel));
+  return `<h2 class="mt-sec">Incidents <span>${rows.length} · what the rules stopped</span></h2>` +
+    dataTable({
+      id: "incidents",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: (i) => `<span class="s ${i.action === "deny" ? "waiting" : "idle"}"></span>` },
+      trailing: { width: 34, cell: () => "" },
+      rowAttrs: (i) => (i.sessionId ? `data-s="${i.sessionId}"` : ""),
+      rerender: render,
+    });
 }
 
 function renderClaims() {

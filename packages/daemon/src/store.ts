@@ -26,6 +26,7 @@ import {
   type LeaseClaim,
   type LiveSession,
   type LogParseResult,
+  loadConfig,
   nextExpiry,
   normalizeHook,
   PRICES,
@@ -35,6 +36,7 @@ import {
   parseGrokUpdates,
   parseTranscriptChunk,
   projectIdentity,
+  type RulesConfig,
   reapAction,
   releaseRefusalMessage,
   type SwarmEvent,
@@ -167,7 +169,20 @@ export class Store {
   }
 
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
-  guardHook(raw: Record<string, unknown>): Extract<GuardDecision, { action: "ask" }> | null {
+  /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
+  private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  rulesFor(repoRoot: string | null): RulesConfig {
+    const key = repoRoot ?? "";
+    const hit = this.rulesCache.get(key);
+    if (hit && Date.now() - hit.at < 30_000) return hit.rules;
+    const rules = loadConfig({ repoRoot }).rules;
+    this.rulesCache.set(key, { at: Date.now(), rules });
+    return rules;
+  }
+
+  guardHook(
+    raw: Record<string, unknown>,
+  ): Extract<GuardDecision, { action: "ask" | "deny" }> | null {
     if (raw.tool_name !== "Bash") return null;
     const input = raw.tool_input as { command?: string } | undefined;
     const cmd = input?.command;
@@ -191,8 +206,18 @@ export class Store {
       lastSeenAt: r.last_seen_at,
       state: r.state,
     }));
-    const d = guardBash(cmd, current, sessions, Date.now());
-    return d.action === "ask" ? d : null;
+    const d = guardBash(cmd, current, sessions, Date.now(), this.rulesFor(current.toplevel));
+    if (d.action === "allow") return null;
+    // Record the decision as an incident: visible on the dashboard and in the event stream.
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    this.append({
+      ts: new Date().toISOString(),
+      type: "incident.opened",
+      projectId: project?.id ?? "p_unknown",
+      sessionId: id || null,
+      payload: { rule: d.rule, action: d.action, command: cmd.slice(0, 400), reason: d.reason },
+    });
+    return d;
   }
 
   // ---------- pricing
@@ -1063,6 +1088,28 @@ export class Store {
     };
   }
 
+  /** Recent guard incidents (newest first), read straight from the event log. */
+  incidents(limit = 50) {
+    const rows = this.db
+      .prepare(
+        "SELECT seq, ts, project_id, session_id, payload FROM events WHERE type = 'incident.opened' ORDER BY seq DESC LIMIT ?",
+      )
+      .all(limit) as Array<{
+      seq: number;
+      ts: string;
+      project_id: string;
+      session_id: string | null;
+      payload: string;
+    }>;
+    return rows.map((r) => ({
+      seq: r.seq,
+      ts: r.ts,
+      projectId: r.project_id,
+      sessionId: r.session_id,
+      ...(JSON.parse(r.payload || "{}") as Record<string, unknown>),
+    }));
+  }
+
   snapshot() {
     const worktrees: Record<string, Worktree[]> = {};
     const projects = this.projects();
@@ -1076,6 +1123,7 @@ export class Store {
       sessions: this.sessions(),
       spend: this.spend(),
       claims: this.claims(),
+      incidents: this.incidents(20),
       seq,
     };
   }
