@@ -23,6 +23,8 @@ export type EventType =
   | "process.exited"
   | "gate.recorded"
   | "handoff.recorded"
+  | "permission.requested"
+  | "permission.resolved"
   | "session.notification"
   | "incident.opened"
   | "incident.acked"

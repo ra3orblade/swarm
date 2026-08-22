@@ -43,7 +43,7 @@ Swarm keeps **no state in the target repository**. Identity and state:
 - **Lease reaper**: expires stale claims (TTL default 45 min, renewable), keeps claims that still have dirty worktrees, and flags them.
 - **Process registry**: pids, ports, cwd, owning session, for anything started through `swarm serve` / `swarm proc`. Liveness checked by pid + start time, never by command pattern.
 - **Rule engine**: evaluates hook events against rules and returns allow/deny/ask. Rules are small TypeScript predicates shipped as a built-in set with per-project toggles; custom rules later.
-- **Agent runner**: spawns `claude -p --output-format stream-json --input-format stream-json` in a worktree, ingests the stream, exposes stdin for steering, brokers permissions via `--permission-prompt-tool` → MCP.
+- **Agent runner** (`daemon/runner.ts`): spawns `claude -p --output-format stream-json --input-format stream-json --permission-prompt-tool stdio` in a claimed worktree, ingests the stream, keeps stdin open for steering, and brokers permissions — each `control_request` is evaluated through the same rules as the PreToolUse hook (`store.evaluateTool`): auto-deny / auto-allow, or held for a human on the dashboard.
 
 ### `swarm` (CLI)
 Thin client. `add`, `ls`, `status`, `claim`, `renew`, `release`, `handoff`, `resume`, `reap`, `wt`, `serve`, `proc`, `gate`, `run`, `tail`, `install`, `uninstall`, `ui`, `doctor`. Human output by default, `--json` for scripts. These mirror standard worktree / serve / workers CLI patterns.

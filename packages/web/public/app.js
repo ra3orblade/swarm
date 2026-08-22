@@ -857,7 +857,8 @@ function stdinBox(s) {
   if (s.kind !== "spawned") return "";
   const run = (state.runs ?? []).find((r) => r.sessionId === s.id);
   if (!run) return `<div class="stdin"><span class="hint">${ic("play", 12)} spawned by swarm run · no longer live</span></div>`;
-  return `<div class="stdin" id="stdin"><input id="stdinText" placeholder="Send a message to this run… (Enter)" autocomplete="off" spellcheck="false"><button id="stdinSend">${ic("arrow-right", 13)} Send</button><button class="danger" data-runstop="${esc(run.id)}">Stop</button><span class="hint">run ${esc(run.id)} · pid ${run.pid}${run.result ? ` · $${run.result.costUsd.toFixed(2)} so far` : ""}</span></div>`;
+  const perms = (run.pending ?? []).map((pp) => `<div class="perm"><div class="perm-t">${ic("warning", 13)} <b>${esc(pp.tool)}</b> needs approval<span class="dim now" title="${esc(pp.reason)}"> — ${esc(pp.reason)}</span></div><div class="perm-c">${esc(pp.display)}</div><div class="perm-b"><button class="ok" data-perm-allow="${esc(run.id)}:${esc(pp.requestId)}">Allow</button><button class="danger" data-perm-deny="${esc(run.id)}:${esc(pp.requestId)}">Deny</button></div></div>`).join("");
+  return `${perms}<div class="stdin" id="stdin"><input id="stdinText" placeholder="Send a message to this run… (Enter)" autocomplete="off" spellcheck="false"><button id="stdinSend">${ic("arrow-right", 13)} Send</button><button class="danger" data-runstop="${esc(run.id)}">Stop</button><span class="hint">run ${esc(run.id)} · pid ${run.pid}${run.result ? ` · $${run.result.costUsd.toFixed(2)} so far` : ""}</span></div>`;
 }
 async function sendStdin() {
   const s = state.sessions.find((x) => x.id === state.session);
@@ -869,7 +870,15 @@ async function sendStdin() {
   if (!r.ok) alert((await r.json()).error);
   refresh();
 }
-document.addEventListener("click", (ev) => { if (ev.target.closest("#stdinSend")) sendStdin(); });
+document.addEventListener("click", (ev) => {
+  if (ev.target.closest("#stdinSend")) return sendStdin();
+  const a = ev.target.closest("[data-perm-allow]"), d = ev.target.closest("[data-perm-deny]");
+  const key = a?.dataset.permAllow || d?.dataset.permDeny;
+  if (key) {
+    const [runId, reqId] = key.split(":");
+    return fetch(`/v1/runs/${encodeURIComponent(runId)}/permissions/${encodeURIComponent(reqId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ allow: Boolean(a) }) }).then(refresh);
+  }
+});
 document.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.id === "stdinText") { ev.preventDefault(); sendStdin(); } });
 
 function renderSession() {
@@ -1221,7 +1230,7 @@ function connect() {
     }
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

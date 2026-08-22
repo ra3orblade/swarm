@@ -96,6 +96,8 @@ swarm run stop login-form                  # close stdin, then SIGTERM/SIGKILL b
 swarm tail --session <id>                  # watch the event stream
 ```
 
+Permission prompts from the spawned agent are brokered by Swarm: the same [rules](03-rules-and-config.md) that guard your interactive sessions decide, and anything they flag as *ask* waits for you on the session page with **Allow** / **Deny** buttons rather than blocking on a terminal you can't see.
+
 `swarm run` claims the task (fail-closed — or reuses a worktree you already hold), then the daemon spawns `claude -p` inside it with stream-json on both stdin and stdout. The session appears in Fleet marked ▶ spawned; tokens and cost come from its transcript like any other session, and each finished turn is a `run.result` event with the cost so far. Runs live as long as the daemon: `swarm stop` / a restart stops them cleanly (their pids are in the registry, never killed by pattern). Options: `--prompt-file`, `--model`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--allowed-tools Bash,Edit`, `--max-turns n`.
 
 ## Stats

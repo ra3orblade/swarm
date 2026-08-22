@@ -52,6 +52,17 @@ export interface Run {
   exitCode: number | null;
   /** Latest `result` line: cost so far, turns, error flag. */
   result: { costUsd: number; turns: number; isError: boolean; at: string } | null;
+  /** Permission prompts the rules didn't auto-resolve, awaiting a human (M3.2). */
+  pending: PendingPermission[];
+}
+
+export interface PendingPermission {
+  requestId: string;
+  tool: string;
+  input: Record<string, unknown>;
+  display: string;
+  reason: string;
+  askedAt: string;
 }
 
 const PERMISSION_MODES: PermissionMode[] = [
@@ -125,6 +136,9 @@ export class Runner {
       "--verbose",
       "--session-id",
       sessionId,
+      // M3.2: route permission prompts to us over stdout/stdin instead of a TTY.
+      "--permission-prompt-tool",
+      "stdio",
     ];
     if (input.model) args.push("--model", input.model);
     if (input.permissionMode) args.push("--permission-mode", input.permissionMode);
@@ -157,6 +171,7 @@ export class Runner {
       endedAt: null,
       exitCode: null,
       result: null,
+      pending: [],
     };
     this.live.set(id, { run, proc });
     this.store.registerProcess({
@@ -232,10 +247,26 @@ export class Runner {
 
   private onLine(run: Run, line: string) {
     if (!line.startsWith("{")) return;
-    let j: { type?: string; total_cost_usd?: number; num_turns?: number; is_error?: boolean };
+    let j: {
+      type?: string;
+      total_cost_usd?: number;
+      num_turns?: number;
+      is_error?: boolean;
+      request_id?: string;
+      request?: { subtype?: string; tool_name?: string; input?: Record<string, unknown> };
+    };
     try {
       j = JSON.parse(line);
     } catch {
+      return;
+    }
+    if (j.type === "control_request" && j.request?.subtype === "can_use_tool") {
+      this.onPermissionRequest(
+        run,
+        j.request_id as string,
+        j.request.tool_name ?? "",
+        j.request.input ?? {},
+      );
       return;
     }
     if (j.type !== "result") return;
@@ -257,6 +288,95 @@ export class Runner {
         summary: `turn done · $${run.result.costUsd.toFixed(2)} · ${run.result.turns} turns${run.result.isError ? " · error" : ""}`,
       },
     });
+  }
+
+  // ---------- permission broker (M3.2)
+  /** A `control_request` from the run: evaluate against the rules, auto-resolve, or hold pending. */
+  private onPermissionRequest(
+    run: Run,
+    requestId: string,
+    tool: string,
+    input: Record<string, unknown>,
+  ) {
+    const { decision, display } = this.store.evaluateTool(
+      tool,
+      input as { command?: string; file_path?: string },
+      run.sessionId,
+      run.worktree,
+      true,
+    );
+    if (decision.action === "deny") {
+      this.answerPermission(run.id, requestId, false, `[swarm] ${decision.reason}`);
+      return;
+    }
+    if (decision.action === "allow") {
+      // Nothing the rules object to — but this is a spawned agent with no human at the terminal, so
+      // by default we approve so it can make progress. The rules already caught the dangerous cases.
+      this.answerPermission(run.id, requestId, true);
+      return;
+    }
+    // "ask": surface it to the dashboard and wait for a human decision.
+    run.pending.push({
+      requestId,
+      tool,
+      input,
+      display,
+      reason: decision.reason,
+      askedAt: new Date().toISOString(),
+    });
+    this.store.append({
+      ts: new Date().toISOString(),
+      type: "permission.requested",
+      projectId: run.projectId,
+      sessionId: run.sessionId,
+      payload: {
+        runId: run.id,
+        requestId,
+        tool,
+        display: display.slice(0, 300),
+        reason: decision.reason,
+        summary: `permission: ${tool} — waiting`,
+      },
+    });
+    this.store.touch();
+  }
+
+  /** Resolve a pending prompt (from the dashboard) or auto-resolve internally. */
+  answerPermission(
+    runId: string,
+    requestId: string,
+    allow: boolean,
+    message?: string,
+  ): { ok: boolean; reason?: string } {
+    const entry = this.live.get(runId);
+    if (!entry) return { ok: false, reason: "no live run" };
+    const stdin = entry.proc.stdin;
+    if (!stdin || typeof stdin === "number") return { ok: false, reason: "stdin not available" };
+    const pend = entry.run.pending.find((p) => p.requestId === requestId);
+    const response = allow
+      ? { behavior: "allow", updatedInput: pend?.input ?? {} }
+      : { behavior: "deny", message: message ?? "Denied from the Swarm dashboard" };
+    stdin.write(
+      `${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: requestId, response } })}\n`,
+    );
+    stdin.flush();
+    entry.run.pending = entry.run.pending.filter((p) => p.requestId !== requestId);
+    if (pend)
+      this.store.append({
+        ts: new Date().toISOString(),
+        type: "permission.resolved",
+        projectId: entry.run.projectId,
+        sessionId: entry.run.sessionId,
+        payload: {
+          runId,
+          requestId,
+          tool: pend.tool,
+          allow,
+          summary: `permission: ${pend.tool} — ${allow ? "allowed" : "denied"}`,
+        },
+      });
+    this.store.touch();
+    return { ok: true };
   }
 
   /** Steer: a user message on stdin (stream-json input). */

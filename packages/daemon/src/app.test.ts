@@ -270,6 +270,94 @@ describe("auto-renew + orphan detection (M1.2)", () => {
   });
 });
 
+describe("permission broker (M3.2)", () => {
+  it("holds an ask for a human, resolves it from the dashboard, and auto-allows the unflagged", async () => {
+    const fs = require("node:fs");
+    const binDir = fs.mkdtempSync(join(tmpdir(), "swarm-permbin-"));
+    const outFile = join(binDir, "answers.jsonl");
+    // Fake claude: emits a control_request per stdin line it reads (after the first prompt),
+    // logs the control_response it receives to $outFile.
+    fs.writeFileSync(
+      join(binDir, "claude"),
+      [
+        "#!/bin/sh",
+        'echo \'{"type":"system","subtype":"init","session_id":"x"}\'',
+        "read prompt",
+        // 1) a pattern kill (globally denied) 2) a plain command (not flagged → pending until answered)
+        'echo \'{"type":"control_request","request_id":"r-ask","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"pkill -f node"}}}\'',
+        "read a; printf '%s\\n' \"$a\" >> " + JSON.stringify(outFile),
+        'echo \'{"type":"control_request","request_id":"r-allow","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls -la"}}}\'',
+        "read b; printf '%s\\n' \"$b\" >> " + JSON.stringify(outFile),
+        'echo \'{"type":"result","total_cost_usd":0.1,"num_turns":1,"is_error":false}\'',
+        "cat >/dev/null",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(join(binDir, "claude"), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath}`;
+    try {
+      const home = tmpHome();
+      fs.writeFileSync(join(home, "config.toml"), `[rules]\npattern_kill = "ask"\n`);
+      const { app, store, runner } = createApp(new Store(home));
+      const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-perm-")));
+      const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      sh("git", "init", "-q", "-b", "main");
+      sh("git", "config", "user.email", "t@t");
+      sh("git", "config", "user.name", "t");
+      fs.writeFileSync(join(dir, "README.md"), "# r\n");
+      sh("git", "add", "README.md");
+      sh("git", "commit", "-qm", "init");
+      const p = store.resolveProject(dir, true);
+      const r = await app.request("/v1/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: p.id, task: "t", prompt: "go", owner: "a" }),
+      });
+      expect(r.status).toBe(201);
+      const { run } = (await r.json()) as { run: { id: string } };
+      const until = async (f: () => boolean, ms = 5000) => {
+        const t = Date.now() + ms;
+        while (!f() && Date.now() < t) await Bun.sleep(50);
+      };
+      const answers = () =>
+        fs.existsSync(outFile)
+          ? fs
+              .readFileSync(outFile, "utf8")
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .map((l: string) => JSON.parse(l))
+          : [];
+      // pkill → rules say "ask" → held pending, surfaced on the run (not auto-resolved)
+      await until(() => (runner.get("t")?.pending.length ?? 0) >= 1);
+      const pend = runner.get("t")?.pending[0];
+      expect(pend?.requestId).toBe("r-ask");
+      expect(pend?.reason).toContain("kills processes by command pattern");
+      expect(answers().length).toBe(0); // nothing answered yet — it is waiting for a human
+      // resolve it from the "dashboard" as a deny
+      const rr = await app.request(`/v1/runs/${run.id}/permissions/r-ask`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allow: false, message: "no pattern kills" }),
+      });
+      expect(rr.status).toBe(200);
+      await until(() => answers().length >= 1);
+      expect(answers()[0].response.request_id).toBe("r-ask");
+      expect(answers()[0].response.response.behavior).toBe("deny");
+      // the next request (plain ls) is not flagged → auto-allowed, no human needed
+      await until(() => answers().length >= 2);
+      expect(answers()[1].response.request_id).toBe("r-allow");
+      expect(answers()[1].response.response.behavior).toBe("allow");
+      expect(runner.get("t")?.pending ?? []).toEqual([]);
+      await runner.stop(run.id);
+      store.release(p.id, "t", true);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+});
+
 describe("handoffs + SessionStart context (M1.3)", () => {
   it("records a handoff and injects it into the next session starting in the worktree", async () => {
     const { app, store } = createApp(new Store(tmpHome()));

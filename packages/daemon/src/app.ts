@@ -226,6 +226,16 @@ export function createApp(store = new Store()) {
     const r = runner.send(c.req.param("id"), b.text);
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
+  app.post("/v1/runs/:id/permissions/:reqId", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { allow?: boolean; message?: string };
+    const r = runner.answerPermission(
+      c.req.param("id"),
+      c.req.param("reqId"),
+      b.allow === true,
+      b.message,
+    );
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
   app.delete("/v1/runs/:id", async (c) => {
     const r = await runner.stop(c.req.param("id"));
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);

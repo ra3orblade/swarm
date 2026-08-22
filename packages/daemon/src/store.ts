@@ -570,7 +570,7 @@ export class Store {
   /** Gates the repo declares as required (`.swarm.toml [gates] required`). */
   requiredGates(projectId: string): string[] {
     const p = this.project(projectId);
-    return p ? loadConfig({ repoRoot: p.root }).gates.required : [];
+    return p ? loadConfig({ repoRoot: p.root, home: this.home }).gates.required : [];
   }
 
   /** Record a run. Rejects a missing rubric; a fail opens an incident. */
@@ -640,7 +640,7 @@ export class Store {
   tasks(projectId: string): { source: string; required: string[]; tasks: TaskBoardRow[] } | null {
     const p = this.project(projectId);
     if (!p) return null;
-    const source = loadConfig({ repoRoot: p.root }).tasks.source;
+    const source = loadConfig({ repoRoot: p.root, home: this.home }).tasks.source;
     if (!source) return null;
     const path = join(p.root, source);
     if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
@@ -676,9 +676,77 @@ export class Store {
     const key = repoRoot ?? "";
     const hit = this.rulesCache.get(key);
     if (hit && Date.now() - hit.at < 30_000) return hit.rules;
-    const rules = loadConfig({ repoRoot }).rules;
+    const rules = loadConfig({ repoRoot, home: this.home }).rules;
     this.rulesCache.set(key, { at: Date.now(), rules });
     return rules;
+  }
+
+  /**
+   * Evaluate a tool call against the rules — the shared core of the PreToolUse hook (`guardHook`)
+   * and the M3.2 permission broker. Returns the guard decision (`allow` for anything the rules do
+   * not flag) plus a display string; records an incident on a non-allow. `recordIncident=false`
+   * lets the broker evaluate without double-recording when the hook already fired.
+   */
+  evaluateTool(
+    tool: string,
+    input: { command?: string; file_path?: string },
+    sessionId: string,
+    cwd: string,
+    recordIncident = true,
+  ): { decision: GuardDecision; display: string } {
+    const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
+    const cmd = tool === "Bash" ? input.command : undefined;
+    const current = { id: sessionId, cwd, toplevel: this.toplevel(cwd) };
+    const modes = this.rulesFor(current.toplevel);
+    if (
+      isWrite &&
+      (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off")
+    ) {
+      const target = absolutePath(input.file_path as string, cwd);
+      const w = guardWrite(target, current, this.heldWorktrees(), modes, "file");
+      if (w.action !== "allow") {
+        if (recordIncident) this.openIncident(w, cwd, sessionId, `${tool} ${target}`);
+        return { decision: w, display: `${tool} ${target}` };
+      }
+    }
+    if (cmd) {
+      if (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off") {
+        const w = guardWrite(cwd, current, this.heldWorktrees(), modes, "bash");
+        if (w.action !== "allow") {
+          if (recordIncident) this.openIncident(w, cwd, sessionId, cmd);
+          return { decision: w, display: cmd };
+        }
+      }
+      const d = guardBash(cmd, current, this.liveSessions(), Date.now(), {
+        ...modes,
+        protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
+      });
+      if (d.action !== "allow" && recordIncident) this.openIncident(d, cwd, sessionId, cmd);
+      return { decision: d, display: cmd };
+    }
+    return {
+      decision: { action: "allow" },
+      display: isWrite ? `${tool} ${input.file_path}` : tool,
+    };
+  }
+
+  private liveSessions(): LiveSession[] {
+    const rows = this.db
+      .query(
+        "SELECT id, cwd, last_seen_at, state FROM sessions WHERE state != 'ended' AND last_seen_at > ?",
+      )
+      .all(new Date(Date.now() - LIVE_WINDOW_MS - 10_000).toISOString()) as Array<{
+      id: string;
+      cwd: string;
+      last_seen_at: string;
+      state: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      toplevel: this.toplevel(r.cwd),
+      lastSeenAt: r.last_seen_at,
+      state: r.state,
+    }));
   }
 
   guardHook(
@@ -864,7 +932,7 @@ export class Store {
     this.memo.set(key, { gen: this.gen, t: now, v });
     return v;
   }
-  private touch() {
+  touch() {
     this.gen++;
   }
 

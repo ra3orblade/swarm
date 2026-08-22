@@ -62,14 +62,14 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M2.2 | Gates: record/query, latest-run-wins, rubric required; `swarm gate` + MCP tool | M1 | ✅ 2026-08-22 `core/gates.ts` (`validateGateRun` rejects a missing rubric, `gateStatus` latest-wins with id tie-break, `gatesSatisfied`); `gates` table, `GET/POST /v1/gates`, a fail opens a `gate_failed` incident; `.swarm.toml [gates] required`; `swarm gate record|ls`; MCP `swarm_gate_record` / `swarm_gates`; Board: gates column on Tasks (✓ ✗ —) + **Recent gates** section |
 | M2.3 | Incidents view; ack; denied-action feed | M2.1 | ✅ 2026-08-22 every rule hit is recorded (`incident.opened`); **Incidents** view = the denied-action feed (Open / All, per-rule counts, reason, session link) with per-row Ack and Ack-all (`incident_acks` table, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`); `GET /v1/incidents?open=1&project=`; open count in the nav badge and `/v1/state.openIncidents`; the Board keeps a short open-only section |
 
-## M3 — Drive (spawned agents) ← next
+## M3 — Drive (spawned agents) ✅ 2026-08-22
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
 | M3.1 | `swarm run`: spawn `claude -p` stream-json in a claimed worktree; ingest; stdin steering | M1 | ✅ 2026-08-22 `daemon/runner.ts`: claim (reuses the caller's held worktree), `claude -p --output-format stream-json --input-format stream-json --session-id <uuid>` spawned by the daemon in the worktree with stdin kept open; prompt + `run send` go in as stream-json user messages; session pre-registered as `spawned` so hooks/transcripts ingest it like any session; `result` lines → `run.result` (cost, turns, error); pid in the process registry (stop = close stdin, then TERM/KILL by pid + start time); `GET/POST /v1/runs`, `POST /v1/runs/:id/send`, `DELETE /v1/runs/:id`; CLI `swarm run --task --prompt|--prompt-file [--model] [--permission-mode] [--allowed-tools] [--max-turns]`, `run ls|send|stop`; verified against Claude Code 2.1.240 |
-| M3.2 | Permission broker via `--permission-prompt-tool` → rules → dashboard | M3.1, M2.1 | ⚪ |
+| M3.2 | Permission broker via `--permission-prompt-tool` → rules → dashboard | M3.1, M2.1 | ✅ 2026-08-22 spawned runs pass `--permission-prompt-tool stdio`; the runner intercepts `control_request{can_use_tool}` and evaluates the tool through the shared `store.evaluateTool` (same rules as the hook): `deny` → auto-`control_response` deny with the reason, `allow` → auto-allow (spawned agent, no TTY), anything the rules flag as `ask` → held pending and surfaced (`permission.requested`), resolved by a human via `POST /v1/runs/:id/permissions/:reqId {allow}` → deny/allow control_response (`permission.resolved`); Allow/Deny cards on the spawned session; wire format verified against Claude Code 2.1.240 |
 | M3.3 | Run from dashboard; stop/kill; cost + token rollups per project | M3.1 | ✅ 2026-08-22 **Run** on ready/held task rows → drawer (prompt prefilled from the task, permission mode, model, max turns; ⌘⏎) → `POST /v1/runs` → opens the session; spawned sessions get a stdin box (Enter to send) + **Stop** with run id / pid / cost so far; cost + tokens roll up through the transcript like any session (Spend by project) |
 
-## M4 — Learn (the data pays off)
+## M4 — Learn (the data pays off) ← next
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
 | M4.1 | Session replay: scrub per tool call, diff per step; "while you were away" digest per project | M0 | ⚪ |

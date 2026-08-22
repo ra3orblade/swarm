@@ -156,6 +156,13 @@
   .pk-b textarea{min-height:120px;resize:vertical;font-family:var(--mono);font-size:var(--fs-sm);line-height:1.5}
   .pk-b input:focus,.pk-b textarea:focus,.pk-b select:focus{border-color:var(--acc)}
   .pk-b .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  /* pending permission prompts (M3.2) */
+  .perm{background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r-sm);padding:10px 12px;margin-top:10px}
+  .perm-t{font:500 var(--fs-md) var(--sans);color:var(--fg)}
+  .perm-c{font-family:var(--mono);font-size:var(--fs-sm);color:var(--fg-2);margin:6px 0 8px;word-break:break-all;background:var(--panel-2);border-radius:var(--r-xs);padding:6px 8px}
+  .perm-b{display:flex;gap:8px}
+  .perm-b .ok{color:var(--acc);border-color:var(--acc-soft)}
+  .perm-b .danger{color:var(--warn);border-color:var(--warn-soft)}
   /* stdin box for spawned sessions (M3.3) */
   .stdin{display:flex;gap:8px;margin-top:10px;align-items:center}
   .stdin input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:8px 10px;font:var(--fs-md) var(--sans);outline:none}
