@@ -67,6 +67,7 @@ export const ICONS = [
   "rows",
   "list-bullets",
   "sliders",
+  "comment-text",
   "arrow-bar-left",
   "arrow-bar-right",
   "git-pull-request",

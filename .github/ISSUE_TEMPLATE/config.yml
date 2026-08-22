@@ -1,1 +1,8 @@
 blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://getswarm.vercel.app/docs/
+    about: Design docs, configuration reference, interface spec.
+  - name: Changelog
+    url: https://getswarm.vercel.app/changelog
+    about: What changed in each release.

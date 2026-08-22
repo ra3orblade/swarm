@@ -87,6 +87,7 @@ const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.age
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
+  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; }).catch(() => {});
   if (state.view === "prs") state.prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
   render();
 }
@@ -603,10 +604,21 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
-      { label: "Documentation", icon: "book-open", caption: "GitHub", run: () => window.open("https://github.com/ra3orblade/swarm#readme", "_blank") },
+      { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
+      { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
     ] };
   }
   return null;
+}
+// Feedback lands in a GitHub issue form, prefilled with the environment so people don't have to type it.
+const REPO_URL = "https://github.com/ra3orblade/swarm";
+function feedbackUrl() {
+  const ua = navigator.userAgent;
+  const os = /Mac/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "unknown OS";
+  const shell = window.__TAURI__ || window.__TAURI_INTERNALS__ ? "desktop" : "browser";
+  const env = `swarm ${state.version || "?"} · ${os} · ${shell}`;
+  const q = new URLSearchParams({ template: "feedback.yml", environment: env });
+  return `${REPO_URL}/issues/new?${q}`;
 }
 function openMenu(kind, anchor, d) {
   const spec = menuSpec(kind, d);
@@ -623,10 +635,11 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
+  if (t.id === "feedback") { ev.preventDefault(); return window.open(feedbackUrl(), "_blank"); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
