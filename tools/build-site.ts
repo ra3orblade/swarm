@@ -123,7 +123,7 @@ const shell = (p: Page) => `<!doctype html>
 <meta property="og:url" content="${SITE}/${p.path}">
 <meta property="og:image" content="${SITE}/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="google-site-verification" content="T0i_4sok7j4pIZhwPmDpTUvwPy3xuScYJWTFQ8KRDcE">
+<meta name="google-site-verification" content="uU32AJFjQBkHR9pOl_a3olAgDNoMRF3CMn6rJ8hQiIg">
 <meta name="color-scheme" content="dark">
 ${favicon}
 <style>${css}</style>
