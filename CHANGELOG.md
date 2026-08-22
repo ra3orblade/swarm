@@ -4,7 +4,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-22
+
+The enforcement release: rules that watch file writes, not just Bash; a backlog Swarm can read; servers Swarm starts and stops by pid; and an Incidents feed you can clear.
+
 ### Added
+- **Rules on file writes** — two new rules evaluated on `Write` / `Edit` / `MultiEdit` / `NotebookEdit` paths (and Bash working directories), not only Bash commands. `no_foreign_worktree` (default `ask`) stops a session from editing inside a worktree another claim holds — *never touch a worktree you don't hold* is now a hook decision, with holding inferred from the session's cwd. `claim_required_to_write` (opt-in) makes a repo's shared checkout read-only without a claim: claim a task, get a worktree, write there. Both per repo as `ask | deny | off`.
+- **Incidents view** — the denied-action feed as its own tab: Open / All, per-rule counts, reason and session per row, **Ack** and **Ack all**; the open count sits in the nav. `GET /v1/incidents?open=1&project=`, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`, `/v1/state.openIncidents`. The Board keeps a short open-only section.
+- **Task source** — `.swarm.toml` `[tasks] source = "docs/plan.md"` points at a markdown file whose `ID | Task | Depends | Status` tables are the backlog (✅ / 🟡 / ⚪, dependencies by task id or milestone prefix). The Board gets a **Tasks** section (Ready / Open / All, *Claim* per row), the CLI `swarm tasks [--ready]`, and agents `swarm_next_task` — the first unclaimed task whose dependencies are done. Swarm's own roadmap is its task source. Markdown only (OQ-5 decided).
+- **`swarm serve` / `swarm proc`** — `swarm serve start --name web -- npm run dev` allocates a free port (ledger + bind probe), runs the command detached with `PORT` set and logs under `~/.swarm/logs/<project>/`, registers pid + start time, and acquires the singleton — so a second `web` fails closed and the port is protected for every other session with no config. `serve ls | stop [name|pid]`, `proc start | ls | stop` for workers without a port. Stop signals registry pids only, verified by start time; nothing is ever killed by pattern. `POST /v1/ports/allocate`, `GET/POST/DELETE /v1/processes`; **Processes** section on the Board with *Stop*.
+- **Star nudge** — once a month at most, never on first open, the dashboard asks for a GitHub star. *Later* snoozes 30 days, *Don't ask again* is final; localStorage only.
 - **Sidebar drag-and-drop** — pinned projects reorder by dragging; the order persists on the daemon (`PUT /v1/projects/order`, `Project.order`).
 - **Desktop app menu** — a real application menu (Swarm / Edit / View / Window): ⌘C/⌘V work, **View › Zoom In / Zoom Out / Actual Size** (`⌘+` `⌘−` `⌘0`) scale the dashboard (persisted), plus Reload and Full Screen.
 
@@ -71,6 +80,7 @@ The coordination release: rules you can configure, runtime resources agents can 
 
 First signed and notarized macOS desktop build; `release.yml` became a three-OS matrix (macOS / Windows / Linux) with a native sidecar per runner.
 
+[0.4.0]: https://github.com/ra3orblade/swarm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ra3orblade/swarm/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ra3orblade/swarm/compare/v0.0.6...v0.2.2
 [0.0.6]: https://github.com/ra3orblade/swarm/releases/tag/v0.0.6

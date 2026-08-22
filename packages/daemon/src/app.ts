@@ -8,7 +8,7 @@ import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
 import { Store } from "./store";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.3.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.4.0";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.

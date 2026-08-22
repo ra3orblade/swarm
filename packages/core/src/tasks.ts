@@ -71,14 +71,14 @@ export function parseMarkdownTasks(text: string): Task[] {
     const cells = splitRow(line);
     if (!cols) {
       const lc = cells.map((c) => c.toLowerCase());
-      const id = lc.findIndex((c) => c === "id");
+      const id = lc.indexOf("id");
       const task = lc.findIndex((c) => c === "task" || c === "title");
       if (id < 0 || task < 0 || !isSeparator(lines[i + 1] ?? "")) continue;
       cols = {
         id,
         task,
         depends: lc.findIndex((c) => c.startsWith("depend")),
-        status: lc.findIndex((c) => c === "status"),
+        status: lc.indexOf("status"),
       };
       i++; // skip the separator
       continue;
