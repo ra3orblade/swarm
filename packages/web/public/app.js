@@ -83,7 +83,7 @@ setTheme(getTheme());
 const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
 const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
-const agentBadge = (a) => (a && a !== "claude-code" ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
+const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
 async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
@@ -237,7 +237,7 @@ function renderResources() {
       columns: cols,
       rows,
       leading: { width: 24, cell: () => '<span class="s active"></span>' },
-      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${r.projectId ?? ""}">Release</a>` },
+      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${esc(r.projectId ?? "")}">Release</a>` },
       rerender: render,
     });
 }
@@ -345,7 +345,7 @@ function renderSpend() {
        <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
        <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
      </div>
-     <div class="cols" class="mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+     <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
