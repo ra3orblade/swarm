@@ -5,6 +5,7 @@ export * from "./config";
 export * from "./forge";
 export * from "./ledger";
 export * from "./pricing";
+export * from "./processes";
 export * from "./project-id";
 export * from "./resources";
 export * from "./rules";

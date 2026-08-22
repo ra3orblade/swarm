@@ -73,7 +73,18 @@ swarm res acquire <name> [--owner n] [--pid n] [--port n]
 swarm res release <name> [--owner n] [--force]
 ```
 
-Details: [Runtime resources](05-runtime-resources.md).
+## Servers and workers
+
+```sh
+swarm serve start [--name web] [--from-port 3400 | --port n] [--owner n] -- <cmd>
+                                 # allocate a free port, run <cmd> with PORT set, track the pid
+swarm serve ls                   # servers this project started: name · pid · :port · command
+swarm serve stop [name|pid]      # SIGTERM then SIGKILL after 3 s; the only one running needs no name
+swarm proc start [--name n] -- <cmd>   # the same for a worker without a port
+swarm proc ls | stop <name|pid>
+```
+
+Details: [Runtime resources](05-runtime-resources.md#servers-and-workers).
 
 ## Stats
 

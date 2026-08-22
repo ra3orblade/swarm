@@ -79,9 +79,33 @@ lsof -ti:5432 | xargs kill
 
 Claude Code asks for confirmation (or denies, if `protected_ports = "deny"`) with the reason *Port 5432 is protected in the Swarm config — something the owner relies on is listening there. Don't kill it.* When `db` is released or reaped, 5432 is protected only if it is also in `rules.protected.ports`.
 
+## Servers and workers
+
+`swarm res acquire` records a process you already started. `swarm serve` starts one for you and does the bookkeeping:
+
+```sh
+swarm serve start --name web -- npm run dev
+```
+
+```
+started web on :3400 (pid 48213)
+  log: /Users/you/.swarm/logs/my-app/web.log
+  stop: swarm serve stop web
+```
+
+What happened:
+
+- The daemon picked the first free port from 3400 (`--from-port` to start elsewhere, `--port` to insist) — free meaning not held as a resource, not in use by another registered process, and actually bindable right now.
+- The command ran detached, in your current directory, with `PORT` set (so `$PORT` in the command or `process.env.PORT` in the app both work), stdout and stderr appended to a log under `~/.swarm/logs/<project>/`.
+- The pid was registered, together with its start time, and the singleton `web` was acquired for it — so a second `swarm serve start --name web` by anyone else is refused, and `:3400` is protected from every other session's `kill`, with no config.
+
+`swarm proc start -- <cmd>` does the same for a worker that has no port. `swarm serve ls` / `swarm proc ls` list what this project started; `stop` sends SIGTERM and, after three seconds, SIGKILL.
+
+Stop only ever signals a pid from the registry, and only while its start time still matches the one recorded — a recycled pid is never mistaken for ours, and nothing is ever killed by command pattern. A process that exits on its own disappears from the list within five seconds, its resource with it. The registry is per project; `swarm serve stop` in another checkout can't see, let alone stop, this one.
+
 ## On the dashboard
 
-The **Board** view shows held resources with name, kind, project (or *global*), owner, pid, port, and how long they have been held — with the remaining lease, or *pid-tracked*. The *Release* link force-releases the row; it is the human override, the same as `--force`. `swarm status` also lists held resources under the live sessions.
+The **Board** view has a **Processes** section for everything started through `swarm serve` / `swarm proc` — name, kind, pid, port (a link), owner, command, uptime — with a *Stop* per row. Below it, held resources with name, kind, project (or *global*), owner, pid, port, and how long they have been held — with the remaining lease, or *pid-tracked*. The *Release* link force-releases the row; it is the human override, the same as `--force`. `swarm status` also lists held resources under the live sessions.
 
 ## From an agent
 

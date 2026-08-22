@@ -155,6 +155,51 @@ export function createApp(store = new Store()) {
       : c.json({ ok: false, error: r.reason }, r.reason === "not held" ? 404 : 409);
   });
 
+  // ---- process registry (M1.4 Phase 2)
+  app.get("/v1/processes", (c) => c.json(store.processes(c.req.query("project") || undefined)));
+  app.post("/v1/ports/allocate", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { from?: number };
+    const port = store.allocatePort(
+      Number.isInteger(b.from) && (b.from as number) > 0 ? b.from : undefined,
+    );
+    return port ? c.json({ ok: true, port }) : c.json({ ok: false, error: "no free port" }, 503);
+  });
+  app.post("/v1/processes", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      pid?: number;
+      projectId?: string;
+      sessionId?: string | null;
+      kind?: "serve" | "proc";
+      name?: string;
+      port?: number | null;
+      cwd?: string;
+      cmd?: string;
+      owner?: string;
+      log?: string | null;
+    };
+    if (!b.pid || !b.projectId || !b.name || !b.cwd)
+      return c.json({ ok: false, error: "pid, projectId, name and cwd required" }, 400);
+    const r = store.registerProcess({
+      pid: Number(b.pid),
+      projectId: b.projectId,
+      sessionId: b.sessionId ?? null,
+      kind: b.kind === "serve" ? "serve" : "proc",
+      name: b.name,
+      port: b.port ?? null,
+      cwd: b.cwd,
+      cmd: b.cmd ?? "",
+      owner: b.owner ?? "cli",
+      log: b.log ?? null,
+    });
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
+  });
+  app.delete("/v1/processes/:pid", async (c) => {
+    const pid = Number(c.req.param("pid"));
+    if (!Number.isInteger(pid) || pid <= 0) return c.json({ ok: false, error: "bad pid" }, 400);
+    const r = await store.stopProcess(pid, c.req.query("project") || null);
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
+
   // ---- task source (M1.6)
   app.get("/v1/tasks", (c) => {
     const project = c.req.query("project");

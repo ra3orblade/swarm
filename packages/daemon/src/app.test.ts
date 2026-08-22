@@ -197,6 +197,75 @@ describe("shared-tree guard (M2.1)", () => {
   });
 });
 
+describe("process registry (M1.4 Phase 2)", () => {
+  it("allocates a port, registers a pid, lists while alive, stops by pid only", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const dir = require("node:fs").mkdtempSync(join(tmpdir(), "swarm-proc-"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    const p = store.resolveProject(dir, true);
+    const port = store.allocatePort(3900);
+    expect(port).toBeGreaterThanOrEqual(3900);
+    const child = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    let r = await app.request("/v1/processes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pid: child.pid,
+        projectId: p.id,
+        kind: "serve",
+        name: "web",
+        port,
+        cwd: dir,
+        cmd: "sleep 30",
+        owner: "alice",
+      }),
+    });
+    expect(r.status).toBe(201);
+    // listed, holds the singleton, protects the port, and the port is no longer allocatable
+    expect(store.processes(p.id).map((x) => x.pid)).toEqual([child.pid]);
+    expect(store.resources(p.id).find((x) => x.name === "web")?.pid).toBe(child.pid);
+    expect(store.allocatePort(port as number)).not.toBe(port);
+    // the same name by another owner fails closed
+    r = await app.request("/v1/processes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pid: process.pid,
+        projectId: p.id,
+        kind: "serve",
+        name: "web",
+        cwd: dir,
+        owner: "bob",
+      }),
+    });
+    expect(r.status).toBe(409);
+    // stopping a pid that isn't registered is refused — never signal what we didn't start
+    r = await app.request(`/v1/processes/${process.pid}`, { method: "DELETE" });
+    expect(r.status).toBe(404);
+    r = await app.request(`/v1/processes/${child.pid}?project=${p.id}`, { method: "DELETE" });
+    expect(r.status).toBe(200);
+    await child.exited;
+    expect(store.processes(p.id)).toEqual([]);
+    expect(store.resources(p.id).find((x) => x.name === "web")).toBeUndefined();
+    // a process that exits on its own is reaped on the next sweep
+    const c2 = Bun.spawn(["sleep", "0.1"], { stdout: "ignore", stderr: "ignore" });
+    expect(
+      store.registerProcess({
+        pid: c2.pid,
+        projectId: p.id,
+        kind: "proc",
+        name: "w",
+        cwd: dir,
+        cmd: "sleep",
+        owner: "a",
+      }).ok,
+    ).toBe(true);
+    await c2.exited;
+    expect(store.reapProcesses()).toBe(1);
+    expect(store.processes(p.id)).toEqual([]);
+  });
+});
+
 describe("claims (M1)", () => {
   const sh = (cwd: string, ...args: string[]) =>
     Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });

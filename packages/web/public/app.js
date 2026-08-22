@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -342,10 +342,10 @@ function renderPRs() {
 
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
-  const parts = [renderTasks(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderTasks(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
-    : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, claims, worktrees, and incidents appear here.</div>`;
+    : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, processes, claims, worktrees, and incidents appear here.</div>`;
 }
 
 // Incident columns are shared by the Board section (open only, recent) and the Incidents view (feed).
@@ -406,6 +406,32 @@ function renderIncidentsView() {
           rerender: touch,
         })
       : `<div class="empty">${PX.idle()}${state.incFilter === "open" ? "No open incidents." : "No incidents yet."}<br>Every <code>ask</code> or <code>deny</code> a rule makes lands here; ack it once you've seen it.</div>`);
+}
+
+// PROCESSES: what `swarm serve` / `swarm proc` started — pid-tracked, stoppable by pid only.
+function renderProcesses() {
+  const rows = (state.processes ?? []).filter((r) => !state.sel || r.projectId === state.sel);
+  if (!rows.length) return "";
+  const cols = [
+    { key: "name", label: "process", width: 150, get: (r) => r.name, cell: (r) => `<b>${esc(r.name)}</b>` },
+    { key: "kind", label: "kind", width: 80, get: (r) => r.kind, cell: (r) => `<span class="badge">${esc(r.kind)}</span>` },
+    { key: "project", label: "project", width: 104, get: (r) => projName(r.projectId), cell: (r) => esc(projName(r.projectId)) },
+    { key: "pid", label: "pid", width: 76, num: true, get: (r) => r.pid, cell: (r) => r.pid },
+    { key: "port", label: "port", width: 70, num: true, get: (r) => r.port ?? 0, cell: (r) => (r.port != null ? `<a href="http://127.0.0.1:${r.port}/" target="_blank" rel="noopener">:${r.port}</a>` : '<span class="dim">—</span>') },
+    { key: "owner", label: "owner", width: 110, get: (r) => r.owner, cell: (r) => esc(r.owner) },
+    { key: "cmd", label: "command", flex: true, get: (r) => r.cmd, cell: (r) => `<span class="now" title="${esc(r.cwd)}">${esc(r.cmd)}</span>` },
+    { key: "up", label: "up", width: 64, get: (r) => r.startedAt, cell: (r) => `<span class="dim">${ago(r.startedAt)}</span>` },
+  ].filter((c) => !(c.key === "project" && state.sel));
+  return `<h2 class="mt-sec">Processes <span>${rows.length} · started through swarm serve / proc</span></h2>` +
+    dataTable({
+      id: "processes",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: () => '<span class="s active"></span>' },
+      trailing: { width: 60, cell: (r) => `<a href="#" data-procstop="${r.pid}" data-procproj="${esc(r.projectId)}" title="SIGTERM, then SIGKILL after 3 s">Stop</a>` },
+      rowAttrs: () => "",
+      rerender: touch,
+    });
 }
 
 function renderResources() {
@@ -888,7 +914,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -934,6 +960,11 @@ document.addEventListener("click", async (ev) => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ projectId, number: Number(number) }),
     }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
+  }
+  if (t.dataset.procstop) {
+    ev.preventDefault();
+    if (!confirm(`Stop pid ${t.dataset.procstop}?`)) return;
+    return fetch(`/v1/processes/${t.dataset.procstop}?project=${encodeURIComponent(t.dataset.procproj)}`, { method: "DELETE" }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
   }
   if (t.dataset.resrelease !== undefined) {
     ev.preventDefault();
@@ -1035,7 +1066,7 @@ function connect() {
     }
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited"]) es.addEventListener(t, onAny);
 }
 refresh().then(connect);
 setInterval(() => { if (!document.hidden) poll(); }, 5000);

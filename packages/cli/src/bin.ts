@@ -8,6 +8,7 @@ import {
   SwarmClient,
 } from "@swarm/client";
 import { install, status, uninstall } from "./install";
+import * as procs from "./procs";
 
 const [cmd = "help", ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
@@ -31,6 +32,10 @@ const help = `swarm — control plane for AI-agent development
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
                           named singletons (ports, processes); fail-closed
+  serve start [--name web] [--from-port 3400 | --port n] -- <cmd>
+                          start a dev server: port allocated, PORT set, pid tracked, port protected
+  serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
+  proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
@@ -255,6 +260,63 @@ try {
           );
         }
       break;
+    }
+    case "serve":
+    case "proc": {
+      await ensureDaemon({ quiet: true });
+      const kind = cmd as "serve" | "proc";
+      const dash = rest.indexOf("--");
+      const head = dash >= 0 ? rest.slice(0, dash) : rest;
+      const tail = dash >= 0 ? rest.slice(dash + 1) : [];
+      const flag = (n: string) => {
+        const i = head.indexOf(n);
+        return i >= 0 ? head[i + 1] : undefined;
+      };
+      const num = (n: string) => {
+        const v = flag(n);
+        return v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
+      };
+      const valueFlags = new Set(["--name", "--from-port", "--port", "--owner"]);
+      const positionals: string[] = [];
+      for (let i = 0; i < head.length; i++) {
+        const a = head[i] as string;
+        if (valueFlags.has(a)) i++;
+        else if (!a.startsWith("--")) positionals.push(a);
+      }
+      const sub = positionals[0] ?? "ls";
+      if (sub === "start") {
+        const name =
+          flag("--name") ?? (kind === "serve" ? "web" : (tail[0]?.split("/").pop() ?? "proc"));
+        const p = await procs.start({
+          kind,
+          name,
+          cmd: tail,
+          fromPort: num("--from-port"),
+          port: num("--port"),
+          owner: flag("--owner") ?? process.env.USER ?? "me",
+        });
+        if (json) console.log(JSON.stringify(p));
+        else
+          console.log(
+            `started ${p.name}${p.port ? ` on :${p.port}` : ""} (pid ${p.pid})\n  log: ${p.log}\n  stop: swarm ${kind} stop ${p.name}`,
+          );
+        break;
+      }
+      if (sub === "ls") {
+        const rows = await procs.list(kind);
+        if (json) console.log(JSON.stringify(rows));
+        else if (!rows.length)
+          console.log(`no ${kind === "serve" ? "servers" : "processes"} running here`);
+        else for (const r of rows) console.log(procs.fmt(r));
+        break;
+      }
+      if (sub === "stop") {
+        const stopped = await procs.stop(positionals[1], kind);
+        if (json) console.log(JSON.stringify(stopped));
+        else for (const r of stopped) console.log(`stopped ${r.name} (pid ${r.pid})`);
+        break;
+      }
+      throw new Error(`usage: swarm ${kind} start|ls|stop`);
     }
     case "ls": {
       await ensureDaemon({ quiet: true });

@@ -23,6 +23,7 @@ import {
   canRelease,
   claimRefusalMessage,
   costUsd,
+  DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
   fromLiteLLM,
   type GuardDecision,
@@ -31,6 +32,7 @@ import {
   type HeldWorktree,
   isActive,
   isAliveHolding,
+  isOurs,
   isTrackedPid,
   type LeaseClaim,
   LIVE_WINDOW_MS,
@@ -41,11 +43,13 @@ import {
   normalizeHook,
   PRICES,
   type Price,
+  type ProcessKind,
   type Project,
   parseCodexRollout,
   parseGrokUpdates,
   parseMarkdownTasks,
   parseTranscriptChunk,
+  pickPort,
   projectIdentity,
   type Resource,
   type RulesConfig,
@@ -54,6 +58,7 @@ import {
   type SwarmEvent,
   type Task,
   type TaskView,
+  type TrackedProcess,
   type Turn,
   taskBoard,
   WRITE_TOOLS,
@@ -131,6 +136,11 @@ CREATE TABLE IF NOT EXISTS resources (
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS incident_acks (seq INTEGER PRIMARY KEY, acked_at TEXT);
+CREATE TABLE IF NOT EXISTS processes (
+  pid INTEGER, start_time TEXT, project_id TEXT, session_id TEXT, kind TEXT, name TEXT, port INTEGER,
+  cwd TEXT, cmd TEXT, owner TEXT, log TEXT, started_at TEXT, ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS processes_live ON processes(ended_at, project_id);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -1716,6 +1726,234 @@ export class Store {
     return true;
   }
 
+  // ---------- process registry (M1.4 Phase 2): pid + start time, keyed by project; never by pattern
+  /** `ps -o lstart=` for a pid; null when unavailable (Windows, or the pid is gone). */
+  static processStartTime(pid: number): string | null {
+    try {
+      const r = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const out = r.stdout.toString().trim();
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rowToProcess(r: Record<string, unknown>): TrackedProcess {
+    return {
+      pid: r.pid as number,
+      startTime: (r.start_time as string) ?? null,
+      projectId: r.project_id as string,
+      sessionId: (r.session_id as string) ?? null,
+      kind: r.kind as ProcessKind,
+      name: r.name as string,
+      port: (r.port as number) ?? null,
+      cwd: (r.cwd as string) ?? "",
+      cmd: (r.cmd as string) ?? "",
+      owner: (r.owner as string) ?? "",
+      log: (r.log as string) ?? null,
+      startedAt: r.started_at as string,
+      endedAt: (r.ended_at as string) ?? null,
+    };
+  }
+
+  /** Live registered processes (dead ones are marked ended on the way out). */
+  processes(projectId?: string): TrackedProcess[] {
+    const rows = (
+      this.db
+        .query(
+          projectId
+            ? "SELECT rowid, * FROM processes WHERE ended_at IS NULL AND project_id = ? ORDER BY started_at DESC"
+            : "SELECT rowid, * FROM processes WHERE ended_at IS NULL ORDER BY started_at DESC",
+        )
+        .all(...(projectId ? [projectId] : [])) as Array<Record<string, unknown>>
+    ).map((r) => ({ rowid: r.rowid as number, p: this.rowToProcess(r) }));
+    const live: TrackedProcess[] = [];
+    for (const { rowid, p } of rows) {
+      if (this.processIsOurs(p)) live.push(p);
+      else this.endProcess(rowid, p, "exited");
+    }
+    return live;
+  }
+
+  private processIsOurs(p: TrackedProcess): boolean {
+    const alive = Store.pidAlive(p.pid);
+    return isOurs(p, alive, alive ? Store.processStartTime(p.pid) : null);
+  }
+
+  private endProcess(rowid: number, p: TrackedProcess, how: "exited" | "stopped") {
+    const at = new Date().toISOString();
+    this.db.query("UPDATE processes SET ended_at = ? WHERE rowid = ?").run(at, rowid);
+    // Its singleton goes with it (the resource is pid-tracked, so this is just prompt bookkeeping).
+    this.db
+      .query("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ? AND pid = ?")
+      .run(p.name, p.projectId, p.pid);
+    this.append({
+      ts: at,
+      type: "process.exited",
+      projectId: p.projectId,
+      sessionId: p.sessionId,
+      payload: { pid: p.pid, name: p.name, kind: p.kind, port: p.port, how },
+    });
+  }
+
+  /** Sweep dead registered processes; for the background tick. */
+  reapProcesses(): number {
+    const before = (
+      this.db.query("SELECT COUNT(*) AS n FROM processes WHERE ended_at IS NULL").get() as {
+        n: number;
+      }
+    ).n;
+    return before - this.processes().length;
+  }
+
+  /** Ports a new server must avoid: held resources + live registered processes. */
+  private takenPorts(): number[] {
+    const held = this.heldPorts();
+    const procs = (
+      this.db
+        .query("SELECT port FROM processes WHERE ended_at IS NULL AND port IS NOT NULL")
+        .all() as Array<{ port: number }>
+    ).map((r) => r.port);
+    return [...held, ...procs];
+  }
+
+  /** Can this port be bound on loopback right now? */
+  static portFree(port: number): boolean {
+    try {
+      const l = Bun.listen({ hostname: "127.0.0.1", port, socket: { data() {} } });
+      l.stop(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A free port at or above `from`, avoiding everything the ledger knows about. */
+  allocatePort(from = DEFAULT_FROM_PORT): number | null {
+    return pickPort(from, this.takenPorts(), Store.portFree);
+  }
+
+  /**
+   * Register a process the CLI just spawned. Also acquires the singleton `name` (pid-tracked,
+   * with the port) so a second `swarm serve start --name web` fails closed and the port is
+   * protected for every other session.
+   */
+  registerProcess(input: {
+    pid: number;
+    projectId: string;
+    sessionId?: string | null;
+    kind: ProcessKind;
+    name: string;
+    port?: number | null;
+    cwd: string;
+    cmd: string;
+    owner: string;
+    log?: string | null;
+  }): { ok: true; process: TrackedProcess } | { ok: false; reason: string } {
+    if (!isTrackedPid(input.pid)) return { ok: false, reason: "a real pid is required" };
+    if (!this.project(input.projectId)) return { ok: false, reason: "unknown project" };
+    if (!Store.pidAlive(input.pid)) return { ok: false, reason: `pid ${input.pid} is not running` };
+    const res = this.acquireResource({
+      name: input.name,
+      projectId: input.projectId,
+      kind: "process",
+      owner: input.owner,
+      sessionId: input.sessionId ?? null,
+      pid: input.pid,
+      port: input.port ?? null,
+    });
+    if (!res.ok) return res;
+    const p: TrackedProcess = {
+      pid: input.pid,
+      startTime: Store.processStartTime(input.pid),
+      projectId: input.projectId,
+      sessionId: this.knownSession(input.sessionId),
+      kind: input.kind,
+      name: input.name,
+      port: input.port ?? null,
+      cwd: input.cwd,
+      cmd: input.cmd,
+      owner: input.owner,
+      log: input.log ?? null,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+    };
+    // Same name re-registered by the same owner (the resource refresh allowed it): retire the old row.
+    this.db
+      .query(
+        "UPDATE processes SET ended_at = ? WHERE ended_at IS NULL AND project_id = ? AND name = ?",
+      )
+      .run(p.startedAt, p.projectId, p.name);
+    this.db
+      .query(
+        `INSERT INTO processes (pid, start_time, project_id, session_id, kind, name, port, cwd, cmd, owner, log, started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      )
+      .run(
+        p.pid,
+        p.startTime,
+        p.projectId,
+        p.sessionId,
+        p.kind,
+        p.name,
+        p.port,
+        p.cwd,
+        p.cmd,
+        p.owner,
+        p.log,
+        p.startedAt,
+      );
+    this.append({
+      ts: p.startedAt,
+      type: "process.started",
+      projectId: p.projectId,
+      sessionId: p.sessionId,
+      payload: { pid: p.pid, name: p.name, kind: p.kind, port: p.port, cmd: p.cmd.slice(0, 200) },
+    });
+    this.touch();
+    return { ok: true, process: p };
+  }
+
+  /**
+   * Stop a registered process: SIGTERM, then SIGKILL if it is still there after `graceMs`.
+   * Only rows in the registry can be signalled, and only while pid + start time still match —
+   * never a pid we didn't start, never a recycled one.
+   */
+  async stopProcess(
+    pid: number,
+    projectId?: string | null,
+    graceMs = 3000,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const raw = this.db
+      .query(
+        `SELECT rowid, * FROM processes WHERE pid = ? AND ended_at IS NULL${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .get(...(projectId ? [pid, projectId] : [pid])) as Record<string, unknown> | undefined;
+    if (!raw) return { ok: false, reason: "not a registered process" };
+    const p = this.rowToProcess(raw);
+    const rowid = raw.rowid as number;
+    if (!this.processIsOurs(p)) {
+      this.endProcess(rowid, p, "exited");
+      return { ok: true, reason: "already gone" };
+    }
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+    const deadline = Date.now() + graceMs;
+    while (Date.now() < deadline && Store.pidAlive(pid)) await Bun.sleep(100);
+    if (Store.pidAlive(pid) && this.processIsOurs(p)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    this.endProcess(rowid, p, "stopped");
+    this.touch();
+    return { ok: true };
+  }
+
   /** Only session ids the ledger already knows — anything else would mint a phantom session. */
   private knownSession(id: string | null | undefined): string | null {
     if (!id) return null;
@@ -1849,6 +2087,7 @@ export class Store {
       sessions: this.memoised("sessions", 2000, () => this.sessions()),
       spend: this.memoised("spend", 30_000, () => this.spend()),
       claims: this.claims(),
+      processes: this.memoised("processes", 5000, () => this.processes()),
       incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),
       openIncidents: this.memoised("openIncidents", 30_000, () => this.openIncidents()),
       resources: this.resources(),

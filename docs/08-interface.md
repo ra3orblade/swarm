@@ -69,7 +69,7 @@ FLEET                                                    4 live · 2 idle · $3.
 
 ### View 2 — Project
 
-> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS ships when the repo declares `[tasks] source` (Ready / Open / All, Claim); PROCESSES and RECENT GATES are not built (no process registry, no gates yet).
+> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS ships when the repo declares `[tasks] source` (Ready / Open / All, Claim); PROCESSES lists what `swarm serve` / `swarm proc` started, with Stop; RECENT GATES is not built (no gates yet).
 
 Board for one repository: claims, worktrees, resources, gates, and the task list if a task source is configured.
 
@@ -195,6 +195,10 @@ swarm res acquire <name> [--owner n] [--pid n] [--port n]  e.g. web, worker, db,
                                    pid → alive while the process is; else a lease (default 30m)
                                    port → auto-added to the protected-ports rule while held
 swarm res release <name> [--force]                        refuses if another owner holds it
+swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked, PORT set, logs in ~/.swarm/logs
+swarm serve ls | stop [name|pid]                          only processes this project started; by pid + start time
+swarm proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, without a port
+swarm tasks [--ready]                                     the repo's task source
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -207,9 +211,6 @@ swarm rm <name>                                  unregister a project
 swarm handoff <task> --done … --remaining … --verify …
 swarm resume <task>                              print handoff payload (for the next agent)
 swarm wt ls|path <task>|adopt <task>
-swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked
-swarm serve stop [name]
-swarm proc ls|stop <pid>           only processes this session/project started
 
 swarm gate record <task> <gate> pass|fail --rubric … --evidence …
 swarm gate ls <task>
