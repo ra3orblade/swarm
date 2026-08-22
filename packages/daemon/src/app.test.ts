@@ -243,3 +243,76 @@ describe("claims (M1)", () => {
     expect(require("node:fs").existsSync(c.worktree)).toBe(false);
   });
 });
+
+describe("rules + incidents (Phase 2)", () => {
+  function repo(): string {
+    const fs = require("node:fs");
+    const dir = fs.mkdtempSync(join(tmpdir(), "swarm-rules-repo-"));
+    const sh = (...cmd: string[]) => Bun.spawnSync(cmd, { cwd: dir });
+    sh("git", "init", "-q", "-b", "main");
+    return fs.realpathSync(dir);
+  }
+  const hook = (
+    app: { request: (p: string, init?: RequestInit) => Response | Promise<Response> },
+    body: unknown,
+  ) =>
+    app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("repo .swarm.toml deny blocks and records an incident", async () => {
+    const fs = require("node:fs");
+    const dir = repo();
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[rules]\npattern_kill = "deny"\n`);
+    const { app, store } = createApp(new Store(tmpHome()));
+    const r = await hook(app, {
+      session_id: "s-guard",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "pkill -f node" },
+    });
+    const j = (await r.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(j.hookSpecificOutput?.permissionDecision).toBe("deny");
+    const inc = store.incidents(5);
+    expect(inc.length).toBe(1);
+    expect((inc[0] as { rule?: string }).rule).toBe("pattern_kill");
+    expect((inc[0] as { action?: string }).action).toBe("deny");
+  });
+
+  it("protected ports from config guard kill-by-port", async () => {
+    const fs = require("node:fs");
+    const dir = repo();
+    fs.writeFileSync(
+      join(dir, ".swarm.toml"),
+      `[rules]\nprotected_ports = "deny"\n[rules.protected]\nports = [3000]\n`,
+    );
+    const { app, store } = createApp(new Store(tmpHome()));
+    const r = await hook(app, {
+      session_id: "s-port",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "lsof -ti:3000 | xargs kill -9" },
+    });
+    const j = (await r.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(j.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(store.incidents(5).length).toBe(1);
+  });
+
+  it("off disables a rule per-repo", async () => {
+    const fs = require("node:fs");
+    const dir = repo();
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[rules]\npattern_kill = "off"\n`);
+    const { app, store } = createApp(new Store(tmpHome()));
+    const r = await hook(app, {
+      session_id: "s-off",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "pkill -f node" },
+    });
+    const j = (await r.json()) as { hookSpecificOutput?: unknown };
+    expect(j.hookSpecificOutput).toBeUndefined();
+    expect(store.incidents(5).length).toBe(0);
+  });
+});

@@ -71,3 +71,45 @@ describe("guardBash", () => {
     expect(guardBash("bun test", cur, [other], NOW).action).toBe("allow");
   });
 });
+
+import { DEFAULT_MODES, killedPorts } from "./rules";
+
+describe("rules v2: modes + protected ports", () => {
+  const me = { id: "me", toplevel: "/repo" };
+  const other = [
+    { id: "other", toplevel: "/repo", lastSeenAt: new Date().toISOString(), state: "active" },
+  ];
+
+  it("killedPorts detects kill-by-port shapes", () => {
+    expect(killedPorts("lsof -ti:3000 | xargs kill -9")).toEqual([3000]);
+    expect(killedPorts("kill $(lsof -t -i :5432)")).toEqual([5432]);
+    expect(killedPorts("fuser -k 8080")).toEqual([8080]);
+    expect(killedPorts("npx kill-port 3000")).toEqual([3000]);
+    expect(killedPorts("lsof -i :3000")).toEqual([]); // looking, not killing
+    expect(killedPorts("kill 12345")).toEqual([]); // pid, not port
+  });
+
+  it("protected port -> configured mode", () => {
+    const modes = {
+      ...DEFAULT_MODES,
+      protected_ports: "deny" as const,
+      protected: { ports: [3000] },
+    };
+    const d = guardBash("lsof -ti:3000 | xargs kill", me, [], Date.now(), modes);
+    expect(d.action).toBe("deny");
+    expect(d.action !== "allow" && d.rule).toBe("protected_ports");
+    // unlisted port passes
+    expect(guardBash("lsof -ti:4000 | xargs kill", me, [], Date.now(), modes).action).toBe("allow");
+  });
+
+  it("shared_tree deny mode blocks instead of asking", () => {
+    const modes = { ...DEFAULT_MODES, shared_tree: "deny" as const };
+    const d = guardBash("git add -A", me, other, Date.now(), modes);
+    expect(d.action).toBe("deny");
+  });
+
+  it("off disables a rule", () => {
+    const modes = { ...DEFAULT_MODES, pattern_kill: "off" as const };
+    expect(guardBash("pkill -f node", me, [], Date.now(), modes).action).toBe("allow");
+  });
+});

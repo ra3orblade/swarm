@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
-import { clearDaemonInfo, DEFAULT_PORT, writeDaemonInfo } from "@swarm/client";
+import { clearDaemonInfo, DEFAULT_PORT as ENV_PORT, writeDaemonInfo } from "@swarm/client";
+import { loadConfig } from "@swarm/core";
 import { createApp, VERSION } from "./app";
+
+// Port preference: SWARM_PORT env > ~/.swarm/config.toml [daemon].port > 7777.
+const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
 const { app, store } = createApp();
 
