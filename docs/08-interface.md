@@ -206,6 +206,8 @@ swarm resume <task>                                       latest handoff (also i
 swarm run --task <id> --prompt "…"|--prompt-file f [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]
                                                           claim + spawn claude -p in the worktree (stream-json both ways)
 swarm run ls | send <task|id> "text" | stop <task|id>     steer over stdin / stop by pid
+swarm run resume <session-id> [--model] [--permission-mode]   spawn a run that picks up where a dead session stopped (handoff + tail)
+swarm rules dryrun [--set rule=mode,…] [--limit n]        replay this repo's history under rule modes; what would fire + flaky signals
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -249,7 +251,7 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
 | `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
 | `swarm_handoff` | `{task, done, remaining, files?, verify?}` | records a handoff; needs done + remaining |
-| `swarm_resume` | `{task}` | latest handoff, formatted |
+| `swarm_resume` | `{task}` | latest handoff, formatted (`auto:` handoffs are derived by the daemon at Stop/SessionEnd) |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
@@ -286,6 +288,8 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/claims` · `POST /v1/claims` · `POST /v1/claims/renew` · `POST /v1/claims/release` · `POST /v1/claims/reap` | the claim ledger (fail-closed; `release` refuses dirty/unpushed unless `force`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/rules/dryrun?project=&<rule>=ask\|deny\|off&limit=` | replay recorded tool calls under (overridden) rule modes: per-rule ask/deny counts, hits, flaky signals; records nothing |
+| `GET /v1/sessions/:id/resume` · `POST /v1/sessions/:id/resume` | the resume plan for a session (task, owner, prompt built from its latest handoff + last actions) / spawn a run from it (`RunInput` overrides accepted) |
 | `GET /v1/prs` · `POST /v1/prs/merge` | the forge queue (`{projectId, number}` to squash-merge via `gh` / `glab`) |
 | `GET /v1/pricing` · `POST /v1/pricing/refresh` | the price table and its LiteLLM refresh |
 | `GET /v1/sessions/:id/events?after=&afterTs=` · `POST /v1/sessions/:id/tail` | one session's last 500 events + turns (wire shape; incremental with `after`/`afterTs`); force a transcript re-tail |

@@ -25,7 +25,11 @@ import {
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
+  type DryRunReport,
+  deriveHandoff,
+  dryRunRules,
   formatHandoff,
+  formatResumePrompt,
   fromLiteLLM,
   type GateInput,
   type GateRun,
@@ -36,9 +40,11 @@ import {
   guardWrite,
   type Handoff,
   type HeldWorktree,
+  type HistoricalCall,
   incidentKey,
   isActive,
   isAliveHolding,
+  isAutoHandoff,
   isInside,
   isOurs,
   isTrackedPid,
@@ -71,6 +77,7 @@ import {
   type TrackedProcess,
   type Turn,
   taskBoard,
+  taskSourceKind,
   validateGateRun,
   validateHandoff,
   WRITE_TOOLS,
@@ -85,6 +92,7 @@ import {
   worktreeAdd,
   worktreeRemove,
 } from "./git";
+import { TaskSources } from "./task-sources";
 
 export interface SessionView {
   id: string;
@@ -476,6 +484,95 @@ export class Store {
   }
 
   /**
+   * M4.4 auto-handoff: derive a handoff from what a session did inside its claimed worktree and
+   * keep exactly one auto row per (session, task), replaced on every Stop/SessionEnd. A manual
+   * handoff from the same session wins: once the holder has spoken, the daemon stays quiet.
+   */
+  autoHandoff(sessionId: string, cwd: string): Handoff | null {
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (!held) return null;
+    const manual = this.db
+      .query("SELECT id, by FROM handoffs WHERE project_id = ? AND task = ? AND session_id = ?")
+      .all(held.projectId, held.task, sessionId) as Array<{ id: number; by: string | null }>;
+    if (manual.some((h) => !isAutoHandoff(h))) return null;
+    const row = this.db.query("SELECT last_text FROM sessions WHERE id = ?").get(sessionId) as {
+      last_text: string | null;
+    } | null;
+    const h = deriveHandoff(
+      held.task,
+      this.sessionEvents(sessionId, 2000) as unknown as Parameters<typeof deriveHandoff>[1],
+      { lastText: row?.last_text ?? null, sessionId },
+    );
+    if (!h) return null;
+    this.db
+      .query(
+        "DELETE FROM handoffs WHERE project_id = ? AND task = ? AND session_id = ? AND by LIKE 'auto%'",
+      )
+      .run(held.projectId, held.task, sessionId);
+    this.db
+      .query(
+        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        held.projectId,
+        held.task,
+        h.done,
+        h.remaining,
+        JSON.stringify(h.files),
+        h.verify,
+        h.by,
+        sessionId,
+        h.createdAt,
+      );
+    this.touch();
+    return h;
+  }
+
+  /**
+   * M4.4 "resume where this died": everything a run needs to pick up a session's task — the
+   * latest handoff on it (manual or auto) plus a tail of the session's last actions.
+   */
+  resumePlan(sessionId: string):
+    | {
+        ok: true;
+        projectId: string;
+        task: string;
+        owner: string | null;
+        prompt: string;
+        handoff: Handoff;
+      }
+    | { ok: false; reason: string } {
+    const s = this.db
+      .query("SELECT project_id, cwd, last_text FROM sessions WHERE id = ?")
+      .get(sessionId) as { project_id: string; cwd: string; last_text: string | null } | null;
+    if (!s) return { ok: false, reason: "unknown session" };
+    const byHandoff = this.db
+      .query("SELECT project_id, task FROM handoffs WHERE session_id = ? ORDER BY id DESC LIMIT 1")
+      .get(sessionId) as { project_id: string; task: string } | null;
+    const claim = this.claimRows(s.project_id).find(
+      (c) => c.worktree && s.cwd && isInside(s.cwd, c.worktree),
+    );
+    const task = byHandoff?.task ?? claim?.task;
+    const projectId = byHandoff?.project_id ?? s.project_id;
+    if (!task) return { ok: false, reason: "this session was not working on a claimed task" };
+    const ev = this.sessionEvents(sessionId, 2000);
+    let handoff = this.latestHandoff(projectId, task);
+    if (!handoff)
+      handoff = deriveHandoff(task, ev as unknown as Parameters<typeof deriveHandoff>[1], {
+        lastText: s.last_text,
+        sessionId,
+      });
+    if (!handoff) return { ok: false, reason: "nothing to resume — the session left no trail" };
+    const tail = ev
+      .filter((e) => e.type === "tool.requested" || e.type === "prompt.submitted")
+      .slice(-12)
+      .map((e) => ((e.payload as { summary?: string }).summary ?? e.type).slice(0, 160));
+    const owner = claim && claim.state === "held" ? claim.owner : null;
+    return { ok: true, projectId, task, owner, prompt: formatResumePrompt(handoff, tail), handoff };
+  }
+
+  /**
    * SessionStart context (M1.3): what this session holds (cwd inside a claimed worktree), the
    * latest handoff on that task, held resources, required gates and the repo's rule modes.
    * Returns null when there is nothing worth saying — no claim, no resources, default rules.
@@ -639,18 +736,36 @@ export class Store {
   private taskCache = new Map<string, { path: string; mtime: number; tasks: Task[] }>();
   /** The project's backlog from its `.swarm.toml` `[tasks] source`, decorated with claim state.
    *  null when the project declares no source. Re-parsed when the file's mtime moves. */
-  tasks(projectId: string): { source: string; required: string[]; tasks: TaskBoardRow[] } | null {
+  readonly taskSources = new TaskSources();
+  tasks(
+    projectId: string,
+  ): { source: string; required: string[]; tasks: TaskBoardRow[]; error?: string | null } | null {
     const p = this.project(projectId);
     if (!p) return null;
-    const source = loadConfig({ repoRoot: p.root, home: this.home }).tasks.source;
+    const cfg = loadConfig({ repoRoot: p.root, home: this.home }).tasks;
+    const source = cfg.source;
     if (!source) return null;
-    const path = join(p.root, source);
-    if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
-    const mtime = statSync(path).mtimeMs;
-    let hit = this.taskCache.get(projectId);
-    if (!hit || hit.path !== path || hit.mtime !== mtime) {
-      hit = { path, mtime, tasks: parseMarkdownTasks(readFileSync(path, "utf8")) };
-      this.taskCache.set(projectId, hit);
+    let hit: { tasks: Task[] };
+    let error: string | null = null;
+    const kind = taskSourceKind(source);
+    if (kind === "github" || kind === "linear") {
+      // M4.8: external tracker — cached, refreshed in the background, never blocks the Board.
+      const e = this.taskSources.get(projectId, kind, p.root, {
+        labels: cfg.labels,
+        team: cfg.team,
+      });
+      hit = { tasks: e.tasks };
+      error = e.error;
+    } else {
+      const path = join(p.root, source);
+      if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
+      const mtime = statSync(path).mtimeMs;
+      let md = this.taskCache.get(projectId);
+      if (!md || md.path !== path || md.mtime !== mtime) {
+        md = { path, mtime, tasks: parseMarkdownTasks(readFileSync(path, "utf8")) };
+        this.taskCache.set(projectId, md);
+      }
+      hit = md;
     }
     const now = Date.now();
     const active = this.claimRows(projectId).filter((c) => isActive(c, now));
@@ -671,7 +786,7 @@ export class Store {
         gated: gatesSatisfied(tr, required),
       };
     });
-    return { source, required, tasks: board };
+    return { source, required, tasks: board, error };
   }
 
   rulesFor(repoRoot: string | null): RulesConfig {
@@ -816,6 +931,75 @@ export class Store {
 
   /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
   private heldWorktreesCache: { at: number; v: HeldWorktree[] } | null = null;
+  /**
+   * M4.6 rule dry-run: replay a project's recorded tool calls (newest `limit`) through the rules
+   * under `modes` — the repo's current modes with any overrides applied — and report what would
+   * have fired, plus flaky signals (rules that keep asking about something humans keep allowing).
+   * Never records incidents; reads only.
+   */
+  dryRun(
+    projectId: string,
+    overrides: Partial<RulesConfig> = {},
+    limit = 5000,
+  ): DryRunReport & { modes: RulesConfig } {
+    const project = this.project(projectId);
+    const modes: RulesConfig = { ...this.rulesFor(project?.root ?? null), ...overrides };
+    const rows = this.db
+      .query(
+        `SELECT * FROM (SELECT seq, ts, type, session_id, payload FROM events
+           WHERE project_id = ? AND type IN ('tool.requested', 'tool.completed')
+           ORDER BY seq DESC LIMIT ?) ORDER BY seq`,
+      )
+      .all(projectId, limit) as Array<{
+      ts: string;
+      type: string;
+      session_id: string | null;
+      payload: string;
+    }>;
+    const calls: HistoricalCall[] = [];
+    const pending = new Map<string, HistoricalCall>();
+    for (const r of rows) {
+      let p: {
+        cwd?: string | null;
+        tool?: string;
+        toolInput?: Record<string, unknown>;
+        summary?: string;
+      };
+      try {
+        p = JSON.parse(r.payload);
+      } catch {
+        continue;
+      }
+      if (!p.tool || !r.session_id) continue;
+      const key = `${r.session_id} ${p.summary ?? p.tool}`;
+      if (r.type === "tool.requested") {
+        const input = p.toolInput ?? {};
+        const call: HistoricalCall = {
+          ts: r.ts,
+          sessionId: r.session_id,
+          cwd: p.cwd ?? "",
+          tool: p.tool,
+          command: typeof input.command === "string" ? input.command : undefined,
+          filePath: typeof input.file_path === "string" ? input.file_path : undefined,
+          completed: false,
+        };
+        calls.push(call);
+        pending.set(key, call);
+      } else {
+        const c = pending.get(key);
+        if (c) {
+          c.completed = true;
+          pending.delete(key);
+        }
+      }
+    }
+    const report = dryRunRules(calls, modes, {
+      toplevel: (cwd) => (cwd && existsSync(cwd) ? this.toplevel(cwd) : null),
+      claims: this.heldWorktrees(),
+    });
+    return { ...report, modes };
+  }
+
   private heldWorktrees(): HeldWorktree[] {
     if (this.heldWorktreesCache && Date.now() - this.heldWorktreesCache.at < 2_000)
       return this.heldWorktreesCache.v;
@@ -1056,6 +1240,9 @@ export class Store {
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
+    // M4.4: every pause is a potential death — keep a structured auto-handoff current.
+    if ((event === "Stop" || event === "SessionEnd") && e.sessionId && existsSync(cwd))
+      this.autoHandoff(e.sessionId, cwd);
     if (e.sessionId && typeof raw.transcript_path === "string") {
       this.db
         .query("UPDATE sessions SET transcript_path = ? WHERE id = ? AND transcript_path IS NULL")

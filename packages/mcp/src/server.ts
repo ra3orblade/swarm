@@ -131,7 +131,7 @@ export function buildServer(): McpServer {
     {
       title: "Read the latest handoff",
       description:
-        "The latest handoff on a task: done, remaining, files, verify. Read it before continuing someone else's work.",
+        "The latest handoff on a task: done, remaining, files, verify. Read it before continuing someone else's work. Handoffs marked `auto:` were derived by Swarm from what the previous session did (files edited, last verify command) when it stopped without leaving one.",
       inputSchema: { task: z.string() },
     },
     async ({ task }) => {

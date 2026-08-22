@@ -1,5 +1,15 @@
-import { describe, expect, it } from "bun:test";
-import { depsDone, nextTask, parseMarkdownTasks, statusOf, taskBoard } from "./tasks";
+import { describe, expect, it, test } from "bun:test";
+import {
+  depsDone,
+  linearIssuesQuery,
+  nextTask,
+  normalizeGithubIssues,
+  normalizeLinearIssues,
+  parseMarkdownTasks,
+  statusOf,
+  taskBoard,
+  taskSourceKind,
+} from "./tasks";
 
 const DOC = `# Roadmap
 
@@ -59,5 +69,84 @@ describe("task source", () => {
     const b = taskBoard(t, [{ task: "M1.2", owner: "alice" }]);
     expect(b.find((x) => x.id === "M1.2")?.claimedBy).toBe("alice");
     expect(b.find((x) => x.id === "M1.2")?.ready).toBe(false);
+  });
+});
+
+describe("external task sources (M4.8)", () => {
+  test("taskSourceKind tells adapters from files", () => {
+    expect(taskSourceKind("github")).toBe("github");
+    expect(taskSourceKind("linear")).toBe("linear");
+    expect(taskSourceKind("docs/06-roadmap.md")).toBe("markdown");
+    expect(taskSourceKind(null)).toBeNull();
+  });
+
+  test("GitHub issues: GH-<n> ids, closed=done, in-progress label=active, deps from the body", () => {
+    const tasks = normalizeGithubIssues([
+      { number: 12, title: "Login form", state: "OPEN", labels: [{ name: "feature" }] },
+      {
+        number: 14,
+        title: "Logout",
+        state: "OPEN",
+        labels: [{ name: "In Progress" }],
+        assignees: [{ login: "alice" }],
+        body: "Depends on #12 and #9.\n\nAlso blocked by #12",
+        milestone: { title: "v1" },
+      },
+      { number: 9, title: "Schema", state: "CLOSED" },
+    ]);
+    expect(tasks.map((t) => t.id)).toEqual(["GH-9", "GH-12", "GH-14"]);
+    expect(tasks[0]?.status).toBe("done");
+    expect(tasks[1]?.status).toBe("todo");
+    expect(tasks[1]?.statusText).toBe("feature");
+    expect(tasks[2]).toMatchObject({
+      status: "active",
+      statusText: "in progress (alice)",
+      depends: ["GH-12", "GH-9"],
+      milestone: "v1",
+    });
+    const board = taskBoard(tasks, []);
+    expect(board.find((t) => t.id === "GH-12")?.ready).toBe(true);
+    expect(nextTask(tasks, [{ task: "GH-12", owner: "bob" }])).toBeNull();
+  });
+
+  test("Linear issues: identifiers as ids, state types map, blocked-by becomes depends", () => {
+    const tasks = normalizeLinearIssues([
+      { identifier: "ENG-1", title: "Schema", state: { name: "Done", type: "completed" } },
+      {
+        identifier: "ENG-2",
+        title: "API",
+        state: { name: "In Progress", type: "started" },
+        assignee: { name: "Alice" },
+        cycle: { name: null, number: 7 },
+        inverseRelations: {
+          nodes: [
+            { type: "blocks", issue: { identifier: "ENG-1" } },
+            { type: "related", issue: { identifier: "ENG-9" } },
+          ],
+        },
+      },
+      {
+        identifier: "ENG-3",
+        title: "UI",
+        state: { name: "Todo", type: "unstarted" },
+        project: { name: "Launch" },
+      },
+      { identifier: "ENG-4", title: "Old", state: { name: "Canceled", type: "canceled" } },
+    ]);
+    expect(tasks.map((t) => `${t.id}:${t.status}`)).toEqual([
+      "ENG-1:done",
+      "ENG-2:active",
+      "ENG-3:todo",
+      "ENG-4:done",
+    ]);
+    expect(tasks[1]).toMatchObject({
+      depends: ["ENG-1"],
+      statusText: "In Progress (Alice)",
+      milestone: "Cycle 7",
+    });
+    expect(tasks[2]?.milestone).toBe("Launch");
+    expect(nextTask(tasks, [])?.id).toBe("ENG-3");
+    expect(linearIssuesQuery("ENG")).toContain('key: { eq: "ENG" }');
+    expect(linearIssuesQuery(null)).not.toContain("filter");
   });
 });

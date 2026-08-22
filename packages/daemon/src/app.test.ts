@@ -423,6 +423,154 @@ describe("handoffs + SessionStart context (M1.3)", () => {
   });
 });
 
+describe("auto-handoff + resume plan (M4.4)", () => {
+  it("writes one auto handoff per session on Stop, defers to a manual one, and plans a resume", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-autoho-")));
+    const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    sh("git", "init", "-q", "-b", "main");
+    sh("git", "config", "user.email", "t@t");
+    sh("git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    sh("git", "add", "README.md");
+    sh("git", "commit", "-qm", "init");
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "auth", "alice");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    const hook = (event: string, body: Record<string, unknown>) =>
+      app.request(`/v1/hook/${event}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: "s-dead", cwd: c.worktree, ...body }),
+      });
+    await hook("UserPromptSubmit", { prompt: "build the login form" });
+    await hook("PreToolUse", { tool_name: "Edit", tool_input: { file_path: "src/auth.ts" } });
+    await hook("PreToolUse", { tool_name: "Bash", tool_input: { command: "bun test" } });
+    await hook("Stop", {});
+    let h = store.latestHandoff(p.id, "auth");
+    expect(h?.by).toBe("auto:s-dead");
+    expect(h?.files).toEqual(["src/auth.ts"]);
+    expect(h?.verify).toBe("bun test");
+    expect(h?.remaining).toContain("build the login form");
+    // a second Stop replaces, never duplicates
+    await hook("PreToolUse", { tool_name: "Write", tool_input: { file_path: "src/b.ts" } });
+    await hook("Stop", {});
+    expect(store.handoffs(p.id).length).toBe(1);
+    expect(store.latestHandoff(p.id, "auth")?.files).toEqual(["src/auth.ts", "src/b.ts"]);
+    // the resume plan carries the handoff and the tail
+    let r = await app.request("/v1/sessions/s-dead/resume");
+    expect(r.status).toBe(200);
+    const plan = (await r.json()) as { task: string; owner: string | null; prompt: string };
+    expect(plan.task).toBe("auth");
+    expect(plan.owner).toBe("alice");
+    expect(plan.prompt).toContain("You are resuming auth");
+    expect(plan.prompt).toContain("  - Write src/b.ts");
+    // a manual handoff from the same session silences the auto one
+    store.recordHandoff(p.id, {
+      task: "auth",
+      done: "form",
+      remaining: "tests",
+      by: "alice",
+      sessionId: "s-dead",
+    });
+    await hook("SessionEnd", { reason: "exit" });
+    h = store.latestHandoff(p.id, "auth");
+    expect(h?.by).toBe("alice");
+    expect(store.handoffs(p.id).filter((x) => x.by?.startsWith("auto")).length).toBe(1);
+    r = await app.request("/v1/sessions/nope/resume");
+    expect(r.status).toBe(404);
+    store.release(p.id, "auth", true);
+  });
+});
+
+describe("rule dry-run over history (M4.6)", () => {
+  it("replays recorded tool calls under overridden modes and flags flaky signals", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-dryrun-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    const p = store.resolveProject(dir, true);
+    const hook = (event: string, sid: string, body: Record<string, unknown>) =>
+      app.request(`/v1/hook/${event}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-swarm-guard": "off" },
+        body: JSON.stringify({ session_id: sid, cwd: dir, ...body }),
+      });
+    process.env.SWARM_GUARD = "off";
+    try {
+      for (let i = 0; i < 3; i++) {
+        await hook("PreToolUse", "s1", {
+          tool_name: "Bash",
+          tool_input: { command: "pkill -f node" },
+        });
+        await hook("PostToolUse", "s1", {
+          tool_name: "Bash",
+          tool_input: { command: "pkill -f node" },
+          tool_response: "",
+        });
+      }
+      await hook("PreToolUse", "s2", { tool_name: "Bash", tool_input: { command: "ls" } });
+      await hook("PreToolUse", "s1", { tool_name: "Bash", tool_input: { command: "git add -A" } });
+    } finally {
+      delete process.env.SWARM_GUARD;
+    }
+    let r = await app.request(`/v1/rules/dryrun?project=${p.id}`);
+    expect(r.status).toBe(200);
+    let j = (await r.json()) as {
+      evaluated: number;
+      byRule: Record<string, { ask: number; deny: number }>;
+      flaky: Array<{ rule: string; display: string; fires: number }>;
+      modes: Record<string, string>;
+    };
+    expect(j.evaluated).toBe(5);
+    expect(j.byRule.pattern_kill).toEqual({ ask: 3, deny: 0 });
+    expect(j.byRule.shared_tree?.ask).toBe(1);
+    expect(j.flaky).toEqual([
+      expect.objectContaining({ rule: "pattern_kill", display: "pkill -f node", fires: 3 }),
+    ]);
+    r = await app.request(`/v1/rules/dryrun?project=${p.id}&pattern_kill=deny&shared_tree=off`);
+    j = (await r.json()) as typeof j;
+    expect(j.modes.pattern_kill).toBe("deny");
+    expect(j.byRule.pattern_kill).toEqual({ ask: 0, deny: 3 });
+    expect(j.byRule.shared_tree).toEqual({ ask: 0, deny: 0 });
+    expect(store.incidents(50).length).toBe(0);
+    r = await app.request("/v1/rules/dryrun");
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("external task sources (M4.8)", () => {
+  it("a linear source without LINEAR_API_KEY reports the gap instead of a backlog; cache survives errors", async () => {
+    const { TaskSources } = await import("./task-sources");
+    const ts = new TaskSources({});
+    const e = await ts.refresh("p1", "linear", "/nonexistent", { labels: [], team: "ENG" });
+    expect(e.tasks).toEqual([]);
+    expect(e.error).toContain("LINEAR_API_KEY");
+    // store wiring: .swarm.toml source = "linear" flows through tasks() with the error attached
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-tasksrc-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[tasks]\nsource = "linear"\nteam = "ENG"\n`);
+    const p = store.resolveProject(dir, true);
+    const saved = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "";
+    try {
+      await store.taskSources.refresh(p.id, "linear", dir, { labels: [], team: "ENG" });
+      const r = await app.request(`/v1/tasks?project=${p.id}`);
+      const j = (await r.json()) as { source: string; tasks: unknown[]; error: string | null };
+      expect(j.source).toBe("linear");
+      expect(j.tasks).toEqual([]);
+      expect(j.error).toContain("LINEAR_API_KEY");
+    } finally {
+      if (saved === undefined) delete process.env.LINEAR_API_KEY;
+      else process.env.LINEAR_API_KEY = saved;
+    }
+  });
+});
+
 describe("runner (M3.1)", () => {
   it("claims, spawns a fake claude, records result, steers over stdin, stops by pid", async () => {
     const fs = require("node:fs");

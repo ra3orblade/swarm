@@ -177,3 +177,81 @@ export function formatHandoff(h: Handoff): string {
   if (h.verify) lines.push(`  verify: ${h.verify.trim()}`);
   return lines.join("\n");
 }
+
+// ---------- auto-handoff (M4.4): a structured handoff derived from what a session actually did
+
+/** The slice of a stored event the deriver needs; the daemon maps its rows onto this. */
+export interface HandoffEvidence {
+  type: string;
+  payload: { hook?: string; tool?: string; summary?: string; prompt?: string };
+}
+
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** Commands that look like a verification step; the last one becomes `verify`. */
+const VERIFY_RE =
+  /\b(test|tests|typecheck|tsc|lint|biome|eslint|check|build|smoke|pytest|cargo (test|check|build)|go (test|vet|build)|make)\b/;
+
+/**
+ * Build a handoff from a session's trail: edited files, the last verification command run, the last
+ * prompt the human gave, and the last thing the agent said. Pure; never throws on odd payloads.
+ * Returns null when the session left no trace worth handing over (nothing edited, nothing said).
+ */
+export function deriveHandoff(
+  task: string,
+  ev: HandoffEvidence[],
+  opts: { lastText?: string | null; sessionId?: string | null; now?: string } = {},
+): Handoff | null {
+  const files: string[] = [];
+  let verify: string | null = null;
+  let lastPrompt: string | null = null;
+  for (const e of ev) {
+    const p = e.payload ?? {};
+    if (e.type === "tool.requested" && p.tool) {
+      const arg = (p.summary ?? "").slice(p.tool.length).trim();
+      if (EDIT_TOOLS.has(p.tool) && arg && !files.includes(arg)) files.push(arg);
+      if (p.tool === "Bash") {
+        if (arg && VERIFY_RE.test(arg)) verify = arg;
+      }
+    } else if (p.hook === "UserPromptSubmit" && (p.prompt ?? p.summary)) {
+      lastPrompt = (p.prompt ?? p.summary ?? "").trim().split("\n")[0]?.slice(0, 200) ?? null;
+    }
+  }
+  const said = (opts.lastText ?? "").trim().replace(/\s+/g, " ").slice(0, 600);
+  if (!files.length && !said) return null;
+  const done = said || `edited ${files.length} file${files.length === 1 ? "" : "s"} (no summary)`;
+  const remaining = lastPrompt
+    ? `unverified — session stopped without a manual handoff; last request: "${lastPrompt}". Re-read the files below, run verify, then continue.`
+    : "unverified — session stopped without a manual handoff. Re-read the files below, run verify, then continue.";
+  return {
+    task,
+    done,
+    remaining,
+    files: files.slice(-30),
+    verify,
+    by: `auto${opts.sessionId ? `:${opts.sessionId.slice(0, 8)}` : ""}`,
+    createdAt: opts.now ?? new Date().toISOString(),
+  };
+}
+
+/** True for a handoff the daemon wrote itself (M4.4), as opposed to one a holder left on purpose. */
+export function isAutoHandoff(h: Pick<Handoff, "by">): boolean {
+  return h.by === "auto" || (h.by?.startsWith("auto:") ?? false);
+}
+
+/**
+ * The prompt a "resume where this died" run starts from (M4.4): the handoff, then a short tail of
+ * what the session was doing, then the instruction to carry on. The tail is newest-last.
+ */
+export function formatResumePrompt(h: Handoff, tail: string[]): string {
+  const out = [
+    `You are resuming ${h.task}; the previous session on it stopped without finishing.`,
+    "",
+    formatHandoff(h),
+  ];
+  if (tail.length) out.push("", "Its last actions, oldest first:", ...tail.map((t) => `  - ${t}`));
+  out.push(
+    "",
+    "Start by reading the files listed, run the verify step if there is one, then continue with `remaining`. Work only inside this worktree; when done commit, push, and call swarm_handoff.",
+  );
+  return out.join("\n");
+}

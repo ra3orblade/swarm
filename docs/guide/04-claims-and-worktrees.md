@@ -116,6 +116,22 @@ source = "docs/plan.md"
 
 Every table in that file with `ID` and `Task` columns is parsed — optionally `Depends` and `Status` too. Status is read from the first glyph or word: ✅ / `done` is done, 🟡 / `in progress` is active, anything else is todo. `Depends` may name tasks (`M1.1, M1.2`) or a whole milestone prefix (`M0`, meaning every `M0.x`). Swarm's own `docs/06-roadmap.md` is written this way and is its own task source.
 
+Or point it at an issue tracker — read-only, through the same shape:
+
+```toml
+[tasks]
+source = "github"        # the repo's GitHub Issues via the logged-in gh CLI
+labels = ["swarm"]       # optional: only issues carrying every listed label
+```
+
+```toml
+[tasks]
+source = "linear"        # Linear, via its API; export LINEAR_API_KEY in the environment swarmd starts from
+team = "ENG"             # optional: one team's issues
+```
+
+GitHub issues become `GH-<n>`: closed is done, an `in progress` / `wip` label is active, and `depends on #12` / `blocked by #12` in the body become dependencies. Linear issues keep their identifiers (`ENG-123`), map their workflow state type (completed/canceled → done, started → active) and turn *blocked by* relations into dependencies. The list is refreshed in the background about once a minute; if the source can't be read (no `gh`, no key) the Board says why instead of showing nothing. Swarm never stores a credential: GitHub goes through `gh`'s own login, and the Linear key is only ever read from the daemon's environment.
+
 With a source set, the Board's **Tasks** section lists what's **Ready** — todo, dependencies done, not claimed — with a *Claim* action per row; **Open** and **All** show the rest. `swarm tasks --ready` prints the same list and the MCP tool `swarm_next_task` hands an agent the first one.
 
 ## Where things live
@@ -154,6 +170,12 @@ You rarely need to ask for it. **The next session that starts inside that worktr
 ```
 
 A session starting in the shared checkout is instead told which tasks others hold, so it claims its own rather than editing theirs.
+
+### When nobody left one
+
+Sessions die: a context window fills, a terminal closes, a laptop sleeps. Whenever a session working inside a claimed worktree pauses (Claude Code's `Stop`) or ends, Swarm derives a handoff from what it actually did — the files it edited, the last command that looked like a verification step (`bun test`, `tsc`, `lint`…), the last request you gave it, and the last thing it said — and keeps exactly one such `auto:` handoff per session, replaced on every pause. A handoff you or the agent record on purpose silences it.
+
+That makes any ended session resumable. On its page, **Resume where it died** shows the plan — the handoff plus the session's last dozen actions — and spawns a run on the task (reusing the claim if it is still held). From the CLI: `swarm run resume <session-id>`.
 
 ## Gates
 

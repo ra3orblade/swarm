@@ -139,3 +139,116 @@ export function nextTask(
 ): TaskView | null {
   return taskBoard(tasks, activeClaims).find((t) => t.ready) ?? null;
 }
+
+// ---------- external task sources (M4.8): GitHub Issues, Linear — same Task shape, read-only
+
+/** `[tasks] source` values that are adapters rather than a file. */
+export const TASK_SOURCE_KINDS = ["github", "linear"] as const;
+export type TaskSourceKind = (typeof TASK_SOURCE_KINDS)[number];
+export function taskSourceKind(source: string | null): TaskSourceKind | "markdown" | null {
+  if (!source) return null;
+  return (TASK_SOURCE_KINDS as readonly string[]).includes(source)
+    ? (source as TaskSourceKind)
+    : "markdown";
+}
+
+/** Labels that mean "someone is on it" in either tracker. */
+const ACTIVE_LABEL_RE = /^(in[- ]progress|wip|doing|active|started)$/i;
+/** `depends on #12`, `blocked by #12, #13`, `after #9` in an issue body. */
+const GH_DEP_RE =
+  /\b(?:depends on|blocked by|after|requires)\b[^\n.]*?((?:#\d+[,\s]*(?:and)?\s*)+)/gi;
+
+export interface GithubIssue {
+  number: number;
+  title: string;
+  state: string; // OPEN | CLOSED
+  labels?: Array<{ name: string }> | undefined;
+  body?: string | null | undefined;
+  assignees?: Array<{ login: string }> | undefined;
+  milestone?: { title: string } | null | undefined;
+}
+
+/** `gh issue list --json number,title,state,labels,body,assignees,milestone` → tasks, ids `GH-<n>`. */
+export function normalizeGithubIssues(issues: GithubIssue[]): Task[] {
+  return issues
+    .filter((i) => Number.isInteger(i.number) && typeof i.title === "string")
+    .sort((a, b) => a.number - b.number)
+    .map((i) => {
+      const labels = (i.labels ?? []).map((l) => l.name);
+      const closed = (i.state ?? "").toUpperCase() === "CLOSED";
+      const active = !closed && labels.some((l) => ACTIVE_LABEL_RE.test(l));
+      const depends: string[] = [];
+      for (const m of (i.body ?? "").matchAll(GH_DEP_RE))
+        for (const n of (m[1] ?? "").matchAll(/#(\d+)/g)) {
+          const id = `GH-${n[1]}`;
+          if (!depends.includes(id)) depends.push(id);
+        }
+      const statusText = closed
+        ? "closed"
+        : active
+          ? `in progress${i.assignees?.length ? ` (${i.assignees.map((a) => a.login).join(", ")})` : ""}`
+          : labels.length
+            ? labels.join(", ")
+            : "open";
+      return {
+        id: `GH-${i.number}`,
+        title: i.title,
+        depends,
+        status: closed ? "done" : active ? "active" : "todo",
+        statusText,
+        milestone: i.milestone?.title ?? null,
+      };
+    });
+}
+
+export interface LinearIssue {
+  identifier: string; // ENG-123
+  title: string;
+  state?: { name: string; type: string } | undefined; // type: backlog|unstarted|started|completed|canceled|triage
+  assignee?: { name: string } | null | undefined;
+  project?: { name: string } | null | undefined;
+  cycle?: { name: string | null; number: number } | null | undefined;
+  /** Issues this one is blocked by. */
+  inverseRelations?: { nodes: Array<{ type: string; issue: { identifier: string } }> } | undefined;
+  sortOrder?: number | undefined;
+}
+
+/** Linear GraphQL `issues.nodes` → tasks, ids as Linear shows them (`ENG-123`). Done = completed
+ *  or canceled; active = a started state. Blocked-by relations become dependencies. */
+export function normalizeLinearIssues(issues: LinearIssue[]): Task[] {
+  return issues
+    .filter((i) => typeof i.identifier === "string" && typeof i.title === "string")
+    .map((i) => {
+      const type = i.state?.type ?? "unstarted";
+      const done = type === "completed" || type === "canceled";
+      const active = type === "started";
+      const depends = (i.inverseRelations?.nodes ?? [])
+        .filter((r) => r.type === "blocks")
+        .map((r) => r.issue.identifier);
+      const statusText = `${i.state?.name ?? type}${active && i.assignee ? ` (${i.assignee.name})` : ""}`;
+      return {
+        id: i.identifier,
+        title: i.title,
+        depends: [...new Set(depends)],
+        status: done ? "done" : active ? "active" : "todo",
+        statusText,
+        milestone:
+          i.cycle?.name ?? (i.cycle ? `Cycle ${i.cycle.number}` : (i.project?.name ?? null)),
+      };
+    });
+}
+
+/** The GraphQL query the daemon sends Linear; `teamKey` narrows to one team, `first` caps the page. */
+export function linearIssuesQuery(teamKey: string | null, first = 200): string {
+  const filter = teamKey
+    ? `, filter: { team: { key: { eq: "${teamKey.replace(/"/g, "")}" } } }`
+    : "";
+  return `{ issues(first: ${first}, orderBy: createdAt${filter}) { nodes {
+    identifier title sortOrder
+    state { name type }
+    assignee { name }
+    project { name }
+    cycle { name number }
+    inverseRelations { nodes { type issue { identifier } } }
+  } } }`;
+}

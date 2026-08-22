@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatHandoff, type SwarmEvent } from "@swarm/core";
+import { formatHandoff, RULE_IDS, type RuleId, type SwarmEvent } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
@@ -106,6 +106,16 @@ export function createApp(store = new Store()) {
       }),
     ),
   );
+  // M4.6: rule dry-run over this project's history; ?shared_tree=deny&pattern_kill=off… override modes.
+  app.get("/v1/rules/dryrun", (c) => {
+    const projectId = c.req.query("project");
+    if (!projectId) return c.json({ ok: false, error: "project required" }, 400);
+    const overrides: Record<string, string> = {};
+    for (const [k, v] of Object.entries(c.req.query()))
+      if (RULE_IDS.includes(k as RuleId) && ["ask", "deny", "off"].includes(v)) overrides[k] = v;
+    const limit = Math.min(20_000, Math.max(100, Number(c.req.query("limit")) || 5000));
+    return c.json(store.dryRun(projectId, overrides, limit));
+  });
   app.post("/v1/incidents/ack", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { project?: string };
     return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined) });
@@ -382,6 +392,29 @@ export function createApp(store = new Store()) {
     }
   });
   app.get("/v1/pricing", (c) => c.json(store.prices));
+  // M4.4: resume where this died — spawn a run on the session's task from its handoff + tail.
+  app.get("/v1/sessions/:id/resume", (c) => {
+    const r = store.resumePlan(c.req.param("id"));
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
+  app.post("/v1/sessions/:id/resume", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as Partial<RunInput>;
+    const plan = store.resumePlan(c.req.param("id"));
+    if (!plan.ok) return c.json({ ok: false, error: plan.reason }, 404);
+    const r = await runner.start({
+      projectId: plan.projectId,
+      task: plan.task,
+      prompt: plan.prompt,
+      owner: b.owner ?? plan.owner ?? "dashboard",
+      model: b.model,
+      permissionMode: b.permissionMode,
+      allowedTools: b.allowedTools,
+      maxTurns: b.maxTurns,
+    });
+    return r.ok
+      ? c.json({ ...r, resumedFrom: c.req.param("id") }, 201)
+      : c.json({ ok: false, error: r.reason }, 409);
+  });
   app.post("/v1/sessions/:id/tail", (c) => c.json({ turns: store.tailSession(c.req.param("id")) }));
 
   // ---- ingestion
