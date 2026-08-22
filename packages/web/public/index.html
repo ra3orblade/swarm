@@ -355,7 +355,7 @@
   .kpi .d{font-size:var(--fs-mono);color:var(--faint)}
 
   /* icons (Phosphor regular, inline) */
-  .ph{display:inline-block;vertical-align:-3px;flex:none}
+  .ph{display:inline-block;vertical-align:middle;flex:none}
   header .nav{display:inline-flex;align-items:center;gap:6px}
   header .navcount{font:600 var(--fs-xs) var(--mono);color:var(--warn);background:var(--warn-soft);border-radius:var(--r-pill);padding:1px 6px;line-height:1.4}
   header .nav .ph{opacity:.75}
@@ -367,8 +367,8 @@
   header #settings{margin-left:10px}
   .proj .ph{color:var(--faint)}
   .proj.sel .ph{color:var(--acc)}
-  .kind{color:var(--faint);margin-right:6px;vertical-align:-3px}
-  td .more{opacity:0;color:var(--faint);padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),background var(--t-fast);line-height:0;display:inline-flex}
+  .kind{color:var(--faint);margin-right:6px;vertical-align:middle}
+  td .more{opacity:0;color:var(--faint);padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),background var(--t-fast);line-height:0;display:inline-flex;vertical-align:middle}
   tr:hover td .more,.proj:hover .more{opacity:1}
   td .more:hover{background:var(--line);color:var(--fg)}
   .stat .ph{color:var(--faint);margin-right:7px}
@@ -405,7 +405,7 @@
   .nudge{position:fixed;right:18px;bottom:18px;z-index:40;max-width:400px;background:var(--panel);border:1px solid var(--line);
     border-radius:var(--r);box-shadow:var(--shadow-pop);padding:14px 16px;display:flex;gap:12px;align-items:flex-start;
     font:var(--fs-md) var(--sans);color:var(--fg-2);line-height:1.5}
-  .nudge .ic{color:var(--acc);flex:none;margin-top:2px}
+  .nudge .ic{color:var(--acc);flex:none;margin-top:1px}
   .nudge b{color:var(--fg);display:block;margin-bottom:2px}
   .nudge .row{display:flex;gap:8px;margin-top:10px;align-items:center;white-space:nowrap}
   .nudge button.pri{background:var(--acc-soft);border-color:transparent;color:var(--acc)}
