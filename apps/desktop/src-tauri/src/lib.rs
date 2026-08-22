@@ -124,13 +124,18 @@ pub fn run() {
             // Reuse a healthy daemon if one is running; otherwise start our own on a free port.
             let port = existing_healthy_port().unwrap_or_else(|| {
                 let p = free_port();
-                let web_dir = app
-                    .path()
-                    .resource_dir()
-                    .map(|d| d.join("web"))
-                    .ok()
-                    .and_then(|d| d.to_str().map(String::from))
-                    .unwrap_or_default();
+                // Dev builds serve the repo's live dashboard, not the staged snapshot from the
+                // last desktop:prep — otherwise the app quietly shows stale UI.
+                let web_dir = if cfg!(debug_assertions) {
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/web/public").to_string()
+                } else {
+                    app.path()
+                        .resource_dir()
+                        .map(|d| d.join("web"))
+                        .ok()
+                        .and_then(|d| d.to_str().map(String::from))
+                        .unwrap_or_default()
+                };
                 if let Ok(cmd) = app.shell().sidecar("swarmd") {
                     let mut cmd = cmd.env("SWARM_PORT", p.to_string());
                     if !web_dir.is_empty() {
