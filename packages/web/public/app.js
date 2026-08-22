@@ -152,7 +152,8 @@ function renderProjects() {
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
 const FLEET_COLS = [
   { key: "project", label: "project", width: 104, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
-  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}` },
+  { key: "agent", label: "agent", width: 76, get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
+  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}` },
   { key: "branch", label: "branch", width: 134, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\n")[0] : s.last) : s.last)}</span>` },
   { key: "model", label: "model", width: 96, get: (s) => model(s.model), cell: (s) => `<span class="br">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</span>` },
@@ -170,9 +171,10 @@ function renderFleet() {
   const live = rows.filter((s) => s.state === "active" || s.state === "waiting");
   const rest = rows.filter((s) => !(s.state === "active" || s.state === "waiting"));
   const cols = FLEET_COLS.filter((c) => !(c.key === "project" && state.sel));
-  const table = (list) =>
+  // Live and Earlier are separate grids: each keeps its own column order/widths/visibility.
+  const table = (list, id) =>
     dataTable({
-      id: "fleet",
+      id,
       columns: cols,
       rows: list,
       leading: { width: 24, cell: (s) => `<span class="s ${s.state}"></span>` },
@@ -187,8 +189,8 @@ function renderFleet() {
     : "";
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
-    (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
+    (live.length ? table(live, "fleet-live") : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30), "fleet-earlier")}` : "") +
     "";
 }
 
