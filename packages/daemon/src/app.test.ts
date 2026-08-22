@@ -528,3 +528,39 @@ describe("event storage and wire shape (perf)", () => {
     expect(store.snapshot().worktrees[a.id]).toBe(wts);
   });
 });
+
+describe("project order", () => {
+  it("PUT /v1/projects/order persists a manual order for pinned projects", async () => {
+    const fs = require("node:fs");
+    const { app, store } = createApp(new Store(tmpHome()));
+    const roots = ["alpha", "beta", "gamma"].map((n) => {
+      const r = join(tmpHome(), n);
+      fs.mkdirSync(r);
+      return r;
+    });
+    const [a, b, g] = roots.map((r) => store.resolveProject(r, true));
+    expect(store.projects().map((p) => p.name)).toEqual(["alpha", "beta", "gamma"]);
+    const res = await app.request("/v1/projects/order", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: [g?.id, a?.id, b?.id] }),
+    });
+    expect(res.status).toBe(200);
+    expect(store.projects().map((p) => [p.name, p.order])).toEqual([
+      ["gamma", 0],
+      ["alpha", 1],
+      ["beta", 2],
+    ]);
+    // unordered rows sort after the ordered ones, alphabetically
+    const deltaRoot = join(tmpHome(), "delta");
+    fs.mkdirSync(deltaRoot);
+    const d = store.resolveProject(deltaRoot, true);
+    expect(store.projects().map((p) => p.name)).toEqual(["gamma", "alpha", "beta", "delta"]);
+    expect(d?.order).toBeNull();
+    const bad = await app.request("/v1/projects/order", {
+      method: "PUT",
+      body: JSON.stringify({ ids: "x" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+});

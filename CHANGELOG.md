@@ -4,6 +4,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **Sidebar drag-and-drop** — pinned projects reorder by dragging; the order persists on the daemon (`PUT /v1/projects/order`, `Project.order`).
+- **Desktop app menu** — a real application menu (Swarm / Edit / View / Window): ⌘C/⌘V work, **View › Zoom In / Zoom Out / Actual Size** (`⌘+` `⌘−` `⌘0`) scale the dashboard (persisted), plus Reload and Full Screen.
+
+### Fixed
+- Dashboard type scale is one step larger across the board (base 13 → 14 px; the smallest labels 10 → 11 px) — it had drifted too small, especially in the desktop app.
+- The **PRs** tab icon (and the branch/commit glyphs) were near-invisible at 15 px; they use the pixelarticons *sharp* variants now.
+- The daemon dot stayed red for up to 15 s after load on a healthy connection (the SSE stream sent nothing until its first heartbeat); the stream now flushes immediately.
+- The nav flashed "Fleet" before the restored tab was applied; session-detail event kinds (`userpromptsubmit`) no longer overflow into the message column; "Unpinned · seen, not pinned" keeps its spacing.
+
 ### Changed — performance
 - **Daemon never spawns `git` on a request.** Worktree status (`git worktree list` + `status`/`rev-list` per worktree, ~0.8 s across a fleet) moves to a 15 s background refresh with async `Bun.spawn`; `/v1/state` serves the cache (612 ms → ~15 ms). Claim/release invalidate it.
 - **Hook round-trips are two indexed statements**, not two `git rev-parse` spawns plus a transcript-directory scan: `cwd → project` is cached 60 s, the inline transcript tail is debounced to once per 2 s per session (the 5 s tailer covers steady state), and subagent directories are re-listed only when their mtime moves.
