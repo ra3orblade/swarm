@@ -1082,6 +1082,7 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
+      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "permission prompts, orphans", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
       { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
       { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
       { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
@@ -1089,6 +1090,43 @@ function menuSpec(kind, d) {
   }
   return null;
 }
+// M4.7 desktop notifications: native notifications (web Notification API — works in the browser and
+// the desktop app's webview) for the things you'd want to walk away and be pinged about — a spawned
+// run waiting on a permission, and a claim orphaned with unfinished work. Clicking opens the spot to
+// act. Off until enabled from the settings menu (which requests OS permission). Quiet while focused.
+const NOTIFY_KEY = "swarm.notify";
+const notifyOn = () => { try { return localStorage.getItem(NOTIFY_KEY) === "on"; } catch { return false; } };
+async function enableNotifications() {
+  if (!("Notification" in window)) { alert("This browser doesn't support notifications."); return; }
+  const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  if (perm !== "granted") { alert("Notifications were blocked. Allow them for this site in your browser/OS settings."); return; }
+  try { localStorage.setItem(NOTIFY_KEY, "on"); } catch {}
+  new Notification("Swarm notifications on", { body: "You'll be pinged when a run needs a permission or a claim is orphaned." });
+}
+function disableNotifications() { try { localStorage.setItem(NOTIFY_KEY, "off"); } catch {} }
+let lastNotifyAt = 0;
+function notifyForEvent(ev) {
+  if (!notifyOn() || !("Notification" in window) || Notification.permission !== "granted") return;
+  if (!document.hidden && ev.type !== "permission.requested") return; // only permission prompts interrupt while you're looking
+  const now = Date.now();
+  if (now - lastNotifyAt < 1500) return; // don't stack
+  const p = ev.payload || {};
+  let title, body, onClick;
+  if (ev.type === "permission.requested") {
+    title = `Permission needed: ${p.tool ?? "tool"}`;
+    body = `${p.display ?? ""}
+${p.reason ?? ""}`.slice(0, 180);
+    onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
+  } else if (ev.type === "claim.orphaned") {
+    title = "Claim orphaned";
+    body = `${p.task ?? "a task"} — its lease expired with unfinished work in the worktree.`;
+    onClick = () => { state.view = "board"; state.sel = ev.projectId || state.sel; state.session = null; refresh(); };
+  } else return;
+  lastNotifyAt = now;
+  const n = new Notification(title, { body, tag: `swarm-${ev.type}-${ev.sessionId ?? ev.seq}` });
+  n.onclick = () => { window.focus(); onClick?.(); n.close(); };
+}
+
 // What's New: release notes for the running version, from window.RELEASE_NOTES (release-notes.js).
 // The desktop menu calls window.swarmWhatsNew; the settings menu calls whatsNew(); it also opens
 // itself once after an upgrade (localStorage remembers the last version the user saw).
@@ -1380,6 +1418,7 @@ function connect() {
       if (state.log.length > LOG_CAP) state.log.shift();
       schedule();
     }
+    if (fresh) notifyForEvent(ev);
     pollSoon();
   };
   for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
