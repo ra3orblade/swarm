@@ -926,6 +926,45 @@ function sessionStream() {
 }
 // True when `rows` only extends the rows already in #log (same session, same prefix) → append, don't rebuild.
 const isAppend = (rows) => logRendered && rows.length >= logRendered.length && logRendered.every((k, n) => rows[n].key === k);
+// M4.1 session replay: step through a session's tool calls, one at a time, with full input/output
+// (lazy-fetched from /v1/events/:seq). replayState holds the current step; nav by buttons or ←/→.
+const replay = { steps: [], i: 0, cache: new Map() };
+function openReplay() {
+  replay.steps = state.log.filter((e) => e.type === "tool.requested").map((e) => ({ seq: e.seq, tool: e.payload?.tool ?? "tool", summary: e.payload?.summary ?? "" }));
+  replay.i = 0;
+  replay.cache.clear();
+  if (!replay.steps.length) { alert("No tool calls in this session yet."); return; }
+  renderReplay();
+}
+async function renderReplay() {
+  const n = replay.steps.length;
+  const step = replay.steps[replay.i];
+  let detail = replay.cache.get(step.seq);
+  if (!detail) {
+    // the request event (full input) and the paired completed event (output), both by seq
+    const req = await fetch(`/v1/events/${step.seq}`).then((r) => r.json()).catch(() => null);
+    const done = state.log.find((e) => e.type === "tool.completed" && e.seq > step.seq && e.payload?.summary === step.summary);
+    const res = done ? await fetch(`/v1/events/${done.seq}`).then((r) => r.json()).catch(() => null) : null;
+    detail = { input: req?.payload?.toolInput ?? null, output: res?.payload?.toolResponse ?? null, ts: req?.ts };
+    replay.cache.set(step.seq, detail);
+  }
+  const j = (v) => (v == null ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 2));
+  $("#picker").innerHTML = `<div class="pk wn rp" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("play", 15)}<b>Replay</b><span class="dim" style="margin-left:8px">${step.tool}</span><span class="grow"></span><span class="dim" style="font-size:var(--fs-sm)">${replay.i + 1} / ${n}${detail.ts ? ` · ${hhmm(detail.ts)}` : ""}</span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <div class="dim now" style="font-family:var(--mono);font-size:var(--fs-sm);margin-bottom:8px">${esc(step.summary)}</div>
+      <h4>input</h4><pre class="snip">${esc(j(detail.input)) || '<span class="dim">—</span>'}</pre>
+      <h4>output</h4><pre class="snip">${detail.output != null ? esc(j(detail.output)).slice(0, 4000) : '<span class="dim">(no result captured)</span>'}</pre>
+    </div>
+    <div class="pk-f"><button id="rpPrev" ${replay.i === 0 ? "disabled" : ""}>${ic("arrow-left", 12)} Prev</button><span class="grow"></span><input id="rpRange" type="range" min="0" max="${n - 1}" value="${replay.i}" style="flex:1;max-width:280px"><span class="grow"></span><button class="primary" id="rpNext" ${replay.i >= n - 1 ? "disabled" : ""}>Next ${ic("arrow-right", 12)}</button></div>
+  </div>`;
+}
+function replayGo(delta) {
+  const n = replay.steps.length;
+  replay.i = Math.max(0, Math.min(n - 1, replay.i + delta));
+  renderReplay();
+}
+
 // Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
 function stdinBox(s) {
   if (s.kind !== "spawned") return "";
@@ -968,7 +1007,7 @@ function renderSession() {
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>`;
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a></h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
@@ -1199,6 +1238,7 @@ document.addEventListener("click", async (ev) => {
     return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
   }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
+  if (t.id === "replay") { ev.preventDefault(); return openReplay(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; state.tasks = null; state.dirty = true; return refresh(); }
 });
@@ -1302,13 +1342,17 @@ $("#picker").addEventListener("click", (ev) => {
   const ctoml = ev.target.closest("[data-copy-toml]"), cles = ev.target.closest("[data-copy-lesson]");
   if (ctoml) { ev.preventDefault(); copy($(`#toml-${ctoml.dataset.copyToml}`)?.textContent); ctoml.lastChild.textContent = " copied"; return; }
   if (cles) { ev.preventDefault(); copy($(`#lesson-${cles.dataset.copyLesson}`)?.textContent); cles.lastChild.textContent = " copied"; return; }
+  if (ev.target.closest("#rpPrev")) return replayGo(-1);
+  if (ev.target.closest("#rpNext")) return replayGo(1);
   if (ev.target.closest("#rnCancel")) return closePicker();
   const rnGo = ev.target.closest("#rnGo"); if (rnGo) return submitRun(rnGo.dataset.task);
   if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
 });
+$("#picker").addEventListener("input", (ev) => { if (ev.target.id === "rpRange") { replay.i = Number(ev.target.value); renderReplay(); } });
 $("#picker").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.id === "pkPath") { ev.preventDefault(); pickerGo(ev.target.value.trim()); }
   if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && ev.target.id === "rnPrompt") { ev.preventDefault(); submitRun($("#rnGo")?.dataset.task); }
+  if ((ev.key === "ArrowRight" || ev.key === "ArrowLeft") && $(".rp")) { ev.preventDefault(); replayGo(ev.key === "ArrowRight" ? 1 : -1); }
 });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
 
