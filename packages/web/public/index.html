@@ -133,8 +133,10 @@
   .proj .st.live{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
   .proj .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .proj small{color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-sm)}
-  .proj .act{opacity:0;color:var(--faint);flex:none;font-size:var(--fs-lg);line-height:1;padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),color var(--t-fast),background var(--t-fast)}
-  .proj:hover .act{opacity:1}
+  /* The ⋯ takes no space: it swaps in for the live-count on hover instead of reserving a slot. */
+  .proj .act{display:none;color:var(--faint);flex:none;font-size:var(--fs-lg);line-height:1;padding:2px;border-radius:var(--r-xs);transition:color var(--t-fast),background var(--t-fast)}
+  .proj:hover .act{display:inline-flex}
+  .proj:hover small{display:none}
   .proj .act:hover{color:var(--fg);background:var(--line)}
   .proj .act.rm:hover{color:var(--bad)}
   #picker:empty{display:none}
