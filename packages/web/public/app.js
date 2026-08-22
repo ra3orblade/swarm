@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -136,6 +136,15 @@ async function refresh() {
     prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
     state.prs = prs;
   }
+  let attrChanged = false;
+  if (state.view === "spend" && state.sel && !state.session) {
+    const a = await fetch(`/v1/attribution?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.attribution);
+    attrChanged = JSON.stringify(a) !== JSON.stringify(state.attribution);
+    state.attribution = a;
+  } else if (state.view === "spend" && !state.sel) {
+    if (state.attribution) attrChanged = true;
+    state.attribution = null;
+  }
   let runsChanged = false;
   const openSpawned = state.session && state.sessions.find((x) => x.id === state.session)?.kind === "spawned";
   if (openSpawned || (state.view === "board" && !state.session) || (state.view === "fleet" && !state.session)) {
@@ -159,7 +168,7 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
@@ -398,6 +407,25 @@ function renderIncidents() {
 }
 
 // ---------- incidents view (M2.3): the denied-action feed, with ack
+// M4.3: turn an incident into a .swarm.toml rule + a CLAUDE.md lesson, both copyable.
+function codifyIncident(seq) {
+  const i = (state.allIncidents ?? []).find((x) => x.seq === Number(seq));
+  if (!i?.suggestion) return;
+  const sg = i.suggestion;
+  $("#picker").innerHTML = `<div class="pk wn" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("shield", 15)}<b>Codify</b><span class="grow"></span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <h3>${esc(sg.title)}</h3>
+      <div class="date">from a <span class="br">${esc(i.rule)}</span> incident${i.count > 1 ? ` \u00b7 seen ${i.count}\u00d7` : ""}</div>
+      ${sg.toml ? `<h4>.swarm.toml <a href="#" class="cbtn" data-copy-toml="${seq}">${ic("copy", 12)} copy</a></h4><pre class="snip" id="toml-${seq}">${esc(sg.toml)}</pre>` : ""}
+      <h4>CLAUDE.md lesson <a href="#" class="cbtn" data-copy-lesson="${seq}">${ic("copy", 12)} copy</a></h4>
+      <pre class="snip" id="lesson-${seq}">- ${esc(sg.lesson)}</pre>
+      ${sg.toml ? '<p class="dim" style="font-size:var(--fs-sm)">Merge the block into the repo\'s <code>.swarm.toml</code>; the daemon picks it up within ~30s.</p>' : '<p class="dim" style="font-size:var(--fs-sm)">No config rule fits this one \u2014 the lesson is the takeaway.</p>'}
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="pkCancel">Close</button></div>
+  </div>`;
+}
+
 function renderIncidentsView() {
   const all = state.allIncidents;
   const rows = (all ?? []).filter((i) => !state.sel || i.projectId === state.sel);
@@ -415,7 +443,7 @@ function renderIncidentsView() {
           columns: incidentColumns(true),
           rows,
           leading: { width: 24, cell: incidentDot },
-          trailing: { width: 44, cell: ackLink },
+          trailing: { width: 120, cell: (i) => `${i.suggestion ? `<a href="#" data-codify="${i.seq}" title="Turn this into a rule / lesson">${ic("shield", 12)} Codify</a> ` : ""}${ackLink(i)}` },
           rowAttrs: () => "",
           rerender: touch,
         })
@@ -664,7 +692,53 @@ function renderSpend() {
      <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
+     ${renderAttribution()}
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+}
+
+// M4.2: cost attributed to tasks (via each claim's worktree) + a context re-processing signal.
+// Only meaningful with a project selected.
+function renderAttribution() {
+  const a = state.attribution;
+  if (!state.sel || !a) return "";
+  const parts = [];
+  if (a.byTask?.length) {
+    parts.push(`<h2 class="mt-sec">By task <span>${usd(sumBy(a.byTask, (t) => t.cost))} across ${a.byTask.length} task${a.byTask.length === 1 ? "" : "s"} · attributed by worktree</span></h2>` +
+      dataTable({
+        id: "spend-task",
+        columns: [
+          { key: "task", label: "task", width: 150, get: (t) => t.task, cell: (t) => `<b>${esc(t.task)}</b>` },
+          { key: "owner", label: "owner", width: 120, get: (t) => t.owner || "", cell: (t) => esc(t.owner || "—") },
+          { key: "cost", label: "cost", width: 88, num: true, get: (t) => t.cost, cell: (t) => usd(t.cost) },
+          { key: "output", label: "out", width: 84, num: true, get: (t) => t.output, cell: (t) => tok(t.output) },
+          { key: "sessions", label: "sessions", width: 84, num: true, get: (t) => t.sessions, cell: (t) => String(t.sessions) },
+          { key: "turns", label: "turns", width: 64, num: true, get: (t) => t.turns, cell: (t) => String(t.turns) },
+          { key: "worktree", label: "worktree", flex: true, get: (t) => t.worktree, cell: (t) => `<span class="now dim" title="${esc(t.worktree)}">${esc(short(t.worktree))}</span>` },
+        ],
+        rows: a.byTask,
+        leading: { width: 20, cell: () => "" },
+        trailing: { width: 8, cell: () => "" },
+        rerender: touch,
+      }));
+  }
+  if (a.contextBudget?.length) {
+    parts.push(`<h2 class="mt-sec">Context budget <span>sessions re-processing the most context · a high reuse % is a lot of re-reading</span></h2>` +
+      dataTable({
+        id: "spend-ctx",
+        columns: [
+          { key: "title", label: "session", flex: true, get: (r) => r.title ?? r.id, cell: (r) => `<a href="#" data-s="${r.id}">${esc(r.title ?? r.id.slice(0, 8))}</a>` },
+          { key: "reuse", label: "reuse", width: 90, num: true, get: (r) => r.reuse, cell: (r) => `<span class="${r.reuse > 0.9 ? "br" : "dim"}">${(r.reuse * 100).toFixed(0)}%</span>` },
+          { key: "cacheRead", label: "context re-read", width: 120, num: true, get: (r) => r.cacheRead, cell: (r) => tok(r.cacheRead) },
+          { key: "cost", label: "cost", width: 88, num: true, get: (r) => r.cost, cell: (r) => usd(r.cost) },
+          { key: "turns", label: "turns", width: 64, num: true, get: (r) => r.turns, cell: (r) => String(r.turns) },
+        ],
+        rows: a.contextBudget,
+        leading: { width: 20, cell: () => "" },
+        trailing: { width: 8, cell: () => "" },
+        rerender: touch,
+      }));
+  }
+  return parts.join("");
 }
 
 // ---------- stats
@@ -852,6 +926,45 @@ function sessionStream() {
 }
 // True when `rows` only extends the rows already in #log (same session, same prefix) → append, don't rebuild.
 const isAppend = (rows) => logRendered && rows.length >= logRendered.length && logRendered.every((k, n) => rows[n].key === k);
+// M4.1 session replay: step through a session's tool calls, one at a time, with full input/output
+// (lazy-fetched from /v1/events/:seq). replayState holds the current step; nav by buttons or ←/→.
+const replay = { steps: [], i: 0, cache: new Map() };
+function openReplay() {
+  replay.steps = state.log.filter((e) => e.type === "tool.requested").map((e) => ({ seq: e.seq, tool: e.payload?.tool ?? "tool", summary: e.payload?.summary ?? "" }));
+  replay.i = 0;
+  replay.cache.clear();
+  if (!replay.steps.length) { alert("No tool calls in this session yet."); return; }
+  renderReplay();
+}
+async function renderReplay() {
+  const n = replay.steps.length;
+  const step = replay.steps[replay.i];
+  let detail = replay.cache.get(step.seq);
+  if (!detail) {
+    // the request event (full input) and the paired completed event (output), both by seq
+    const req = await fetch(`/v1/events/${step.seq}`).then((r) => r.json()).catch(() => null);
+    const done = state.log.find((e) => e.type === "tool.completed" && e.seq > step.seq && e.payload?.summary === step.summary);
+    const res = done ? await fetch(`/v1/events/${done.seq}`).then((r) => r.json()).catch(() => null) : null;
+    detail = { input: req?.payload?.toolInput ?? null, output: res?.payload?.toolResponse ?? null, ts: req?.ts };
+    replay.cache.set(step.seq, detail);
+  }
+  const j = (v) => (v == null ? "" : typeof v === "string" ? v : JSON.stringify(v, null, 2));
+  $("#picker").innerHTML = `<div class="pk wn rp" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("play", 15)}<b>Replay</b><span class="dim" style="margin-left:8px">${step.tool}</span><span class="grow"></span><span class="dim" style="font-size:var(--fs-sm)">${replay.i + 1} / ${n}${detail.ts ? ` · ${hhmm(detail.ts)}` : ""}</span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <div class="dim now" style="font-family:var(--mono);font-size:var(--fs-sm);margin-bottom:8px">${esc(step.summary)}</div>
+      <h4>input</h4><pre class="snip">${esc(j(detail.input)) || '<span class="dim">—</span>'}</pre>
+      <h4>output</h4><pre class="snip">${detail.output != null ? esc(j(detail.output)).slice(0, 4000) : '<span class="dim">(no result captured)</span>'}</pre>
+    </div>
+    <div class="pk-f"><button id="rpPrev" ${replay.i === 0 ? "disabled" : ""}>${ic("arrow-left", 12)} Prev</button><span class="grow"></span><input id="rpRange" type="range" min="0" max="${n - 1}" value="${replay.i}" style="flex:1;max-width:280px"><span class="grow"></span><button class="primary" id="rpNext" ${replay.i >= n - 1 ? "disabled" : ""}>Next ${ic("arrow-right", 12)}</button></div>
+  </div>`;
+}
+function replayGo(delta) {
+  const n = replay.steps.length;
+  replay.i = Math.max(0, Math.min(n - 1, replay.i + delta));
+  renderReplay();
+}
+
 // Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
 function stdinBox(s) {
   if (s.kind !== "spawned") return "";
@@ -894,7 +1007,7 @@ function renderSession() {
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span></h2>`;
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a></h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
@@ -969,6 +1082,7 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
+      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "permission prompts, orphans", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
       { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
       { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
       { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
@@ -976,6 +1090,43 @@ function menuSpec(kind, d) {
   }
   return null;
 }
+// M4.7 desktop notifications: native notifications (web Notification API — works in the browser and
+// the desktop app's webview) for the things you'd want to walk away and be pinged about — a spawned
+// run waiting on a permission, and a claim orphaned with unfinished work. Clicking opens the spot to
+// act. Off until enabled from the settings menu (which requests OS permission). Quiet while focused.
+const NOTIFY_KEY = "swarm.notify";
+const notifyOn = () => { try { return localStorage.getItem(NOTIFY_KEY) === "on"; } catch { return false; } };
+async function enableNotifications() {
+  if (!("Notification" in window)) { alert("This browser doesn't support notifications."); return; }
+  const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  if (perm !== "granted") { alert("Notifications were blocked. Allow them for this site in your browser/OS settings."); return; }
+  try { localStorage.setItem(NOTIFY_KEY, "on"); } catch {}
+  new Notification("Swarm notifications on", { body: "You'll be pinged when a run needs a permission or a claim is orphaned." });
+}
+function disableNotifications() { try { localStorage.setItem(NOTIFY_KEY, "off"); } catch {} }
+let lastNotifyAt = 0;
+function notifyForEvent(ev) {
+  if (!notifyOn() || !("Notification" in window) || Notification.permission !== "granted") return;
+  if (!document.hidden && ev.type !== "permission.requested") return; // only permission prompts interrupt while you're looking
+  const now = Date.now();
+  if (now - lastNotifyAt < 1500) return; // don't stack
+  const p = ev.payload || {};
+  let title, body, onClick;
+  if (ev.type === "permission.requested") {
+    title = `Permission needed: ${p.tool ?? "tool"}`;
+    body = `${p.display ?? ""}
+${p.reason ?? ""}`.slice(0, 180);
+    onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
+  } else if (ev.type === "claim.orphaned") {
+    title = "Claim orphaned";
+    body = `${p.task ?? "a task"} — its lease expired with unfinished work in the worktree.`;
+    onClick = () => { state.view = "board"; state.sel = ev.projectId || state.sel; state.session = null; refresh(); };
+  } else return;
+  lastNotifyAt = now;
+  const n = new Notification(title, { body, tag: `swarm-${ev.type}-${ev.sessionId ?? ev.seq}` });
+  n.onclick = () => { window.focus(); onClick?.(); n.close(); };
+}
+
 // What's New: release notes for the running version, from window.RELEASE_NOTES (release-notes.js).
 // The desktop menu calls window.swarmWhatsNew; the settings menu calls whatsNew(); it also opens
 // itself once after an upgrade (localStorage remembers the last version the user saw).
@@ -1080,6 +1231,7 @@ document.addEventListener("click", async (ev) => {
     if (!r.ok) alert(r.error); else state.tasks = null;
     return refresh();
   }
+  if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) {
     ev.preventDefault(); ev.stopPropagation();
@@ -1124,6 +1276,7 @@ document.addEventListener("click", async (ev) => {
     return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
   }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
+  if (t.id === "replay") { ev.preventDefault(); return openReplay(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; state.tasks = null; state.dirty = true; return refresh(); }
 });
@@ -1224,13 +1377,20 @@ $("#picker").addEventListener("click", (ev) => {
   if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
   const go = ev.target.closest("[data-go]");
   if (go) return void pickerGo(go.dataset.go);
+  const ctoml = ev.target.closest("[data-copy-toml]"), cles = ev.target.closest("[data-copy-lesson]");
+  if (ctoml) { ev.preventDefault(); copy($(`#toml-${ctoml.dataset.copyToml}`)?.textContent); ctoml.lastChild.textContent = " copied"; return; }
+  if (cles) { ev.preventDefault(); copy($(`#lesson-${cles.dataset.copyLesson}`)?.textContent); cles.lastChild.textContent = " copied"; return; }
+  if (ev.target.closest("#rpPrev")) return replayGo(-1);
+  if (ev.target.closest("#rpNext")) return replayGo(1);
   if (ev.target.closest("#rnCancel")) return closePicker();
   const rnGo = ev.target.closest("#rnGo"); if (rnGo) return submitRun(rnGo.dataset.task);
   if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
 });
+$("#picker").addEventListener("input", (ev) => { if (ev.target.id === "rpRange") { replay.i = Number(ev.target.value); renderReplay(); } });
 $("#picker").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.id === "pkPath") { ev.preventDefault(); pickerGo(ev.target.value.trim()); }
   if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && ev.target.id === "rnPrompt") { ev.preventDefault(); submitRun($("#rnGo")?.dataset.task); }
+  if ((ev.key === "ArrowRight" || ev.key === "ArrowLeft") && $(".rp")) { ev.preventDefault(); replayGo(ev.key === "ArrowRight" ? 1 : -1); }
 });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#picker").innerHTML) closePicker(); });
 
@@ -1258,6 +1418,7 @@ function connect() {
       if (state.log.length > LOG_CAP) state.log.shift();
       schedule();
     }
+    if (fresh) notifyForEvent(ev);
     pollSoon();
   };
   for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);

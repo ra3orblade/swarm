@@ -72,6 +72,8 @@ export const ICONS = [
   "arrow-bar-right",
   "git-pull-request",
   "star",
+  "shield",
+  "bell",
   "arrow-right",
 ];
 // app-facing key -> pixelarticons filename (closest pixel-art equivalent)
@@ -104,6 +106,8 @@ const NAME_MAP: Record<string, string> = {
   "arrow-left": "arrow-left",
   warning: "square-alert",
   star: "star",
+  shield: "shield",
+  bell: "bell",
   "arrow-right": "arrow-right",
   check: "check",
   copy: "copy",

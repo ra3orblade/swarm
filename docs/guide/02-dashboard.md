@@ -98,3 +98,19 @@ The sliders button in the header opens settings: **Theme** (System, Light, Dark)
 ## Running an agent from the Board
 
 With a [task source](04-claims-and-worktrees.md#a-task-source) configured, every **Ready** task row (and any task you already hold) has a **Run** action. It opens a drawer with the prompt prefilled from the task, the permission mode (`acceptEdits` by default), an optional model and a max-turns cap; **Run** (or ⌘⏎) claims the task and the daemon spawns `claude -p` in its worktree — the same thing `swarm run` does from the CLI. You land on the session page, marked ▷ spawned, with a box at the bottom to send it messages and a **Stop** button; cost and tokens accrue like any other session.
+
+## Session replay
+
+On any session page, **Replay** steps through the session's tool calls one at a time — each with its full input and output (a Write's content, a Bash command and its result, a Read's file). Prev/Next, a slider, or the ←/→ keys move through them. It's the "what did this agent actually do, in order" view.
+
+## Cost by task
+
+With a project selected, the Spend view attributes cost and tokens to each **task** — a session's spend belongs to the claim whose worktree it ran in. Below it, **Context budget** ranks sessions by how much context they re-processed (cache reads): a high reuse % is an agent re-reading the same material turn after turn.
+
+## Codify an incident
+
+Each incident on the Incidents feed has a **Codify** action: it turns the incident into a `.swarm.toml` rule you can paste in and a one-line lesson for the repo's CLAUDE.md, both with copy buttons. A rule that keeps firing as `ask` is suggested as a `deny`.
+
+## Notifications
+
+Turn on **Desktop notifications** in the settings menu to be pinged when a spawned run is waiting on a permission, or a claim is orphaned with unfinished work — the things worth walking away for. Clicking the notification opens the spot to act. They stay quiet while you're looking at the dashboard.

@@ -72,13 +72,13 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 ## M4 — Learn (the data pays off) ← next
 | ID | Task | Depends | Status |
 |----|------|---------|--------|
-| M4.1 | Session replay: scrub per tool call, diff per step; "while you were away" digest per project | M0 | ⚪ |
-| M4.2 | Cost/token attribution per task, gate, rule; repeated-read detector (context budget view) | M0, M1 | ⚪ |
-| M4.3 | Incident → rule: generate hook predicate from an incident; "write lesson to CLAUDE.md" | M2 | ⚪ |
+| M4.1 | Session replay: scrub per tool call, diff per step; "while you were away" digest per project | M0 | ✅ 2026-08-22 **Replay** on the session page: a stepper over the session's `tool.requested` events, each showing the full `toolInput` + paired `toolResponse` (lazy-fetched from `/v1/events/:seq`); Prev/Next, slider, ←/→ keys. "while you were away" digest still ⚪
+| M4.2 | Cost/token attribution per task, gate, rule; repeated-read detector (context budget view) | M0, M1 | ✅ 2026-08-22 `store.attribution(project)`: cost/tokens/turns per task (sessions matched to a claim by cwd inside its worktree) + a context-budget list (sessions ranked by re-processed cache-read tokens = re-reading); `GET /v1/attribution`; **By task** + **Context budget** on Spend
+| M4.3 | Incident → rule: generate hook predicate from an incident; "write lesson to CLAUDE.md" | M2 | ✅ 2026-08-22 `core/lessons.ts`: each incident → a `.swarm.toml` rule snippet + a CLAUDE.md lesson (recurring `ask` escalates to `deny` via per rule/target counts); **Codify** action on the Incidents feed with copy buttons; no repo writes (user applies)
 | M4.4 | Structured auto-handoff at Stop/SessionEnd; "resume where this died" spawns with handoff + tail | M1.3, M3.1 | ⚪ |
 | M4.5 | Memory search over Swarm data (sqlite-vec, local embeddings) — see OQ-9 | M4.4 | ⚪ |
 | M4.6 | Rule dry-run over historical events; flaky-signal detection | M2.1 | ⚪ |
-| M4.7 | Desktop notifications with Allow/Deny actions | M3.2 | ⚪ |
+| M4.7 | Desktop notifications with Allow/Deny actions | M3.2 | ✅ 2026-08-22 web Notification API (browser + desktop webview): permission prompts on spawned runs and orphaned claims fire a native notification, click opens the Allow/Deny card / Board; enabled from the settings menu, quiet while focused. Native Tauri notification-action buttons not used (M4.2 permission broker card covers the action)
 | M4.8 | Task-source adapters: GitHub Issues, Linear | M1.6 | ⚪ |
 
 ## M5 — Beyond Claude (multi-agent) ← direction set 2026-08-20
