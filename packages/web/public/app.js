@@ -129,7 +129,7 @@ async function refresh() {
   const txt = await (await fetch("/v1/state")).text();
   const same = txt === lastSnap;
   if (!same) { lastSnap = txt; Object.assign(state, JSON.parse(txt)); }
-  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; }).catch(() => {});
+  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; maybeWhatsNew(); }).catch(() => {});
   let prsChanged = false;
   if (state.view === "prs" && !state.session) {
     const prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
@@ -969,12 +969,42 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
+      { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
       { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
       { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
     ] };
   }
   return null;
 }
+// What's New: release notes for the running version, from window.RELEASE_NOTES (release-notes.js).
+// The desktop menu calls window.swarmWhatsNew; the settings menu calls whatsNew(); it also opens
+// itself once after an upgrade (localStorage remembers the last version the user saw).
+function releaseNotesFor(version) {
+  const all = window.RELEASE_NOTES || {};
+  if (version && all[version]) return { version, ...all[version] };
+  const latest = Object.keys(all)[0];
+  return latest ? { version: latest, ...all[latest] } : null;
+}
+function whatsNew(version) {
+  const n = releaseNotesFor(version || state.version);
+  if (!n) return;
+  try { localStorage.setItem("swarm.seenVersion", n.version); } catch {}
+  $("#picker").innerHTML = `<div class="pk wn" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("star", 15)}<b>What's New</b><span class="grow"></span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b"><h3>Swarm ${esc(n.version)}</h3>${n.date ? `<div class="date">${esc(n.date)}</div>` : ""}${n.html}</div>
+    <div class="pk-f"><span class="grow"></span><a href="https://getswarm.vercel.app/changelog" target="_blank" rel="noopener" style="align-self:center;color:var(--dim);font-size:var(--fs-sm)">Full changelog →</a><button id="pkCancel">Close</button></div>
+  </div>`;
+}
+window.swarmWhatsNew = (v) => whatsNew(v);
+// auto-open once per version, but never on the very first run (nothing to compare against)
+function maybeWhatsNew() {
+  if (!state.version || !window.RELEASE_NOTES) return;
+  let seen; try { seen = localStorage.getItem("swarm.seenVersion"); } catch {}
+  if (seen === state.version) return;
+  if (!seen) { try { localStorage.setItem("swarm.seenVersion", state.version); } catch {} return; }
+  if (releaseNotesFor(state.version)) whatsNew(state.version);
+}
+
 // Star nudge: once a month at most, never on first open, dismissable for good. Pure localStorage —
 // nothing leaves the machine; clicking Star just opens the repo in a browser.
 const STAR = { key: "swarm.star", firstAfterMs: 2 * 86_400_000, everyMs: 30 * 86_400_000 };

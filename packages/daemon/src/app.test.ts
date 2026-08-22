@@ -285,9 +285,9 @@ describe("permission broker (M3.2)", () => {
         "read prompt",
         // 1) a pattern kill (globally denied) 2) a plain command (not flagged → pending until answered)
         'echo \'{"type":"control_request","request_id":"r-ask","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"pkill -f node"}}}\'',
-        "read a; printf '%s\\n' \"$a\" >> " + JSON.stringify(outFile),
+        `read a; printf '%s\\n' "$a" >> ${JSON.stringify(outFile)}`,
         'echo \'{"type":"control_request","request_id":"r-allow","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls -la"}}}\'',
-        "read b; printf '%s\\n' \"$b\" >> " + JSON.stringify(outFile),
+        `read b; printf '%s\\n' "$b" >> ${JSON.stringify(outFile)}`,
         'echo \'{"type":"result","total_cost_usd":0.1,"num_turns":1,"is_error":false}\'',
         "cat >/dev/null",
         "",

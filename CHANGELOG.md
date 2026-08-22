@@ -4,6 +4,10 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **What's New in the app** — the dashboard shows the release notes for the running version: a **What's New** item in the settings menu, in the desktop app's **Swarm** menu, and in the tray. It also opens once on its own the first time you run a new version. Notes are parsed from `CHANGELOG.md` into `release-notes.js` at build time, so they work offline with no repo checkout.
+- The desktop **Check for Updates…** is in the system menu bar (Swarm menu), not only the tray.
+
 ## [0.5.0] — 2026-08-22
 
 The drive release: Swarm doesn't just watch agents now — it starts them, in a claimed worktree, and brokers what they're allowed to do. Plus the coordination primitives that make an autonomous run safe to leave alone: leases that renew themselves, gates that gate, and a handoff the next session reads on its own.

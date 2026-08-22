@@ -125,10 +125,12 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // Distinct id from the tray's "update": tray menu events reach the app handler too.
     let update =
         MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
+    let whats_new = MenuItem::with_id(app, "whats-new", "What's New", true, None::<&str>)?;
     #[allow(unused_mut)]
     let mut app_items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = vec![
         Box::new(PredefinedMenuItem::about(app, Some("About Swarm"), None)?),
         Box::new(PredefinedMenuItem::separator(app)?),
+        Box::new(whats_new),
         Box::new(update),
         Box::new(PredefinedMenuItem::separator(app)?),
     ];
@@ -200,6 +202,15 @@ fn open_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
+    }
+}
+
+/// Show the dashboard's "What's New" (release notes for the running version). Brings the window
+/// forward, then asks the webview to open the modal.
+fn open_whats_new(app: &tauri::AppHandle) {
+    open_window(app);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval("window.swarmWhatsNew && window.swarmWhatsNew()");
     }
 }
 
@@ -335,17 +346,20 @@ pub fn run() {
             app.set_menu(app_menu(app.handle())?)?;
 
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
+            let whats_new_tray =
+                MenuItem::with_id(app, "whats-new", "What's New", true, None::<&str>)?;
             let update =
                 MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&open, &update, &sep, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &whats_new_tray, &update, &sep, &quit])?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Swarm")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => open_window(app),
+                    "whats-new" => open_whats_new(app),
                     "update" => check_for_updates(app.clone()),
                     "quit" => app.exit(0),
                     _ => {}
@@ -356,6 +370,7 @@ pub fn run() {
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
             "check-updates" => check_for_updates(app.clone()),
+            "whats-new" => open_whats_new(app),
             "zoom-in" => zoom(app, 1),
             "zoom-out" => zoom(app, -1),
             "zoom-reset" => zoom(app, 0),

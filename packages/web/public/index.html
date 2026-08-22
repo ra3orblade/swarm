@@ -156,6 +156,17 @@
   .pk-b textarea{min-height:120px;resize:vertical;font-family:var(--mono);font-size:var(--fs-sm);line-height:1.5}
   .pk-b input:focus,.pk-b textarea:focus,.pk-b select:focus{border-color:var(--acc)}
   .pk-b .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  /* What's New (release notes) */
+  .wn .pk-b{max-height:64vh;overflow:auto;gap:2px}
+  .wn h3{margin:0 0 2px;font:600 var(--fs-lg) var(--sans);color:var(--fg)}
+  .wn .date{color:var(--dim);font-size:var(--fs-sm);margin-bottom:12px}
+  .wn h4{margin:14px 0 4px;font:600 var(--fs-md) var(--sans);color:var(--acc);text-transform:none;letter-spacing:0}
+  .wn ul{margin:0 0 6px;padding-left:18px}
+  .wn li{margin:5px 0;line-height:1.55;color:var(--fg-2)}
+  .wn p{margin:0 0 10px;color:var(--fg-2);line-height:1.6}
+  .wn code{font-family:var(--mono);font-size:var(--fs-sm);background:var(--panel-2);border-radius:var(--r-xs);padding:1px 5px}
+  .wn a{color:var(--acc)}
+  .wn b{color:var(--fg)}
   /* pending permission prompts (M3.2) */
   .perm{background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r-sm);padding:10px 12px;margin-top:10px}
   .perm-t{font:500 var(--fs-md) var(--sans);color:var(--fg)}
@@ -457,6 +468,7 @@
 <main id="main"></main>
 <div id="picker"></div>
 <script src="/icons.js"></script>
+<script src="/release-notes.js"></script>
 <script src="/viz.js"></script>
 <script src="/table.js"></script>
 <script src="/app.js"></script>
