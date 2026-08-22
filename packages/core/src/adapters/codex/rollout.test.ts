@@ -42,7 +42,7 @@ describe("parseCodexRollout", () => {
     expect(d.cwd).toBe("/repo");
     expect(d.model).toBe("gpt-5.5");
     expect(d.turns).toHaveLength(1);
-    const t = d.turns[0]!;
+    const t = d.turns[0] as NonNullable<(typeof d.turns)[0]>;
     expect(t.model).toBe("gpt-5.5");
     expect(t.usage.cacheRead).toBe(9600);
     expect(t.usage.input).toBe(14265 - 9600); // fresh input excludes cache reads
@@ -52,7 +52,9 @@ describe("parseCodexRollout", () => {
     expect(t.tools).toEqual(["exec_command"]);
   });
   it("prices a Codex turn via the shared table (gpt-5 prefix)", () => {
-    const t = parseCodexRollout(fixture).turns[0]!;
+    const t = parseCodexRollout(fixture).turns.at(0) as NonNullable<
+      ReturnType<typeof parseCodexRollout>["turns"][0]
+    >;
     expect(costUsd(t.model, t.usage)).toBeGreaterThan(0);
   });
   it("tolerates garbage and partial lines", () => {

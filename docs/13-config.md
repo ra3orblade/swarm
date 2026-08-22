@@ -1,6 +1,6 @@
 # 13 · Configuration
 
-Status: living. Global `~/.swarm/config.toml` and optional per-repo `.swarm.toml`.
+Status: current. The TOML config layers and the rule modes they control.
 
 Two TOML layers, deep-merged over built-in defaults — later wins:
 

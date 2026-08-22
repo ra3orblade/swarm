@@ -406,7 +406,7 @@ describe("runtime resources (Phase 1)", () => {
 
   it("dead pid is reaped and stops blocking", () => {
     const store = new Store(tmpHome());
-    const deadPid = 999_999; // beyond pid range on macOS → ESRCH
+    const deadPid = 999999; // beyond pid range on macOS → ESRCH
     const a = store.acquireResource({ name: "worker", owner: "agent-a", pid: deadPid });
     expect(a.ok).toBe(true);
     expect(store.resources().find((r) => r.name === "worker")).toBeUndefined(); // reaped on read

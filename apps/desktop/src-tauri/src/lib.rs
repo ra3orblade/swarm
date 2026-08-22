@@ -11,12 +11,14 @@ use std::time::{Duration, Instant};
 use std::sync::Mutex;
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// The daemon child this app spawned (None when reusing an already-running daemon).
 /// Killed on real exit so quitting Swarm doesn't leave a stray swarmd behind.
@@ -116,10 +118,76 @@ fn open_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Tray "Check for Updates…": ask GitHub Releases (latest.json) for a newer signed build, offer
+/// to install it, and relaunch on success. Every outcome surfaces as a native dialog so the
+/// click is never silent. Dialogs use the async `show` callback — `blocking_show` from a
+/// worker thread deadlocks the macOS main runloop.
+fn check_for_updates(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let result = match app.updater() {
+            Ok(u) => u.check().await,
+            Err(e) => Err(e),
+        };
+        match result {
+            Ok(Some(update)) => {
+                let msg = format!(
+                    "Swarm {} is available (you have {}).\n\nDownload and install it now? \
+                     The app will restart.",
+                    update.version, update.current_version
+                );
+                let app2 = app.clone();
+                app.dialog()
+                    .message(msg)
+                    .title("Update available")
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Install & Restart".into(),
+                        "Later".into(),
+                    ))
+                    .show(move |install| {
+                        if !install {
+                            return;
+                        }
+                        tauri::async_runtime::spawn(async move {
+                            match update.download_and_install(|_, _| {}, || {}).await {
+                                Ok(()) => app2.restart(),
+                                Err(e) => {
+                                    app2.dialog()
+                                        .message(format!(
+                                            "The update could not be installed.\n\n{e}"
+                                        ))
+                                        .title("Update failed")
+                                        .kind(MessageDialogKind::Error)
+                                        .show(|_| {});
+                                }
+                            }
+                        });
+                    });
+            }
+            Ok(None) => {
+                app.dialog()
+                    .message(format!(
+                        "Swarm {} is the latest version.",
+                        app.package_info().version
+                    ))
+                    .title("You're up to date")
+                    .show(|_| {});
+            }
+            Err(e) => {
+                app.dialog()
+                    .message(format!("Could not check for updates.\n\n{e}"))
+                    .title("Update check failed")
+                    .kind(MessageDialogKind::Error)
+                    .show(|_| {});
+            }
+        }
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Reuse a healthy daemon if one is running; otherwise start our own on a free port.
             let port = existing_healthy_port().unwrap_or_else(|| {
@@ -180,14 +248,18 @@ pub fn run() {
             navigate_when_ready(win, port);
 
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
+            let update =
+                MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let sep = PredefinedMenuItem::separator(app)?;
+            let menu = Menu::with_items(app, &[&open, &update, &sep, &quit])?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Swarm")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => open_window(app),
+                    "update" => check_for_updates(app.clone()),
                     "quit" => app.exit(0),
                     _ => {}
                 })
