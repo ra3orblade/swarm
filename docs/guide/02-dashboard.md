@@ -111,6 +111,14 @@ With a project selected, the Spend view attributes cost and tokens to each **tas
 
 Each incident on the Incidents feed has a **Codify** action: it turns the incident into a `.swarm.toml` rule you can paste in and a one-line lesson for the repo's CLAUDE.md, both with copy buttons. A rule that keeps firing as `ask` is suggested as a `deny`.
 
+## Resume where it died
+
+An ended session's page has **Resume where it died**: it shows the handoff Swarm derived from the session's trail (or the one it left on purpose) plus its last actions, and on confirm spawns a run on that task picking up from there. See [handing off](04-claims-and-worktrees.md#when-nobody-left-one).
+
+## Dry-run rules
+
+On the Incidents view with a project selected, **Dry-run rules** replays the project's recorded tool calls under rule modes you choose and shows what would have fired — plus *flaky signals*, rules that keep asking about something that is then allowed anyway. Nothing is recorded. See [trying a rule before turning it on](03-rules-and-config.md#trying-a-rule-before-turning-it-on).
+
 ## Notifications
 
 Turn on **Desktop notifications** in the settings menu to be pinged when a spawned run is waiting on a permission, or a claim is orphaned with unfinished work — the things worth walking away for. Clicking the notification opens the spot to act. They stay quiet while you're looking at the dashboard.

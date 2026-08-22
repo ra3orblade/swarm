@@ -47,6 +47,11 @@ ports = []                # e.g. [3000, 5432, 7777]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
 # tables are the task list. Feeds the Board's Tasks section, `swarm tasks` and `swarm_next_task`.
 # source = "docs/plan.md"
+# …or an issue tracker (M4.8), read-only, through the same Task shape:
+# source = "github"      # `gh issue list` in the repo (gh must be logged in); ids GH-<n>
+# labels = ["swarm"]     # GitHub only: issues carrying every listed label
+# source = "linear"      # Linear GraphQL with LINEAR_API_KEY from the daemon's environment (never stored)
+# team = "ENG"           # Linear only: team key; all teams when unset
 ```
 
 ## How rules are enforced

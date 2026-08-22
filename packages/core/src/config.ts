@@ -41,8 +41,13 @@ export interface SwarmConfig {
   };
   rules: RulesConfig;
   tasks: {
-    /** Markdown file (relative to the repo root) whose `ID | Task | Depends | Status` tables are the backlog. */
+    /** Markdown file (relative to the repo root) whose `ID | Task | Depends | Status` tables are
+     *  the backlog — or `"github"` (issues via `gh`) / `"linear"` (via `LINEAR_API_KEY`). */
     source: string | null;
+    /** GitHub: only issues carrying every one of these labels. */
+    labels: string[];
+    /** Linear: team key (`ENG`) to narrow to; all teams when null. */
+    team: string | null;
   };
   gates: {
     /** Gates every task must pass before it counts as done, e.g. ["review", "tests"]. */
@@ -52,7 +57,7 @@ export interface SwarmConfig {
 
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
-  tasks: { source: null },
+  tasks: { source: null, labels: [], team: null },
   gates: { required: [] },
   rules: {
     shared_tree: "ask",
@@ -102,6 +107,10 @@ function validate(c: SwarmConfig): SwarmConfig {
         typeof source === "string" && source.trim() && !source.startsWith("/")
           ? source.trim()
           : null,
+      labels: Array.isArray(c.tasks?.labels)
+        ? c.tasks.labels.filter((l): l is string => typeof l === "string" && l.trim() !== "")
+        : [],
+      team: typeof c.tasks?.team === "string" && c.tasks.team.trim() ? c.tasks.team.trim() : null,
     },
     rules: {
       ...c.rules,

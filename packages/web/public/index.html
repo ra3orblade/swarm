@@ -141,6 +141,11 @@
   .proj:hover small{display:none}
   .proj .act:hover{color:var(--fg);background:var(--line)}
   .proj .act.rm:hover{color:var(--bad)}
+  .dr-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px;margin:10px 0}
+  .dr-rule{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
+  .dr-rule select{background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px 4px}
+  .dr-flaky{padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);margin:6px 0;background:var(--panel-2)}
+  table.plain{width:100%;border-collapse:collapse;font-size:var(--fs-sm)} table.plain td{padding:3px 6px;border-top:1px solid var(--line);vertical-align:top}
   #picker:empty{display:none}
   #picker{position:fixed;inset:0;background:var(--overlay);display:grid;place-items:center;z-index:50}
   .pk{width:min(560px,92vw);max-height:78vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-pop);overflow:hidden}

@@ -406,6 +406,44 @@ function renderIncidents() {
     });
 }
 
+// M4.6: rule dry-run — replay this project's history under chosen modes; nothing is recorded.
+const RULE_IDS = ["pattern_kill", "shared_tree", "destructive_git", "protected_ports", "no_foreign_worktree", "claim_required_to_write"];
+const dry = { modes: {}, report: null, busy: false };
+async function openDryRun() {
+  if (!state.sel) return alert("Pick a project in the sidebar first — the dry-run replays one project's history.");
+  dry.modes = {}; dry.report = null;
+  await runDryRun();
+}
+async function runDryRun() {
+  dry.busy = true; renderDryRun();
+  const q = new URLSearchParams({ project: state.sel, ...dry.modes });
+  dry.report = await fetch(`/v1/rules/dryrun?${q}`).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+  dry.busy = false; renderDryRun();
+}
+function renderDryRun() {
+  const r = dry.report;
+  const sel = (id) => {
+    const cur = dry.modes[id] ?? r?.modes?.[id] ?? "ask";
+    return `<label class="dr-rule"><span class="br">${id}</span><select data-drmode="${id}">${["ask", "deny", "off"].map((m) => `<option value="${m}" ${m === cur ? "selected" : ""}>${m}</option>`).join("")}</select>${r ? `<span class="dim">ask <b>${r.byRule[id].ask}</b> · deny <b>${r.byRule[id].deny}</b></span>` : ""}</label>`;
+  };
+  const flaky = (r?.flaky ?? []).map((f) => `<div class="dr-flaky"><code>${esc(f.display)}</code><div class="dim" style="font-size:var(--fs-sm)">${esc(f.suggestion)} · ${f.sessions} session${f.sessions === 1 ? "" : "s"}</div></div>`).join("");
+  const hits = (r?.hits ?? []).slice(-40).reverse().map((h) => `<tr><td class="dim">${hhmm(h.ts)}</td><td><span class="br">${esc(h.rule)}</span></td><td>${h.action}</td><td><code>${esc(h.display)}</code></td><td class="dim">${h.completed ? "ran" : ""}</td></tr>`).join("");
+  $("#picker").innerHTML = `<div class="pk wn" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("shield", 15)}<b>Rule dry-run</b><span class="dim" style="margin-left:8px">${esc(projName(state.sel))}</span><span class="grow"></span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <p class="dim" style="font-size:var(--fs-sm)">Replays this project's recorded tool calls through the rules under the modes below — what <em>would</em> have been asked or denied. Nothing is recorded; change a mode and re-run to try a rule before switching it on in <code>.swarm.toml</code>.</p>
+      <div class="dr-rules">${RULE_IDS.map(sel).join("")}</div>
+      ${dry.busy ? '<p class="dim">replaying…</p>' : r?.error ? `<p class="dim">${esc(r.error)}</p>` : r ? `
+      <div class="date">${r.evaluated} of ${r.calls} calls evaluated · ${r.hits.length}${r.hits.length >= 200 ? "+" : ""} hits</div>
+      <h4>Flaky signals <span class="dim">rules that keep asking about something that is then allowed anyway</span></h4>
+      ${flaky || '<p class="dim" style="font-size:var(--fs-sm)">None — every rule that fired stuck.</p>'}
+      <h4>Would have fired <span class="dim">newest first, last 40</span></h4>
+      ${hits ? `<div style="overflow-x:auto"><table class="plain"><tbody>${hits}</tbody></table></div>` : '<p class="dim" style="font-size:var(--fs-sm)">Nothing — these modes are silent on this history.</p>'}` : ""}
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="drRun" ${dry.busy ? "disabled" : ""}>Re-run</button><button id="pkCancel">Close</button></div>
+  </div>`;
+}
+
 // ---------- incidents view (M2.3): the denied-action feed, with ack
 // M4.3: turn an incident into a .swarm.toml rule + a CLAUDE.md lesson, both copyable.
 function codifyIncident(seq) {
@@ -436,7 +474,7 @@ function renderIncidentsView() {
   const rules = [...byRule.entries()].sort((a, b) => b[1] - a[1]).map(([r, n]) => `<span class="br">${esc(r)}</span> <b>${n}</b>`).join(" · ");
   $("#main").innerHTML =
     `<h2>Incidents <span>${all === null ? "loading…" : `${open} open · ${rows.length} shown`} · every ask/deny the rules made${rules ? ` · ${rules}` : ""}</span></h2>` +
-    `<div class="chips">${chip("open", "Open")}${chip("all", "All")}${open ? `<span class="chip" data-ackall="1" title="Mark every open incident${state.sel ? " in this project" : ""} as seen">Ack all <b>${open}</b></span>` : ""}</div>` +
+    `<div class="chips">${chip("open", "Open")}${chip("all", "All")}${open ? `<span class="chip" data-ackall="1" title="Mark every open incident${state.sel ? " in this project" : ""} as seen">Ack all <b>${open}</b></span>` : ""}${state.sel ? `<span class="chip" id="dryrun" title="Replay this project's history under different rule modes">${ic("shield", 12)} Dry-run rules</span>` : ""}</div>` +
     (rows.length
       ? dataTable({
           id: "incidents-feed",
@@ -556,7 +594,8 @@ function renderTasks() {
     { key: "state", label: "state", width: 150, get: (t) => (t.claimedBy ? 0 : t.ready ? 1 : t.status === "active" ? 2 : t.status === "done" ? 4 : 3), cell: st },
     ...(hasGates ? [{ key: "gates", label: "gates", width: 170, get: (t) => (t.gates ?? []).filter((g) => g.verdict === "pass").length, cell: (t) => gateChips(t.gates ?? []) }] : []),
   ];
-  return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(state.tasks.source)}</span></h2>` +
+  const srcLabel = state.tasks.source === "github" ? "GitHub Issues" : state.tasks.source === "linear" ? "Linear" : state.tasks.source;
+  return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(srcLabel)}${state.tasks.error ? ` · <span class="badge warn" title="${esc(state.tasks.error)}">${ic("warning", 12)} ${esc(state.tasks.error)}</span>` : ""}</span></h2>` +
     `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}</div>` +
     (rows.length
       ? dataTable({
@@ -929,6 +968,16 @@ const isAppend = (rows) => logRendered && rows.length >= logRendered.length && l
 // M4.1 session replay: step through a session's tool calls, one at a time, with full input/output
 // (lazy-fetched from /v1/events/:seq). replayState holds the current step; nav by buttons or ←/→.
 const replay = { steps: [], i: 0, cache: new Map() };
+// M4.4: resume where this died — the daemon builds the prompt from the handoff + tail; we just confirm.
+async function resumeDead() {
+  const id = state.session; if (!id) return;
+  const plan = await fetch(`/v1/sessions/${encodeURIComponent(id)}/resume`).then((r) => r.json());
+  if (!plan.ok) return alert(plan.error);
+  if (!confirm(`Resume ${plan.task}${plan.owner ? ` as ${plan.owner}` : ""}?\n\n${plan.prompt.slice(0, 900)}${plan.prompt.length > 900 ? "…" : ""}`)) return;
+  const r = await fetch(`/v1/sessions/${encodeURIComponent(id)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((x) => x.json());
+  if (!r.ok) return alert(r.error);
+  openSession(r.run.sessionId);
+}
 function openReplay() {
   replay.steps = state.log.filter((e) => e.type === "tool.requested").map((e) => ({ seq: e.seq, tool: e.payload?.tool ?? "tool", summary: e.payload?.summary ?? "" }));
   replay.i = 0;
@@ -1007,7 +1056,7 @@ function renderSession() {
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a></h2>`;
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("reload", 13)} Resume where it died</a>` : ""}</h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
@@ -1232,6 +1281,8 @@ document.addEventListener("click", async (ev) => {
     return refresh();
   }
   if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
+  if (t.id === "dryrun") { ev.preventDefault(); return openDryRun(); }
+  if (t.id === "drRun") { ev.preventDefault(); return runDryRun(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) {
     ev.preventDefault(); ev.stopPropagation();
@@ -1277,6 +1328,7 @@ document.addEventListener("click", async (ev) => {
   }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
   if (t.id === "replay") { ev.preventDefault(); return openReplay(); }
+  if (t.id === "resumeDead") { ev.preventDefault(); return resumeDead(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
   if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; state.tasks = null; state.dirty = true; return refresh(); }
 });
@@ -1387,6 +1439,7 @@ $("#picker").addEventListener("click", (ev) => {
   if (ev.target.closest("#pkAdd")) { const p = $("#pkPath")?.value.trim() || picker.path; closePicker(); addProject(p); }
 });
 $("#picker").addEventListener("input", (ev) => { if (ev.target.id === "rpRange") { replay.i = Number(ev.target.value); renderReplay(); } });
+$("#picker").addEventListener("change", (ev) => { if (ev.target.dataset?.drmode) { dry.modes[ev.target.dataset.drmode] = ev.target.value; } });
 $("#picker").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.id === "pkPath") { ev.preventDefault(); pickerGo(ev.target.value.trim()); }
   if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && ev.target.id === "rnPrompt") { ev.preventDefault(); submitRun($("#rnGo")?.dataset.task); }

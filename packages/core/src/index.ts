@@ -2,6 +2,7 @@ export * from "./adapters";
 export * from "./adapters/claude-code/hooks";
 export * from "./adapters/claude-code/transcript";
 export * from "./config";
+export * from "./dryrun";
 export * from "./forge";
 export * from "./gates";
 export * from "./ledger";

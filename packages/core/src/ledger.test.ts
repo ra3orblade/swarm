@@ -1,10 +1,14 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
   canClaim,
   canRelease,
   claimRefusalMessage,
+  deriveHandoff,
   formatHandoff,
+  formatResumePrompt,
+  type Handoff,
   isActive,
+  isAutoHandoff,
   isExpired,
   type LeaseClaim,
   nextExpiry,
@@ -121,5 +125,67 @@ describe("handoffs (M1.3)", () => {
     expect(txt).toBe(
       "[swarm] handoff on M1.3 from alice (2026-08-22 15:00):\n  done: table + routes\n  remaining: CLI, MCP, docs\n  files: store.ts, app.ts\n  verify: bun test",
     );
+  });
+});
+
+describe("deriveHandoff (M4.4)", () => {
+  const t = (tool: string, arg: string) => ({
+    type: "tool.requested",
+    payload: { hook: "PreToolUse", tool, summary: `${tool} ${arg}` },
+  });
+  const prompt = (p: string) => ({
+    type: "prompt.submitted",
+    payload: { hook: "UserPromptSubmit", summary: p.slice(0, 120), prompt: p },
+  });
+
+  test("collects edited files, the last verify command and the last prompt", () => {
+    const h = deriveHandoff(
+      "T-1",
+      [
+        prompt("add the thing"),
+        t("Read", "a.ts"),
+        t("Edit", "a.ts"),
+        t("Write", "b.ts"),
+        t("Bash", "git status"),
+        t("Bash", "bun test packages/core"),
+        t("Bash", "bun run lint"),
+        t("Edit", "a.ts"),
+        prompt("now fix lint\nsecond line"),
+      ],
+      {
+        lastText: "Fixed  the   lint\nerrors.",
+        sessionId: "abcdefgh-123",
+        now: "2026-08-22T10:00:00Z",
+      },
+    );
+    expect(h).not.toBeNull();
+    expect(h?.files).toEqual(["a.ts", "b.ts"]);
+    expect(h?.verify).toBe("bun run lint");
+    expect(h?.done).toBe("Fixed the lint errors.");
+    expect(h?.remaining).toContain('last request: "now fix lint"');
+    expect(h?.by).toBe("auto:abcdefgh");
+    expect(isAutoHandoff(h as Handoff)).toBe(true);
+    expect(validateHandoff(h as Handoff).ok).toBe(true);
+  });
+
+  test("returns null when the session touched nothing and said nothing", () => {
+    expect(deriveHandoff("T-1", [t("Read", "a.ts"), t("Bash", "ls")], {})).toBeNull();
+  });
+
+  test("falls back to a count when nothing was said", () => {
+    const h = deriveHandoff("T-1", [t("Edit", "x.ts")], {});
+    expect(h?.done).toBe("edited 1 file (no summary)");
+    expect(h?.remaining).toContain("without a manual handoff");
+    expect(h?.verify).toBeNull();
+    expect(isAutoHandoff({ by: "alice" })).toBe(false);
+  });
+
+  test("formatResumePrompt puts the handoff first and the tail oldest-first", () => {
+    const h = deriveHandoff("T-1", [t("Edit", "x.ts")], { now: "2026-08-22T10:00:00Z" }) as Handoff;
+    const p = formatResumePrompt(h, ["Edit x.ts", "Bash bun test"]);
+    expect(p.startsWith("You are resuming T-1")).toBe(true);
+    expect(p.indexOf("[swarm] handoff on T-1")).toBeLessThan(p.indexOf("  - Edit x.ts"));
+    expect(p.indexOf("  - Edit x.ts")).toBeLessThan(p.indexOf("  - Bash bun test"));
+    expect(p).toContain("swarm_handoff");
   });
 });

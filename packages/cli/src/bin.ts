@@ -35,6 +35,7 @@ const help = `swarm — control plane for AI-agent development
   run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--allowed-tools a,b] [--max-turns n]
                           claim the task and spawn claude -p in its worktree; the session shows in Fleet
   run ls | send <task|id> "text" | stop <task|id>   steer (stdin) or stop a spawned run, by pid never pattern
+  run resume <session-id> [--model m] [--permission-mode m]   spawn a run that picks up where a dead session stopped (its handoff + tail)
   handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   leave notes for the next holder
   resume <task>           print the latest handoff (the next session gets it automatically on start)
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
@@ -44,6 +45,7 @@ const help = `swarm — control plane for AI-agent development
   serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
   proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
+  rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
@@ -318,39 +320,53 @@ try {
         }
         break;
       }
-      const task = flag("--task") ?? sub;
-      let prompt = flag("--prompt");
+      const resumeFrom = sub === "resume" ? positionals[1] : undefined;
+      if (sub === "resume" && !resumeFrom) throw new Error("usage: swarm run resume <session-id>");
+      const task = resumeFrom ? "(resumed)" : (flag("--task") ?? sub);
+      let prompt = resumeFrom ? "(from handoff)" : flag("--prompt");
       const pf = flag("--prompt-file");
       if (!prompt && pf) prompt = await Bun.file(resolve(pf)).text();
       if (!task || !prompt)
         throw new Error(
           'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]',
         );
-      const r = (await fetch(`${base}/v1/runs`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          projectId: proj.id,
-          task,
-          prompt,
-          owner: flag("--owner") ?? process.env.USER ?? "me",
-          model: flag("--model"),
-          permissionMode: flag("--permission-mode"),
-          allowedTools: flag("--allowed-tools")
-            ?.split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
-          maxTurns: flag("--max-turns") ? Number(flag("--max-turns")) : undefined,
-        }),
-      }).then((x) => x.json())) as {
+      const r = (await fetch(
+        resumeFrom
+          ? `${base}/v1/sessions/${encodeURIComponent(resumeFrom)}/resume`
+          : `${base}/v1/runs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: proj.id,
+            task,
+            prompt,
+            owner: flag("--owner") ?? (resumeFrom ? undefined : (process.env.USER ?? "me")),
+            model: flag("--model"),
+            permissionMode: flag("--permission-mode"),
+            allowedTools: flag("--allowed-tools")
+              ?.split(",")
+              .map((t) => t.trim())
+              .filter(Boolean),
+            maxTurns: flag("--max-turns") ? Number(flag("--max-turns")) : undefined,
+          }),
+        },
+      ).then((x) => x.json())) as {
         ok: boolean;
         error?: string;
-        run?: { id: string; sessionId: string; worktree: string; pid: number; log: string };
+        run?: {
+          id: string;
+          sessionId: string;
+          worktree: string;
+          pid: number;
+          log: string;
+          task: string;
+        };
       };
       if (json) console.log(JSON.stringify(r));
       else if (r.ok && r.run)
         console.log(
-          `run ${r.run.id} on ${task} (pid ${r.run.pid})\n  worktree: ${r.run.worktree}\n  session:  ${r.run.sessionId}\n  log:      ${r.run.log}\n  steer:    swarm run send ${task} "…"   stop: swarm run stop ${task}   watch: swarm tail --session ${r.run.sessionId}`,
+          `run ${r.run.id} on ${r.run.task} (pid ${r.run.pid})\n  worktree: ${r.run.worktree}\n  session:  ${r.run.sessionId}\n  log:      ${r.run.log}\n  steer:    swarm run send ${r.run.task} "…"   stop: swarm run stop ${r.run.task}   watch: swarm tail --session ${r.run.sessionId}`,
         );
       else {
         console.error(`REFUSED: ${r.error}`);
@@ -496,6 +512,60 @@ try {
       }
       throw new Error("usage: swarm gate record|ls");
     }
+    case "rules": {
+      if (rest[0] !== "dryrun")
+        throw new Error("usage: swarm rules dryrun [--set rule=mode,…] [--limit n]");
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const q = new URLSearchParams({ project: proj.id });
+      const si = rest.indexOf("--set");
+      if (si >= 0)
+        for (const kv of (rest[si + 1] ?? "").split(",")) {
+          const [k, v] = kv.split("=");
+          if (k && v) q.set(k.trim(), v.trim());
+        }
+      const li = rest.indexOf("--limit");
+      if (li >= 0) q.set("limit", rest[li + 1] ?? "");
+      const r = (await api(`/v1/rules/dryrun?${q}`)) as {
+        calls: number;
+        evaluated: number;
+        hits: Array<{
+          ts: string;
+          rule: string;
+          action: string;
+          display: string;
+          completed: boolean;
+        }>;
+        byRule: Record<string, { ask: number; deny: number }>;
+        flaky: Array<{ rule: string; display: string; fires: number; suggestion: string }>;
+        modes: Record<string, string>;
+      };
+      if (json) {
+        console.log(JSON.stringify(r));
+        break;
+      }
+      console.log(`dry-run over ${r.evaluated} of ${r.calls} recorded calls (nothing recorded)`);
+      for (const [rule, n] of Object.entries(r.byRule))
+        console.log(
+          `  ${rule.padEnd(26)} ${String(r.modes[rule]).padEnd(5)} ask ${String(n.ask).padStart(4)}  deny ${String(n.deny).padStart(4)}`,
+        );
+      if (r.flaky.length) {
+        console.log("\nflaky signals:");
+        for (const f of r.flaky) console.log(`  ${f.display}\n    ${f.suggestion}`);
+      }
+      if (r.hits.length) {
+        console.log("\nwould have fired (newest last):");
+        for (const h of r.hits.slice(-20))
+          console.log(
+            `  ${h.ts.slice(11, 19)} ${h.action.padEnd(4)} ${h.rule.padEnd(20)} ${h.display}${h.completed ? "  (ran)" : ""}`,
+          );
+      }
+      break;
+    }
     case "tasks": {
       await ensureDaemon({ quiet: true });
       const proj = (await api("/v1/projects", {
@@ -505,6 +575,7 @@ try {
       })) as { id: string };
       const t = (await api(`/v1/tasks?project=${proj.id}`)) as {
         source: string | null;
+        error?: string | null;
         tasks: Array<{
           id: string;
           title: string;
@@ -519,7 +590,10 @@ try {
       const rows = ready ? t.tasks.filter((x) => x.ready) : t.tasks;
       if (json) console.log(JSON.stringify(rows));
       else if (!t.source)
-        console.log('no task source — add `[tasks] source = "path/to/plan.md"` to .swarm.toml');
+        console.log(
+          'no task source — add `[tasks] source = "path/to/plan.md"` (or "github" / "linear") to .swarm.toml',
+        );
+      else if (t.error && !t.tasks.length) console.log(`${t.source}: ${t.error}`);
       else if (!rows.length)
         console.log(ready ? "nothing ready to claim" : `no tasks in ${t.source}`);
       else

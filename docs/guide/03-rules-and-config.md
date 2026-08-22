@@ -155,6 +155,12 @@ Every non-allow decision is stored with the rule, the action (asked or denied), 
 
 Force-releasing a resource someone else holds is also recorded, so overrides leave a trace.
 
+## Trying a rule before turning it on
+
+**Dry-run rules** (on the Incidents view, with a project selected) replays that project's recorded tool calls through the rules under modes you pick — what *would* have been asked or denied had the rule been on. Nothing is recorded. Change a mode, re-run, and read the counts before you commit it to `.swarm.toml`.
+
+The same report flags **flaky signals**: a rule that fired three or more times on the same command and was allowed through almost every time. That rule has no teeth here — either the command is legitimate in this repo (turn the rule off) or it should be `deny` so it stops asking. From the CLI: `swarm rules dryrun --set pattern_kill=deny,shared_tree=off`; over HTTP: `GET /v1/rules/dryrun?project=…&pattern_kill=deny`.
+
 ## How enforcement works, and when it doesn't
 
 The `PreToolUse` hook posts each Bash command to the daemon and waits up to 400 ms for a decision. If no daemon answers, the hook **fails open**: the command runs as if Swarm were not installed. A hook must never block your work.
