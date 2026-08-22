@@ -9,7 +9,7 @@ import { ForgeService } from "./forge";
 import { type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.4.1";
+export const VERSION = process.env.SWARM_VERSION ?? "0.5.0";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.

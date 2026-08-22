@@ -4,18 +4,23 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-22
+
+The drive release: Swarm doesn't just watch agents now — it starts them, in a claimed worktree, and brokers what they're allowed to do. Plus the coordination primitives that make an autonomous run safe to leave alone: leases that renew themselves, gates that gate, and a handoff the next session reads on its own.
+
 ### Added
+- **`swarm run`** — spawn an agent on a task. `swarm run --task login-form --prompt "…"` claims the task and the daemon starts `claude -p` in its worktree with stream-json on both ends. Steer it with `swarm run send`, stop it with `swarm run stop` (stdin closed, then the process registry's pid-based TERM/KILL — never by pattern), list with `swarm run ls`. The session shows in Fleet as ▶ spawned and is ingested like any other; every finished turn is a `run.result` event with cost and turns (M3.1).
+- **Run from the dashboard** — Ready (or held) task rows on the Board get a **Run** action: a drawer with the prompt prefilled from the task, permission mode, model and max turns (⌘⏎ to submit). The spawned session opens with a stdin box to steer it and a **Stop** button (M3.3).
+- **Permission broker** — a `swarm run` agent's tool-permission prompts go through the same rules as your interactive sessions: a rule `deny` auto-denies with the reason, an unflagged tool auto-allows so the agent can make progress, and anything the rules mark `ask` is held and surfaced on the session as an **Allow / Deny** card. No blocking on a terminal you can't see. Uses `--permission-prompt-tool stdio`; `POST /v1/runs/:id/permissions/:reqId` (M3.2).
 - **Leases renew themselves.** A session working inside a claimed worktree extends the lease on any activity (hook or transcript growth) once it is past half-way — no more `swarm renew` in a long session. Expired leases whose worktree still holds uncommitted or unpushed work are marked **Orphaned** within a minute and open an `orphaned_claim` incident; nothing is removed automatically (M1.2).
-- **Permission broker for spawned runs** — a `swarm run` agent's tool-permission prompts are evaluated through the same rules as the PreToolUse hook: a rule `deny` auto-denies (the agent sees the reason), an unflagged tool auto-allows so it can make progress, and anything the rules mark `ask` is held and surfaced on the session as an **Allow / Deny** card (`POST /v1/runs/:id/permissions/:reqId`). Uses `--permission-prompt-tool stdio` (M3.2).
-- **Run from the dashboard** — Ready (or held) task rows on the Board get a **Run** action: a drawer with the prompt prefilled from the task, permission mode, model and max turns; the spawned session opens with a stdin box and a **Stop** button (M3.3).
-- **`swarm run`** — spawn an agent on a task: `swarm run --task login-form --prompt "…"` claims the task and the daemon starts `claude -p` in its worktree with stream-json on both ends. Steer it with `swarm run send`, stop it with `swarm run stop` (stdin closed, then the registry's pid-based TERM/KILL), list with `swarm run ls`. The session shows in Fleet as ▶ spawned and is ingested like any other; every finished turn is a `run.result` event with cost and turns (M3.1).
-- **Handoffs, injected on start** — `swarm handoff <task> --done … --remaining … [--files] [--verify]` (or `swarm_handoff`) records what the last holder leaves; `swarm resume` / `swarm_resume` reads it. The next session that starts inside that task's worktree gets it automatically as `SessionStart` context, along with what it holds and the lease left, gate status, held resources, and the repo's rule modes (M1.3). M1 and M2 are complete.
-- **Gates** — verification runs recorded against a task: `swarm gate record M1.2 review pass --rubric "tests green, error paths read"` (or `swarm_gate_record` over MCP). A run without a rubric is rejected; the latest run per gate decides; failed runs are never deleted and open a `gate_failed` incident. `.swarm.toml [gates] required = ["review"]` declares what every task must pass; the Board's Tasks grid shows ✓ / ✗ / — per gate and a **Recent gates** section lists the runs (M2.2).
-- Dashboard deep links: `?view=board&project=<id>&session=<id>`.
-- `tools/screens.ts` re-captures the README / website screenshots with Playwright at 2×; the website has a screenshot carousel with a lightbox.
+- **Handoffs, injected on start** — `swarm handoff <task> --done … --remaining … [--files] [--verify]` (or `swarm_handoff`) records what the last holder leaves; `swarm resume` / `swarm_resume` reads it. The next session that starts inside that task's worktree gets it automatically as `SessionStart` context, along with what it holds and the lease left, gate status, held resources, and the repo's rule modes (M1.3).
+- **Gates** — verification runs recorded against a task: `swarm gate record login-form review pass --rubric "tests green, error paths read"` (or `swarm_gate_record`). A run without a rubric is rejected; the latest run per gate decides; failed runs are never deleted and open a `gate_failed` incident. `.swarm.toml [gates] required = ["review"]` declares what every task must pass; the Board's Tasks grid shows ✓ / ✗ / — per gate and a **Recent gates** section lists the runs (M2.2).
+- **The MCP tools finally connect.** `swarm_status`, `swarm_claim`, `swarm_next_task`, `swarm_handoff`, `swarm_gate_record`, `swarm_acquire_resource` and the rest are reachable from Claude Code — see the fix below.
+- Dashboard deep links (`?view=board&project=<id>&session=<id>`) and a screenshot carousel with a lightbox on the website; `tools/screens.ts` re-captures the shots with Playwright at 2×.
 
 ### Fixed
-- **Swarm's MCP tools were never reachable.** `swarm install` wrote `mcpServers.swarm` into `~/.claude/settings.json`, which Claude Code ignores — user-scope MCP servers live in `~/.claude.json` (what `claude mcp add -s user` edits). Install now registers there (and cleans the stale settings.json entry); `claude mcp list` shows `swarm ✔ Connected`. Re-run `swarm install`.
+- **Swarm's MCP tools were never reachable.** `swarm install` wrote `mcpServers.swarm` into `~/.claude/settings.json`, which Claude Code ignores — user-scope MCP servers live in `~/.claude.json` (what `claude mcp add -s user` edits). Install now registers there (and cleans the stale settings.json entry); `claude mcp list` shows `swarm ✔ Connected`. **Re-run `swarm install` after upgrading.**
+- **The daemon reads global config from where its state lives.** `[rules]` / `[gates]` / `[tasks]` in `~/.swarm/config.toml` are resolved against the daemon's home (`SWARM_HOME`), matching the DB and logs — spawned runs, which execute in a worktree without the repo's `.swarm.toml`, still see machine-wide rules.
 
 ## [0.4.1] — 2026-08-22
 
@@ -100,6 +105,7 @@ The coordination release: rules you can configure, runtime resources agents can 
 
 First signed and notarized macOS desktop build; `release.yml` became a three-OS matrix (macOS / Windows / Linux) with a native sidecar per runner.
 
+[0.5.0]: https://github.com/ra3orblade/swarm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/ra3orblade/swarm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ra3orblade/swarm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ra3orblade/swarm/compare/v0.2.2...v0.3.0
