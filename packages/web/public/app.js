@@ -89,6 +89,14 @@ async function refresh() {
   Object.assign(state, await (await fetch("/v1/state")).json());
   render();
 }
+const VIEWS = ["fleet", "board", "timeline", "spend"];
+// restore last view + project selection (persisted UI state)
+{
+  const v = localStorage.getItem("swarm.view");
+  if (VIEWS.includes(v)) state.view = v;
+  const sel = localStorage.getItem("swarm.sel");
+  if (sel) state.sel = sel;
+}
 function render() {
   // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
   const af = document.activeElement;
@@ -98,6 +106,7 @@ function render() {
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
   else if (state.view === "timeline") renderTimeline();
+  else if (state.view === "board") renderBoard();
   else renderFleet();
   if (keep) {
     const el = document.querySelector(`input[data-filter="${keep.key}"][data-tid="${keep.tid}"]`);
@@ -177,9 +186,15 @@ function renderFleet() {
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
     (live.length ? table(live) : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
     (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30))}` : "") +
-    renderClaims() +
-    renderWorktrees() +
-    renderIncidents();
+    "";
+}
+
+// ---------- board (coordination: claims, worktrees, incidents)
+function renderBoard() {
+  const parts = [renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  $("#main").innerHTML = parts.length
+    ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
+    : `<div class="empty">${PX.idle()}Nothing on the board.<br>Claims, worktrees, and incidents appear here.</div>`;
 }
 
 function renderIncidents() {
@@ -439,7 +454,7 @@ document.addEventListener("click", async (ev) => {
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
-  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; state.session = null; return render(); }
+  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return render(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
   if (t.dataset.release || t.dataset.forcerelease) {
@@ -458,7 +473,7 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return renderFleet(); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }
   if (t.dataset.s) { ev.preventDefault(); return openSession(t.dataset.s); }
-  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; state.session = null; return render(); }
+  if (t.dataset.id !== undefined) { state.sel = t.dataset.id || null; localStorage.setItem("swarm.sel", state.sel ?? ""); state.session = null; return render(); }
 });
 async function addProject(path) {
   if (!path) return;
