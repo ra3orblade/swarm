@@ -34,6 +34,7 @@ import {
   type GateInput,
   type GateRun,
   type GuardDecision,
+  gateDoc,
   gateStatus,
   gatesSatisfied,
   guardBash,
@@ -41,6 +42,8 @@ import {
   type Handoff,
   type HeldWorktree,
   type HistoricalCall,
+  handoffDoc,
+  incidentDoc,
   incidentKey,
   isActive,
   isAliveHolding,
@@ -53,6 +56,8 @@ import {
   type LiveSession,
   type LogParseResult,
   loadConfig,
+  type MemoryDoc,
+  type MemoryKind,
   nextExpiry,
   normalizeHook,
   PRICES,
@@ -62,6 +67,7 @@ import {
   parseCodexRollout,
   parseGrokUpdates,
   parseMarkdownTasks,
+  parseMemoryQuery,
   parseTranscriptChunk,
   pickPort,
   projectIdentity,
@@ -70,6 +76,7 @@ import {
   reapAction,
   releaseRefusalMessage,
   type SwarmEvent,
+  sessionDoc,
   shouldAutoRenew,
   suggestFromIncident,
   type Task,
@@ -155,6 +162,10 @@ CREATE TABLE IF NOT EXISTS resources (
   PRIMARY KEY (name, project_id)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE VIRTUAL TABLE IF NOT EXISTS memory USING fts5(
+  kind UNINDEXED, ref UNINDEXED, project_id UNINDEXED, task, session_id UNINDEXED, ts UNINDEXED,
+  title, text, tokenize = 'unicode61 remove_diacritics 2'
+);
 CREATE TABLE IF NOT EXISTS incident_acks (seq INTEGER PRIMARY KEY, acked_at TEXT);
 CREATE TABLE IF NOT EXISTS processes (
   pid INTEGER, start_time TEXT, project_id TEXT, session_id TEXT, kind TEXT, name TEXT, port INTEGER,
@@ -216,6 +227,7 @@ export class Store {
     this.reconcileMovedProjects();
     this.slimExistingEvents();
     this.retypeNotificationIncidents();
+    this.backfillMemory();
   }
 
   /**
@@ -421,7 +433,7 @@ export class Store {
       createdAt: new Date().toISOString(),
     };
     const sessionId = this.knownSession(h.sessionId);
-    this.db
+    const ins = this.db
       .query(
         `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -437,6 +449,7 @@ export class Store {
         sessionId,
         handoff.createdAt,
       );
+    this.remember(handoffDoc(projectId, Number(ins.lastInsertRowid), handoff, sessionId));
     this.append({
       ts: handoff.createdAt,
       type: "handoff.recorded",
@@ -509,7 +522,7 @@ export class Store {
         "DELETE FROM handoffs WHERE project_id = ? AND task = ? AND session_id = ? AND by LIKE 'auto%'",
       )
       .run(held.projectId, held.task, sessionId);
-    this.db
+    const ins = this.db
       .query(
         `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -525,6 +538,7 @@ export class Store {
         sessionId,
         h.createdAt,
       );
+    this.remember(handoffDoc(held.projectId, Number(ins.lastInsertRowid), h, sessionId));
     this.touch();
     return h;
   }
@@ -570,6 +584,171 @@ export class Store {
       .map((e) => ((e.payload as { summary?: string }).summary ?? e.type).slice(0, 160));
     const owner = claim && claim.state === "held" ? claim.owner : null;
     return { ok: true, projectId, task, owner, prompt: formatResumePrompt(handoff, tail), handoff };
+  }
+
+  // ---------- memory (M4.5): FTS5 over Swarm's own data — handoffs, incidents, gates, session text
+  private remember(doc: MemoryDoc | null) {
+    if (!doc) return;
+    this.db.query("DELETE FROM memory WHERE kind = ? AND ref = ?").run(doc.kind, doc.ref);
+    this.db
+      .query(
+        "INSERT INTO memory (kind, ref, project_id, task, session_id, ts, title, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(doc.kind, doc.ref, doc.projectId, doc.task, doc.sessionId, doc.ts, doc.title, doc.text);
+  }
+
+  /** Re-index what a session last said (title + last assistant text); replaces the previous copy. */
+  private rememberSession(sessionId: string) {
+    const r = this.db
+      .query(
+        "SELECT id, project_id, title, last_text, last_seen_at, cwd FROM sessions WHERE id = ?",
+      )
+      .get(sessionId) as {
+      id: string;
+      project_id: string;
+      title: string | null;
+      last_text: string | null;
+      last_seen_at: string;
+      cwd: string;
+    } | null;
+    if (!r) return;
+    const held = r.cwd
+      ? this.heldClaimsWithWorktree().find((c) => isInside(r.cwd, c.worktree))
+      : null;
+    this.remember(
+      sessionDoc(r.project_id, {
+        id: r.id,
+        title: r.title,
+        lastText: r.last_text,
+        ts: r.last_seen_at,
+        task: held?.task ?? null,
+      }),
+    );
+  }
+
+  /** One-time: index everything recorded before the memory table existed. */
+  private backfillMemory() {
+    if (this.db.query("SELECT value FROM meta WHERE key = 'memory_backfilled'").get()) return;
+    const tx = this.db.transaction(() => {
+      for (const r of this.db.query("SELECT * FROM handoffs").all() as Array<
+        Record<string, unknown>
+      >)
+        this.remember(
+          handoffDoc(
+            r.project_id as string,
+            r.id as number,
+            {
+              task: r.task as string,
+              done: r.done as string,
+              remaining: r.remaining as string,
+              files: JSON.parse((r.files as string) || "[]") as string[],
+              verify: (r.verify as string) ?? null,
+              by: (r.by as string) ?? null,
+              createdAt: r.created_at as string,
+            },
+            (r.session_id as string) ?? null,
+          ),
+        );
+      for (const r of this.db.query("SELECT * FROM gates").all() as Array<Record<string, unknown>>)
+        this.remember(
+          gateDoc(
+            r.project_id as string,
+            r.id as number,
+            this.rowToGate(r),
+            (r.session_id as string) ?? null,
+          ),
+        );
+      for (const r of this.db
+        .query(
+          "SELECT seq, ts, project_id, session_id, payload FROM events WHERE type = 'incident.opened'",
+        )
+        .all() as Array<Record<string, unknown>>) {
+        let p: Parameters<typeof incidentDoc>[2] = {};
+        try {
+          p = JSON.parse((r.payload as string) || "{}");
+        } catch {}
+        this.remember(
+          incidentDoc(
+            r.project_id as string,
+            r.seq as number,
+            p,
+            r.ts as string,
+            (r.session_id as string) ?? null,
+          ),
+        );
+      }
+      for (const r of this.db
+        .query(
+          "SELECT id, project_id, title, last_text, last_seen_at FROM sessions WHERE last_text IS NOT NULL AND last_text != ''",
+        )
+        .all() as Array<Record<string, unknown>>)
+        this.remember(
+          sessionDoc(r.project_id as string, {
+            id: r.id as string,
+            title: (r.title as string) ?? null,
+            lastText: r.last_text as string,
+            ts: r.last_seen_at as string,
+          }),
+        );
+      this.db
+        .query("INSERT OR REPLACE INTO meta (key, value) VALUES ('memory_backfilled', ?)")
+        .run(new Date().toISOString());
+    });
+    tx();
+  }
+
+  /**
+   * Search memory. Free text → BM25-ranked hits with a highlighted snippet; `kind:` / `task:` in
+   * the query or as options narrow it. Title matches weigh more than body matches.
+   */
+  memorySearch(
+    q: string,
+    opts: {
+      projectId?: string | null;
+      kind?: MemoryKind | null;
+      task?: string | null;
+      limit?: number;
+    } = {},
+  ): Array<MemoryDoc & { score: number; snippet: string }> {
+    const parsed = parseMemoryQuery(q);
+    if (!parsed.match) return [];
+    const kind = opts.kind ?? parsed.kind;
+    const task = opts.task ?? parsed.task;
+    const where = ["memory MATCH ?"];
+    const args: (string | number)[] = [parsed.match];
+    if (opts.projectId) {
+      where.push("project_id = ?");
+      args.push(opts.projectId);
+    }
+    if (kind) {
+      where.push("kind = ?");
+      args.push(kind);
+    }
+    if (task) {
+      where.push("task = ?");
+      args.push(task);
+    }
+    args.push(Math.min(200, Math.max(1, opts.limit ?? 30)));
+    const rows = this.db
+      .query(
+        `SELECT kind, ref, project_id, task, session_id, ts, title, text,
+                bm25(memory, 0, 0, 0, 2.0, 0, 0, 4.0, 1.0) AS score,
+                snippet(memory, 7, '\u0001', '\u0002', ' … ', 24) AS snippet
+           FROM memory WHERE ${where.join(" AND ")} ORDER BY score LIMIT ?`,
+      )
+      .all(...args) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      kind: r.kind as MemoryKind,
+      ref: r.ref as string,
+      projectId: r.project_id as string,
+      task: (r.task as string) ?? null,
+      sessionId: (r.session_id as string) ?? null,
+      ts: r.ts as string,
+      title: r.title as string,
+      text: r.text as string,
+      score: -(r.score as number),
+      snippet: r.snippet as string,
+    }));
   }
 
   /**
@@ -703,6 +882,7 @@ export class Store {
         unknown
       >,
     );
+    this.remember(gateDoc(projectId, run.id, run, sessionId));
     this.append({
       ts: createdAt,
       type: "gate.recorded",
@@ -1213,6 +1393,16 @@ export class Store {
         slim.raw === undefined ? null : JSON.stringify(slim.raw),
       );
     const stored = { ...e, seq: Number(r.lastInsertRowid) };
+    if (stored.type === "incident.opened")
+      this.remember(
+        incidentDoc(
+          stored.projectId,
+          stored.seq as number,
+          stored.payload as Parameters<typeof incidentDoc>[2],
+          stored.ts,
+          stored.sessionId,
+        ),
+      );
     this.projectSession(stored);
     this.touch();
     // listeners get the wire shape: no raw hook input, no tool I/O — the dashboard reads hook/summary only
@@ -1241,8 +1431,10 @@ export class Store {
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
     // M4.4: every pause is a potential death — keep a structured auto-handoff current.
-    if ((event === "Stop" || event === "SessionEnd") && e.sessionId && existsSync(cwd))
-      this.autoHandoff(e.sessionId, cwd);
+    if ((event === "Stop" || event === "SessionEnd") && e.sessionId) {
+      if (existsSync(cwd)) this.autoHandoff(e.sessionId, cwd);
+      this.rememberSession(e.sessionId);
+    }
     if (e.sessionId && typeof raw.transcript_path === "string") {
       this.db
         .query("UPDATE sessions SET transcript_path = ? WHERE id = ? AND transcript_path IS NULL")

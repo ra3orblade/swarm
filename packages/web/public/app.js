@@ -170,7 +170,7 @@ async function refresh() {
   }
   if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
-const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
+const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats", "search"];
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -195,6 +195,7 @@ function render() {
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
   else if (state.view === "stats") { loadStats(); renderStats(); } // loadStats is a no-op while the cache is fresh
+  else if (state.view === "search") renderSearch();
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
   else if (state.view === "incidents") renderIncidentsView();
@@ -798,6 +799,34 @@ const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1
 const toolName = (t) => String(t).replace(/^mcp__([^_]+(?:_[^_]+)*)__/, "$1 · ").replace(/^plugin_/, "");
 const pct = (a, b) => (b ? `${((100 * a) / b).toFixed(0)}%` : "—");
 const dur = (ms) => (ms < 3600e3 ? `${Math.round(ms / 60e3)}m` : ms < 86400e3 ? `${(ms / 3600e3).toFixed(1)}h` : `${(ms / 86400e3).toFixed(1)}d`);
+// ---------- search view (M4.5): memory over Swarm's own data — handoffs, incidents, gates, what sessions said
+const srch = { q: "", kind: "", hits: null, t: 0 };
+function renderSearch() {
+  const chip = (k, label) => `<span class="chip ${srch.kind === k ? "on" : ""}" data-skind="${k}">${label}</span>`;
+  const mark = (s) => esc(s).replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+  const link = (h) => h.kind === "session" ? `data-s="${esc(h.ref)}"` : h.sessionId ? `data-s="${esc(h.sessionId)}"` : "";
+  const hits = (srch.hits ?? []).map((h) => `<div class="hit"><div class="ht"><span class="badge">${esc(h.kind)}</span><b>${esc(h.title)}</b>${h.task ? `<span class="br">${esc(h.task)}</span>` : ""}<span class="grow"></span>${!state.sel ? `<span class="dim">${esc(projName(h.projectId))} · </span>` : ""}<span class="dim">${ago(h.ts)}</span>${link(h) ? `<a href="#" ${link(h)} title="Open the session">${ic("arrow-right", 12)}</a>` : ""}</div><div class="hs">${mark(h.snippet)}</div></div>`).join("");
+  const had = document.activeElement?.id === "srchQ" ? { pos: document.activeElement.selectionStart } : null;
+  $("#main").innerHTML =
+    `<h2>Search <span>Swarm's own memory${state.sel ? ` · ${esc(projName(state.sel))}` : " · all projects"} — handoffs, incidents, gates, what sessions said. Never your code.</span></h2>` +
+    `<div class="srch"><input id="srchQ" type="search" placeholder="pkill, login form, kind:incident git reset, task:M1.2 …" value="${esc(srch.q)}" autocomplete="off"></div>` +
+    `<div class="chips">${chip("", "All")}${chip("handoff", "Handoffs")}${chip("incident", "Incidents")}${chip("gate", "Gates")}${chip("session", "Sessions")}</div>` +
+    (srch.hits === null ? `<div class="empty">${PX.idle()}Type to search. Words are AND-ed, the last one is a prefix; quote a phrase; <code>kind:</code> and <code>task:</code> filter.</div>`
+      : hits || `<div class="empty">${PX.idle()}Nothing in memory matches <b>${esc(srch.q)}</b>.</div>`);
+  if (had) { const i = $("#srchQ"); i.focus(); i.setSelectionRange(had.pos, had.pos); }
+}
+async function runSearch() {
+  if (!srch.q.trim()) { srch.hits = null; return renderSearch(); }
+  const q = new URLSearchParams({ q: srch.q, limit: "50" });
+  if (state.sel) q.set("project", state.sel);
+  if (srch.kind) q.set("kind", srch.kind);
+  const mine = ++srch.t;
+  const j = await fetch(`/v1/memory?${q}`).then((r) => r.json()).catch(() => ({ hits: [] }));
+  if (mine !== srch.t) return;
+  srch.hits = j.hits ?? [];
+  if (state.view === "search" && !state.session) renderSearch();
+}
+document.addEventListener("input", (ev) => { if (ev.target.id === "srchQ") { srch.q = ev.target.value; clearTimeout(srch.db); srch.db = setTimeout(runSearch, 150); } });
 function renderStats() {
   const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
   const scope = state.sel ? esc(projName(state.sel)) : "all projects";
@@ -1282,6 +1311,7 @@ document.addEventListener("click", async (ev) => {
   }
   if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
   if (t.id === "dryrun") { ev.preventDefault(); return openDryRun(); }
+  if (t.dataset.skind !== undefined) { ev.preventDefault(); srch.kind = t.dataset.skind; return runSearch().then(renderSearch); }
   if (t.id === "drRun") { ev.preventDefault(); return runDryRun(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) {

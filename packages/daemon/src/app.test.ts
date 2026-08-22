@@ -571,6 +571,102 @@ describe("external task sources (M4.8)", () => {
   });
 });
 
+describe("memory search (M4.5)", () => {
+  it("indexes handoffs, incidents, gates and session text; ranks, filters and snippets", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-memory-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    const p = store.resolveProject(dir, true);
+    store.recordHandoff(p.id, {
+      task: "login",
+      done: "form + validation",
+      remaining: "submit handler, then tests",
+      files: ["src/auth/form.ts"],
+      verify: "bun test auth",
+      by: "alice",
+    });
+    store.recordGate(p.id, {
+      task: "login",
+      gate: "review",
+      verdict: "pass",
+      rubric: "read the error paths in form.ts",
+      evidence: "PR #12",
+    });
+    await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-mem",
+        cwd: dir,
+        tool_name: "Bash",
+        tool_input: { command: "pkill -f vite" },
+      }),
+    });
+    // session text: the tailer normally sets last_text; set it directly and fire Stop
+    store.db
+      .query("UPDATE sessions SET last_text = ? WHERE id = ?")
+      .run("I replaced the submit handler with a fetch call.", "s-mem");
+    await app.request("/v1/hook/Stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s-mem", cwd: dir }),
+    });
+
+    let r = await app.request(
+      `/v1/memory?q=${encodeURIComponent("submit handler")}&project=${p.id}`,
+    );
+    expect(r.status).toBe(200);
+    let j = (await r.json()) as {
+      hits: Array<{ kind: string; task: string | null; snippet: string; title: string }>;
+    };
+    expect(j.hits.map((h) => h.kind).sort()).toEqual(["handoff", "session"]);
+    expect(j.hits.find((h) => h.kind === "handoff")?.snippet).toContain(
+      "\u0001submit\u0002 \u0001handler\u0002",
+    );
+
+    r = await app.request(`/v1/memory?q=${encodeURIComponent("kind:incident pkill")}`);
+    j = (await r.json()) as typeof j;
+    expect(j.hits.length).toBe(1);
+    expect(j.hits[0]?.title).toBe("ask · pattern_kill");
+
+    r = await app.request(`/v1/memory?q=error+paths&kind=gate`);
+    j = (await r.json()) as typeof j;
+    expect(j.hits[0]?.title).toBe("review pass on login");
+    expect(j.hits[0]?.task).toBe("login");
+
+    r = await app.request(`/v1/memory?q=${encodeURIComponent("task:login form")}`);
+    j = (await r.json()) as typeof j;
+    expect(j.hits.every((h) => h.task === "login")).toBe(true);
+    expect(j.hits.length).toBe(2); // the handoff ("form") and the gate ("form.ts" tokenizes to form + ts)
+
+    // FTS syntax in the query never errors
+    r = await app.request(`/v1/memory?q=${encodeURIComponent('NOT ( "unbalanced OR -x')}`);
+    expect(r.status).toBe(200);
+    r = await app.request("/v1/memory?q=");
+    expect(((await r.json()) as { hits: unknown[] }).hits).toEqual([]);
+
+    // a Stop re-indexes the session text instead of duplicating it
+    store.db
+      .query("UPDATE sessions SET last_text = ? WHERE id = ?")
+      .run("Now the tests pass.", "s-mem");
+    await app.request("/v1/hook/Stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s-mem", cwd: dir }),
+    });
+    expect(store.memorySearch("submit").filter((h) => h.kind === "session")).toEqual([]);
+    expect(store.memorySearch("tests pass").length).toBe(1);
+
+    // backfill: a fresh Store over the same db rebuilds nothing twice, an old one indexes existing rows
+    store.db.query("DELETE FROM memory").run();
+    store.db.query("DELETE FROM meta WHERE key = 'memory_backfilled'").run();
+    const again = new Store(store.home);
+    expect(again.memorySearch("validation").length).toBe(1);
+    expect(again.memorySearch("pkill").length).toBe(1);
+  });
+});
+
 describe("runner (M3.1)", () => {
   it("claims, spawns a fake claude, records result, steers over stdin, stops by pid", async () => {
     const fs = require("node:fs");

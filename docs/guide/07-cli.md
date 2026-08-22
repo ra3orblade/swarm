@@ -101,6 +101,16 @@ Permission prompts from the spawned agent are brokered by Swarm: the same [rules
 
 `swarm run` claims the task (fail-closed — or reuses a worktree you already hold), then the daemon spawns `claude -p` inside it with stream-json on both stdin and stdout. The session appears in Fleet marked ▶ spawned; tokens and cost come from its transcript like any other session, and each finished turn is a `run.result` event with the cost so far. Runs live as long as the daemon: `swarm stop` / a restart stops them cleanly (their pids are in the registry, never killed by pattern). Options: `--prompt-file`, `--model`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--allowed-tools Bash,Edit`, `--max-turns n`.
 
+## Search
+
+```sh
+swarm search pkill                          # across every project
+swarm search -p "login form" --kind handoff # this repo only, handoffs only
+swarm search task:M1.2 remaining
+```
+
+Full-text search over Swarm's memory — handoffs, incidents, gates, what sessions said. See [the dashboard's Search view](02-dashboard.md#search) for the query syntax; `--json` returns the hits.
+
 ## Rules
 
 ```sh

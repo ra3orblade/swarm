@@ -141,6 +141,13 @@
   .proj:hover small{display:none}
   .proj .act:hover{color:var(--fg);background:var(--line)}
   .proj .act.rm:hover{color:var(--bad)}
+  .srch{display:flex;gap:8px;margin-bottom:14px}
+  .srch input{flex:1;max-width:640px;background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:8px 12px;font:var(--fs-md) var(--sans)}
+  .srch input:focus{border-color:var(--acc);outline:none}
+  .hit{padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);margin-bottom:8px}
+  .hit .ht{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+  .hit .hs{font-size:var(--fs-sm);color:var(--fg-2);white-space:pre-wrap}
+  .hit mark{background:var(--warn-soft);color:var(--fg);border-radius:2px;padding:0 1px}
   .dr-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px;margin:10px 0}
   .dr-rule{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
   .dr-rule select{background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px 4px}
@@ -465,6 +472,7 @@
   <a href="#" data-view="timeline" class="nav"><i data-icon="clock-counter-clockwise"></i>Timeline</a>
   <a href="#" data-view="spend" class="nav"><i data-icon="coins"></i>Spend</a>
   <a href="#" data-view="stats" class="nav"><i data-icon="chart-bar"></i>Stats</a>
+  <a href="#" data-view="search" class="nav"><i data-icon="magnifying-glass"></i>Search</a>
   <span class="sp"></span>
   <span id="today"></span>
   <span id="daemon"><span class="dot"></span><span class="lbl">Daemon</span></span>

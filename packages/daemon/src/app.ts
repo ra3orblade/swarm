@@ -2,7 +2,14 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatHandoff, RULE_IDS, type RuleId, type SwarmEvent } from "@swarm/core";
+import {
+  formatHandoff,
+  MEMORY_KINDS,
+  type MemoryKind,
+  RULE_IDS,
+  type RuleId,
+  type SwarmEvent,
+} from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
@@ -106,6 +113,20 @@ export function createApp(store = new Store()) {
       }),
     ),
   );
+  // M4.5: memory search over Swarm's own data (handoffs, incidents, gates, session text).
+  app.get("/v1/memory", (c) => {
+    const q = c.req.query("q") ?? "";
+    const kind = c.req.query("kind");
+    return c.json({
+      q,
+      hits: store.memorySearch(q, {
+        projectId: c.req.query("project") || null,
+        kind: MEMORY_KINDS.includes(kind as MemoryKind) ? (kind as MemoryKind) : null,
+        task: c.req.query("task") || null,
+        limit: Number(c.req.query("limit")) || 30,
+      }),
+    });
+  });
   // M4.6: rule dry-run over this project's history; ?shared_tree=deny&pattern_kill=off… override modes.
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");

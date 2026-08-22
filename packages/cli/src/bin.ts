@@ -45,6 +45,7 @@ const help = `swarm — control plane for AI-agent development
   serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
   proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
+  search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
@@ -511,6 +512,43 @@ try {
         break;
       }
       throw new Error("usage: swarm gate record|ls");
+    }
+    case "search": {
+      await ensureDaemon({ quiet: true });
+      const q = new URLSearchParams({ limit: "30" });
+      const words: string[] = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i] as string;
+        if (a === "--kind") q.set("kind", rest[++i] ?? "");
+        else if (a === "-p") {
+          const proj = (await api("/v1/projects", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: resolve(".") }),
+          })) as { id: string };
+          q.set("project", proj.id);
+        } else if (!a.startsWith("--")) words.push(a);
+      }
+      if (!words.length) throw new Error("usage: swarm search <query…> [-p] [--kind k]");
+      q.set("q", words.join(" "));
+      const r = (await api(`/v1/memory?${q}`)) as {
+        hits: Array<{
+          kind: string;
+          title: string;
+          task: string | null;
+          ts: string;
+          snippet: string;
+          sessionId: string | null;
+        }>;
+      };
+      if (json) console.log(JSON.stringify(r.hits));
+      else if (!r.hits.length) console.log("nothing in memory matches");
+      else
+        for (const h of r.hits)
+          console.log(
+            `${h.kind.padEnd(8)} ${h.ts.slice(0, 16).replace("T", " ")}  ${h.title}${h.task ? `  [${h.task}]` : ""}\n         ${h.snippet.split("\u0001").join("").split("\u0002").join("").replace(/\s+/g, " ")}${h.sessionId ? `\n         session ${h.sessionId}` : ""}`,
+          );
+      break;
     }
     case "rules": {
       if (rest[0] !== "dryrun")

@@ -68,6 +68,46 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_search",
+    {
+      title: "Search Swarm's memory",
+      description:
+        "Full-text search over what Swarm remembers about this repo: handoffs (what was done / what's left), incidents (commands the rules stopped, and why), gate runs (rubric + evidence) and what previous sessions last said. Not the codebase — grep that. Words are AND-ed, the last one is a prefix; quote a phrase; `kind:incident` / `task:M1.2` filter. Use it before redoing work someone may have done, or when a rule blocks you and you want to know how it was handled before.",
+      inputSchema: {
+        query: z.string(),
+        kind: z.enum(["handoff", "incident", "gate", "session"]).optional(),
+        all_projects: z.boolean().optional().describe("search every project, not just this repo"),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+    },
+    async ({ query, kind, all_projects, limit }) => {
+      const q = new URLSearchParams({ q: query, limit: String(limit ?? 20) });
+      if (!all_projects) q.set("project", await projectId());
+      if (kind) q.set("kind", kind);
+      const r = await api<{
+        hits: Array<{
+          kind: string;
+          title: string;
+          task: string | null;
+          ts: string;
+          text: string;
+          sessionId: string | null;
+        }>;
+      }>(`/v1/memory?${q}`);
+      if (!r.hits.length) return ok(`nothing in memory matches "${query}"`, { hits: [] });
+      return ok(
+        r.hits
+          .map(
+            (h) =>
+              `[${h.kind}] ${h.title}${h.task ? ` (${h.task})` : ""} — ${h.ts.slice(0, 16)}\n${h.text}`,
+          )
+          .join("\n\n"),
+        r.hits,
+      );
+    },
+  );
+
+  server.registerTool(
     "swarm_next_task",
     {
       title: "Next claimable task",
