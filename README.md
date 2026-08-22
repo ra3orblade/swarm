@@ -8,7 +8,7 @@ Point it at any folder. Swarm watches every [Claude Code](https://claude.com/cla
 
 It runs entirely on your machine. No account, no telemetry, works offline.
 
-> Status: early, but real. Observability (M0/M0.8) and the first coordination layer — task claims, runtime resources, configurable rules, incidents, a cross-forge merge queue — are built and dogfooded daily; spawned agents and verification gates (M3+) are on the [roadmap](docs/06-roadmap.md). Release notes: [CHANGELOG.md](CHANGELOG.md) · docs: [getswarm.vercel.app/docs](https://getswarm.vercel.app/docs/).
+> Status: early, but real. Observability (M0/M0.8) and the first coordination layer — task claims, runtime resources, configurable rules, incidents, a cross-forge merge queue — are built and dogfooded daily; spawned agents and verification gates (M3+) are on the [roadmap](docs/06-roadmap.md). Release notes: [CHANGELOG.md](CHANGELOG.md) · user guide: [getswarm.vercel.app/docs](https://getswarm.vercel.app/docs/).
 
 ---
 

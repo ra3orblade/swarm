@@ -1,0 +1,116 @@
+# Claims and worktrees
+
+Status: current
+
+A claim says "this task is mine" and gives its holder an isolated git worktree to work in. Two agents can't claim the same task, two agents in different worktrees can't trample each other's uncommitted files, and nothing that holds unpushed work gets deleted by accident. That is the whole idea.
+
+## Why claims
+
+Parallel agents on one checkout collide: one runs `git add -A` and sweeps up the other's half-finished edit, or two of them pick the same ticket. Claims make the task assignment explicit and fail-closed, and they put each task in its own worktree so the [rules](03-rules-and-config.md) around shared checkouts never even fire.
+
+## Claiming a task
+
+From the repository (any worktree of it):
+
+```sh
+cd ~/code/my-app
+swarm claim login-form
+```
+
+```
+claimed login-form → /Users/you/.swarm/worktrees/my-app/login-form
+  cd /Users/you/.swarm/worktrees/my-app/login-form
+```
+
+What happened:
+
+- A branch `task/login-form` was created from the current `HEAD` (or reused if it already existed).
+- A worktree for it was added under `~/.swarm/worktrees/<project>/<task>/` — never inside your repository.
+- A lease of **45 minutes** was recorded, owned by your username (`--owner` to change it).
+
+Task names are free-form; they are slugified for the folder name. The `--json` flag prints the raw result.
+
+If someone else holds the task, the claim is refused and the command exits 1:
+
+```
+REFUSED: login-form is held by alice until 2026-08-22T14:05:00.000Z. Pick another task or coordinate with the holder — claims fail closed on purpose.
+```
+
+Re-claiming a task you already hold is allowed and is treated as a renew. An expired claim never blocks a new one.
+
+## Leases
+
+Leases exist so an abandoned claim eventually frees the task. Renew while you are still working:
+
+```sh
+swarm renew login-form      # another 45 minutes from now
+```
+
+When a lease expires the claim shows as **Expired** on the Board. Nothing is deleted by expiry alone — see reaping below.
+
+## Releasing
+
+```sh
+swarm release login-form
+```
+
+Release removes the worktree and marks the claim released. It refuses if the worktree holds work you could lose:
+
+```
+REFUSED: /Users/you/.swarm/worktrees/my-app/login-form has uncommitted changes. Commit and push them, or re-run with --force to discard.
+REFUSED: /Users/you/.swarm/worktrees/my-app/login-form has unpushed commits. Push them, or re-run with --force to discard the worktree.
+```
+
+"Unpushed" means commits not on the branch's upstream; with no upstream set, commits not reachable from any remote branch or from `main`/`master`.
+
+`--force` is the only path that loses work, by design:
+
+```sh
+swarm release login-form --force
+```
+
+## Listing and reaping
+
+```sh
+swarm claims
+```
+
+```
+held      login-form       you          /Users/you/.swarm/worktrees/my-app/login-form
+expired   perf-audit       alice        /Users/you/.swarm/worktrees/my-app/perf-audit
+```
+
+`swarm reap` cleans up expired claims without ever dropping work:
+
+- expired, worktree gone or clean → claim released, worktree removed (`reaped`)
+- expired, worktree dirty or unpushed → claim kept and marked **orphaned** (`keep-orphaned`)
+- not expired → left alone
+
+```sh
+swarm reap
+```
+
+```
+reap           perf-audit
+keep-orphaned  login-form
+```
+
+An orphaned claim is the signal that finished-but-unpushed work is sitting somewhere. Push it and release, or force-release to discard.
+
+## What the Board shows
+
+The **Board** view lists every claim that isn't released, orphaned ones first: task, owner, lease remaining, worktree path and a state badge (**Held**, **Expired**, **Orphaned · holds work**). *Release* behaves like the CLI — it refuses to discard work and then offers a force-release in a second confirmation. Orphaned rows get *Force release* directly, with the same warning.
+
+Below it, **Worktrees** lists every worktree of the project, including ones you made by hand with `git worktree add`: branch, head, path, **Dirty** / **Unpushed** / **Clean**, and which live sessions are inside. That is the fastest way to spot the worktree nobody owns.
+
+## Where things live
+
+- Worktrees: `~/.swarm/worktrees/<project-name>/<task>/` (under `SWARM_HOME` if set)
+- Branch: `task/<task>`
+- Claims: the daemon's database in `~/.swarm/`
+
+Projects are identified by their git repository, so `swarm claim` works the same whether you run it from the main checkout or from another worktree of the same repo.
+
+## From an agent
+
+Agents don't need you to run the CLI. The MCP server registered by setup exposes the same operations as tools — `swarm_status`, `swarm_claim`, `swarm_renew`, `swarm_release`, `swarm_reap` — resolved against the session's working directory. The recommended flow is: check status, claim, `cd` into the returned worktree, work, commit and push, release. See [MCP](08-mcp.md).
