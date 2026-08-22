@@ -158,6 +158,19 @@ export class Store {
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
     this.slimExistingEvents();
+    this.retypeNotificationIncidents();
+  }
+
+  /**
+   * One-time: <0.3.1 recorded Claude Code Notification hooks as incident.opened. Retype them so
+   * the Incidents grid only shows rule decisions (those carry a `rule` in the payload).
+   */
+  private retypeNotificationIncidents() {
+    if (this.meta("notifications_retyped") === "1") return;
+    this.db.exec(
+      "UPDATE events SET type = 'session.notification' WHERE type = 'incident.opened' AND payload NOT LIKE '%\"rule\"%'",
+    );
+    this.setMeta("notifications_retyped", "1");
   }
 
   private meta(key: string): string | null {
@@ -598,7 +611,7 @@ export class Store {
     const state =
       e.type === "session.ended"
         ? "ended"
-        : p.hook === "Stop" || e.type === "incident.opened"
+        : p.hook === "Stop" || e.type === "session.notification"
           ? "waiting"
           : "active";
     this.db
