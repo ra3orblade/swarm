@@ -46,6 +46,9 @@
   .hero::after{content:"";position:absolute;inset:-30px -80px 0;z-index:-2;pointer-events:none;
     background:radial-gradient(ellipse 60% 55% at 50% 30%,var(--acc-soft),transparent 65%)}
   .hero .mark{width:180px;image-rendering:pixelated;margin-bottom:22px}
+  .hero .mark rect{animation:sweep 1.8s ease-in-out infinite}
+  @keyframes sweep{0%,100%{opacity:.32}50%{opacity:1}}
+  @media (prefers-reduced-motion: reduce){.hero .mark rect{animation:none}}
   h1{font-size:40px;margin:0 0 10px;letter-spacing:-.01em}
   .tag{color:var(--dim);font-size:18px;max-width:560px;margin:0 auto 30px}
   .cta{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:12px}
@@ -65,12 +68,16 @@
 
   section{padding:34px 0}
   h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin:0 0 16px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
   .card b{display:block;margin-bottom:4px}
+  .card .ic{width:22px;height:22px;color:var(--acc);margin-bottom:10px;display:block}
+  .dl .card .ic{margin-bottom:6px}
   .card p{margin:0;color:var(--dim);font-size:14px}
 
-  .dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .dl{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media (max-width:640px){.dl{grid-template-columns:1fr}}
   .dl .card{display:flex;flex-direction:column}
   .dl .os{color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
   .dl .card.mine{border-color:var(--acc)}
@@ -101,7 +108,7 @@
   </header>
 
   <div class="hero">
-    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="6" height="6" fill="#a3e635"/><rect x="36" y="30" width="6" height="6" fill="#a3e635"/><rect x="42" y="30" width="6" height="6" fill="#a3e635"/><rect x="48" y="30" width="6" height="6" fill="#a3e635"/><rect x="54" y="30" width="6" height="6" fill="#a3e635"/><rect x="60" y="30" width="6" height="6" fill="#a3e635"/><rect x="66" y="30" width="6" height="6" fill="#a3e635"/><rect x="72" y="30" width="6" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>
+    <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="6" width="6" height="6" fill="#a3e635" style="animation-delay:120ms"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:360ms"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24" style="animation-delay:540ms"/><rect x="24" y="18" width="6" height="6" fill="#a3e635" style="animation-delay:240ms"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:540ms"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:600ms"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f" style="animation-delay:660ms"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24" style="animation-delay:720ms"/><rect x="6" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:60ms"/><rect x="30" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:300ms"/><rect x="36" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:360ms"/><rect x="42" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:420ms"/><rect x="48" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:480ms"/><rect x="54" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:540ms"/><rect x="60" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:600ms"/><rect x="66" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:660ms"/><rect x="72" y="30" width="6" height="6" fill="#a3e635" style="animation-delay:720ms"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24" style="animation-delay:780ms"/><rect x="24" y="42" width="6" height="6" fill="#a3e635" style="animation-delay:240ms"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:540ms"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f" style="animation-delay:600ms"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24" style="animation-delay:660ms"/><rect x="12" y="54" width="6" height="6" fill="#a3e635" style="animation-delay:120ms"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:360ms"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:420ms"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f" style="animation-delay:480ms"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24" style="animation-delay:540ms"/></svg>
     <h1>See every agent. Stop the collisions.</h1>
     <p class="tag">Swarm is the local-first control plane for AI-agent development: one dashboard for every Claude Code, Codex, and Grok session on your machine — live activity, cost, worktrees, task claims, and enforced rules.</p>
     <div class="cta">
@@ -117,20 +124,20 @@
   <section>
     <h2>What it does</h2>
     <div class="grid">
-      <div class="card"><b>Fleet, live</b><p>Every agent session on the machine, streaming: current tool, tokens, context, cost — across all your repos, zero instrumentation.</p></div>
-      <div class="card"><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
-      <div class="card"><b>Worktrees &amp; claims</b><p>A fail-closed ledger: tasks are claimed into isolated git worktrees, so parallel agents can't clobber each other.</p></div>
-      <div class="card"><b>Rules &amp; incidents</b><p>Broad <code>git add -A</code> in a shared checkout, pattern kills, protected ports — asked or denied, every decision recorded.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zM2 4h2v16H2zm2 7h16v2H4zm16-7h2v16h-2z"/>  <path d="M11 4h2v18h-2z"/>  <path d="M4 20h16v2H4z"/></svg><b>Fleet, live</b><p>Every agent session on the machine, streaming: current tool, tokens, context, cost — across all your repos, zero instrumentation.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h6v2H6zM4 4h2v2H4zm8 0h2v2h-2zm-8 8h2v2H4zm8 0h2v2h-2zm-6 2h6v2H6zM2 6h2v6H2zm12 0h2v6h-2z"/>  <path d="M14 8h4v2h-4zm-4 10h2v2h-2zm8-8h2v2h-2zm-6 10h2v2h-2zm6-2h2v2h-2z"/>  <path d="M12 20h6v2h-6zm-4-6h2v4H8zm12-2h2v6h-2zM7 6h4v2H7z"/>  <path d="M9 6h2v6H9zm6 8h2v4h-2zm-1-2h3v2h-3z"/></svg><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 14h4v2H4zm0 6h4v2H4zm-2-4h2v4H2zm6 0h2v4H8zm8-14h4v2h-4zm0 6h4v2h-4zm-2-4h2v4h-2zm6 0h2v4h-2zm-8 13h5v2h-5zm5-5h2v5h-2zM5 2h2v10H5z"/></svg><b>Worktrees &amp; claims</b><p>A fail-closed ledger: tasks are claimed into isolated git worktrees, so parallel agents can't clobber each other.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM20 4h2v16h-2zM2 4h2v16H2zm9 2h2v8h-2zm0 10h2v2h-2z"/></svg><b>Rules &amp; incidents</b><p>Broad <code>git add -A</code> in a shared checkout, pattern kills, protected ports — asked or denied, every decision recorded.</p></div>
     </div>
   </section>
 
   <section id="downloads">
     <h2>Downloads <span id="rel" style="text-transform:none;letter-spacing:0"></span></h2>
     <div class="dl" id="dl">
-      <div class="card" data-os="mac"><span class="os">macOS</span><b>Swarm.dmg</b><p>Apple silicon · signed &amp; notarized · auto-updates</p><div class="links"></div></div>
-      <div class="card" data-os="win"><span class="os">Windows</span><b>Swarm Setup</b><p>x64 · .msi and .exe · auto-updates</p><div class="links"></div></div>
-      <div class="card" data-os="linux"><span class="os">Linux</span><b>swarm.deb / .rpm</b><p>x86_64 packages</p><div class="links"></div></div>
-      <div class="card"><span class="os">CLI / any platform</span><b>@ra3orblade/swarm</b><p>Runs with <a href="https://bun.sh">Bun</a>: daemon, dashboard, and CLI in one package.</p><div class="links"><a class="dbtn" style="font-family:var(--mono);font-size:13px" href="https://www.npmjs.com/package/@ra3orblade/swarm">bunx @ra3orblade/swarm setup</a></div></div>
+      <div class="card" data-os="mac"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M11 8h3v2h-3zm3-2h4v2h-4zm4 2h2v3h-2zm-2 3h2v4h-2zm2 4h2v5h-2zm-4 5h4v2h-4zm-3-2h3v2h-3zm-4 2h4v2H7zm-2-2h2v2H5zm-2-8h2v8H3zm2-2h2v2H5zm2-2h4v2H7zm5-3h2v2h-2zm2-2h2v2h-2z"/></svg><span class="os">macOS</span><b>Swarm.dmg</b><p>Apple silicon · signed &amp; notarized · auto-updates</p><div class="links"></div></div>
+      <div class="card" data-os="win"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 3h16v2H4zm0 16h16v2H4zM2 5h2v14H2zm18 0h2v14h-2zM4 7h16v2H4zm8-2h2v2h-2zm4 0h2v2h-2z"/></svg><span class="os">Windows</span><b>Swarm Setup</b><p>x64 · .msi and .exe · auto-updates</p><div class="links"></div></div>
+      <div class="card" data-os="linux"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 22H9v-2h6v2Zm-6-2H7v-2h2v2Zm8 0h-2v-2h2v2ZM3 14h4v4H5v-2H1v-4h2v2Zm20 2h-4v2h-2v-4h4v-2h2v4Zm-10-3h-2v-2H9V9h6v2h-2v2Zm-8-1H3v-2h2v2Zm16 0h-2v-2h2v2ZM7 10H5V8h2v2Zm12 0h-2V8h2v2ZM9 8H7V4h2v4Zm8 0h-2V4h2v4Zm-2-4H9V2h6v2Z"/></svg><span class="os">Linux</span><b>swarm.deb / .rpm</b><p>x86_64 packages</p><div class="links"></div></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM6 16h2v2H6zm2-2h2v2H8zm-2-2h2v2H6z"/></svg><span class="os">CLI / any platform</span><b>@ra3orblade/swarm</b><p>Runs with <a href="https://bun.sh">Bun</a>: daemon, dashboard, and CLI in one package.</p><div class="links"><a class="dbtn" style="font-family:var(--mono);font-size:13px" href="https://www.npmjs.com/package/@ra3orblade/swarm">bunx @ra3orblade/swarm setup</a></div></div>
     </div>
   </section>
 
@@ -198,5 +205,6 @@
     })
     .catch(() => {});
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
