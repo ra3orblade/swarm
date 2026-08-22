@@ -15,8 +15,12 @@ const outDir = join(root, "site", "docs");
   const src = join(root, "docs", "art", "screens");
   const dst = join(root, "site", "screens");
   mkdirSync(dst, { recursive: true });
+  mkdirSync(join(dst, "thumbs"), { recursive: true });
   for (const f of readdirSync(src))
     if (/\.(jpe?g|png|webp)$/i.test(f)) copyFileSync(join(src, f), join(dst, f));
+  for (const f of readdirSync(join(src, "thumbs")))
+    if (/\.(jpe?g|png|webp)$/i.test(f))
+      copyFileSync(join(src, "thumbs", f), join(dst, "thumbs", f));
 }
 const REPO = "https://github.com/ra3orblade/swarm";
 const SITE = "https://getswarm.vercel.app";

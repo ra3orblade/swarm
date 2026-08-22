@@ -158,6 +158,10 @@ const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats
   if (VIEWS.includes(v)) state.view = v;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
+  // Deep links win over persisted state: ?view=board&project=<id>&session=<id>
+  const q = new URLSearchParams(location.search);
+  if (VIEWS.includes(q.get("view"))) state.view = q.get("view");
+  if (q.has("project")) state.sel = q.get("project") || null;
   // Mark the restored tab before the first snapshot lands, so the nav doesn't flash "Fleet".
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", a.dataset.view === state.view);
 }
@@ -1098,6 +1102,10 @@ function connect() {
   };
   for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited"]) es.addEventListener(t, onAny);
 }
-refresh().then(connect);
+refresh().then(() => {
+  const sid = new URLSearchParams(location.search).get("session");
+  if (sid) openSession(sid);
+  connect();
+});
 setInterval(() => { if (!document.hidden) poll(); }, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });

@@ -72,13 +72,32 @@
   .ic{width:22px;height:22px;color:var(--acc);display:block}
   .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
   @media (max-width:640px){.grid{grid-template-columns:1fr}}
-  /* screenshots */
-  .shot{display:block;width:100%;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);background:var(--panel)}
-  .hero .shot{margin:36px auto 0;max-width:880px}
-  .shots{display:grid;grid-template-columns:1fr;gap:34px;margin-top:20px}
-  .shots figure{margin:0}
-  .shots figcaption{color:var(--dim);font-size:14px;margin-top:10px;line-height:1.5}
-  .shots figcaption b{color:var(--fg-2);font-weight:600}
+  /* screenshots: hero carousel + lightbox */
+  .gal{margin:40px auto 0;max-width:980px;position:relative}
+  .gal .track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px}
+  .gal .track::-webkit-scrollbar{display:none}
+  .gal figure{flex:0 0 100%;scroll-snap-align:center;margin:0;cursor:zoom-in}
+  .gal img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);background:var(--panel)}
+  .gal figcaption{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.5;text-align:center}
+  .gal figcaption b{color:var(--fg-2);font-weight:600}
+  .gal .arr{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s;z-index:2}
+  .gal .arr:hover{opacity:1;border-color:var(--acc);color:var(--acc)}
+  .gal .arr.l{left:-20px}.gal .arr.r{right:-20px}
+  .gal .arr svg{width:18px;height:18px;image-rendering:pixelated}
+  .gal .dots{display:flex;justify-content:center;gap:8px;margin-top:14px}
+  .gal .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s,transform .15s}
+  .gal .dots i.on{background:var(--acc);transform:scale(1.25)}
+  @media (max-width:1040px){.gal .arr.l{left:6px}.gal .arr.r{right:6px}}
+  .lb{position:fixed;inset:0;background:rgba(6,8,11,.94);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;padding:28px}
+  .lb.open{display:flex}
+  .lb img{max-width:min(1600px,100%);max-height:calc(100vh - 110px);width:auto;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .lb .cap{color:var(--dim);margin-top:14px;font-size:14px;text-align:center}
+  .lb .cap b{color:var(--fg)}
+  .lb .x,.lb .n{position:absolute;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .lb .x{top:18px;right:18px}.lb .n{top:calc(50% - 22px)}.lb .n.l{left:18px}.lb .n.r{right:18px}
+  .lb .x:hover,.lb .n:hover{border-color:var(--acc);color:var(--acc)}
+  .lb svg{width:20px;height:20px;image-rendering:pixelated}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
   .card .ic{margin-bottom:10px}
   .card b{display:block;margin-bottom:4px}
@@ -113,7 +132,6 @@
     <svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><title>Swarm pixel mark</title><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="6" height="6" fill="#a3e635"/><rect x="36" y="30" width="6" height="6" fill="#a3e635"/><rect x="42" y="30" width="6" height="6" fill="#a3e635"/><rect x="48" y="30" width="6" height="6" fill="#a3e635"/><rect x="54" y="30" width="6" height="6" fill="#a3e635"/><rect x="60" y="30" width="6" height="6" fill="#a3e635"/><rect x="66" y="30" width="6" height="6" fill="#a3e635"/><rect x="72" y="30" width="6" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>
     <b>Swarm</b>
     <nav>
-      <a href="#screens">Screens</a>
       <a href="#downloads">Downloads</a>
       <a href="/docs/">Docs</a>
       <a href="/changelog">Changelog</a>
@@ -131,7 +149,20 @@
     </div>
     <div class="ver" id="ver">&nbsp;</div>
     <div class="cli" id="cli" title="Copy"><span class="p">$</span> bunx @ra3orblade/swarm setup</div>
-    <img class="shot" src="/screens/fleet.jpg" width="1512" height="795" alt="Swarm's Fleet view — every Claude Code, Codex and Grok session on the machine, live, with tool, model, tokens, context and cost" loading="eager" fetchpriority="high">
+    <div class="gal" id="gal">
+      <div class="arr l" data-dir="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></div>
+      <div class="track">
+      <figure data-i="0"><img src="/screens/thumbs/fleet.png" data-full="/screens/fleet.png" width="1512" height="860" alt="Fleet view" loading="eager"><figcaption><b>Fleet.</b> Every Claude Code, Codex and Grok session on the machine — live tool, model, tokens, context, cost.</figcaption></figure>
+      <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> The reasoning stream next to the numbers: cost, cached context, thinking share, cost per turn, tool mix.</figcaption></figure>
+      <figure data-i="2"><img src="/screens/thumbs/board.png" data-full="/screens/board.png" width="1512" height="860" alt="Board view" loading="lazy"><figcaption><b>Board.</b> One project: tasks that are ready, processes, claims, worktrees, and what the rules stopped.</figcaption></figure>
+      <figure data-i="3"><img src="/screens/thumbs/incidents.png" data-full="/screens/incidents.png" width="1512" height="860" alt="Incidents view" loading="lazy"><figcaption><b>Incidents.</b> Every ask and deny the rules made — acknowledge them once you've seen them.</figcaption></figure>
+      <figure data-i="4"><img src="/screens/thumbs/timeline.png" data-full="/screens/timeline.png" width="1512" height="860" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Session lanes per project, coloured by agent: who worked where, and when.</figcaption></figure>
+      <figure data-i="5"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> Cost by day, agent, model and project, while it's still today.</figcaption></figure>
+      <figure data-i="6"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend and tokens, streaks, a year of activity, record holders.</figcaption></figure>
+      </div>
+      <div class="arr r" data-dir="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></div>
+      <div class="dots"><i data-i="0" class="on"></i><i data-i="1" class=""></i><i data-i="2" class=""></i><i data-i="3" class=""></i><i data-i="4" class=""></i><i data-i="5" class=""></i><i data-i="6" class=""></i></div>
+    </div>
   </div>
 
   <section>
@@ -143,16 +174,6 @@
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zM2 4h2v16H2zm2 7h16v2H4zm16-7h2v16h-2z"/>  <path d="M11 4h2v18h-2z"/>  <path d="M4 20h16v2H4z"/></svg><b>Fleet, live</b><p>Every agent session on the machine, streaming: current tool, tokens, context, cost — across all your repos, zero instrumentation.</p></div>
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h6v2H6zM4 4h2v2H4zm8 0h2v2h-2zm-8 8h2v2H4zm8 0h2v2h-2zm-6 2h6v2H6zM2 6h2v6H2zm12 0h2v6h-2z"/>  <path d="M14 8h4v2h-4zm-4 10h2v2h-2zm8-8h2v2h-2zm-6 10h2v2h-2zm6-2h2v2h-2z"/>  <path d="M12 20h6v2h-6zm-4-6h2v4H8zm12-2h2v6h-2zM7 6h4v2H7z"/>  <path d="M9 6h2v6H9zm6 8h2v4h-2zm-1-2h3v2h-3z"/></svg><b>Spend</b><p>Cost by day, agent, model, and project. Know what today cost while it's still today.</p></div>
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M5 2h4v2H5zM3 4h2v4H3zm6 0h2v4H9zM5 8h4v2H5zm0 4h4v2H5zm-2 2h2v4H3zm6 0h2v4H9zm-4 4h4v2H5zm10-16h4v2h-4zm-2 2h2v4h-2zm6 0h2v4h-2zm-4 4h4v2h-4zm1 2h2v6h-2zm-1 6h4v2h-4zM11 11h2v2h-2z"/></svg><b>PRs, one queue</b><p>Open pull requests across GitHub and GitLab through your own <code>gh</code> / <code>glab</code> — checks, review, mergeable — and merge on green from the dashboard. No tokens stored.</p></div>
-    </div>
-  </section>
-
-  <section id="screens">
-    <h2>See it</h2>
-    <div class="shots">
-      <figure><img class="shot" src="/screens/session.jpg" width="1512" height="795" alt="Session view" loading="lazy"><figcaption><b>Session.</b> The live reasoning stream next to the numbers — cost, context and how much of it was cached, thinking share, tool mix.</figcaption></figure>
-      <figure><img class="shot" src="/screens/board.jpg" width="1512" height="795" alt="Board view" loading="lazy"><figcaption><b>Board.</b> One project's tasks, processes, claims, worktrees and incidents — what's ready, what's held, what the rules stopped.</figcaption></figure>
-      <figure><img class="shot" src="/screens/timeline.jpg" width="1512" height="600" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Session lanes per project, coloured by agent, so you can see who was working where and when.</figcaption></figure>
-      <figure><img class="shot" src="/screens/stats.jpg" width="1512" height="795" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend and tokens, streaks, a year of activity, record holders.</figcaption></figure>
     </div>
   </section>
 
@@ -226,5 +247,27 @@
     .catch(() => {});
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
+<div class="lb" id="lb" role="dialog" aria-modal="true"><div class="x" data-lb="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M7 19H5V17H7V19ZM19 19H17V17H19V19ZM9 15V17H7V15H9ZM17 17H15V15H17V17ZM11 15H9V13H11V15ZM15 15H13V13H15V15ZM13 13H11V11H13V13ZM11 11H9V9H11V11ZM15 11H13V9H15V11ZM9 9H7V7H9V9ZM17 9H15V7H17V9ZM7 7H5V5H7V7ZM19 7H17V5H19V7Z"/></svg></div><div class="n l" data-lb="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></div><img id="lbImg" alt=""><div class="cap" id="lbCap"></div><div class="n r" data-lb="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></div></div>
+<script>
+(() => {
+  const gal = document.getElementById("gal"), track = gal.querySelector(".track");
+  const figs = [...track.querySelectorAll("figure")], dots = [...gal.querySelectorAll(".dots i")];
+  let cur = 0;
+  const go = (i, smooth = true) => { cur = (i + figs.length) % figs.length; track.scrollTo({ left: figs[cur].offsetLeft - track.offsetLeft, behavior: smooth ? "smooth" : "auto" }); };
+  const sync = () => { const x = track.scrollLeft + track.clientWidth / 2; let best = 0; figs.forEach((f, i) => { if (Math.abs(f.offsetLeft + f.offsetWidth / 2 - track.offsetLeft - x) < Math.abs(figs[best].offsetLeft + figs[best].offsetWidth / 2 - track.offsetLeft - x)) best = i; }); cur = best; dots.forEach((d, i) => d.classList.toggle("on", i === cur)); };
+  track.addEventListener("scroll", () => requestAnimationFrame(sync), { passive: true });
+  gal.querySelectorAll(".arr").forEach((a) => a.addEventListener("click", () => go(cur + Number(a.dataset.dir))));
+  dots.forEach((d) => d.addEventListener("click", () => go(Number(d.dataset.i))));
+  const lb = document.getElementById("lb"), img = document.getElementById("lbImg"), cap = document.getElementById("lbCap");
+  let li = 0;
+  const show = (i) => { li = (i + figs.length) % figs.length; const f = figs[li]; const im = f.querySelector("img"); img.src = im.dataset.full; img.alt = im.alt; cap.innerHTML = f.querySelector("figcaption").innerHTML; lb.classList.add("open"); document.body.style.overflow = "hidden"; };
+  const hide = () => { lb.classList.remove("open"); document.body.style.overflow = ""; };
+  figs.forEach((f, i) => f.addEventListener("click", () => show(i)));
+  lb.addEventListener("click", (e) => { const t = e.target.closest("[data-lb]"); if (t) { e.stopPropagation(); return t.dataset.lb === "close" ? hide() : show(li + Number(t.dataset.lb)); } if (e.target === lb) hide(); });
+  document.addEventListener("keydown", (e) => { if (e.target.closest?.("input,textarea")) return; const open = lb.classList.contains("open"); if (open && e.key === "Escape") return hide(); if (e.key === "ArrowRight") return open ? show(li + 1) : go(cur + 1); if (e.key === "ArrowLeft") return open ? show(li - 1) : go(cur - 1); });
+  let sx = null; lb.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener("touchend", (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 40) show(li + (dx < 0 ? 1 : -1)); sx = null; });
+})();
+</script>
 </body>
 </html>

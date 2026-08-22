@@ -22,7 +22,7 @@ A local-first control plane for AI-agent development on any repository.</p>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-lightgrey?labelColor=0e1013"></a>
 </p>
 
-<p align="center"><a href="https://getswarm.vercel.app"><img src="docs/art/screens/fleet.jpg" alt="Swarm Fleet view — every agent session on the machine, live" width="100%"></a></p>
+<p align="center"><a href="https://getswarm.vercel.app"><img src="docs/art/screens/fleet.png" alt="Swarm Fleet view — every agent session on the machine, live" width="100%"></a></p>
 
 Run more than one [Claude Code](https://claude.com/claude-code) session at a time — or a [Codex CLI](https://github.com/openai/codex) or Grok run on the side — and you lose the thread fast: which session is on which branch, what it's costing, which worktree has uncommitted work nobody owns, why that edit got blocked. Swarm is one daemon that watches every session on your machine — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree and runtime resource, turns the "never do X" prose in `CLAUDE.md` into real permission decisions, and streams all of it to one dashboard.
 
@@ -42,11 +42,11 @@ bunx @ra3orblade/swarm setup
 
 **Session** — an agent's reasoning and tool calls as a live stream, with cost per turn, cache hit rate, thinking share, tool histogram and the transcript path.
 
-<p align="center"><img src="docs/art/screens/session.jpg" alt="Session view — live reasoning stream with a stats panel" width="100%"></p>
+<p align="center"><img src="docs/art/screens/session.png" alt="Session view — live reasoning stream with a stats panel" width="100%"></p>
 
 **Board** — the coordination ledger for a project: task **claims** (each in an isolated git worktree), **worktrees** with branch, dirty/unpushed state and which session is inside, **runtime resources** (ports, dev servers, databases held as named singletons), and **incidents** — every command the rules asked about or denied, with the rule and the command.
 
-<p align="center"><img src="docs/art/screens/board.jpg" alt="Board view — worktrees and incidents" width="100%"></p>
+<p align="center"><img src="docs/art/screens/board.png" alt="Board view — worktrees and incidents" width="100%"></p>
 
 **Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, plus `no_foreign_worktree` and the opt-in `claim_required_to_write` on file writes; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
 
@@ -54,11 +54,11 @@ bunx @ra3orblade/swarm setup
 
 **Timeline** — session lanes per project, coloured by agent, 3–72 h.
 
-<p align="center"><img src="docs/art/screens/timeline.jpg" alt="Timeline view — session lanes per project" width="100%"></p>
+<p align="center"><img src="docs/art/screens/timeline.png" alt="Timeline view — session lanes per project" width="100%"></p>
 
 **Spend & Stats** — cost by project, model and agent, today and all-time; plus the fun numbers: tokens, turns, streaks, activity calendar, words written, what it adds up to in novels and coffee.
 
-<p align="center"><img src="docs/art/screens/stats.jpg" alt="Stats view" width="100%"></p>
+<p align="center"><img src="docs/art/screens/stats.png" alt="Stats view" width="100%"></p>
 
 **Multi-agent** — Claude Code via its hooks and transcripts; Codex CLI and Grok by tailing the session logs they already write (`~/.codex`, ACP `updates.jsonl`). Every session is tagged with its agent; Spend breaks down per agent.
 
