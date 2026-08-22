@@ -30,9 +30,18 @@ describe("detection", () => {
     for (const c of ["git add src/x.ts", "git commit -m 'x'"]) expect(isBroadStage(c)).toBe(false);
   });
   it("recognizes destructive git", () => {
-    for (const c of ["git reset --hard", "git checkout .", "git clean -fd", "git restore ."])
+    for (const c of [
+      "git reset --hard",
+      "git checkout .",
+      "git clean -fd",
+      "git restore .",
+      "git stash drop",
+      "git stash clear",
+      "git branch -D feature/x",
+    ])
       expect(isDestructiveGit(c)).toBe(true);
-    expect(isDestructiveGit("git checkout main")).toBe(false);
+    for (const c of ["git checkout main", "git stash", "git stash pop", "git branch -d merged"])
+      expect(isDestructiveGit(c)).toBe(false);
   });
   it("recognizes pattern kills", () => {
     expect(isPatternKill("pkill -f 'next dev'")).toBe(true);
@@ -52,6 +61,12 @@ describe("otherLiveInSameTree", () => {
     expect(
       otherLiveInSameTree(cur, [{ ...other, lastSeenAt: "2026-08-20T11:00:00Z" }], NOW),
     ).toBeNull();
+  });
+  it("keeps a session live through a long quiet turn (minutes without hooks)", () => {
+    // 4 minutes since last hook — well past the old 2-minute window, inside LIVE_WINDOW_MS.
+    expect(
+      otherLiveInSameTree(cur, [{ ...other, lastSeenAt: "2026-08-20T11:56:00Z" }], NOW)?.id,
+    ).toBe("sess-other");
   });
 });
 

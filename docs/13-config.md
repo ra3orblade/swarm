@@ -27,7 +27,7 @@ port = 7777
 [rules]
 # Each rule: "ask" (agent must confirm), "deny" (blocked), or "off".
 shared_tree     = "ask"   # broad `git add -A` / `git commit -a` while another live session shares the checkout
-destructive_git = "ask"   # `git reset --hard`, `checkout .`, `clean -f`, … same condition
+destructive_git = "ask"   # `git reset --hard`, `checkout .`, `clean -f`, `stash drop`, … same condition
 pattern_kill    = "ask"   # `pkill -f` and friends — pattern kills hit other agents' processes too
 protected_ports = "ask"   # kill/free of a port listed below
 

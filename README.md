@@ -24,7 +24,7 @@ A local-first control plane for AI-agent development on any repository.</p>
 
 <p align="center"><a href="https://getswarm.vercel.app"><img src="docs/art/screens/fleet.jpg" alt="Swarm Fleet view — every agent session on the machine, live" width="100%"></a></p>
 
-Run more than one [Claude Code](https://claude.com/claude-code) session at a time and you lose the thread fast: which session is on which branch, what it's costing, which worktree has uncommitted work nobody owns, why that edit got blocked. Swarm is one daemon that watches every session on your machine — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree and runtime resource, turns the "never do X" prose in `CLAUDE.md` into real permission decisions, and streams all of it to one dashboard.
+Run more than one [Claude Code](https://claude.com/claude-code) session at a time — or a [Codex CLI](https://github.com/openai/codex) or Grok run on the side — and you lose the thread fast: which session is on which branch, what it's costing, which worktree has uncommitted work nobody owns, why that edit got blocked. Swarm is one daemon that watches every session on your machine — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree and runtime resource, turns the "never do X" prose in `CLAUDE.md` into real permission decisions, and streams all of it to one dashboard.
 
 It runs entirely on your machine. No account, no telemetry, works offline. Nothing is added to your repositories.
 
@@ -48,7 +48,7 @@ bunx @ra3orblade/swarm setup
 
 <p align="center"><img src="docs/art/screens/board.jpg" alt="Board view — worktrees and incidents" width="100%"></p>
 
-**Rules** — `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically.
+**Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
 
 **PRs** — one merge queue across GitHub and GitLab, read through your already-authenticated `gh` / `glab`. Merge from the dashboard when checks and review are clear. No tokens stored.
 
@@ -60,11 +60,13 @@ bunx @ra3orblade/swarm setup
 
 <p align="center"><img src="docs/art/screens/stats.jpg" alt="Stats view" width="100%"></p>
 
-**Zero instrumentation** — it reads Claude Code's own hooks and transcripts. Every table is a real data grid: sort, resize, reorder, filter, persisted layouts. Light and dark themes.
+**Multi-agent** — Claude Code via its hooks and transcripts; Codex CLI and Grok by tailing the session logs they already write (`~/.codex`, ACP `updates.jsonl`). Every session is tagged with its agent; Spend breaks down per agent.
+
+**Zero instrumentation** — it reads the hooks and transcripts the agents already write. Every table is a real data grid: sort, resize, reorder, filter, persisted layouts. Light and dark themes.
 
 ## Install
 
-Requires [Bun](https://bun.sh) ≥ 1.3, [Claude Code](https://claude.com/claude-code) and git. Optional: `gh` and/or `glab` (authenticated) for the PRs view.
+Requires [Bun](https://bun.sh) ≥ 1.3, git, and at least one agent: [Claude Code](https://claude.com/claude-code) (`claude` on your PATH — hooks, rules and MCP need it), [Codex CLI](https://github.com/openai/codex) and/or Grok (observed by tailing their logs; no hooks, so no rules). Optional: `gh` and/or `glab` (authenticated) for the PRs view.
 
 ```sh
 bunx @ra3orblade/swarm setup        # daemon + hooks + MCP, opens the dashboard
@@ -126,8 +128,8 @@ swarm install | uninstall      # add/remove Swarm hooks in ~/.claude/settings.js
  Claude Code sessions ──hooks──▶ swarm-hook ──┐
  (any folder, any repo)                          │
                         transcripts (JSONL) ──────┼──▶ swarmd ──▶ SQLite (~/.swarm)
-                                                  │      │
-                                                  │      └──▶ SSE ──▶ dashboard · CLI · MCP
+ Codex CLI  ─── ~/.codex rollout logs ────────────┤      │
+ Grok       ─── ACP updates.jsonl ────────────────┘      └──▶ SSE ──▶ dashboard · CLI · MCP
                                                   ▼
                                        rules engine (ask / deny → incidents)
 ```
@@ -140,7 +142,7 @@ Design docs (architecture, data model, protocol, interface, roadmap) are rendere
 
 ## Privacy
 
-Everything is local. Swarm reads Claude Code's hooks and transcript files that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
+Everything is local. Swarm reads the hook payloads and transcript files (Claude Code, Codex, Grok) that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
 
 ## Configuration
 

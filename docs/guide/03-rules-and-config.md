@@ -80,7 +80,7 @@ The agent is told to kill by pid instead. This rule does not depend on other ses
 
 ### `shared_tree`
 
-Matches broad staging while **another live session is working in the same checkout** (same git toplevel, seen in the last two minutes):
+Matches broad staging while **another live session is working in the same checkout** (same git toplevel, with hook or transcript activity in the last ten minutes — a session deep in a long turn emits no hooks, but its uncommitted work is still there):
 
 ```sh
 git add -A
@@ -105,7 +105,14 @@ git checkout -f
 git restore .
 git clean -f
 git clean -fd
+git stash drop
+git stash clear
+git branch -D <name>
 ```
+
+## What rules are — and aren't
+
+Rules are **guardrails against accidents, not a security boundary**. They classify the Bash command Claude Code is about to run; they do not sandbox the agent. An agent that is denied `git add -A` can still write the same command into a script, a Makefile target or a heredoc and run that, and it can edit files directly without Bash at all. Swarm's rules exist to stop the common collisions — the broad stage that sweeps up a colleague's work, the `pkill -f` that takes down a neighbour's dev server — and to leave a record when they fire. They are not a defence against an agent that is trying to get around them; for that you need Claude Code's own permission system, and worktree isolation via [claims](04-claims-and-worktrees.md), which removes the shared checkout rather than guarding it.
 
 ## ask, deny, off
 

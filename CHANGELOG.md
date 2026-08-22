@@ -9,10 +9,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 - **Desktop app menu** — a real application menu (Swarm / Edit / View / Window): ⌘C/⌘V work, **View › Zoom In / Zoom Out / Actual Size** (`⌘+` `⌘−` `⌘0`) scale the dashboard (persisted), plus Reload and Full Screen.
 
 ### Fixed
+- **Shared-tree rules no longer lose sight of a session mid-turn.** `shared_tree` / `destructive_git` keyed on a 2-minute last-seen window fed only by hooks, so a neighbour three minutes into a long turn became invisible — and its uncommitted work unguarded. Transcript growth now counts as activity (the tailer bumps `last_seen_at`), and the liveness window is the daemon's 10-minute idle threshold (`LIVE_WINDOW_MS`). A false positive costs one confirmation; a false negative cost someone's work.
+- `destructive_git` also matches `git stash drop`, `git stash clear` and `git branch -D`.
 - Dashboard type scale is one step larger across the board (base 13 → 14 px; the smallest labels 10 → 11 px) — it had drifted too small, especially in the desktop app.
 - The **PRs** tab icon (and the branch/commit glyphs) were near-invisible at 15 px; they use the pixelarticons *sharp* variants now.
 - The daemon dot stayed red for up to 15 s after load on a healthy connection (the SSE stream sent nothing until its first heartbeat); the stream now flushes immediately.
 - The nav flashed "Fleet" before the restored tab was applied; session-detail event kinds (`userpromptsubmit`) no longer overflow into the message column; "Unpinned · seen, not pinned" keeps its spacing.
+
+### Changed — docs
+- README and site now say what the code does: Codex CLI and Grok sessions are tailed alongside Claude Code; the requirements and architecture diagram list all three.
+- Rules are described as **guardrails against accidents, not a sandbox** — the guide has a new "What rules are — and aren't" section spelling out that a denied Bash command can be routed around (script, heredoc, direct file edit), and that worktree isolation via claims is the real fix. The site's feature cards lead with claims, rules and resources instead of Fleet and Spend.
 
 ### Changed — performance
 - **Daemon never spawns `git` on a request.** Worktree status (`git worktree list` + `status`/`rev-list` per worktree, ~0.8 s across a fleet) moves to a 15 s background refresh with async `Bun.spawn`; `/v1/state` serves the cache (612 ms → ~15 ms). Claim/release invalidate it.
