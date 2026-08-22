@@ -10,13 +10,15 @@ Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing sur
 
 ## Status
 
-M0 + M0.8 done (2026-08-20): SQLite-backed. Reads Claude Code **transcripts** for tokens/cost/reasoning, not just hooks — the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `swarm install`), with project sidebar, Fleet and Session views. Events are still **in memory** — a daemon restart (including `--watch` reloads) wipes history; M0.3 SQLite is the next task. Dashboard is plain HTML/JS in `packages/web/public` (`index.html`, `app.js`, `viz.js`), served by the daemon. Three generated files sit beside them — `menus.js` (React island running `@react-fancy-menus/core`), `fm.css`, `icons.js` (Phosphor subset) — produced by `bun run build:web` (`packages/web/tools/build.ts`, runs on `postinstall`). Icons are **Phosphor** (regular) everywhere; menus are described as data in `app.js` (`menuSpec`) and rendered by `src/menus.tsx`.
+M0 + M0.8 + M0.9 done; M1 Phase 1 (claims + runtime resources) and M2 rules v2 landed (2026-08-22, v0.3.0). SQLite-backed (`~/.swarm/swarm.db`). Reads Claude Code **transcripts** for tokens/cost/reasoning, not just hooks — the dashboard at http://127.0.0.1:7777 shows every Claude Code session on the machine live (hooks installed user-wide via `swarm install`), with a project sidebar and Fleet / Board / PRs / Timeline / Spend / Stats views plus session detail. Config is `~/.swarm/config.toml` + optional `<repo>/.swarm.toml` (`core/src/config.ts`, docs/13); rules v2 (`core/src/rules.ts` `guardBash`) return `ask`/`deny` on `PreToolUse` and record `incident.opened`; runtime resources are `core/src/resources.ts`; PRs come from `gh`/`glab` via `daemon/src/forge.ts`. Dashboard is plain HTML/JS in `packages/web/public` (`index.html`, `app.js`, `viz.js`, `table.js` — the shared data-grid), served by the daemon. Three generated files sit beside them — `menus.js` (React island running `@react-fancy-menus/core`), `fm.css`, `icons.js` (Phosphor subset) — produced by `bun run build:web` (`packages/web/tools/build.ts`, runs on `postinstall`). Icons are **Phosphor** (regular) everywhere; menus are described as data in `app.js` (`menuSpec`) and rendered by `src/menus.tsx`.
 
-Distribution: `@ra3orblade/swarm` on npm (built by `tools/build-pkg.ts` into `npm/`, published by `release.yml` on `v*` tags) plus the Tauri desktop app on GitHub Releases; `resolveBin()` in `client` locates sibling bins for clone / global / `bunx` layouts. Onboarding is one command: `bun run setup` (ensures the daemon, installs hooks, opens the dashboard). Dev loop: `bun run dev` runs the daemon with hot reload; the CLI is `bun run swarm <cmd>` (`setup`, `start/stop/restart`, `status`, `add`, `doctor`, `tail`, `ui`, `install/uninstall`). The daemon auto-starts on any CLI command via `ensureDaemon()`; the hook shim never auto-starts (must stay fast, fails open). State + `daemon.json` live in `~/.swarm`.
+Distribution: `@ra3orblade/swarm` on npm (built by `tools/build-pkg.ts` into `npm/`, published by `release.yml` on `v*` tags) plus the Tauri desktop app on GitHub Releases; `resolveBin()` in `client` locates sibling bins for clone / global / `bunx` layouts. Onboarding is one command: `bun run setup` (ensures the daemon, installs hooks, opens the dashboard). Dev loop: `bun run dev` runs the daemon with hot reload; the CLI is `bun run swarm <cmd>` (`setup`, `start/stop/restart`, `status`, `ls`, `add`, `doctor`, `tail`, `ui`, `claim/renew/release/claims/reap`, `res ls|acquire|release`, `stats`, `install/uninstall`). The website (`site/`, getswarm.vercel.app) renders `docs/` + `CHANGELOG.md` via `bun run site:build`; `bun run site:deploy` publishes it.
 
-## Planned stack (see docs/05)
+Release ritual: write the `CHANGELOG.md` entry first, then `bun tools/version.ts X.Y.Z` — it bumps every version field **and** drafts the announcement post at `docs/marketing/vX.Y.Z-x.md` from that entry (polish it before posting); commit, tag `vX.Y.Z`, push `--tags`, then `bun run site:deploy`. The daemon auto-starts on any CLI command via `ensureDaemon()`; the hook shim never auto-starts (must stay fast, fails open). State + `daemon.json` live in `~/.swarm`.
 
-Bun workspaces · TypeScript · Biome · Vitest · Hono (daemon) · `bun:sqlite` · Vite + React (web). Packages: `core` (pure domain, no I/O beyond sqlite), `daemon` (only DB writer), `cli`, `mcp`, `hook`, `client`, `web`.
+## Stack (see docs/05)
+
+Bun workspaces · TypeScript · Biome · `bun test` · Hono (daemon) · `bun:sqlite` · vanilla HTML/JS dashboard with one React island for menus (no Vite). Packages: `core` (pure domain, no I/O beyond sqlite), `daemon` (only DB writer), `cli`, `mcp`, `hook`, `client`, `web`.
 
 ## Commands
 
@@ -25,11 +27,12 @@ bun install
 bun run dev          # swarmd with --watch (SWARM_PORT, default 7777)
 bun run test         # bun test (bunfig root=packages)
 bun run build:pkg    # assemble the publishable @ra3orblade/swarm into npm/ (bundled bins + web)
-bun tools/version.ts 0.3.0   # bump every version field; then commit, tag v0.3.0, push --tags
+bun tools/version.ts 0.3.0   # bump every version field + draft docs/marketing/v0.3.0-x.md; then commit, tag v0.3.0, push --tags
 bun run typecheck    # tsc -b over project references
 bun run lint         # biome check .   (format: bun run format)
 bun run smoke        # in-process daemon: POST event → SSE replay
 bun run docs:check   # Status lines, links, index coverage
+bun run site:build   # render docs/ + CHANGELOG.md into site/ (site:deploy publishes)
 bun packages/cli/src/bin.ts doctor          # CLI against a running daemon (SWARM_URL)
 echo '{...}' | bun packages/hook/src/bin.ts PreToolUse   # hook shim by hand
 ```

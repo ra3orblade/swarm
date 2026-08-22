@@ -1,0 +1,48 @@
+# Changelog
+
+All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
+
+## [0.3.0] — 2026-08-22
+
+The coordination release: rules you can configure, runtime resources agents can hold, and the merge queue at the end of the loop.
+
+### Added
+- **Config system** — `~/.swarm/config.toml` (global) deep-merged with an optional `<repo>/.swarm.toml`. Lenient validation: bad config can never take the daemon down. Daemon port preference is `SWARM_PORT` > config > 7777. See `docs/13-config.md`.
+- **Rule engine v2** — every rule is per-repo configurable as `ask | deny | off`: `shared_tree`, `destructive_git`, `pattern_kill`, and the new `protected_ports` (kill/free of a configured port — `lsof | kill`, `fuser -k`, `kill-port` — is asked or denied). `deny` is returned to Claude Code as a real permission denial.
+- **Incidents** — every non-allow decision is recorded (`incident.opened`: rule, action, command, reason), exposed at `GET /v1/incidents`, included in `/v1/state`, and shown on the Board.
+- **Runtime resources (Phase 1)** — named singletons for what agents fight over at runtime (dev servers, databases, ports). Fail-closed acquire: holdings live while their pid runs or their lease hasn't expired; the same owner refreshes; dead holdings reap instead of blocking. Release is fail-closed too (owner required, `--force` overrides). Held ports automatically join the protected-ports rule — acquiring `db` on 5432 guards `lsof -ti:5432 | xargs kill` for every other agent, no config needed. HTTP `GET/POST /v1/resources`, `DELETE /v1/resources/:name`; MCP `swarm_acquire_resource` / `swarm_release_resource` / `swarm_resources`; CLI `swarm res ls|acquire|release`.
+- **PRs view** — one merge queue across GitHub and GitLab. Forge detection from the git remote (ssh/https, GitLab subgroups, self-hosted), polled through the locally-authenticated `gh` / `glab` CLIs with the project root as cwd — no tokens stored, 2-minute per-project cache floor. `GET /v1/prs`, `POST /v1/prs/merge` (squash). Merge is offered only on green, mergeable, non-draft rows, behind a confirm.
+- **Board view** — Claims, Worktrees, Resources, and Incidents move out of Fleet into their own view; Fleet shows sessions only (Live + Earlier). Last view and project selection persist across reloads.
+- **Stats view** — `GET /v1/stats`; activity line, calendar heatmap, and streaks (daily buckets in local time, DST-immune). `swarm stats` on the CLI.
+- **Data-grid everywhere** — Claims, Worktrees, Resources, Incidents, PRs, and all six Spend tables render through the same sortable / resizable / reorderable grid with per-column filters, a column-visibility menu, and persisted layouts. Header ticks and tooltips make the affordances discoverable.
+- **Desktop: Check for Updates…** in the tray menu, wired to the Tauri updater with native dialogs (available / up-to-date / failed) and install-and-restart on accept.
+- **Agent badge** on every Fleet and session row, so mixed-agent fleets are labelled consistently.
+- **Website** — getswarm.vercel.app: OS-detected downloads from the latest GitHub release, the `bunx` one-liner, sharing tags with hero art, and (this release) rendered docs and release notes.
+- **Design tokens** — the dashboard's CSS contains zero raw hex / rgba / font-size / duration values; the system is documented in `docs/12-design-tokens.md` with a drift grep.
+- Swarm now dogfoods its own rules via the repo's `.swarm.toml` (`shared_tree` / `destructive_git` deny, daemon port protected).
+
+### Fixed
+- **Hook resilience** — the PreToolUse hook falls back to the default port when `daemon.json` points at a dead daemon, so a crashed daemon no longer silently disables the guard (this was the gap behind a real `git add -A` collision).
+- Resource liveness: pid 0 was treated as a live process (`kill(0)` addresses the process group), so those holdings never reaped; tracked pids are now `> 0`. `heldPorts()` is one SELECT on the hook path; lazy reap on acquire, sweep on the 5 s tick. Unknown session IDs on acquire no longer mint phantom sessions.
+- Session view is two equal columns again (a bare `aside` selector in the sidebar-collapse CSS captured the session side panel); the log keeps your scroll position across live updates and follows the tail only when pinned to the bottom.
+- A pinned project whose root vanished is merged into the live same-name entry (repo renames produced duplicate sidebar rows); the sidebar `⋯` appears on hover in the count's slot and reserves no space.
+- Desktop: quit actually quits, window close hides (macOS convention) and the dock icon restores it, and the `swarmd` sidecar dies with the app. Dev builds serve the repo's live dashboard instead of a stale staged snapshot.
+- Release pipeline: npm publish is skipped cleanly when `NPM_TOKEN` is absent.
+
+## [0.2.2] — 2026-08-21
+
+### Added
+- Publishable `@ra3orblade/swarm` npm package (bundled bins + dashboard); `bunx @ra3orblade/swarm setup` onboarding.
+- Enterprise data-grid for Fleet with a collapsible sidebar; pixel-art icon set and bespoke empty-state illustrations; folder picker; green chart palette.
+- Desktop: macOS window chrome, animated pixel-logo splash, free-port daemon startup.
+
+### Fixed
+- Release builds bundle every platform target; Linux ships `.deb` + `.rpm` (AppImage disabled until `linuxdeploy` on GitHub runners is debugged).
+
+## [0.0.6] — 2026-08-21
+
+First signed and notarized macOS desktop build; `release.yml` became a three-OS matrix (macOS / Windows / Linux) with a native sidecar per runner.
+
+[0.3.0]: https://github.com/ra3orblade/swarm/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/ra3orblade/swarm/compare/v0.0.6...v0.2.2
+[0.0.6]: https://github.com/ra3orblade/swarm/releases/tag/v0.0.6

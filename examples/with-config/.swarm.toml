@@ -1,14 +1,19 @@
 # Optional per-repo config. Everything here has a default; delete any line you don't need.
-name = "example"
-tasks = "docs/plan.md"          # markdown-table task source (M1.6)
-worktrees = "~/.swarm/worktrees/example"
+# Merged over ~/.swarm/config.toml and the built-in defaults (later wins). Invalid values
+# fall back to the default with a warning; invalid TOML is ignored. See docs/13-config.md.
 
-[resources]
-web = { ports = "3400-3499" }
-worker = {}
-db = { ports = "54320" }
+[daemon]
+# Preferred daemon port. SWARM_PORT still wins; if the port is taken the daemon picks a
+# free one and records it in ~/.swarm/daemon.json.
+port = 7777
 
 [rules]
-shared-tree-readonly = true
-no-pattern-kill = true
-claim-required-to-write = false
+# Each rule is "ask" (agent must confirm), "deny" (blocked at the hook), or "off".
+shared_tree     = "ask"    # broad `git add -A` / `git commit -a` while another live session shares the checkout
+destructive_git = "deny"   # `git reset --hard`, `checkout .`, `clean -f`, … under the same condition
+pattern_kill    = "ask"    # `pkill -f` and friends — pattern kills hit other agents' processes too
+protected_ports = "deny"   # killing / freeing a port listed below (held resource ports are protected automatically)
+
+[rules.protected]
+# Ports agents must not kill or free: dev servers, databases, the daemon itself.
+ports = [3000, 5432, 7777]

@@ -4,6 +4,15 @@ Status: draft
 
 Three doors into the same state: the **dashboard** (for the human watching), the **CLI** (for the human in a terminal and for scripts), and **MCP tools** (for agents). They share vocabulary exactly — a *claim* is a claim everywhere — and every dashboard action has a CLI equivalent.
 
+## Shipped today (0.3.0)
+
+This document is the spec; the wireframes below describe where the product is going. What exists now:
+
+- **Nav**: Fleet / Board / PRs / Timeline / Spend / Stats, plus a Session detail reached from any session row. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
+- **Board** = Claims + Worktrees + Resources + Incidents for the selected project. It is "View 2 — Project" below without the TASKS / PROCESSES / RECENT GATES blocks. "View 4 — Incidents" ships as the Incidents section of the Board; there is no ack yet.
+- **Not yet**: the keyboard map, the ⌘K palette, the permission-broker Allow/Deny on Fleet rows, the Settings page, and the Session input box (nothing is spawned yet, so there is no stdin to write to).
+- **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves.
+
 ---
 
 ## A. Dashboard
@@ -59,6 +68,8 @@ FLEET                                                    4 live · 2 idle · $3.
 - Footer filter chips: project, kind, state, "only mine".
 
 ### View 2 — Project
+
+> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS, PROCESSES and RECENT GATES are not built (no task source, no process registry, no gates yet).
 
 Board for one repository: claims, worktrees, resources, gates, and the task list if a task source is configured.
 
@@ -129,6 +140,8 @@ web-app · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok �
 
 ### View 4 — Incidents
 
+> Shipped as the **Incidents** section of the Board (what the rules stopped, newest first). No ack yet; kinds today are rule hits only.
+
 Chronological list of things that went wrong or were prevented. Each is one line + ack.
 
 ```
@@ -141,6 +154,13 @@ INCIDENTS                                                                 [ack a
 
 Kinds: `denied`, `orphaned`, `gate-failed`, `stray-process`, `port-conflict`, `daemon-restart`. Acked incidents stay searchable.
 
+### Shipped views not in the wireframes
+
+- **Spend** — cost by project, by model and by agent, today and all-time, with a stacked daily-cost chart (7/14/30/90-day range) and a weekday × hour activity heatmap. Per-project when a project is selected, machine-wide from Fleet.
+- **Stats** — the long-horizon numbers: all-time spend / tokens / turns / streak KPIs, a 52-week activity calendar, tokens per day by class, cumulative spend, turns by hour of day, model mix, token composition, tool leaderboard and record holders. Fetched on open from `GET /v1/stats`, not part of the live snapshot. `swarm stats --json` prints the same numbers.
+- **Timeline** — one lane per session grouped by project, coloured by agent, over a 3–72 h window; answers "who was working when" across every repo.
+- **PRs** — one queue of open pull/merge requests across every tracked repo, read through the locally-authenticated `gh` / `glab` CLIs (GitHub + GitLab, no tokens stored). Shows checks, review state, draft and mergeability; a green row gets a **Merge** action (squash via the same CLI). Polled gently per project (about every two minutes).
+
 ### Settings (a page, not a view)
 
 Hook install status per scope (user / project) with install/uninstall buttons, rule toggles per project with the rule's one-line rationale, lease TTL, worktree root, task-source path, model/permission defaults for `run`, tested Claude Code version range vs installed.
@@ -151,30 +171,42 @@ Hook install status per scope (user / project) with install/uninstall buttons, r
 
 `swarm <noun> <verb>` with a few top-level shortcuts. Human-readable by default, `--json` everywhere, exit codes: 0 ok, 1 refused (fail-closed), 2 error. Project resolved from `cwd` unless `-p <name|path>`.
 
-```
-swarm install [--project]          add hooks + MCP server to Claude Code settings (idempotent)
-swarm uninstall                    remove exactly what install added
-swarm doctor                       daemon, hooks, MCP, claude version, DB, stray processes
-swarm ui                           open dashboard
-swarm add <path> [--name]          register a folder;  swarm rm <name>
-swarm ls                           projects with live counts
-swarm status [-p]                  fleet (or one project): sessions, claims, resources, incidents
-swarm tail [-p] [--session id] [--raw]   follow the event stream in the terminal
+**Today** — exactly what `swarm --help` prints:
 
-swarm claim <task> [--owner label] [--branch]     create worktree, hold lease, print path
-swarm renew <task>
-swarm release <task> [--force]                   refuses if dirty or unpushed
-swarm handoff <task> --done … --remaining … --verify …
-swarm resume <task>                              print handoff payload (for the next agent)
-swarm reap                                       expire stale leases; orphan dirty ones
-swarm wt ls|path <task>|adopt <task>
+```
+swarm setup                        start the daemon, install hooks, open the dashboard (do this first)
+swarm start | stop | restart       manage the background daemon
+swarm status [-p]                  live sessions (whole machine, or one project)
+swarm doctor                       check everything and print the fix for each gap
+swarm add <path> [--name n]        register (pin) a project
+swarm ls                           list projects
+swarm ui                           open the dashboard
+swarm tail [--project p] [--session id]   follow the live event stream
+swarm install | uninstall          add/remove Swarm hooks (and the MCP server) in ~/.claude/settings.json
+
+swarm claim <task> [--owner n]     claim a task in a fresh isolated git worktree (fail-closed)
+swarm renew <task>                 extend the lease
+swarm release <task> [--force]     release + remove worktree; refuses if dirty or unpushed
+swarm claims                       list claims
+swarm reap                         release abandoned claims (keeps ones holding work)
 
 swarm res ls                                              held singletons (project + machine-global)
 swarm res acquire <name> [--owner n] [--pid n] [--port n]  e.g. web, worker, db, port:3000
                                    pid → alive while the process is; else a lease (default 30m)
                                    port → auto-added to the protected-ports rule while held
-swarm res release <name> [--owner n] [--force]            refuses if another owner holds it
-swarm stats [-p] --json            the Stats view's numbers (totals, per-day classes, records)
+swarm res release <name> [--force]                        refuses if another owner holds it
+swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
+```
+
+Env: `SWARM_URL`, `SWARM_PORT` (default 7777), `SWARM_HOME` (`~/.swarm`).
+
+**Planned** — same grammar, not built:
+
+```
+swarm rm <name>                                  unregister a project
+swarm handoff <task> --done … --remaining … --verify …
+swarm resume <task>                              print handoff payload (for the next agent)
+swarm wt ls|path <task>|adopt <task>
 swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pid-tracked
 swarm serve stop [name]
 swarm proc ls|stop <pid>           only processes this session/project started
@@ -200,25 +232,33 @@ resources: web→owner:3000  web→M0.6:3401  db→owner:54320
 
 ## C. MCP tools (what agents see)
 
-Server name `swarm`; project inferred from the server's `cwd`. Every tool returns a short human sentence plus a JSON block, and every failure explains *who* holds the thing and *what to do instead*.
+Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`); project inferred from the server's `cwd`. Tool names use underscores, as registered. Every tool returns a short human sentence plus a JSON block, and every failure explains *who* holds the thing and *what to do instead*.
+
+**Today**
 
 | Tool | Input | Returns |
 |------|-------|---------|
-| `swarm.status` | `{}` | claims, resources, live sessions for this project; your own claim if any |
-| `swarm.claim` | `{task, owner?, branch?}` | `{worktree, branch}` or **fail-closed** `{held_by, since, expires_in}` |
-| `swarm.renew` | `{task}` | new expiry |
-| `swarm.handoff` | `{task, done, remaining, files[], verify}` | ack |
-| `swarm.resume` | `{task}` | last handoff payload |
-| `swarm.release` | `{task, force?}` | ack or `{refused: "dirty"|"unpushed", files[]}` |
-| `swarm.acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
-| `swarm.release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
-| `swarm.resources` | `{}` | held singletons for this project (and machine-global ones) |
-| `swarm.gate.record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
-| `swarm.next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
-| `swarm.note` | `{text}` | attaches a note to the session, visible in the dashboard |
-| `swarm.permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
+| `swarm_status` | `{}` | claims, resources, live sessions for this project; your own claim if any |
+| `swarm_claim` | `{task, owner?}` | `{worktree, branch}` or **fail-closed** `{held_by, since, expires_in}` |
+| `swarm_renew` | `{task}` | new expiry |
+| `swarm_release` | `{task, force?}` | ack or `{refused: "dirty"|"unpushed", files[]}` |
+| `swarm_reap` | `{}` | expired leases released; dirty ones marked orphaned |
+| `swarm_acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
+| `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
+| `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
 
-Context injection (not a tool — arrives automatically via hooks) on `SessionStart` and each prompt:
+**Planned**
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `swarm_handoff` | `{task, done, remaining, files[], verify}` | ack |
+| `swarm_resume` | `{task}` | last handoff payload |
+| `swarm_gate_record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
+| `swarm_next_task` | `{}` | first unclaimed task whose dependencies are done (needs task source) |
+| `swarm_note` | `{text}` | attaches a note to the session, visible in the dashboard |
+| `swarm_permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
+
+Context injection (planned; not a tool — arrives automatically via hooks) on `SessionStart` and each prompt:
 
 ```
 [swarm] project web-app · you hold M0.6 (38m left) in ~/.swarm/wt/web-app/m0.6 · resources: web:3401
@@ -228,7 +268,30 @@ Context injection (not a tool — arrives automatically via hooks) on `SessionSt
 
 ---
 
-## D. Design constraints shared by all three
+## D. HTTP routes (what the daemon serves today)
+
+Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port discovered via `~/.swarm/daemon.json` (`SWARM_URL` overrides). Source of truth: `packages/daemon/src/app.ts`.
+
+| Route | Purpose |
+|-------|---------|
+| `GET /v1/health` | liveness + version |
+| `GET /v1/state` | the dashboard snapshot: projects, sessions, claims, worktrees, resources, incidents, spend rollups |
+| `GET /v1/stats?project=` | Stats view numbers (`swarm stats`) |
+| `GET /v1/projects` · `POST /v1/projects` · `PATCH /v1/projects/:id` · `DELETE /v1/projects/:id` | register (pin) / rename / unpin a project; `POST` with `{path}` is idempotent and returns the project id |
+| `GET /v1/fs/ls?path=` | directory listing for the dashboard's "add folder" picker (directories only) |
+| `GET /v1/claims` · `POST /v1/claims` · `POST /v1/claims/renew` · `POST /v1/claims/release` · `POST /v1/claims/reap` | the claim ledger (fail-closed; `release` refuses dirty/unpushed unless `force`) |
+| `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
+| `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/prs` · `POST /v1/prs/merge` | the forge queue (`{projectId, number}` to squash-merge via `gh` / `glab`) |
+| `GET /v1/pricing` · `POST /v1/pricing/refresh` | the price table and its LiteLLM refresh |
+| `GET /v1/sessions/:id/events` · `POST /v1/sessions/:id/tail` | one session's events + turns; force a transcript re-tail |
+| `POST /v1/hook/:event` | hook ingestion; on `PreToolUse` returns the rule decision (`permissionDecision` ask / deny) |
+| `POST /v1/events` · `GET /v1/events?since=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` |
+| `GET /` · `GET /:file.(js|css)` | the dashboard |
+
+Not built: a unix socket, `/v1/processes`, `/v1/gates`, `/v1/sessions/:id/input`, incident ack.
+
+## E. Design constraints shared by all three
 
 - Same nouns, same verbs, same error texts. A denial in the session log, the CLI and the MCP result is the same sentence.
 - Nothing destructive without a typed confirmation in the UI or `--force` in the CLI; both are logged as incidents.

@@ -1,29 +1,35 @@
 # 05 · Repo layout
 
-Status: draft
+Status: living
 
-Bun workspaces, TypeScript, Biome, Vitest. Bun because the daemon, CLI, MCP server and hook shim all want fast startup and `bun:sqlite` with no native build step, keeping the toolchain minimal.
+Bun workspaces, TypeScript, Biome, `bun test`. Bun because the daemon, CLI, MCP server and hook shim all want fast startup and `bun:sqlite` with no native build step, keeping the toolchain minimal.
 
 ```
 swarm/
-├── CLAUDE.md                  agent guidance for this repo (the only doc at root besides README/LICENSE)
+├── CLAUDE.md                  agent guidance for this repo
 ├── README.md                  install + 60-second tour
+├── CHANGELOG.md               release notes (rendered into the website)
 ├── LICENSE                    Apache-2.0
+├── .swarm.toml                Swarm's own rule config (dogfood; see 13-config)
 ├── docs/                      design docs (this set), then user docs
 ├── packages/
-│   ├── core/                  pure domain: ledger, rules, adapters, event types. No I/O except sqlite. Heavily tested.
-│   │   └── src/ ledger/ rules/ adapters/claude-code/ tasks/ types.ts
-│   ├── daemon/                swarmd: Hono server, SSE, reaper, process registry, agent runner. Serves web/dist.
+│   ├── core/                  pure domain: ledger, rules, config, resources, forge, pricing, adapters, event types. No I/O except sqlite. Heavily tested.
+│   │   └── src/ ledger.ts rules.ts config.ts resources.ts forge.ts pricing.ts project-id.ts types.ts adapters/{claude-code,codex,grok}
+│   ├── daemon/                swarmd: Hono server (app.ts), SQLite store, transcript tailers, reaper, forge.ts (PR polling via gh/glab), git.ts (worktrees). Serves web/public.
 │   ├── cli/                   `swarm` binary. Commands are thin HTTP calls; formatting only.
 │   ├── mcp/                   `swarm-mcp` stdio server.
 │   ├── hook/                  `swarm-hook` shim. Minimal deps, <50 ms.
 │   ├── client/                typed HTTP/SSE client shared by cli, mcp, hook, web.
-│   └── web/                   dashboard (Vite + React). Built artefact is embedded in daemon at publish.
+│   └── web/                   dashboard: vanilla HTML/JS in public/ (app.js, viz.js, table.js) + one React island for menus (src/menus.tsx → public/menus.js via `bun run build:web`). No Vite.
+├── apps/
+│   └── desktop/               Tauri v2 shell: tray, sidecar daemon, updater
+├── site/                      website (getswarm.vercel.app): landing + rendered docs/changelog, built by tools/build-site.ts
+├── npm/                       publish staging for @ra3orblade/swarm (only package.json is committed)
 ├── examples/
 │   ├── minimal/               empty repo + `swarm add .` — proves zero-config
-│   └── with-config/           `.swarm.toml` showing task source, resources, rule overrides
-├── tools/                     repo scripts: release, docs-check, smoke (spawn daemon, fire fake hooks, assert SSE)
-└── .github/workflows/ci.yml   typecheck · lint · test · smoke on macOS + Linux
+│   └── with-config/           `.swarm.toml` showing the rule modes and protected ports
+├── tools/                     repo scripts: build-pkg, build-site, desktop, docs-check, smoke, version
+└── .github/workflows/         ci.yml (typecheck · lint · test · smoke on macOS + Linux), release.yml (npm + desktop on v* tags)
 ```
 
 Boundaries:

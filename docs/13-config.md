@@ -11,6 +11,11 @@ Invalid values fall back to defaults with a warning; invalid TOML is ignored —
 configuration can never take the daemon down. The daemon re-reads repo config
 within ~30s of a change; global config is read at daemon start.
 
+Port precedence: `SWARM_PORT` env > `[daemon].port` > `7777`. If the chosen port is
+already taken the daemon binds an OS-assigned free port instead and records it in
+`~/.swarm/daemon.json` (clients read that file, so nothing else needs to change);
+set `SWARM_STRICT_PORT=1` to make it fail instead of falling back.
+
 ## Reference (defaults shown)
 
 ```toml
@@ -36,7 +41,7 @@ ports = []                # e.g. [3000, 5432, 7777]
 The Claude Code `PreToolUse` hook posts every Bash command to the daemon, which
 evaluates it against the rules for that session's repo. `ask`/`deny` decisions
 are returned to Claude Code as permission decisions **and recorded as
-incidents** — visible on the Fleet view ("Incidents") and in the event stream
+incidents** — visible on the Board view ("Incidents") and in the event stream
 (`incident.opened`).
 
 The hook fails open when no daemon is reachable (a hook must never block work),
