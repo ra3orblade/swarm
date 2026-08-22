@@ -43,6 +43,7 @@ const tailer = setInterval(() => {
   }
   store.reapResources(); // dead pids / expired leases; the hook path never probes
   store.reapProcesses(); // registered processes that exited on their own
+  if (tick % 12 === 0) store.sweepOrphans(); // every minute: expired leases holding work → incident
 }, 5000);
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path
 void store.refreshAllWorktrees();

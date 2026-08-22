@@ -46,7 +46,9 @@ Leases exist so an abandoned claim eventually frees the task. Renew while you ar
 swarm renew login-form      # another 45 minutes from now
 ```
 
-When a lease expires the claim shows as **Expired** on the Board. Nothing is deleted by expiry alone — see reaping below.
+You rarely need to. **Leases renew themselves while you work**: every hook and every line of transcript from a session whose working directory is inside the claim's worktree counts as the holder being present, and once the lease is past half-way it is extended by another 45 minutes (`claim.renewed` with `auto: true` in the event stream). A lease only runs out when nobody has touched the worktree for the whole period.
+
+When a lease does expire the claim shows as **Expired** on the Board. Nothing is deleted by expiry alone — see reaping below. If the expired worktree still holds uncommitted or unpushed work, the daemon notices within a minute, marks the claim **Orphaned** and opens an [incident](03-rules-and-config.md#incidents) (`orphaned_claim`), so it shows up in the Incidents feed rather than quietly sitting there.
 
 ## Releasing
 

@@ -99,6 +99,23 @@ export function reapAction(
   return "reap";
 }
 
+/**
+ * Auto-renew (M1.2): a held claim whose holder is visibly working — a session whose cwd is inside
+ * the claim's worktree just emitted a hook or grew its transcript — is renewed once its lease is
+ * past the half-way mark. Renewing earlier would write on every hook for nothing; renewing later
+ * risks an expiry mid-turn. Expired claims are not revived here: that is an explicit `renew`.
+ */
+export function shouldAutoRenew(
+  claim: Pick<LeaseClaim, "state" | "expiresAt">,
+  now: number,
+  leaseMinutes = DEFAULT_LEASE_MINUTES,
+): boolean {
+  if (claim.state !== "held") return false;
+  const left = new Date(claim.expiresAt).getTime() - now;
+  if (left <= 0) return false;
+  return left < (leaseMinutes * 60_000) / 2;
+}
+
 /** Human-readable, actionable message for a fail-closed outcome (same text everywhere). */
 export function claimRefusalMessage(
   d: Extract<ClaimDecision, { ok: false }>,

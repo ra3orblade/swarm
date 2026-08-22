@@ -32,6 +32,7 @@ import {
   type HeldWorktree,
   isActive,
   isAliveHolding,
+  isInside,
   isOurs,
   isTrackedPid,
   type LeaseClaim,
@@ -56,6 +57,7 @@ import {
   reapAction,
   releaseRefusalMessage,
   type SwarmEvent,
+  shouldAutoRenew,
   type Task,
   type TaskView,
   type TrackedProcess,
@@ -663,6 +665,8 @@ export class Store {
   }
 
   ingestHook(event: string, raw: Record<string, unknown>): SwarmEvent {
+    if (typeof raw.cwd === "string")
+      this.autoRenewFor(typeof raw.session_id === "string" ? raw.session_id : null, raw.cwd);
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
@@ -818,6 +822,12 @@ export class Store {
         new Date().toISOString(),
         sessionId,
       );
+    if (d.turns.length) {
+      const cwdRow = this.db.query("SELECT cwd FROM sessions WHERE id = ?").get(sessionId) as {
+        cwd: string | null;
+      } | null;
+      this.autoRenewFor(sessionId, cwdRow?.cwd);
+    }
     this.db
       .query(
         "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
@@ -1139,6 +1149,106 @@ export class Store {
       payload: { task, owner, worktree: created, branch, summary: `claim ${task} by ${owner}` },
     });
     return { ok: true as const, task, owner, worktree: created, branch, expiresAt };
+  }
+
+  /**
+   * M1.2 auto-renew: called on every sign of life from a session (hook, transcript growth). If the
+   * session works inside a held claim's worktree and that lease is past half-way, renew it — the
+   * holder is evidently still here. Cheap: one indexed read on held claims, throttled per session.
+   */
+  private autoRenewAt = new Map<string, number>();
+  autoRenewFor(sessionId: string | null, cwd: string | null | undefined) {
+    if (!cwd) return;
+    const key = sessionId ?? cwd;
+    const last = this.autoRenewAt.get(key) ?? 0;
+    const now = Date.now();
+    if (now - last < 60_000) return; // once a minute per session is plenty
+    this.autoRenewAt.set(key, now);
+    for (const c of this.heldClaimsWithWorktree()) {
+      if (!isInside(cwd, c.worktree)) continue;
+      if (!shouldAutoRenew({ state: "held", expiresAt: c.expiresAt }, now)) continue;
+      const expiresAt = nextExpiry(now);
+      this.db
+        .query(
+          "UPDATE claims SET expires_at = ? WHERE project_id = ? AND task = ? AND state = 'held'",
+        )
+        .run(expiresAt, c.projectId, c.task);
+      this.append({
+        ts: new Date(now).toISOString(),
+        type: "claim.renewed",
+        projectId: c.projectId,
+        sessionId: this.knownSession(sessionId),
+        payload: { task: c.task, expiresAt, auto: true, summary: `auto-renew ${c.task}` },
+      });
+    }
+  }
+
+  private heldClaimsWithWorktree(): Array<{
+    projectId: string;
+    task: string;
+    worktree: string;
+    expiresAt: string;
+  }> {
+    return (
+      this.db
+        .query(
+          "SELECT project_id, task, worktree, expires_at FROM claims WHERE state = 'held' AND worktree != ''",
+        )
+        .all() as Array<{ project_id: string; task: string; worktree: string; expires_at: string }>
+    ).map((r) => ({
+      projectId: r.project_id,
+      task: r.task,
+      worktree: r.worktree,
+      expiresAt: r.expires_at,
+    }));
+  }
+
+  /**
+   * M1.2 orphan detection, for the background tick: a held claim whose lease has expired while
+   * its worktree still holds uncommitted or unpushed work is marked orphaned and opens an
+   * incident. Detection only — removing a worktree stays an explicit `swarm reap` / release.
+   */
+  sweepOrphans(): number {
+    const now = Date.now();
+    let n = 0;
+    for (const p of this.projects()) {
+      for (const c of this.claimRows(p.id)) {
+        if (c.state !== "held" || isActive(c, now)) continue;
+        const exists = c.worktree ? existsSync(c.worktree) : false;
+        const work = exists ? heldWork(c.worktree) : null;
+        if (reapAction(c, now, exists, work) !== "keep-orphaned") continue;
+        this.db
+          .query("UPDATE claims SET state = 'orphaned' WHERE project_id = ? AND task = ?")
+          .run(p.id, c.task);
+        const ts = new Date(now).toISOString();
+        this.append({
+          ts,
+          type: "claim.orphaned",
+          projectId: p.id,
+          sessionId: null,
+          payload: {
+            task: c.task,
+            worktree: c.worktree,
+            summary: `orphaned ${c.task} (holds work)`,
+          },
+        });
+        this.append({
+          ts,
+          type: "incident.opened",
+          projectId: p.id,
+          sessionId: null,
+          payload: {
+            rule: "orphaned_claim",
+            action: "orphaned",
+            command: `${c.task} → ${c.worktree}`,
+            reason: `The lease on "${c.task}" (held by ${c.owner}) expired while its worktree still holds ${work?.dirty ? "uncommitted" : "unpushed"} work. Nothing was removed: renew it, finish and push, or force-release to discard.`,
+          },
+        });
+        this.touch();
+        n++;
+      }
+    }
+    return n;
   }
 
   renew(projectId: string, task: string) {

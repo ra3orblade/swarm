@@ -8,6 +8,7 @@ import {
   type LeaseClaim,
   nextExpiry,
   reapAction,
+  shouldAutoRenew,
 } from "./ledger";
 
 const NOW = Date.parse("2026-08-20T12:00:00Z");
@@ -85,5 +86,18 @@ describe("reapAction (never loses work unattended)", () => {
   it("keeps an expired claim whose worktree still holds work (never invisible)", () => {
     expect(reapAction(expired, NOW, true, { dirty: true, unpushed: false })).toBe("keep-orphaned");
     expect(reapAction(expired, NOW, true, { dirty: false, unpushed: true })).toBe("keep-orphaned");
+  });
+});
+
+describe("auto-renew (M1.2)", () => {
+  const now = Date.parse("2026-08-22T12:00:00Z");
+  const at = (min: number) => new Date(now + min * 60_000).toISOString();
+  it("renews only a held claim past half its lease, never an expired one", () => {
+    expect(shouldAutoRenew({ state: "held", expiresAt: at(40) }, now)).toBe(false); // fresh
+    expect(shouldAutoRenew({ state: "held", expiresAt: at(22) }, now)).toBe(true); // < 22.5 left
+    expect(shouldAutoRenew({ state: "held", expiresAt: at(1) }, now)).toBe(true);
+    expect(shouldAutoRenew({ state: "held", expiresAt: at(-1) }, now)).toBe(false); // expired
+    expect(shouldAutoRenew({ state: "released", expiresAt: at(5) }, now)).toBe(false);
+    expect(shouldAutoRenew({ state: "held", expiresAt: at(25) }, now, 60)).toBe(true); // 60-min lease
   });
 });

@@ -360,7 +360,7 @@ function incidentColumns(full) {
     { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
     { key: "session", label: "session", width: 150, get: (i) => sess(i.sessionId)?.title ?? i.sessionId ?? "", cell: (i) => (i.sessionId ? `<a href="#" data-s="${i.sessionId}">${esc(sess(i.sessionId)?.title ?? i.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
     { key: "rule", label: "rule", width: 150, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
-    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : '<span class="badge acc">Asked</span>') },
+    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : i.action === "orphaned" ? '<span class="badge warn">Orphaned</span>' : '<span class="badge acc">Asked</span>') },
     { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
     ...(full ? [
       { key: "reason", label: "reason", width: 260, get: (i) => i.reason ?? "", cell: (i) => `<span class="dim now" title="${esc(i.reason ?? "")}">${esc(i.reason ?? "")}</span>` },
@@ -368,7 +368,7 @@ function incidentColumns(full) {
     ] : []),
   ].filter((c) => !(c.key === "project" && state.sel) && !(c.key === "session" && !full));
 }
-const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" ? "waiting" : "idle"}"></span>`;
+const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" || i.action === "orphaned" ? "waiting" : "idle"}"></span>`;
 const ackLink = (i) => (i.acked ? "" : `<a href="#" data-ack="${i.seq}" title="Mark as seen">Ack</a>`);
 
 function renderIncidents() {

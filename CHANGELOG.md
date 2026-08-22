@@ -4,6 +4,11 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **Leases renew themselves.** A session working inside a claimed worktree extends the lease on any activity (hook or transcript growth) once it is past half-way — no more `swarm renew` in a long session. Expired leases whose worktree still holds uncommitted or unpushed work are marked **Orphaned** within a minute and open an `orphaned_claim` incident; nothing is removed automatically (M1.2).
+- Dashboard deep links: `?view=board&project=<id>&session=<id>`.
+- `tools/screens.ts` re-captures the README / website screenshots with Playwright at 2×; the website has a screenshot carousel with a lightbox.
+
 ## [0.4.1] — 2026-08-22
 
 ### Fixed

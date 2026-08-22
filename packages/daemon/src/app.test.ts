@@ -197,6 +197,79 @@ describe("shared-tree guard (M2.1)", () => {
   });
 });
 
+describe("auto-renew + orphan detection (M1.2)", () => {
+  const sh = (cwd: string, ...args: string[]) =>
+    Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  function tmpRepo(): string {
+    const fs = require("node:fs");
+    const dir = fs.mkdtempSync(join(tmpdir(), "swarm-m12-"));
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@t");
+    sh(dir, "git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# repo\n");
+    sh(dir, "git", "add", "README.md");
+    sh(dir, "git", "commit", "-qm", "init");
+    return fs.realpathSync(dir);
+  }
+  it("renews a half-spent lease when the holder's session shows activity", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const repo = tmpRepo();
+    const p = store.resolveProject(repo, true);
+    const c = store.claim(p.id, "auth", "alice");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    // Age the lease to 10 minutes left (past half of 45).
+    const soon = new Date(Date.now() + 10 * 60_000).toISOString();
+    store.db.query("UPDATE claims SET expires_at = ? WHERE task = 'auth'").run(soon);
+    // A session outside the worktree doesn't renew it.
+    await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s-out", cwd: repo, tool_name: "Read", tool_input: {} }),
+    });
+    expect(store.claims(p.id)[0]?.expiresAt).toBe(soon);
+    // The holder (cwd inside the worktree) does.
+    await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-in",
+        cwd: c.worktree,
+        tool_name: "Read",
+        tool_input: {},
+      }),
+    });
+    const after = store.claims(p.id)[0]?.expiresAt as string;
+    expect(new Date(after).getTime()).toBeGreaterThan(new Date(soon).getTime() + 30 * 60_000);
+    const ev = store.incidents(5);
+    expect(ev.length).toBe(0);
+    store.release(p.id, "auth", true);
+  });
+  it("sweepOrphans marks an expired lease holding work and opens an incident; clean ones are left to reap", () => {
+    const store = new Store(tmpHome());
+    const repo = tmpRepo();
+    const p = store.resolveProject(repo, true);
+    const a = store.claim(p.id, "dirty-task", "alice");
+    const b = store.claim(p.id, "clean-task", "bob");
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    require("node:fs").writeFileSync(join(a.worktree, "wip.txt"), "half done");
+    const past = new Date(Date.now() - 60_000).toISOString();
+    store.db.query("UPDATE claims SET expires_at = ?").run(past);
+    expect(store.sweepOrphans()).toBe(1);
+    const states = Object.fromEntries(store.claims(p.id).map((c) => [c.task, c.state]));
+    expect(states["dirty-task"]).toBe("orphaned");
+    expect(states["clean-task"]).toBe("expired"); // not touched by the sweep
+    expect(require("node:fs").existsSync(a.worktree)).toBe(true); // nothing removed
+    const inc = store.incidents(5)[0] as { rule?: string; action?: string };
+    expect(inc.rule).toBe("orphaned_claim");
+    expect(inc.action).toBe("orphaned");
+    expect(store.sweepOrphans()).toBe(0); // idempotent
+    store.release(p.id, "dirty-task", true);
+    store.release(p.id, "clean-task", true);
+  });
+});
+
 describe("process registry (M1.4 Phase 2)", () => {
   it("allocates a port, registers a pid, lists while alive, stops by pid only", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
