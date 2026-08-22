@@ -177,6 +177,9 @@
   td:first-child{overflow:visible}
   /* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
   .dt thead th{position:relative;user-select:none;-webkit-user-select:none}
+  /* visible column dividers in the header: the "these columns are adjustable" cue */
+  .dt thead tr:first-child th[data-col]:not(:last-child)::after{content:"";position:absolute;right:0;top:25%;height:50%;
+    border-right:1px solid var(--line)}
   .dt thead th[data-sort]{cursor:pointer}
   .dt thead th[data-sort]:hover{color:var(--fg-2)}
   .dt thead th.dragging{opacity:.4}

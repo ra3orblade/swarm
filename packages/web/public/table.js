@@ -76,7 +76,7 @@
       st.sort?.key === c.key ? `<i class="sort ${st.sort.dir}"></i>` : "";
     const th = (c) =>
       `<th ${c.num ? 'class="num" ' : ""}${w(c)} draggable="true" data-col="${c.key}" data-tid="${id}"` +
-      `${c.sortable === false ? "" : ' data-sort="1"'} title="${esc(c.label)}">` +
+      `${c.sortable === false ? "" : ' data-sort="1"'} title="${esc(c.label)} — click to sort, drag to reorder, drag the edge to resize">` +
       `<span class="th-l">${esc(c.label)}${arrow(c)}</span>` +
       `<span class="th-grip" data-resize="${c.key}"></span></th>`;
     const lead = leading ? `<th style="width:${leading.width}px"></th>` : "";
