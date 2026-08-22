@@ -6,7 +6,7 @@ import { createApp, VERSION } from "./app";
 // Port preference: SWARM_PORT env > ~/.swarm/config.toml [daemon].port > 7777.
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
-const { app, store } = createApp();
+const { app, store, runner } = createApp();
 
 // Bind the preferred port; if it's taken, fall back to an OS-assigned free port so the daemon never
 // fails to start because a port is blocked/occupied. Clients discover the real port via
@@ -54,11 +54,16 @@ const pruner = setInterval(() => store.prune(), 24 * 60 * 60_000);
 if (process.env.SWARM_OFFLINE !== "1") store.refreshPricing().catch(() => {});
 console.log(`swarmd ${VERSION} listening on http://127.0.0.1:${port}`);
 
-function shutdown() {
+let stopping = false;
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
   clearInterval(tailer);
   clearInterval(wtRefresh);
   clearInterval(pruner);
   clearDaemonInfo();
+  // Spawned runs would lose their stdin with us; stop them cleanly (registry pids only).
+  await Promise.race([runner.stopAll(), Bun.sleep(6000)]);
   server.stop(true);
   process.exit(0);
 }

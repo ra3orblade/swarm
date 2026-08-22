@@ -24,7 +24,7 @@ const EXTRA_BIN_DIRS = [
 ];
 export function findBin(name: string | undefined): string | null {
   if (!name) return null;
-  const onPath = Bun.which(name);
+  const onPath = Bun.which(name, { PATH: process.env.PATH ?? "" });
   if (onPath) return onPath;
   for (const d of EXTRA_BIN_DIRS) {
     const p = join(d, name);

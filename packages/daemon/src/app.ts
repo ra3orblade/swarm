@@ -6,6 +6,7 @@ import { formatHandoff, type SwarmEvent } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
+import { type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.4.1";
@@ -37,6 +38,7 @@ function wireJson(e: object): string {
 export function createApp(store = new Store()) {
   const app = new Hono();
   const forge = new ForgeService(store);
+  const runner = new Runner(store, store.home);
 
   app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
 
@@ -197,6 +199,35 @@ export function createApp(store = new Store()) {
     const pid = Number(c.req.param("pid"));
     if (!Number.isInteger(pid) || pid <= 0) return c.json({ ok: false, error: "bad pid" }, 400);
     const r = await store.stopProcess(pid, c.req.query("project") || null);
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
+
+  // ---- runs (M3.1): spawn `claude -p` in a claimed worktree, steer it, stop it
+  app.get("/v1/runs", (c) => c.json(runner.list(c.req.query("project") || undefined)));
+  app.post("/v1/runs", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as Partial<RunInput>;
+    if (!b.projectId || !b.task || !b.prompt)
+      return c.json({ ok: false, error: "projectId, task and prompt required" }, 400);
+    const r = await runner.start({
+      projectId: b.projectId,
+      task: b.task,
+      prompt: b.prompt,
+      owner: b.owner ?? "dashboard",
+      model: b.model,
+      permissionMode: b.permissionMode,
+      allowedTools: b.allowedTools,
+      maxTurns: b.maxTurns,
+    });
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
+  });
+  app.post("/v1/runs/:id/send", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { text?: string };
+    if (!b.text?.trim()) return c.json({ ok: false, error: "text required" }, 400);
+    const r = runner.send(c.req.param("id"), b.text);
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
+  app.delete("/v1/runs/:id", async (c) => {
+    const r = await runner.stop(c.req.param("id"));
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
 
@@ -415,5 +446,5 @@ export function createApp(store = new Store()) {
     });
   });
 
-  return { app, store, forge };
+  return { app, store, forge, runner };
 }

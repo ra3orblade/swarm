@@ -203,6 +203,9 @@ swarm gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   ru
 swarm gate ls [task]                                      required gates + verdicts (+ history for one task)
 swarm handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   notes for the next holder
 swarm resume <task>                                       latest handoff (also injected on SessionStart)
+swarm run --task <id> --prompt "…"|--prompt-file f [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]
+                                                          claim + spawn claude -p in the worktree (stream-json both ways)
+swarm run ls | send <task|id> "text" | stop <task|id>     steer over stdin / stop by pid
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -214,8 +217,7 @@ Env: `SWARM_URL`, `SWARM_PORT` (default 7777), `SWARM_HOME` (`~/.swarm`).
 swarm rm <name>                                  unregister a project
 swarm wt ls|path <task>|adopt <task>
 
-swarm run -p <project> --task <id> [--prompt … | --prompt-file …] [--model] [--permission-mode] [--detach]
-swarm run ls | attach <session> | send <session> "text" | stop <session>
+swarm run attach <session>          (use `swarm tail --session <id>` for now)
 ```
 
 `swarm status` sample:
@@ -293,7 +295,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `POST /v1/events` · `GET /v1/events?since=&full=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` (wire shape — no `raw`/tool I/O unless `full=1`; `since=0` replays the last 200) |
 | `GET /` · `GET /:file.(js|css)` | the dashboard |
 
-Not built: a unix socket, `/v1/sessions/:id/input`.
+Not built: a unix socket. Stdin for spawned runs is `POST /v1/runs/:id/send`.
 
 ## E. Design constraints shared by all three
 

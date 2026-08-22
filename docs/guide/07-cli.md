@@ -86,6 +86,18 @@ swarm proc ls | stop <name|pid>
 
 Details: [Runtime resources](05-runtime-resources.md#servers-and-workers).
 
+## Spawned runs
+
+```sh
+swarm run --task login-form --prompt "Implement the login form per docs/spec.md" --permission-mode acceptEdits
+swarm run ls                               # live runs here: id · task · pid · owner · cost · turns
+swarm run send login-form "Also add tests" # a user message on the run's stdin
+swarm run stop login-form                  # close stdin, then SIGTERM/SIGKILL by pid
+swarm tail --session <id>                  # watch the event stream
+```
+
+`swarm run` claims the task (fail-closed — or reuses a worktree you already hold), then the daemon spawns `claude -p` inside it with stream-json on both stdin and stdout. The session appears in Fleet marked ▶ spawned; tokens and cost come from its transcript like any other session, and each finished turn is a `run.result` event with the cost so far. Runs live as long as the daemon: `swarm stop` / a restart stops them cleanly (their pids are in the registry, never killed by pattern). Options: `--prompt-file`, `--model`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--allowed-tools Bash,Edit`, `--max-turns n`.
+
 ## Stats
 
 ```sh

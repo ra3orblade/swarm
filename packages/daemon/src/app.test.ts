@@ -335,6 +335,103 @@ describe("handoffs + SessionStart context (M1.3)", () => {
   });
 });
 
+describe("runner (M3.1)", () => {
+  it("claims, spawns a fake claude, records result, steers over stdin, stops by pid", async () => {
+    const fs = require("node:fs");
+    // A stand-in `claude` on PATH: emits a result line per stdin message, exits on EOF.
+    const binDir = fs.mkdtempSync(join(tmpdir(), "swarm-fakebin-"));
+    fs.writeFileSync(
+      join(binDir, "claude"),
+      [
+        "#!/bin/sh",
+        'echo \'{"type":"system","subtype":"init","session_id":"x"}\'',
+        "while IFS= read -r line; do",
+        '  echo \'{"type":"result","total_cost_usd":0.25,"num_turns":1,"is_error":false}\'',
+        "done",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(join(binDir, "claude"), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath}`;
+    try {
+      const { app, store, runner } = createApp(new Store(tmpHome()));
+      const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-run-")));
+      const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      sh("git", "init", "-q", "-b", "main");
+      sh("git", "config", "user.email", "t@t");
+      sh("git", "config", "user.name", "t");
+      fs.writeFileSync(join(dir, "README.md"), "# r\n");
+      sh("git", "add", "README.md");
+      sh("git", "commit", "-qm", "init");
+      const p = store.resolveProject(dir, true);
+      let r = await app.request("/v1/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: p.id,
+          task: "t1",
+          prompt: "do the thing",
+          owner: "alice",
+        }),
+      });
+      expect(r.status).toBe(201);
+      const { run } = (await r.json()) as {
+        run: { id: string; sessionId: string; pid: number; worktree: string };
+      };
+      expect(store.claims(p.id).find((c) => c.task === "t1")?.state).toBe("held");
+      expect(fs.existsSync(run.worktree)).toBe(true);
+      expect(store.processes(p.id).map((x) => x.pid)).toEqual([run.pid]);
+      // session pre-registered as spawned
+      const sess = (
+        store.snapshot() as { sessions: Array<{ id: string; kind: string }> }
+      ).sessions.find((x) => x.id === run.sessionId);
+      expect(sess?.kind).toBe("spawned");
+      // the prompt produced a result
+      const until = async (f: () => boolean, ms = 4000) => {
+        const t = Date.now() + ms;
+        while (!f() && Date.now() < t) await Bun.sleep(50);
+      };
+      await until(() => runner.get("t1")?.result != null);
+      expect(runner.get("t1")?.result?.costUsd).toBe(0.25);
+      // a second run on the same task is refused while live
+      r = await app.request("/v1/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: p.id, task: "t1", prompt: "again", owner: "alice" }),
+      });
+      expect(r.status).toBe(409);
+      // steer
+      r = await app.request(`/v1/runs/t1/send`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "and then this" }),
+      });
+      expect(r.status).toBe(200);
+      await until(
+        () =>
+          (runner.get("t1")?.result?.turns ?? 0) >= 1 &&
+          fs.readFileSync(runner.get("t1")?.log ?? "", "utf8").split("result").length > 2,
+      );
+      expect(store.incidents(5).length).toBe(0);
+      // stop → process gone, registry cleared, session ended, claim still held (work stays)
+      r = await app.request(`/v1/runs/${run.id}`, { method: "DELETE" });
+      expect(r.status).toBe(200);
+      await until(() => runner.list(p.id).length === 0);
+      expect(runner.list(p.id)).toEqual([]);
+      expect(store.processes(p.id)).toEqual([]);
+      const after = (
+        store.snapshot() as { sessions: Array<{ id: string; state: string }> }
+      ).sessions.find((x) => x.id === run.sessionId);
+      expect(after?.state).toBe("ended");
+      expect(store.claims(p.id).find((c) => c.task === "t1")?.state).toBe("held");
+      store.release(p.id, "t1", true);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+});
+
 describe("gates (M2.2)", () => {
   it("rejects a run without a rubric, latest run wins, a fail opens an incident", async () => {
     const { app, store } = createApp(new Store(tmpHome()));

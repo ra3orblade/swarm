@@ -179,7 +179,7 @@ export type TaskBoardRow = TaskView & {
 export class Store {
   db: Database;
   prices: Record<string, Price> = { ...PRICES };
-  private home: string;
+  readonly home: string;
   private listeners = new Set<(e: SwarmEvent) => void>();
   private wtCache = new Map<string, { v: Worktree[]; t: number }>();
   private wtInflight = new Map<string, Promise<Worktree[]>>();
@@ -358,6 +358,30 @@ export class Store {
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
   /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
   private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  // ---------- spawned sessions (M3.1)
+  /** Create the session row ahead of the first hook, typed `spawned`, so it never looks interactive. */
+  preregisterSpawnedSession(id: string, projectId: string, cwd: string, task: string) {
+    const now = new Date().toISOString();
+    this.db
+      .query(
+        `INSERT INTO sessions (id, project_id, kind, cwd, started_at, last_seen_at, last, last_type, state, title)
+         VALUES (?, ?, 'spawned', ?, ?, ?, ?, 'session.started', 'active', ?)
+         ON CONFLICT(id) DO UPDATE SET kind = 'spawned', project_id = excluded.project_id, cwd = excluded.cwd`,
+      )
+      .run(id, projectId, cwd, now, now, `swarm run ${task}`, `run: ${task}`);
+    this.touch();
+  }
+
+  endSpawnedSession(id: string) {
+    const now = new Date().toISOString();
+    this.db
+      .query(
+        "UPDATE sessions SET state = 'ended', ended_at = COALESCE(ended_at, ?), last_seen_at = ? WHERE id = ?",
+      )
+      .run(now, now, id);
+    this.touch();
+  }
+
   // ---------- handoffs (M1.3): what the last holder left for the next one
   recordHandoff(
     projectId: string,
@@ -976,8 +1000,26 @@ export class Store {
     return e;
   }
 
+  /** Ledger events that merely reference a session: not its activity, never its state. */
+  private static LEDGER_EVENTS = new Set([
+    "process.started",
+    "process.exited",
+    "resource.acquired",
+    "resource.released",
+    "resource.reaped",
+    "claim.acquired",
+    "claim.renewed",
+    "claim.released",
+    "claim.orphaned",
+    "gate.recorded",
+    "handoff.recorded",
+    "incident.opened",
+    "incident.acked",
+    "run.result",
+  ]);
+
   private projectSession(e: SwarmEvent) {
-    if (!e.sessionId) return;
+    if (!e.sessionId || Store.LEDGER_EVENTS.has(e.type)) return;
     const p = e.payload as { summary?: string; cwd?: string | null; hook?: string; tool?: string };
     const row = this.db
       .query("SELECT id, tool_counts FROM sessions WHERE id = ?")

@@ -32,6 +32,9 @@ const help = `swarm — control plane for AI-agent development
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   record a verification run (rubric required)
   gate ls [task]          latest verdict per gate (and the run history for one task)
+  run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--allowed-tools a,b] [--max-turns n]
+                          claim the task and spawn claude -p in its worktree; the session shows in Fleet
+  run ls | send <task|id> "text" | stop <task|id>   steer (stdin) or stop a spawned run, by pid never pattern
   handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   leave notes for the next holder
   resume <task>           print the latest handoff (the next session gets it automatically on start)
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
@@ -245,6 +248,114 @@ try {
           console.log(
             `${c.state.padEnd(9)} ${c.task.padEnd(16)} ${(c.owner || "").padEnd(12)} ${c.worktree}`,
           );
+      break;
+    }
+    case "run": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const base = new SwarmClient().baseUrl;
+      const valueFlags = new Set([
+        "--task",
+        "--prompt",
+        "--prompt-file",
+        "--model",
+        "--permission-mode",
+        "--allowed-tools",
+        "--max-turns",
+        "--owner",
+      ]);
+      const positionals: string[] = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i] as string;
+        if (valueFlags.has(a)) i++;
+        else if (!a.startsWith("--")) positionals.push(a);
+      }
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const sub = positionals[0];
+      if (sub === "ls") {
+        const runs = (await api(`/v1/runs?project=${proj.id}`)) as Array<{
+          id: string;
+          task: string;
+          pid: number;
+          owner: string;
+          startedAt: string;
+          result: { costUsd: number; turns: number; isError: boolean } | null;
+        }>;
+        if (json) console.log(JSON.stringify(runs));
+        else if (!runs.length) console.log("no live runs here");
+        else
+          for (const r of runs)
+            console.log(
+              `${r.id}  ${r.task.padEnd(12)} pid ${String(r.pid).padEnd(7)} ${r.owner.padEnd(10)} ${r.result ? `$${r.result.costUsd.toFixed(2)} · ${r.result.turns} turns${r.result.isError ? " · error" : ""}` : "starting…"}`,
+            );
+        break;
+      }
+      if (sub === "send" || sub === "stop") {
+        const target = positionals[1];
+        if (!target)
+          throw new Error(`usage: swarm run ${sub} <task|id>${sub === "send" ? ' "text"' : ""}`);
+        const r =
+          sub === "send"
+            ? await fetch(`${base}/v1/runs/${encodeURIComponent(target)}/send`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ text: positionals.slice(2).join(" ") }),
+              })
+            : await fetch(`${base}/v1/runs/${encodeURIComponent(target)}`, { method: "DELETE" });
+        const j = (await r.json()) as { ok: boolean; error?: string };
+        if (json) console.log(JSON.stringify(j));
+        else if (j.ok) console.log(sub === "send" ? `sent to ${target}` : `stopped ${target}`);
+        else {
+          console.error(`REFUSED: ${j.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+      const task = flag("--task") ?? sub;
+      let prompt = flag("--prompt");
+      const pf = flag("--prompt-file");
+      if (!prompt && pf) prompt = await Bun.file(resolve(pf)).text();
+      if (!task || !prompt)
+        throw new Error(
+          'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]',
+        );
+      const r = (await fetch(`${base}/v1/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: proj.id,
+          task,
+          prompt,
+          owner: flag("--owner") ?? process.env.USER ?? "me",
+          model: flag("--model"),
+          permissionMode: flag("--permission-mode"),
+          allowedTools: flag("--allowed-tools")
+            ?.split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+          maxTurns: flag("--max-turns") ? Number(flag("--max-turns")) : undefined,
+        }),
+      }).then((x) => x.json())) as {
+        ok: boolean;
+        error?: string;
+        run?: { id: string; sessionId: string; worktree: string; pid: number; log: string };
+      };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok && r.run)
+        console.log(
+          `run ${r.run.id} on ${task} (pid ${r.run.pid})\n  worktree: ${r.run.worktree}\n  session:  ${r.run.sessionId}\n  log:      ${r.run.log}\n  steer:    swarm run send ${task} "…"   stop: swarm run stop ${task}   watch: swarm tail --session ${r.run.sessionId}`,
+        );
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      }
       break;
     }
     case "handoff":
