@@ -4,7 +4,7 @@
 
 **A local-first control plane for AI-agent development on any repository.**
 
-Point it at any folder. Swarm watches every [Claude Code](https://claude.com/claude-code) session on your machine, shows what each agent is doing — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree, and runtime resource, and streams all of it to one dashboard.
+Point it at any folder. Swarm watches every [Claude Code](https://claude.com/claude-code), [Codex CLI](https://github.com/openai/codex) and [Grok](https://x.ai) session on your machine, shows what each agent is doing — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree, and runtime resource, and streams all of it to one dashboard.
 
 It runs entirely on your machine. No account, no telemetry, works offline.
 
@@ -14,7 +14,7 @@ It runs entirely on your machine. No account, no telemetry, works offline.
 
 ## Why
 
-If you run more than one agent at a time — parallel Claude Code sessions, subagents, worktrees — you lose the thread fast: which session is on which branch, what's it costing, which worktree has uncommitted work nobody owns, why did that edit get blocked. Swarm is the single place that answers those questions, across every repo, without you instrumenting anything.
+If you run more than one agent at a time — parallel Claude Code sessions, a Codex run on the side, subagents, worktrees — you lose the thread fast: which session is on which branch, what's it costing, which worktree has uncommitted work nobody owns, why did that edit get blocked. Swarm is the single place that answers those questions, across every repo, without you instrumenting anything.
 
 The rules teams write as prose in `CLAUDE.md` ("never edit in the shared tree", "never kill a process by pattern") only work because the same model re-reads them each session. Swarm turns those into enforced, shared state: rules are evaluated on every Bash call and returned to the agent as a real permission decision, and every denial is recorded as an incident.
 
@@ -27,13 +27,14 @@ The rules teams write as prose in `CLAUDE.md` ("never edit in the shared tree", 
 - **Board** — the coordination ledger for the selected project: task **claims** (each in an isolated git worktree), **worktrees** with branch, dirty/unpushed state and which session is inside, **runtime resources** (ports, dev servers, databases held as named singletons), and **incidents** — every action the rules asked about or denied.
 - **PRs** — one merge queue across GitHub and GitLab, read through your already-authenticated `gh` / `glab`; merge on green straight from the dashboard. No tokens stored.
 - **Timeline** — session lanes per project, coloured by agent, 3–72 h.
-- **Rules** — `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, each `ask | deny | off` per repo via `.swarm.toml`. Ports held as resources are protected automatically.
-- **Zero instrumentation** — it reads Claude Code's own hooks and transcripts. Nothing to add to your repos.
+- **Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, each `ask | deny | off` per repo via `.swarm.toml`. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](docs/guide/03-rules-and-config.md#what-rules-are--and-arent).
+- **Multi-agent** — Claude Code via hooks and transcripts; Codex CLI and Grok by tailing their own session logs (`~/.codex`, ACP `updates.jsonl`). Each session is tagged with its agent; Spend breaks down per agent.
+- **Zero instrumentation** — it reads the hooks and transcripts the agents already write. Nothing to add to your repos.
 
 ## Requirements
 
 - [Bun](https://bun.sh) ≥ 1.3
-- [Claude Code](https://claude.com/claude-code) (`claude` on your PATH)
+- at least one agent: [Claude Code](https://claude.com/claude-code) (`claude` on your PATH — hooks, rules and MCP need it), [Codex CLI](https://github.com/openai/codex) and/or Grok (observed by tailing their logs; no hooks, so no rules)
 - git
 - optional: `gh` and/or `glab`, authenticated — only for the PRs view
 
@@ -110,8 +111,8 @@ bun run desktop:build   # produce the platform bundle (.dmg / .msi / .deb …)
  Claude Code sessions ──hooks──▶ swarm-hook ──┐
  (any folder, any repo)                          │
                         transcripts (JSONL) ──────┼──▶ swarmd ──▶ SQLite (~/.swarm)
-                                                  │      │
-                                                  │      └──▶ SSE ──▶ dashboard · CLI · MCP
+ Codex CLI  ─── ~/.codex rollout logs ────────────┤      │
+ Grok       ─── ACP updates.jsonl ────────────────┘      └──▶ SSE ──▶ dashboard · CLI · MCP
                                                   ▼
                                        rules engine (ask / deny → incidents)
 ```
@@ -124,7 +125,7 @@ See the [roadmap](ROADMAP.md) and [features](docs/09-features.md). Full design d
 
 ## Privacy
 
-Everything is local. Swarm reads Claude Code's hooks and transcript files that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
+Everything is local. Swarm reads the hook payloads and transcript files (Claude Code, Codex, Grok) that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
 
 ## Configuration
 

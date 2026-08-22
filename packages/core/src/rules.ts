@@ -15,12 +15,18 @@ export interface LiveSession {
   state: string;
 }
 
+/** How long a session counts as live after its last hook or transcript activity. Matches the
+ *  daemon's idle threshold on purpose: a session mid-way through a long turn emits no hooks for
+ *  minutes, and its uncommitted work is exactly what these rules protect. A false positive costs
+ *  one confirmation; a false negative costs someone's work. */
+export const LIVE_WINDOW_MS = 10 * 60_000;
+
 /** Another session, active recently, editing the SAME checkout (same toplevel). */
 export function otherLiveInSameTree(
   current: { id: string; toplevel: string | null },
   sessions: LiveSession[],
   now: number,
-  withinMs = 120_000,
+  withinMs = LIVE_WINDOW_MS,
 ): LiveSession | null {
   if (!current.toplevel) return null;
   for (const s of sessions) {
@@ -51,7 +57,9 @@ export function isDestructiveGit(cmd: string): boolean {
     /\bgit\s+checkout\s+(--\s+)?\.(\s|$)/.test(c) ||
     /\bgit\s+checkout\s+-f\b/.test(c) ||
     /\bgit\s+restore\s+(--\s+)?\.(\s|$)/.test(c) ||
-    /\bgit\s+clean\s+[^|&;]*-[a-zA-Z]*f/.test(c)
+    /\bgit\s+clean\s+[^|&;]*-[a-zA-Z]*f/.test(c) ||
+    /\bgit\s+stash\s+(drop|clear)\b/.test(c) ||
+    /\bgit\s+branch\s+[^|&;]*-[a-zA-Z]*D/.test(c)
   );
 }
 

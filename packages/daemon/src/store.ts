@@ -30,6 +30,7 @@ import {
   isAliveHolding,
   isTrackedPid,
   type LeaseClaim,
+  LIVE_WINDOW_MS,
   type LiveSession,
   type LogParseResult,
   loadConfig,
@@ -321,7 +322,7 @@ export class Store {
       .query(
         "SELECT id, cwd, last_seen_at, state FROM sessions WHERE state != 'ended' AND last_seen_at > ?",
       )
-      .all(new Date(Date.now() - 130_000).toISOString()) as Array<{
+      .all(new Date(Date.now() - LIVE_WINDOW_MS - 10_000).toISOString()) as Array<{
       id: string;
       cwd: string;
       last_seen_at: string;
@@ -693,9 +694,11 @@ export class Store {
     this.persistTurns(sessionId, agentId, d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
     const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
+    // Transcript growth is activity: a long turn writes the transcript but emits no hooks, and the
+    // shared-tree rules key on last_seen_at. Never move it backwards.
     this.db
       .query(
-        "UPDATE sessions SET title = COALESCE(?, title), model = COALESCE(?, model), version = COALESCE(?, version), last_text = COALESCE(?, last_text), branch = COALESCE(branch, ?) WHERE id = ?",
+        "UPDATE sessions SET title = COALESCE(?, title), model = COALESCE(?, model), version = COALESCE(?, version), last_text = COALESCE(?, last_text), branch = COALESCE(branch, ?), last_seen_at = MAX(COALESCE(last_seen_at, ''), ?) WHERE id = ?",
       )
       .run(
         d.title,
@@ -703,6 +706,7 @@ export class Store {
         d.version,
         agentId ? null : lastText,
         d.branch,
+        new Date().toISOString(),
         sessionId,
       );
     this.db
