@@ -1,0 +1,34 @@
+name: Bug report
+description: Something isn't working.
+title: "Bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: "`swarm doctor` prints most of this."
+      placeholder: swarm 0.3.0 · macOS 15 · Bun 1.3 · Claude Code 2.x
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`swarm tail` output or `~/.swarm/daemon.log` around the moment it happened."
+      render: text

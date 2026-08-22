@@ -113,7 +113,7 @@
       .map((r) => {
         const attrs = rowAttrs ? rowAttrs(r) : "";
         const lc = leading ? `<td>${leading.cell(r)}</td>` : "";
-        const tc = trailing ? `<td>${trailing.cell(r)}</td>` : "";
+        const tc = trailing ? `<td class="td-tools">${trailing.cell(r)}</td>` : "";
         return `<tr ${attrs}>${lc}${visible.map((c) => `<td ${c.num ? 'class="num"' : ""}>${c.cell(r)}</td>`).join("")}${tc}</tr>`;
       })
       .join("");

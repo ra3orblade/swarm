@@ -1,5 +1,7 @@
 /** Render docs/ + CHANGELOG.md into the static website (site/).
- *  Output (gitignored): site/docs/index.html, site/docs/<slug>.html, site/changelog.html.
+ *  docs/guide/*.md  → site/docs/<slug>.html          (user guide — the site's "Docs")
+ *  docs/*.md        → site/docs/design/<slug>.html   (design docs — "Internals")
+ *  CHANGELOG.md     → site/changelog.html.  All output is gitignored.
  *  Usage: bun run site:build   (then: bun run site:deploy) */
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -16,34 +18,41 @@ const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).ver
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** docs/NN-slug.md → { slug, title, status } in numeric order (00 last: it's the index). */
+/** NN-slug.md → { slug, title, status, body } in numeric order. */
 type Doc = { file: string; slug: string; title: string; status: string; body: string };
-const docs: Doc[] = readdirSync(docsDir)
-  .filter((f) => /^\d\d-.*\.md$/.test(f))
-  .sort()
-  .map((file) => {
-    const src = readFileSync(join(docsDir, file), "utf8");
-    const lines = src.split("\n");
-    const title = (lines[0] ?? "").replace(/^#\s*/, "").replace(/^\d\d\s*·\s*/, "") || file;
-    const statusLine = lines.find((l) => /^Status:/i.test(l)) ?? "";
-    const status =
-      statusLine
-        .replace(/^Status:\s*/i, "")
-        .split(/[.(]/)[0]
-        ?.trim() ?? "";
-    const body = lines.slice(1).join("\n");
-    return { file, slug: basename(file, ".md"), title, status, body };
-  })
-  .filter((d) => d.slug !== "00-index");
+const loadDocs = (dir: string): Doc[] =>
+  readdirSync(dir)
+    .filter((f) => /^\d\d-.*\.md$/.test(f))
+    .sort()
+    .map((file) => {
+      const src = readFileSync(join(dir, file), "utf8");
+      const lines = src.split("\n");
+      const title = (lines[0] ?? "").replace(/^#\s*/, "").replace(/^\d\d\s*·\s*/, "") || file;
+      const statusLine = lines.find((l) => /^Status:/i.test(l)) ?? "";
+      const status =
+        statusLine
+          .replace(/^Status:\s*/i, "")
+          .split(/[.(]/)[0]
+          ?.trim() ?? "";
+      const body = lines.slice(1).join("\n");
+      return { file, slug: basename(file, ".md"), title, status, body };
+    })
+    .filter((d) => d.slug !== "00-index");
+const guide = loadDocs(join(docsDir, "guide"));
+const design = loadDocs(docsDir);
 
 /** Rewrite links: NN-x.md → NN-x.html; ../FOO.md → GitHub blob. */
-const rewriteLinks = (html: string, base: "docs" | "root") =>
+const rewriteLinks = (html: string, base: "guide" | "design" | "root") =>
   html
-    .replace(/href="(\d\d-[\w-]+)\.md(#[^"]*)?"/g, (_m, s, h) => `href="/docs/${s}${h ?? ""}"`)
+    .replace(
+      /href="(\d\d-[\w-]+)\.md(#[^"]*)?"/g,
+      (_m, s, h) => `href="/docs/${base === "design" ? "design/" : ""}${s}${h ?? ""}"`,
+    )
     .replace(/href="\.\.\/([\w./-]+)"/g, (_m, p) => `href="${REPO}/blob/main/${p}"`)
     .replace(
       /href="(?!https?:|#|\/|mailto:)([\w./-]+\.md)"/g,
-      (_m, p) => `href="${REPO}/blob/main/${base === "docs" ? "docs/" : ""}${p}"`,
+      (_m, p) =>
+        `href="${REPO}/blob/main/${base === "design" ? "docs/" : base === "guide" ? "docs/guide/" : ""}${p}"`,
     );
 
 const md = (src: string) => marked.parse(src, { gfm: true, async: false }) as string;
@@ -77,7 +86,8 @@ const css = `
   .doc .status{display:inline-block;font-size:12px;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:2px 10px;margin:0 0 22px}
   .doc code{font:13px var(--mono);background:var(--panel-2);border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;color:var(--fg)}
   .doc pre{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;overflow-x:auto}
-  .doc pre code{background:none;border:0;padding:0;font-size:13px;line-height:1.55}
+  .doc pre{line-height:1.3;font-variant-ligatures:none}
+  .doc pre code{background:none;border:0;padding:0;font-size:13px;line-height:inherit;font-family:var(--mono)}
   .doc blockquote{margin:16px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 var(--r-sm) var(--r-sm) 0}
   .doc blockquote p{margin:0}
   .doc .tbl{overflow-x:auto;margin:16px 0}
@@ -123,6 +133,7 @@ const shell = (p: Page) => `<!doctype html>
 <meta property="og:url" content="${SITE}/${p.path}">
 <meta property="og:image" content="${SITE}/og.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="google-site-verification" content="uU32AJFjQBkHR9pOl_a3olAgDNoMRF3CMn6rJ8hQiIg">
 <meta name="color-scheme" content="dark">
 ${favicon}
 <style>${css}</style>
@@ -156,66 +167,100 @@ ${favicon}
 </html>
 `;
 
+const short = (t: string, n: number) =>
+  t.length <= n ? t : `${t.slice(0, n).replace(/\s+\S*$/, "")}…`;
+
 const wrapTables = (html: string) =>
   html.replace(/<table>/g, '<div class="tbl"><table>').replace(/<\/table>/g, "</table></div>");
 
-const sideNav = (current?: string) =>
-  `<h3>Design docs</h3>` +
-  docs
+const navList = (items: Doc[], href: (d: Doc) => string, current?: string) =>
+  items
     .map(
       (d) =>
-        `<a href="/docs/${d.slug}"${d.slug === current ? ' class="on"' : ""}><small>${d.slug.slice(0, 2)}</small>${esc(d.title)}</a>`,
+        `<a href="${href(d)}"${d.slug === current ? ' class="on"' : ""}><small>${d.slug.slice(0, 2)}</small>${esc(d.title)}</a>`,
     )
-    .join("") +
-  `<h3 style="margin-top:18px">More</h3><a href="${REPO}#readme">README</a><a href="${REPO}/blob/main/CONTRIBUTING.md">Contributing</a><a href="/changelog">Changelog</a>`;
+    .join("");
+const sideNav = (current?: string) =>
+  `<h3>Guide</h3>${navList(guide, (d) => `/docs/${d.slug}`, current)}` +
+  `<h3 style="margin-top:18px">Internals</h3><a href="/docs/design/">Design docs</a><a href="${REPO}/blob/main/CONTRIBUTING.md">Contributing</a><a href="/changelog">Changelog</a>`;
+const designNav = (current?: string) =>
+  `<h3>Design docs</h3>${navList(design, (d) => `/docs/design/${d.slug}`, current)}` +
+  `<h3 style="margin-top:18px">More</h3><a href="/docs/">User guide</a><a href="${REPO}#readme">README</a><a href="/changelog">Changelog</a>`;
 
 rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+mkdirSync(join(outDir, "design"), { recursive: true });
 
-// docs/<slug>.html
-for (const d of docs) {
-  const html = wrapTables(rewriteLinks(md(d.body.replace(/^Status:.*$/m, "")), "docs"));
+const renderDoc = (d: Doc, kind: "guide" | "design") => {
+  const dir = kind === "guide" ? "" : "design/";
+  const srcPath = kind === "guide" ? `docs/guide/${d.file}` : `docs/${d.file}`;
+  const html = wrapTables(rewriteLinks(md(d.body.replace(/^Status:.*$/m, "")), kind));
   const body =
     `<h1>${esc(d.title)}</h1>` +
-    (d.status ? `<span class="status">Status: ${esc(d.status)}</span>` : "") +
+    (kind === "design" && d.status ? `<span class="status">Status: ${esc(d.status)}</span>` : "") +
     html +
-    `<p class="src">Source: <a href="${REPO}/blob/main/docs/${d.file}">docs/${d.file}</a> · rendered from main at v${version}.</p>`;
+    `<p class="src">Source: <a href="${REPO}/blob/main/${srcPath}">${srcPath}</a> · v${version}.</p>`;
   writeFileSync(
-    join(outDir, `${d.slug}.html`),
+    join(outDir, dir, `${d.slug}.html`),
     shell({
       title: d.title,
-      description: `Swarm design doc ${d.slug.slice(0, 2)}: ${d.title}.`,
-      path: `docs/${d.slug}`,
+      description:
+        kind === "guide"
+          ? `Swarm guide: ${d.title}.`
+          : `Swarm design doc ${d.slug.slice(0, 2)}: ${d.title}.`,
+      path: `docs/${dir}${d.slug}`,
       nav: "docs",
-      side: sideNav(d.slug),
+      side: kind === "guide" ? sideNav(d.slug) : designNav(d.slug),
       body,
     }),
   );
-}
+};
+for (const d of guide) renderDoc(d, "guide");
+for (const d of design) renderDoc(d, "design");
 
-// docs/index.html — from 00-index.md's intro + cards
-const indexSrc = readFileSync(join(docsDir, "00-index.md"), "utf8");
-const intro = indexSrc
-  .split("\n")
-  .slice(1)
-  .filter((l) => !/^\|/.test(l) && !/^Status:/.test(l))
-  .join("\n");
-const cards = docs
-  .map(
-    (d) =>
-      `<a class="card" href="/docs/${d.slug}"><b><small>${d.slug.slice(0, 2)}</small>${esc(d.title)}</b><span>${esc(d.status || "—")}</span></a>`,
-  )
+// docs/index.html — the guide
+const guideCards = guide
+  .map((d) => {
+    const blurb =
+      d.body.split("\n").find((l) => l.trim() && !/^Status:/.test(l) && !l.startsWith("#")) ?? "";
+    return `<a class="card" href="/docs/${d.slug}"><b><small>${d.slug.slice(0, 2)}</small>${esc(d.title)}</b><span>${esc(short(blurb.replace(/[`*[\]]/g, ""), 110))}</span></a>`;
+  })
   .join("");
 writeFileSync(
   join(outDir, "index.html"),
   shell({
     title: "Docs",
     description:
-      "Swarm design docs: vision, architecture, data model, protocol, interface, configuration, roadmap.",
+      "Swarm user guide: install, dashboard, rules & config, claims, runtime resources, PRs, CLI, MCP, desktop app.",
     path: "docs/",
     nav: "docs",
     side: sideNav(),
-    body: `<h1>Docs</h1>${rewriteLinks(md(intro), "docs")}<div class="cards">${cards}</div>`,
+    body: `<h1>Docs</h1><p>How to install Swarm and use it day to day. Looking for how it's built? See the <a href="/docs/design/">design docs</a>.</p><div class="cards">${guideCards}</div>`,
+  }),
+);
+
+// docs/design/index.html — from 00-index.md's intro + cards
+const indexSrc = readFileSync(join(docsDir, "00-index.md"), "utf8");
+const intro = indexSrc
+  .split("\n")
+  .slice(1)
+  .filter((l) => !/^\|/.test(l) && !/^Status:/.test(l))
+  .join("\n");
+const designCards = design
+  .map(
+    (d) =>
+      `<a class="card" href="/docs/design/${d.slug}"><b><small>${d.slug.slice(0, 2)}</small>${esc(d.title)}</b><span>${esc(d.status || "—")}</span></a>`,
+  )
+  .join("");
+writeFileSync(
+  join(outDir, "design", "index.html"),
+  shell({
+    title: "Design docs",
+    description:
+      "How Swarm is built: vision, architecture, data model, protocol, interface, roadmap.",
+    path: "docs/design/",
+    nav: "docs",
+    side: designNav(),
+    body: `<h1>Design docs</h1><p>Internal design notes — how Swarm is built and where it's going. For using it, see the <a href="/docs/">user guide</a>.</p>${rewriteLinks(md(intro), "design")}<div class="cards">${designCards}</div>`,
   }),
 );
 
@@ -233,5 +278,5 @@ writeFileSync(
 );
 
 console.log(
-  `site: ${docs.length} docs + index + changelog → site/docs, site/changelog.html (v${version})`,
+  `site: ${guide.length} guide + ${design.length} design docs + changelog → site/ (v${version})`,
 );

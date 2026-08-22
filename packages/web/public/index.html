@@ -174,6 +174,8 @@
   tbody td{padding:var(--pad-cell);border-bottom:1px solid var(--line-2);white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
   tbody tr:last-child td{border-bottom:0}
+  /* edge tool cell: never ellipsize (the browser's "…" showed as a stray dot on every row) */
+  tbody td.td-tools{text-overflow:clip;padding-left:0;padding-right:0;text-align:center}
   tbody tr{cursor:pointer;transition:background var(--t-fast)}
   tbody tr:hover{background:var(--panel-2)}
   td:first-child{overflow:visible}
@@ -408,6 +410,7 @@
   <span class="sp"></span>
   <span id="today"></span>
   <span id="daemon"><span class="dot"></span><span class="lbl">Daemon</span></span>
+  <button class="icon-btn" id="feedback" title="Send feedback (opens a GitHub issue)" aria-label="Send feedback"><i data-icon="comment-text"></i></button>
   <button class="icon-btn" id="settings" title="Settings" aria-label="Settings"><i data-icon="sliders"></i></button>
 </header>
 <aside>
