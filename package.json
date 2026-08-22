@@ -39,7 +39,7 @@
     "smoke": "bun tools/smoke.ts",
     "docs:check": "bun tools/docs-check.ts",
     "site:build": "bun tools/build-site.ts",
-    "site:deploy": "bun tools/build-site.ts && vercel --cwd site --prod",
+    "site:deploy": "vercel deploy --prod",
     "postinstall": "bun run --filter @swarm/web build",
     "build:web": "bun run --filter @swarm/web build",
     "desktop:prep": "bun tools/desktop.ts",

@@ -20,5 +20,5 @@ npm/README.md
 npm/LICENSE
 
 # Vercel local project link
-site/.vercel/
+.vercel/
 site/.env.local
