@@ -334,8 +334,6 @@ describe("runtime resources (Phase 1)", () => {
 
   it("dead pid is reaped and stops blocking", () => {
     const store = new Store(tmpHome());
-    // spawn a real short-lived process to get a dead pid
-    const p = Bun.spawnSync(["true"]);
     const deadPid = 999999; // beyond pid range on macOS → ESRCH
     const a = store.acquireResource({ name: "worker", owner: "agent-a", pid: deadPid });
     expect(a.ok).toBe(true);
