@@ -1160,7 +1160,7 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
-      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "permission prompts, orphans", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
+      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "off", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
       { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
       { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
       { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
