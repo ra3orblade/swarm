@@ -1,0 +1,12 @@
+# Swarm's own coordination rules (dogfood). See docs/13-config.md.
+[rules]
+# Two parallel sessions clobbered each other in this checkout this week —
+# broad staging and destructive git are hard-denied while a tree is shared.
+shared_tree = "deny"
+destructive_git = "deny"
+pattern_kill = "ask"
+protected_ports = "deny"
+
+[rules.protected]
+# The Swarm daemon itself.
+ports = [7777]
