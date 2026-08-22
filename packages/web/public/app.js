@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -136,6 +136,15 @@ async function refresh() {
     prsChanged = JSON.stringify(prs) !== JSON.stringify(state.prs);
     state.prs = prs;
   }
+  let attrChanged = false;
+  if (state.view === "spend" && state.sel && !state.session) {
+    const a = await fetch(`/v1/attribution?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.attribution);
+    attrChanged = JSON.stringify(a) !== JSON.stringify(state.attribution);
+    state.attribution = a;
+  } else if (state.view === "spend" && !state.sel) {
+    if (state.attribution) attrChanged = true;
+    state.attribution = null;
+  }
   let runsChanged = false;
   const openSpawned = state.session && state.sessions.find((x) => x.id === state.session)?.kind === "spawned";
   if (openSpawned || (state.view === "board" && !state.session) || (state.view === "fleet" && !state.session)) {
@@ -159,7 +168,7 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
@@ -683,7 +692,53 @@ function renderSpend() {
      <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
      <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
+     ${renderAttribution()}
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+}
+
+// M4.2: cost attributed to tasks (via each claim's worktree) + a context re-processing signal.
+// Only meaningful with a project selected.
+function renderAttribution() {
+  const a = state.attribution;
+  if (!state.sel || !a) return "";
+  const parts = [];
+  if (a.byTask?.length) {
+    parts.push(`<h2 class="mt-sec">By task <span>${usd(sumBy(a.byTask, (t) => t.cost))} across ${a.byTask.length} task${a.byTask.length === 1 ? "" : "s"} · attributed by worktree</span></h2>` +
+      dataTable({
+        id: "spend-task",
+        columns: [
+          { key: "task", label: "task", width: 150, get: (t) => t.task, cell: (t) => `<b>${esc(t.task)}</b>` },
+          { key: "owner", label: "owner", width: 120, get: (t) => t.owner || "", cell: (t) => esc(t.owner || "—") },
+          { key: "cost", label: "cost", width: 88, num: true, get: (t) => t.cost, cell: (t) => usd(t.cost) },
+          { key: "output", label: "out", width: 84, num: true, get: (t) => t.output, cell: (t) => tok(t.output) },
+          { key: "sessions", label: "sessions", width: 84, num: true, get: (t) => t.sessions, cell: (t) => String(t.sessions) },
+          { key: "turns", label: "turns", width: 64, num: true, get: (t) => t.turns, cell: (t) => String(t.turns) },
+          { key: "worktree", label: "worktree", flex: true, get: (t) => t.worktree, cell: (t) => `<span class="now dim" title="${esc(t.worktree)}">${esc(short(t.worktree))}</span>` },
+        ],
+        rows: a.byTask,
+        leading: { width: 20, cell: () => "" },
+        trailing: { width: 8, cell: () => "" },
+        rerender: touch,
+      }));
+  }
+  if (a.contextBudget?.length) {
+    parts.push(`<h2 class="mt-sec">Context budget <span>sessions re-processing the most context · a high reuse % is a lot of re-reading</span></h2>` +
+      dataTable({
+        id: "spend-ctx",
+        columns: [
+          { key: "title", label: "session", flex: true, get: (r) => r.title ?? r.id, cell: (r) => `<a href="#" data-s="${r.id}">${esc(r.title ?? r.id.slice(0, 8))}</a>` },
+          { key: "reuse", label: "reuse", width: 90, num: true, get: (r) => r.reuse, cell: (r) => `<span class="${r.reuse > 0.9 ? "br" : "dim"}">${(r.reuse * 100).toFixed(0)}%</span>` },
+          { key: "cacheRead", label: "context re-read", width: 120, num: true, get: (r) => r.cacheRead, cell: (r) => tok(r.cacheRead) },
+          { key: "cost", label: "cost", width: 88, num: true, get: (r) => r.cost, cell: (r) => usd(r.cost) },
+          { key: "turns", label: "turns", width: 64, num: true, get: (r) => r.turns, cell: (r) => String(r.turns) },
+        ],
+        rows: a.contextBudget,
+        leading: { width: 20, cell: () => "" },
+        trailing: { width: 8, cell: () => "" },
+        rerender: touch,
+      }));
+  }
+  return parts.join("");
 }
 
 // ---------- stats

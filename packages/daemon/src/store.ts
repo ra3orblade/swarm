@@ -1982,6 +1982,62 @@ export class Store {
   }
 
   /**
+   * Cost attribution (M4.2): what each task cost. A session runs in a claim's worktree, so its
+   * spend is the claim's — sessions are matched to a claim by cwd being inside its worktree.
+   * Also a context-budget signal: sessions ranked by re-processed context (cache-read tokens),
+   * which surfaces the ones re-reading the same material turn after turn.
+   */
+  attribution(projectId: string) {
+    const claims = this.db
+      .query(
+        "SELECT task, owner, worktree, state FROM claims WHERE project_id = ? AND worktree != ''",
+      )
+      .all(projectId) as Array<{ task: string; owner: string; worktree: string; state: string }>;
+    const byTask = claims
+      .map((c) => {
+        const r = this.db
+          .query(
+            `SELECT COALESCE(SUM(t.cost_usd),0) AS cost, COALESCE(SUM(t.output),0) AS output, COUNT(*) AS turns,
+                    COUNT(DISTINCT s.id) AS sessions
+             FROM sessions s JOIN turns t ON t.session_id = s.id
+             WHERE s.cwd = ? OR s.cwd LIKE ?`,
+          )
+          .get(c.worktree, `${c.worktree}/%`) as {
+          cost: number;
+          output: number;
+          turns: number;
+          sessions: number;
+        };
+        return { task: c.task, owner: c.owner, state: c.state, worktree: c.worktree, ...r };
+      })
+      .filter((t) => t.turns > 0)
+      .sort((a, b) => b.cost - a.cost);
+    // Context budget: sessions doing the most context re-processing (cache reads), a proxy for
+    // re-reading the same files. Ratio = cache-read / all input; high + large = churn.
+    const contextBudget = (
+      this.db
+        .query(
+          `SELECT s.id, s.title, s.project_id AS projectId,
+                  COALESCE(SUM(t.cache_read),0) AS cacheRead,
+                  COALESCE(SUM(t.input + t.cache_write + t.cache_read),0) AS input,
+                  COALESCE(SUM(t.cost_usd),0) AS cost, COUNT(*) AS turns
+           FROM sessions s JOIN turns t ON t.session_id = s.id
+           WHERE s.project_id = ? GROUP BY s.id HAVING turns > 3 ORDER BY cacheRead DESC LIMIT 12`,
+        )
+        .all(projectId) as Array<{
+        id: string;
+        title: string | null;
+        projectId: string;
+        cacheRead: number;
+        input: number;
+        cost: number;
+        turns: number;
+      }>
+    ).map((r) => ({ ...r, reuse: r.input ? r.cacheRead / r.input : 0 }));
+    return { byTask, contextBudget };
+  }
+
+  /**
    * Stats page: all-time totals, 365-day daily token classes, hour-of-day profile, model mix,
    * tool leaderboard and record holders. Optionally scoped to one project.
    */

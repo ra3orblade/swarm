@@ -366,6 +366,12 @@ export function createApp(store = new Store()) {
     return e ? c.json(e) : c.json({ error: "not found" }, 404);
   });
   app.get("/v1/spend", (c) => c.json(store.spend()));
+  app.get("/v1/attribution", (c) => {
+    const project = c.req.query("project");
+    return project
+      ? c.json(store.attribution(project))
+      : c.json({ error: "project required" }, 400);
+  });
 
   app.post("/v1/pricing/refresh", async (c) => {
     try {
