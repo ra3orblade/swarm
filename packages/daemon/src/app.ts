@@ -200,6 +200,41 @@ export function createApp(store = new Store()) {
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
 
+  // ---- gates (M2.2)
+  app.get("/v1/gates", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    const task = c.req.query("task") || undefined;
+    const runs = store.gateRuns(project, task);
+    const required = store.requiredGates(project);
+    return c.json({
+      required,
+      runs,
+      status: task ? store.gateStatusFor(runs, required) : undefined,
+    });
+  });
+  app.post("/v1/gates", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      task?: string;
+      gate?: string;
+      verdict?: "pass" | "fail";
+      rubric?: string;
+      evidence?: string;
+      sessionId?: string | null;
+    };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
+    const r = store.recordGate(b.projectId, {
+      task: b.task ?? "",
+      gate: b.gate ?? "",
+      verdict: b.verdict as "pass",
+      rubric: b.rubric,
+      evidence: b.evidence,
+      sessionId: b.sessionId ?? null,
+    });
+    return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 400);
+  });
+
   // ---- task source (M1.6)
   app.get("/v1/tasks", (c) => {
     const project = c.req.query("project");

@@ -69,7 +69,7 @@ FLEET                                                    4 live · 2 idle · $3.
 
 ### View 2 — Project
 
-> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS ships when the repo declares `[tasks] source` (Ready / Open / All, Claim); PROCESSES lists what `swarm serve` / `swarm proc` started, with Stop; RECENT GATES is not built (no gates yet).
+> Shipped as **Board**: the CLAIMS, worktrees and RESOURCES blocks plus an Incidents section; TASKS ships when the repo declares `[tasks] source` (Ready / Open / All, Claim); PROCESSES lists what `swarm serve` / `swarm proc` started, with Stop; RECENT GATES lists verification runs (latest per gate decides) and the Tasks grid shows ✓ / ✗ / — per declared gate.
 
 Board for one repository: claims, worktrees, resources, gates, and the task list if a task source is configured.
 
@@ -140,7 +140,7 @@ web-app · M0.6 ▶ · claude-opus-5 · wt/m0.6 · task M0.6 · 14m · 92k tok �
 
 ### View 4 — Incidents
 
-> Shipped as the **Incidents** view: a data-grid feed (when, project, session, rule, asked/denied, command, reason, acked) with Open / All chips, per-row **Ack** and **Ack all**; the nav badge is the open count. Kinds today are rule hits only (`denied` / `asked`); orphaned claims and gate failures are still to come.
+> Shipped as the **Incidents** view: a data-grid feed (when, project, session, rule, asked/denied, command, reason, acked) with Open / All chips, per-row **Ack** and **Ack all**; the nav badge is the open count. Kinds: rule hits (`denied` / `asked`), `orphaned_claim`, `gate_failed`.
 
 Chronological list of things that went wrong or were prevented. Each is one line + ack.
 
@@ -199,6 +199,8 @@ swarm serve start [--name web] [--from-port 3400] -- <cmd>   port-allocating, pi
 swarm serve ls | stop [name|pid]                          only processes this project started; by pid + start time
 swarm proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, without a port
 swarm tasks [--ready]                                     the repo's task source
+swarm gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   rubric required; latest run wins
+swarm gate ls [task]                                      required gates + verdicts (+ history for one task)
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
 ```
 
@@ -211,9 +213,6 @@ swarm rm <name>                                  unregister a project
 swarm handoff <task> --done … --remaining … --verify …
 swarm resume <task>                              print handoff payload (for the next agent)
 swarm wt ls|path <task>|adopt <task>
-
-swarm gate record <task> <gate> pass|fail --rubric … --evidence …
-swarm gate ls <task>
 
 swarm run -p <project> --task <id> [--prompt … | --prompt-file …] [--model] [--permission-mode] [--detach]
 swarm run ls | attach <session> | send <session> "text" | stop <session>
@@ -247,6 +246,8 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_acquire_resource` | `{name, owner?, pid?, port?, leaseMinutes?}` | resource or **fail-closed** `{held_by}` |
 | `swarm_release_resource` | `{name, owner?, force?}` | ack; refused if another owner holds it unless `force` |
 | `swarm_resources` | `{}` | held singletons for this project (and machine-global ones) |
+| `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
+| `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
 
 **Planned**
@@ -255,7 +256,6 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 |------|-------|---------|
 | `swarm_handoff` | `{task, done, remaining, files[], verify}` | ack |
 | `swarm_resume` | `{task}` | last handoff payload |
-| `swarm_gate_record` | `{task, gate, verdict, rubric, evidence}` | ack; rejects missing rubric |
 | `swarm_note` | `{text}` | attaches a note to the session, visible in the dashboard |
 | `swarm_permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
 
@@ -293,7 +293,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `POST /v1/events` · `GET /v1/events?since=&full=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` (wire shape — no `raw`/tool I/O unless `full=1`; `since=0` replays the last 200) |
 | `GET /` · `GET /:file.(js|css)` | the dashboard |
 
-Not built: a unix socket, `/v1/processes`, `/v1/gates`, `/v1/sessions/:id/input`, incident ack.
+Not built: a unix socket, `/v1/sessions/:id/input`.
 
 ## E. Design constraints shared by all three
 

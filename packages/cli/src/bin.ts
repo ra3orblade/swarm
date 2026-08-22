@@ -30,6 +30,8 @@ const help = `swarm — control plane for AI-agent development
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
+  gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   record a verification run (rubric required)
+  gate ls [task]          latest verdict per gate (and the run history for one task)
   res ls | acquire <name> [--owner n] [--pid n] [--port n] | release <name> [--force]
                           named singletons (ports, processes); fail-closed
   serve start [--name web] [--from-port 3400 | --port n] -- <cmd>
@@ -242,6 +244,93 @@ try {
             `${c.state.padEnd(9)} ${c.task.padEnd(16)} ${(c.owner || "").padEnd(12)} ${c.worktree}`,
           );
       break;
+    }
+    case "gate": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const valueFlags = new Set(["--rubric", "--evidence"]);
+      const positionals: string[] = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i] as string;
+        if (valueFlags.has(a)) i++;
+        else if (!a.startsWith("--")) positionals.push(a);
+      }
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const sub = positionals[0] ?? "ls";
+      if (sub === "record") {
+        const [, task, gate, verdict] = positionals;
+        if (!task || !gate || !verdict)
+          throw new Error(
+            'usage: swarm gate record <task> <gate> pass|fail --rubric "what was checked" [--evidence "…"]',
+          );
+        const r = (await fetch(`${new SwarmClient().baseUrl}/v1/gates`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: proj.id,
+            task,
+            gate,
+            verdict,
+            rubric: flag("--rubric"),
+            evidence: flag("--evidence"),
+            sessionId: process.env.CLAUDE_SESSION_ID ?? null,
+          }),
+        }).then((x) => x.json())) as { ok: boolean; error?: string; run?: { id: number } };
+        if (json) console.log(JSON.stringify(r));
+        else if (r.ok) console.log(`recorded ${gate} ${verdict} on ${task}`);
+        else {
+          console.error(`REFUSED: ${r.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+      if (sub === "ls") {
+        const task = positionals[1];
+        const q = new URLSearchParams({ project: proj.id });
+        if (task) q.set("task", task);
+        const g = (await api(`/v1/gates?${q}`)) as {
+          required: string[];
+          runs: Array<{
+            task: string;
+            gate: string;
+            verdict: string;
+            rubric: string;
+            createdAt: string;
+          }>;
+          status?: Array<{ gate: string; verdict: string | null; runs: number; fails: number }>;
+        };
+        if (json) console.log(JSON.stringify(g));
+        else if (task) {
+          if (!g.status?.length)
+            console.log(
+              `no gates on ${task}${g.required.length ? ` (required: ${g.required.join(", ")})` : ""}`,
+            );
+          for (const st of g.status ?? [])
+            console.log(
+              `${(st.verdict ?? "—").padEnd(5)} ${st.gate.padEnd(12)} ${st.runs} run${st.runs === 1 ? "" : "s"}, ${st.fails} fail${st.fails === 1 ? "" : "s"}`,
+            );
+          for (const r of g.runs)
+            console.log(
+              `  ${r.createdAt.slice(0, 16)} ${r.gate.padEnd(12)} ${r.verdict.padEnd(5)} ${r.rubric.slice(0, 70)}`,
+            );
+        } else {
+          if (g.required.length) console.log(`required: ${g.required.join(", ")}`);
+          if (!g.runs.length) console.log("no gate runs yet");
+          for (const r of g.runs.slice(0, 50))
+            console.log(
+              `${r.createdAt.slice(0, 16)} ${r.task.padEnd(10)} ${r.gate.padEnd(12)} ${r.verdict.padEnd(5)} ${r.rubric.slice(0, 60)}`,
+            );
+        }
+        break;
+      }
+      throw new Error("usage: swarm gate record|ls");
     }
     case "tasks": {
       await ensureDaemon({ quiet: true });

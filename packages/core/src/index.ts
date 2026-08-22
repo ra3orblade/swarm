@@ -3,6 +3,7 @@ export * from "./adapters/claude-code/hooks";
 export * from "./adapters/claude-code/transcript";
 export * from "./config";
 export * from "./forge";
+export * from "./gates";
 export * from "./ledger";
 export * from "./pricing";
 export * from "./processes";

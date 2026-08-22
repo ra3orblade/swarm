@@ -129,3 +129,22 @@ Projects are identified by their git repository, so `swarm claim` works the same
 ## From an agent
 
 Agents don't need you to run the CLI. The MCP server registered by setup exposes the same operations as tools — `swarm_status`, `swarm_claim`, `swarm_renew`, `swarm_release`, `swarm_reap` — resolved against the session's working directory. The recommended flow is: check status, claim, `cd` into the returned worktree, work, commit and push, release. See [MCP](08-mcp.md).
+
+## Gates
+
+A gate is a named verification — `review`, `tests`, `security`, whatever the repo decides — recorded against a task with a **rubric**: what was actually checked. Declare the ones every task must pass:
+
+```toml
+[gates]
+required = ["review", "tests"]
+```
+
+Record runs from the CLI or let the agent do it over MCP (`swarm_gate_record`):
+
+```sh
+swarm gate record login-form tests pass --rubric "bun test green, new cases for the empty-password path" --evidence "112 pass"
+swarm gate record login-form review fail --rubric "read the diff; the error path swallows the exception"
+swarm gate ls login-form
+```
+
+Three rules, all fail-closed: a run with no rubric is rejected (a bare "pass" is noise); the **latest** run of a gate decides, so a fail followed by a pass is a pass — but the fail stays on record; and every fail opens a `gate_failed` incident. On the Board, each task shows ✓ / ✗ / — per declared gate, and **Recent gates** lists the runs with rubric, evidence and the session that recorded them.

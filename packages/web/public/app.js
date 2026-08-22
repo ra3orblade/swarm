@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -138,9 +138,12 @@ async function refresh() {
   }
   let tasksChanged = false;
   if (state.view === "board" && state.sel && !state.session) {
-    const t = await (await fetch(`/v1/tasks?project=${encodeURIComponent(state.sel)}`)).json().catch(() => state.tasks);
-    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks);
-    state.tasks = t;
+    const [t, g] = await Promise.all([
+      fetch(`/v1/tasks?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.tasks),
+      fetch(`/v1/gates?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.gates),
+    ]);
+    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks) || JSON.stringify(g) !== JSON.stringify(state.gates);
+    state.tasks = t; state.gates = g;
   }
   let incChanged = false;
   if (state.view === "incidents" && !state.session) {
@@ -346,7 +349,7 @@ function renderPRs() {
 
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
-  const parts = [renderTasks(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderTasks(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, processes, claims, worktrees, and incidents appear here.</div>`;
@@ -360,7 +363,7 @@ function incidentColumns(full) {
     { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
     { key: "session", label: "session", width: 150, get: (i) => sess(i.sessionId)?.title ?? i.sessionId ?? "", cell: (i) => (i.sessionId ? `<a href="#" data-s="${i.sessionId}">${esc(sess(i.sessionId)?.title ?? i.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
     { key: "rule", label: "rule", width: 150, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
-    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : i.action === "orphaned" ? '<span class="badge warn">Orphaned</span>' : '<span class="badge acc">Asked</span>') },
+    { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : i.action === "orphaned" ? '<span class="badge warn">Orphaned</span>' : i.action === "failed" ? '<span class="badge warn">Failed</span>' : '<span class="badge acc">Asked</span>') },
     { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
     ...(full ? [
       { key: "reason", label: "reason", width: 260, get: (i) => i.reason ?? "", cell: (i) => `<span class="dim now" title="${esc(i.reason ?? "")}">${esc(i.reason ?? "")}</span>` },
@@ -368,7 +371,7 @@ function incidentColumns(full) {
     ] : []),
   ].filter((c) => !(c.key === "project" && state.sel) && !(c.key === "session" && !full));
 }
-const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" || i.action === "orphaned" ? "waiting" : "idle"}"></span>`;
+const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" || i.action === "orphaned" || i.action === "failed" ? "waiting" : "idle"}"></span>`;
 const ackLink = (i) => (i.acked ? "" : `<a href="#" data-ack="${i.seq}" title="Mark as seen">Ack</a>`);
 
 function renderIncidents() {
@@ -461,11 +464,49 @@ function renderResources() {
     });
 }
 
+// Gate chips: ✓ pass / ✗ fail / — never run, latest run on hover.
+const gateChips = (gates) => gates.map((g) => {
+  const cls = g.verdict === "pass" ? "ok" : g.verdict === "fail" ? "warn" : "";
+  const mark = g.verdict === "pass" ? "✓" : g.verdict === "fail" ? "✗" : "—";
+  return `<span class="badge ${cls}" title="${esc(g.gate)}: ${g.runs} run${g.runs === 1 ? "" : "s"}, ${g.fails} fail${g.fails === 1 ? "" : "s"}">${esc(g.gate)} ${mark}</span>`;
+}).join(" ") || '<span class="dim">—</span>';
+
+// RECENT GATES: verification runs on this project (M2.2). Only with a project selected.
+function renderGates() {
+  if (!state.sel || !state.gates) return "";
+  const runs = state.gates.runs ?? [];
+  const required = state.gates.required ?? [];
+  if (!runs.length && !required.length) return "";
+  const sess = (id) => state.sessions.find((s) => s.id === id);
+  const cols = [
+    { key: "ts", label: "when", width: 76, get: (r) => r.createdAt, cell: (r) => `<span class="dim" title="${esc(r.createdAt)}">${ago(r.createdAt)}</span>` },
+    { key: "task", label: "task", width: 110, get: (r) => r.task, cell: (r) => `<b>${esc(r.task)}</b>` },
+    { key: "gate", label: "gate", width: 120, get: (r) => r.gate, cell: (r) => `<span class="br">${esc(r.gate)}</span>` },
+    { key: "verdict", label: "verdict", width: 80, get: (r) => r.verdict, cell: (r) => (r.verdict === "pass" ? '<span class="badge ok">Pass</span>' : '<span class="badge warn">Fail</span>') },
+    { key: "rubric", label: "rubric", flex: true, get: (r) => r.rubric, cell: (r) => `<span class="now" title="${esc(r.rubric)}">${esc(r.rubric)}</span>` },
+    { key: "evidence", label: "evidence", width: 220, get: (r) => r.evidence ?? "", cell: (r) => (r.evidence ? `<span class="dim now" title="${esc(r.evidence)}">${esc(r.evidence)}</span>` : '<span class="dim">—</span>') },
+    { key: "session", label: "session", width: 140, get: (r) => sess(r.sessionId)?.title ?? "", cell: (r) => (r.sessionId ? `<a href="#" data-s="${r.sessionId}">${esc(sess(r.sessionId)?.title ?? r.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
+  ];
+  return `<h2 class="mt-sec">Recent gates <span>${runs.length} run${runs.length === 1 ? "" : "s"}${required.length ? ` · required: ${required.map(esc).join(", ")}` : ""} · latest run per gate decides</span></h2>` +
+    (runs.length
+      ? dataTable({
+          id: "gates",
+          columns: cols,
+          rows: runs.slice(0, 50),
+          leading: { width: 24, cell: (r) => `<span class="s ${r.verdict === "fail" ? "waiting" : "active"}"></span>` },
+          trailing: { width: 12, cell: () => "" },
+          rowAttrs: () => "",
+          rerender: touch,
+        })
+      : `<div class="empty">${PX.idle()}No gate runs yet. <code>swarm gate record &lt;task&gt; ${esc(required[0] ?? "review")} pass --rubric "…"</code></div>`);
+}
+
 // TASKS: the project's backlog from `.swarm.toml [tasks] source` (M1.6). Only with a project selected.
 function renderTasks() {
   if (!state.sel || !state.tasks?.source) return "";
   const all = state.tasks.tasks ?? [];
   const ready = all.filter((t) => t.ready);
+  const hasGates = (state.tasks.required ?? []).length > 0 || all.some((t) => (t.gates ?? []).length);
   const rows = state.taskFilter === "ready" ? ready : state.taskFilter === "open" ? all.filter((t) => t.status !== "done") : all;
   const chip = (k, label, n) => `<span class="chip ${state.taskFilter === k ? "on" : ""}" data-task-filter="${k}">${label}${n != null ? ` <b>${n}</b>` : ""}</span>`;
   const st = (t) => t.claimedBy ? `<span class="badge ok">Held · ${esc(t.claimedBy)}</span>`
@@ -478,6 +519,7 @@ function renderTasks() {
     { key: "milestone", label: "milestone", width: 160, get: (t) => t.milestone ?? "", cell: (t) => `<span class="dim now">${esc((t.milestone ?? "").split(" — ")[0])}</span>` },
     { key: "depends", label: "depends", width: 130, get: (t) => t.depends.join(" "), cell: (t) => `<span class="br">${esc(t.depends.join(" ")) || "—"}</span>` },
     { key: "state", label: "state", width: 150, get: (t) => (t.claimedBy ? 0 : t.ready ? 1 : t.status === "active" ? 2 : t.status === "done" ? 4 : 3), cell: st },
+    ...(hasGates ? [{ key: "gates", label: "gates", width: 170, get: (t) => (t.gates ?? []).filter((g) => g.verdict === "pass").length, cell: (t) => gateChips(t.gates ?? []) }] : []),
   ];
   return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(state.tasks.source)}</span></h2>` +
     `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}</div>` +
@@ -1100,7 +1142,7 @@ function connect() {
     }
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

@@ -11,6 +11,7 @@ import { ensureDaemon, resolveBaseUrl } from "@swarm/client";
 import { z } from "zod";
 
 const OWNER = process.env.SWARM_OWNER ?? "agent";
+const SESSION = process.env.CLAUDE_SESSION_ID ?? null;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const base = await ensureDaemon({ quiet: true }).catch(() => resolveBaseUrl());
@@ -87,6 +88,68 @@ export function buildServer(): McpServer {
       if (all) return ok(ready.map((x) => `${x.id} — ${x.title}`).join("\n"), { ready });
       const n = ready[0] as (typeof ready)[number];
       return ok(`next: ${n.id} — ${n.title} (claim it with swarm_claim)`, n);
+    },
+  );
+
+  server.registerTool(
+    "swarm_gate_record",
+    {
+      title: "Record a verification gate",
+      description:
+        "Record the result of a verification gate (review, tests, security, …) on a task. The rubric — what you actually checked — is required; a verdict without one is rejected. The latest run of a gate decides; failed runs stay on record and open an incident. Check `swarm_gates` for the gates this repo requires.",
+      inputSchema: {
+        task: z.string().describe("task id, e.g. M1.2"),
+        gate: z.string().describe("gate name, e.g. review, tests, security"),
+        verdict: z.enum(["pass", "fail"]),
+        rubric: z.string().describe("what was checked, concretely"),
+        evidence: z.string().optional().describe("how: command output, PR link, notes"),
+      },
+    },
+    async ({ task, gate, verdict, rubric, evidence }) => {
+      const pid = await projectId();
+      const r = await api<{ ok: boolean; error?: string; run?: unknown }>("/v1/gates", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: pid,
+          task,
+          gate,
+          verdict,
+          rubric,
+          evidence,
+          sessionId: SESSION,
+        }),
+      });
+      if (!r.ok) return fail(`REFUSED: ${r.error}`);
+      return ok(`recorded ${gate} ${verdict} on ${task}`, r.run);
+    },
+  );
+
+  server.registerTool(
+    "swarm_gates",
+    {
+      title: "Gate status",
+      description:
+        "The gates this repo requires (.swarm.toml [gates] required) and, for a task, the latest verdict per gate with run history. A task is done only when every required gate's latest run is a pass.",
+      inputSchema: { task: z.string().optional() },
+    },
+    async ({ task }) => {
+      const pid = await projectId();
+      const q = new URLSearchParams({ project: pid });
+      if (task) q.set("task", task);
+      const g = await api<{
+        required: string[];
+        runs: Array<{ task: string; gate: string; verdict: string }>;
+        status?: Array<{ gate: string; verdict: string | null }>;
+      }>(`/v1/gates?${q}`);
+      const head = g.required.length
+        ? `required: ${g.required.join(", ")}`
+        : "no required gates declared";
+      const body = task
+        ? (g.status ?? []).map((s) => `${s.gate}: ${s.verdict ?? "not run"}`).join("\n") ||
+          `no runs on ${task}`
+        : `${g.runs.length} runs`;
+      return ok(`${head}\n${body}`, g);
     },
   );
 

@@ -26,7 +26,11 @@ import {
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
   fromLiteLLM,
+  type GateInput,
+  type GateRun,
   type GuardDecision,
+  gateStatus,
+  gatesSatisfied,
   guardBash,
   guardWrite,
   type HeldWorktree,
@@ -63,6 +67,7 @@ import {
   type TrackedProcess,
   type Turn,
   taskBoard,
+  validateGateRun,
   WRITE_TOOLS,
 } from "@swarm/core";
 import {
@@ -143,6 +148,11 @@ CREATE TABLE IF NOT EXISTS processes (
   cwd TEXT, cmd TEXT, owner TEXT, log TEXT, started_at TEXT, ended_at TEXT
 );
 CREATE INDEX IF NOT EXISTS processes_live ON processes(ended_at, project_id);
+CREATE TABLE IF NOT EXISTS gates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, gate TEXT, verdict TEXT,
+  rubric TEXT, evidence TEXT, session_id TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS gates_task ON gates(project_id, task, created_at);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -151,6 +161,12 @@ CREATE TABLE IF NOT EXISTS claims (
 `;
 
 const IDLE_MS = 10 * 60_000;
+
+export type TaskBoardRow = TaskView & {
+  gates: Array<{ gate: string; verdict: "pass" | "fail" | null; fails: number; runs: number }>;
+  /** Every declared gate has a passing latest run. */
+  gated: boolean;
+};
 
 export class Store {
   db: Database;
@@ -334,17 +350,118 @@ export class Store {
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
   /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
   private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  // ---------- gates (M2.2): latest run wins, fails are never deleted, rubric required
+  private rowToGate(r: Record<string, unknown>): GateRun {
+    return {
+      id: r.id as number,
+      projectId: r.project_id as string,
+      task: r.task as string,
+      gate: r.gate as string,
+      verdict: r.verdict as GateRun["verdict"],
+      rubric: r.rubric as string,
+      evidence: (r.evidence as string) ?? null,
+      sessionId: (r.session_id as string) ?? null,
+      createdAt: r.created_at as string,
+    };
+  }
+
+  /** Runs for a project (optionally one task), newest first. */
+  gateRuns(projectId: string, task?: string, limit = 200): GateRun[] {
+    const rows = task
+      ? this.db
+          .query(
+            "SELECT * FROM gates WHERE project_id = ? AND task = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .all(projectId, task, limit)
+      : this.db
+          .query(
+            "SELECT * FROM gates WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .all(projectId, limit);
+    return (rows as Array<Record<string, unknown>>).map((r) => this.rowToGate(r));
+  }
+
+  gateStatusFor(runs: GateRun[], required: string[]) {
+    return gateStatus(runs, required);
+  }
+
+  /** Gates the repo declares as required (`.swarm.toml [gates] required`). */
+  requiredGates(projectId: string): string[] {
+    const p = this.project(projectId);
+    return p ? loadConfig({ repoRoot: p.root }).gates.required : [];
+  }
+
+  /** Record a run. Rejects a missing rubric; a fail opens an incident. */
+  recordGate(
+    projectId: string,
+    input: GateInput & { sessionId?: string | null },
+  ): { ok: true; run: GateRun } | { ok: false; reason: string } {
+    if (!this.project(projectId)) return { ok: false, reason: "unknown project" };
+    const v = validateGateRun(input);
+    if (!v.ok) return v;
+    const createdAt = new Date().toISOString();
+    const sessionId = this.knownSession(input.sessionId);
+    const r = this.db
+      .query(
+        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        projectId,
+        input.task.trim(),
+        input.gate,
+        input.verdict,
+        (input.rubric as string).trim(),
+        input.evidence?.trim() || null,
+        sessionId,
+        createdAt,
+      );
+    const run = this.rowToGate(
+      this.db.query("SELECT * FROM gates WHERE id = ?").get(Number(r.lastInsertRowid)) as Record<
+        string,
+        unknown
+      >,
+    );
+    this.append({
+      ts: createdAt,
+      type: "gate.recorded",
+      projectId,
+      sessionId,
+      payload: {
+        task: run.task,
+        gate: run.gate,
+        verdict: run.verdict,
+        summary: `gate ${run.gate} ${run.verdict} on ${run.task}`,
+      },
+    });
+    if (run.verdict === "fail")
+      this.append({
+        ts: createdAt,
+        type: "incident.opened",
+        projectId,
+        sessionId,
+        payload: {
+          rule: "gate_failed",
+          action: "failed",
+          command: `${run.task} · ${run.gate}`,
+          reason: `${run.rubric}${run.evidence ? ` — ${run.evidence.slice(0, 200)}` : ""}`,
+        },
+      });
+    this.touch();
+    return { ok: true, run };
+  }
+
   // ---------- task source (M1.6)
   private taskCache = new Map<string, { path: string; mtime: number; tasks: Task[] }>();
   /** The project's backlog from its `.swarm.toml` `[tasks] source`, decorated with claim state.
    *  null when the project declares no source. Re-parsed when the file's mtime moves. */
-  tasks(projectId: string): { source: string; tasks: TaskView[] } | null {
+  tasks(projectId: string): { source: string; required: string[]; tasks: TaskBoardRow[] } | null {
     const p = this.project(projectId);
     if (!p) return null;
     const source = loadConfig({ repoRoot: p.root }).tasks.source;
     if (!source) return null;
     const path = join(p.root, source);
-    if (!existsSync(path)) return { source, tasks: [] };
+    if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
     const mtime = statSync(path).mtimeMs;
     let hit = this.taskCache.get(projectId);
     if (!hit || hit.path !== path || hit.mtime !== mtime) {
@@ -353,7 +470,24 @@ export class Store {
     }
     const now = Date.now();
     const active = this.claimRows(projectId).filter((c) => isActive(c, now));
-    return { source, tasks: taskBoard(hit.tasks, active) };
+    const required = this.requiredGates(projectId);
+    const runs = this.gateRuns(projectId, undefined, 2000);
+    const byTask = new Map<string, GateRun[]>();
+    for (const r of runs) byTask.set(r.task, [...(byTask.get(r.task) ?? []), r]);
+    const board = taskBoard(hit.tasks, active).map((t) => {
+      const tr = byTask.get(t.id) ?? [];
+      return {
+        ...t,
+        gates: gateStatus(tr, required).map((g) => ({
+          gate: g.gate,
+          verdict: g.verdict,
+          fails: g.fails,
+          runs: g.runs,
+        })),
+        gated: gatesSatisfied(tr, required),
+      };
+    });
+    return { source, required, tasks: board };
   }
 
   rulesFor(repoRoot: string | null): RulesConfig {

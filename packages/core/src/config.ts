@@ -44,11 +44,16 @@ export interface SwarmConfig {
     /** Markdown file (relative to the repo root) whose `ID | Task | Depends | Status` tables are the backlog. */
     source: string | null;
   };
+  gates: {
+    /** Gates every task must pass before it counts as done, e.g. ["review", "tests"]. */
+    required: string[];
+  };
 }
 
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null },
+  gates: { required: [] },
   rules: {
     shared_tree: "ask",
     destructive_git: "ask",

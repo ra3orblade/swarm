@@ -37,6 +37,12 @@ claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a 
 # Ports agents must not kill/free (dev servers, databases, the daemon itself).
 ports = []                # e.g. [3000, 5432, 7777]
 
+[gates]
+# Verification gates every task must pass before it counts as done. Recorded with
+# `swarm gate record <task> <gate> pass|fail --rubric "…"` (or the swarm_gate_record MCP tool);
+# the latest run per gate decides, a run without a rubric is rejected, a fail opens an incident.
+# required = ["review", "tests"]
+
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
 # tables are the task list. Feeds the Board's Tasks section, `swarm tasks` and `swarm_next_task`.

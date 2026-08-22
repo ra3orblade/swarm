@@ -6,6 +6,7 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 - **Leases renew themselves.** A session working inside a claimed worktree extends the lease on any activity (hook or transcript growth) once it is past half-way — no more `swarm renew` in a long session. Expired leases whose worktree still holds uncommitted or unpushed work are marked **Orphaned** within a minute and open an `orphaned_claim` incident; nothing is removed automatically (M1.2).
+- **Gates** — verification runs recorded against a task: `swarm gate record M1.2 review pass --rubric "tests green, error paths read"` (or `swarm_gate_record` over MCP). A run without a rubric is rejected; the latest run per gate decides; failed runs are never deleted and open a `gate_failed` incident. `.swarm.toml [gates] required = ["review"]` declares what every task must pass; the Board's Tasks grid shows ✓ / ✗ / — per gate and a **Recent gates** section lists the runs (M2.2).
 - Dashboard deep links: `?view=board&project=<id>&session=<id>`.
 - `tools/screens.ts` re-captures the README / website screenshots with Playwright at 2×; the website has a screenshot carousel with a lightbox.
 

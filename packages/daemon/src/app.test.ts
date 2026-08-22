@@ -270,6 +270,54 @@ describe("auto-renew + orphan detection (M1.2)", () => {
   });
 });
 
+describe("gates (M2.2)", () => {
+  it("rejects a run without a rubric, latest run wins, a fail opens an incident", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-gates-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[gates]\nrequired = ["review", "tests"]\n`);
+    const p = store.resolveProject(dir, true);
+    const post = (body: unknown) =>
+      app.request("/v1/gates", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    let r = await post({ projectId: p.id, task: "M1", gate: "review", verdict: "pass" });
+    expect(r.status).toBe(400);
+    r = await post({
+      projectId: p.id,
+      task: "M1",
+      gate: "review",
+      verdict: "fail",
+      rubric: "read the diff, found an unhandled error path",
+    });
+    expect(r.status).toBe(201);
+    expect((store.incidents(5)[0] as { rule?: string }).rule).toBe("gate_failed");
+    r = await post({
+      projectId: p.id,
+      task: "M1",
+      gate: "review",
+      verdict: "pass",
+      rubric: "error path fixed, diff re-read",
+      evidence: "PR #12",
+    });
+    expect(r.status).toBe(201);
+    const g = (await (await app.request(`/v1/gates?project=${p.id}&task=M1`)).json()) as {
+      required: string[];
+      runs: unknown[];
+      status: Array<{ gate: string; verdict: string | null; runs: number; fails: number; latest: unknown }>;
+    };
+    expect(g.required).toEqual(["review", "tests"]);
+    expect(g.runs.length).toBe(2); // the fail is kept
+    expect(g.status).toEqual([
+      { gate: "review", verdict: "pass", latest: expect.anything(), runs: 2, fails: 1 },
+      { gate: "tests", verdict: null, latest: null, runs: 0, fails: 0 },
+    ]);
+  });
+});
+
 describe("process registry (M1.4 Phase 2)", () => {
   it("allocates a port, registers a pid, lists while alive, stops by pid only", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
