@@ -90,7 +90,7 @@ async function refresh() {
   if (state.view === "prs") state.prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
   render();
 }
-const VIEWS = ["fleet", "board", "prs", "timeline", "spend"];
+const VIEWS = ["fleet", "board", "prs", "timeline", "spend", "stats"];
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -106,6 +106,7 @@ function render() {
   renderHeader();
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
+  else if (state.view === "stats") renderStats();
   else if (state.view === "timeline") renderTimeline();
   else if (state.view === "board") renderBoard();
   else if (state.view === "prs") renderPRs();
@@ -342,7 +343,7 @@ function renderSpend() {
   // last N days, zero-filled, stacked by agent
   const N = state.spendDays ?? 14;
   const days = [];
-  for (let i = N - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+  for (let i = N - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(viz.localDay(d)); }
   const inRange = sp.daily.filter((d) => inSel(d) && d.day >= days[0]);
   const agents = [...new Set(inRange.map((d) => d.agent))].sort(viz.agentSort);
   const series = Object.fromEntries(agents.map((a) => [a, days.map((day) => sumBy(inRange.filter((d) => d.day === day && d.agent === a), (d) => d.cost))]));
@@ -384,6 +385,115 @@ function renderSpend() {
      <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
      <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
+}
+
+// ---------- stats
+// Heavier than the 5s snapshot, so it has its own endpoint: fetched when the view opens (per project
+// scope), then refreshed at most every 30s while the view stays open.
+const statsCache = { key: null, at: 0, data: null, busy: false };
+async function loadStats() {
+  const key = state.sel ?? "";
+  if (statsCache.busy || (statsCache.key === key && Date.now() - statsCache.at < 30_000)) return;
+  statsCache.busy = true;
+  try {
+    const data = await (await fetch(`/v1/stats${key ? `?project=${encodeURIComponent(key)}` : ""}`)).json();
+    Object.assign(statsCache, { key, at: Date.now(), data });
+    if (state.view === "stats" && !state.session) renderStats();
+  } finally { statsCache.busy = false; }
+}
+const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(Math.round(n)));
+const toolName = (t) => String(t).replace(/^mcp__([^_]+(?:_[^_]+)*)__/, "$1 · ").replace(/^plugin_/, "");
+const pct = (a, b) => (b ? `${((100 * a) / b).toFixed(0)}%` : "—");
+const dur = (ms) => (ms < 3600e3 ? `${Math.round(ms / 60e3)}m` : ms < 86400e3 ? `${(ms / 3600e3).toFixed(1)}h` : `${(ms / 86400e3).toFixed(1)}d`);
+function renderStats() {
+  loadStats();
+  const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
+  const scope = state.sel ? esc(projName(state.sel)) : "all projects";
+  if (!st) { $("#main").innerHTML = `<h2>Stats <span>${scope}</span></h2><div class="empty">${PX.clock()}Crunching numbers…</div>`; return; }
+  const T = st.totals;
+  if (!T.turns) { $("#main").innerHTML = `<h2>Stats <span>${scope}</span></h2><div class="empty">${PX.clock()}No turns recorded yet. Numbers appear once a session is transcribed.</div>`; return; }
+  const N = state.statsDays ?? 90;
+  const days = [];
+  for (let i = N - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(viz.localDay(d)); }
+  const byDay = Object.fromEntries(st.daily.map((d) => [d.day, d]));
+  const pick = (k) => days.map((d) => byDay[d]?.[k] ?? 0);
+  const rangeChips = `<span class="seg" style="margin-left:auto">${[30, 90, 365].map((n) => `<a href="#" class="${N === n ? "on" : ""}" data-sdays="${n}">${n}d</a>`).join("")}</span>`;
+  const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+
+  // ---- headline numbers
+  const allTok = T.input + T.cacheWrite + T.cacheRead + T.output;
+  const since = T.firstTs ? new Date(T.firstTs) : null;
+  const spanDays = since ? Math.max(1, Math.round((Date.now() - since) / 86400e3)) : 1;
+  const activeDays = st.daily.filter((d) => d.turns).map((d) => d.day);
+  const sk = viz.streaks(activeDays);
+  const costDays = Object.fromEntries(st.daily.map((d) => [d.day, d.cost ?? 0]));
+  const kpis =
+    kpi("all-time spend", usd(T.cost), `since ${since ? since.toISOString().slice(0, 10) : "—"} · ${usd((T.cost ?? 0) / spanDays)}/day`) +
+    kpi("tokens processed", big(allTok), `${big(T.output)} out · ${big(T.cacheRead)} cache read`) +
+    kpi("turns", big(T.turns), `${T.sessions} sessions · ${big(T.toolCalls)} tool calls`) +
+    kpi("streak", `${sk.current}d`, `longest ${sk.longest}d · ${activeDays.length} active day${activeDays.length === 1 ? "" : "s"} this year`);
+
+  // ---- fun equivalents (a token ≈ 0.75 words; a novel ≈ 90k words; War and Peace ≈ 587k words)
+  const words = T.output * 0.75;
+  const novels = words / 90_000;
+  const ctxWords = (T.input + T.cacheRead + T.cacheWrite) * 0.75;
+  const wp = ctxWords / 587_000;
+  const coffees = (T.cost ?? 0) / 5;
+  const fun =
+    kpi("words written", big(words), novels >= 1 ? `≈ ${novels.toFixed(novels < 10 ? 1 : 0)} novels` : `≈ ${(words / 300).toFixed(0)} pages`) +
+    kpi("context re-read", `${big(ctxWords)} words`, wp >= 1 ? `≈ ${wp.toFixed(wp < 10 ? 1 : 0)}× War and Peace` : `≈ ${(ctxWords / 300).toFixed(0)} pages`) +
+    kpi("thinking share", pct(T.thinking, T.output), `${tok(T.thinking)} reasoning tokens · cache hit ${pct(T.cacheRead, T.input + T.cacheRead + T.cacheWrite)}`) +
+    kpi("in coffee", `${coffees >= 100 ? coffees.toFixed(0) : coffees.toFixed(1)} ☕`, `at $5 a cup · ${T.subagents} subagents spawned`);
+
+  // ---- charts
+  const classColor = { output: "var(--acc-5)", input: "var(--acc-3)", cacheWrite: "var(--acc-2)", cacheRead: "var(--acc-1)" };
+  const className = { output: "output", input: "input", cacheWrite: "cache write", cacheRead: "cache read" };
+  const order = ["output", "input", "cacheWrite", "cacheRead"];
+  const tokOpts = { fmt: tok, color: (k) => classColor[k], name: (k) => className[k], sort: (a, b) => order.indexOf(a) - order.indexOf(b) };
+  const tokSeries = Object.fromEntries(order.map((k) => [k, pick(k)]));
+  let acc = 0;
+  const cum = days.map((d) => (acc += byDay[d]?.cost ?? 0));
+  const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"));
+  const hourSeries = { turns: hours.map((_, h) => st.byHour.find((x) => x.hour === h)?.turns ?? 0) };
+  const peakHour = hourSeries.turns.indexOf(Math.max(...hourSeries.turns));
+  const hourOpts = { fmt: (n) => String(Math.round(n)), color: () => "var(--acc)", name: () => "turns", label: (h) => (Number(h) % 3 ? "" : h), sort: () => 0 };
+  const models = st.byModel.filter((m) => m.model).map((m) => ({ label: `${model(m.model)} · ${m.turns} turns`, v: m.output }));
+  const comp = [{ label: "cache read", v: T.cacheRead }, { label: "cache write", v: T.cacheWrite }, { label: "input", v: T.input }, { label: "output", v: T.output }];
+
+  // ---- records
+  const R = st.records;
+  const sessLink = (r) => (r ? `<a href="#" data-s="${r.id}">${esc(r.title || r.id.slice(0, 8))}</a>` : "—");
+  const rec = (l, v, d) => `<div class="rec"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const wall = R.longestWallSession ? new Date(R.longestWallSession.lastSeenAt) - new Date(R.longestWallSession.startedAt) : 0;
+  const bt = R.biggestTurn;
+  const records =
+    rec("costliest session", usd(R.costliestSession?.cost), sessLink(R.costliestSession)) +
+    rec("most turns in a session", R.longestSession ? String(R.longestSession.turns) : "—", sessLink(R.longestSession)) +
+    rec("longest session", wall > 0 ? dur(wall) : "—", sessLink(R.longestWallSession)) +
+    rec("biggest single turn", bt ? `${tok(bt.output)} out` : "—", bt ? `${esc(model(bt.model))} · <a href="#" data-s="${bt.sessionId}">${esc(bt.title || bt.sessionId.slice(0, 8))}</a>` : "—") +
+    rec("busiest day", R.busiestDay ? usd(R.busiestDay.cost) : "—", R.busiestDay ? `${R.busiestDay.day} · ${R.busiestDay.turns} turns` : "—") +
+    rec("favourite hour", `${hours[peakHour]}:00`, `${hourSeries.turns[peakHour]} turns in that hour, all time`);
+
+  $("#main").innerHTML =
+    `<h2>Stats <span>${scope}</span>${rangeChips}</h2>
+     <div class="kpis">${kpis}</div>
+     <div class="kpis">${fun}</div>
+     <div class="chart-card"><h3>Activity <span>cost per day · last 52 weeks</span></h3>${viz.calendar(costDays)}</div>
+     <div class="chart-card"><h3>Tokens per day <span>last ${N} days · by class</span></h3>${viz.stackedColumns(days, tokSeries, tokOpts)}${viz.legend(order, tokOpts.name, tokOpts.color)}</div>
+     <div class="cols">
+       <div class="chart-card" style="margin:0"><h3>Output tokens per day <span>last ${N} days</span></h3>${viz.stackedColumns(days, { output: pick("output") }, tokOpts)}</div>
+       <div class="chart-card" style="margin:0"><h3>Cumulative spend <span>last ${N} days</span></h3>${viz.line(days, cum)}</div>
+     </div>
+     <div class="cols mt-sec">
+       <div class="chart-card" style="margin:0"><h3>Turns by hour of day <span>all time · local</span></h3>${viz.stackedColumns(hours, hourSeries, hourOpts)}</div>
+       <div class="chart-card" style="margin:0"><h3>Model mix <span>by output tokens · all time</span></h3>${viz.compositionBar(models)}
+         <h3 style="margin-top:14px">Token composition <span>all time</span></h3>${viz.compositionBar(comp)}</div>
+     </div>
+     <div class="cols mt-sec">
+       <div class="chart-card" style="margin:0"><h3>Tool leaderboard <span>calls · all time</span></h3>${st.tools.length ? viz.hbars(st.tools.map(([k, v]) => [toolName(k), v])) : '<div class="dim">no tool calls yet</div>'}</div>
+       <div><h2 style="margin-top:0">Records</h2><div class="records">${records}</div></div>
+     </div>
+     <p class="dim" style="margin-top:var(--gap-sec)">Word counts assume ~0.75 words per token; a novel is 90k words. Costs use list prices, as on Spend. ${pct(T.sidechainTurns, T.turns)} of turns came from subagents.</p>`;
 }
 
 // ---------- timeline
@@ -460,6 +570,7 @@ function menuSpec(kind, d) {
       { label: "Show sessions", icon: "squares-four", caption: live ? `${live} live` : undefined, run: () => { state.sel = p.id; state.view = "fleet"; state.session = null; render(); } },
       { label: "Show in Timeline", icon: "clock-counter-clockwise", run: () => { state.sel = p.id; state.view = "timeline"; state.session = null; render(); } },
       { label: "Spend", icon: "coins", run: () => { state.sel = p.id; state.view = "spend"; state.session = null; render(); } },
+      { label: "Stats", icon: "chart-bar", run: () => { state.sel = p.id; state.view = "stats"; state.session = null; render(); } },
       { divider: true },
       p.discovered ? { label: "Pin project", icon: "push-pin", run: () => pinProject(p.id, true) } : { label: "Unpin project", icon: "push-pin-slash", run: () => pinProject(p.id, false) },
       { label: "Copy path", icon: "copy", caption: tail(p.root), run: () => copy(p.root) },
@@ -510,13 +621,14 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
+  const t = ev.target.closest("[data-menu],#settings,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return render(); }
   if (t.dataset.days) { ev.preventDefault(); state.spendDays = Number(t.dataset.days); return render(); }
+  if (t.dataset.sdays) { ev.preventDefault(); state.statsDays = Number(t.dataset.sdays); return render(); }
   if (t.dataset.release || t.dataset.forcerelease) {
     ev.preventDefault();
     const force = Boolean(t.dataset.forcerelease);
@@ -542,7 +654,7 @@ document.addEventListener("click", async (ev) => {
   }
   if (t.dataset.resrelease !== undefined) {
     ev.preventDefault();
-    const q = new URLSearchParams(); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
+    const q = new URLSearchParams({ force: "1" }); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
     return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
   }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return render(); }

@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { swarmHome } from "@swarm/client";
 import {
   acquireRefusalMessage,
   canAcquire,
@@ -26,6 +27,8 @@ import {
   type GuardDecision,
   guardBash,
   isActive,
+  isAliveHolding,
+  isTrackedPid,
   type LeaseClaim,
   type LiveSession,
   type LogParseResult,
@@ -56,8 +59,6 @@ import {
   worktreeAdd,
   worktreeRemove,
 } from "./git";
-
-export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
 
 export interface SessionView {
   id: string;
@@ -133,7 +134,7 @@ export class Store {
   private listeners = new Set<(e: SwarmEvent) => void>();
   private wtCache = new Map<string, { v: Worktree[]; t: number }>();
 
-  constructor(home = SWARM_HOME) {
+  constructor(home = swarmHome()) {
     mkdirSync(home, { recursive: true });
     this.home = home;
     this.db = new Database(join(home, "swarm.db"));
@@ -142,6 +143,51 @@ export class Store {
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.migrateProjectsJson(join(home, "projects.json"));
+    this.reconcileMovedProjects();
+  }
+
+  /**
+   * A repo renamed or moved on disk gets a new id (ids hash the git dir path), leaving the old
+   * row — often pinned, with history — pointing at a root that no longer exists, next to a fresh
+   * discovered row with the same name. Fold the stale row into the live one: history moves over,
+   * the pin and custom name survive, one sidebar entry remains.
+   */
+  reconcileMovedProjects() {
+    const all = this.projects();
+    for (const stale of all) {
+      if (existsSync(stale.root)) continue;
+      const live = all.filter(
+        (p) => p.id !== stale.id && p.name === stale.name && existsSync(p.root),
+      );
+      if (live.length !== 1) continue; // ambiguous → leave it for the user
+      this.mergeProject(stale.id, (live[0] as Project).id);
+    }
+  }
+
+  /** Repoint everything keyed by `from` onto `into`, carrying over the pin, then drop `from`. */
+  mergeProject(from: string, into: string) {
+    const src = this.project(from);
+    const dst = this.project(into);
+    if (!src || !dst || from === into) return false;
+    this.db.transaction(() => {
+      for (const t of ["sessions", "events"])
+        this.db.prepare(`UPDATE ${t} SET project_id = ? WHERE project_id = ?`).run(into, from);
+      // keyed by (name|task, project_id): keep the live row on conflict
+      this.db
+        .prepare("UPDATE OR IGNORE resources SET project_id = ? WHERE project_id = ?")
+        .run(into, from);
+      this.db
+        .prepare("UPDATE OR IGNORE claims SET project_id = ? WHERE project_id = ?")
+        .run(into, from);
+      this.db.prepare("DELETE FROM resources WHERE project_id = ?").run(from);
+      this.db.prepare("DELETE FROM claims WHERE project_id = ?").run(from);
+      if (!src.discovered)
+        this.db
+          .prepare("UPDATE projects SET discovered = 0, name = ? WHERE id = ?")
+          .run(src.name, into);
+      this.db.prepare("DELETE FROM projects WHERE id = ?").run(from);
+    })();
+    return true;
   }
 
   /** Add a column to an existing table if a prior schema version lacked it. */
@@ -328,7 +374,8 @@ export class Store {
           "INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .run(p.id, p.root, p.commonDir, p.name, p.discovered ? 1 : 0, p.createdAt);
-      return p;
+      this.reconcileMovedProjects();
+      return this.project(p.id) ?? p;
     }
     if (explicit) {
       this.db
@@ -1063,7 +1110,7 @@ export class Store {
       }>;
     const daily = this.db
       .prepare(
-        `SELECT substr(t.ts, 1, 10) AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
+        `SELECT date(t.ts, 'localtime') AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
                 SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
          FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-90 days') GROUP BY day, projectId, agent ORDER BY day`,
       )
@@ -1098,6 +1145,116 @@ export class Store {
       byAgentToday: q("WHERE t.ts >= ?", "COALESCE(s.agent, 'claude-code')"),
       byAgentAll: q("WHERE ? IS NOT NULL", "COALESCE(s.agent, 'claude-code')"),
       daily,
+    };
+  }
+
+  /**
+   * Stats page: all-time totals, 365-day daily token classes, hour-of-day profile, model mix,
+   * tool leaderboard and record holders. Optionally scoped to one project.
+   */
+  stats(projectId?: string) {
+    const scope = projectId ? "s.project_id = ?" : "? IS NULL";
+    const arg = projectId ?? null;
+    const totals = this.db
+      .prepare(
+        `SELECT COUNT(t.id) AS turns, COUNT(DISTINCT t.session_id) AS sessions,
+                COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
+                COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read,
+                COALESCE(SUM(t.thinking),0) AS thinking, SUM(t.cost_usd) AS cost,
+                COALESCE(SUM(t.sidechain),0) AS sidechain, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope}`,
+      )
+      .get(arg) as Record<string, number | string | null>;
+    const sess = this.db
+      .prepare(
+        `SELECT COUNT(*) AS sessions, COALESCE(SUM(s.tool_calls),0) AS tool_calls, COALESCE(SUM(s.subagents),0) AS subagents,
+                SUM(s.kind = 'subagent') AS subagent_sessions
+         FROM sessions s WHERE ${scope}`,
+      )
+      .get(arg) as Record<string, number>;
+    const daily = this.db
+      .prepare(
+        `SELECT date(t.ts, 'localtime') AS day, SUM(t.input) AS input, SUM(t.output) AS output, SUM(t.cache_write) AS cacheWrite,
+                SUM(t.cache_read) AS cacheRead, SUM(t.thinking) AS thinking, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} AND t.ts > datetime('now', '-366 days') GROUP BY day ORDER BY day`,
+      )
+      .all(arg) as Array<{
+      day: string;
+      input: number;
+      output: number;
+      cacheWrite: number;
+      cacheRead: number;
+      thinking: number;
+      cost: number | null;
+      turns: number;
+    }>;
+    const byHour = this.db
+      .prepare(
+        `SELECT CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour, COUNT(*) AS turns, SUM(t.output) AS output, SUM(t.cost_usd) AS cost
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} GROUP BY hour ORDER BY hour`,
+      )
+      .all(arg) as Array<{ hour: number; turns: number; output: number; cost: number | null }>;
+    const byModel = this.db
+      .prepare(
+        `SELECT t.model AS model, COUNT(*) AS turns, SUM(t.output) AS output, SUM(t.cost_usd) AS cost
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} GROUP BY t.model ORDER BY output DESC`,
+      )
+      .all(arg) as Array<{ model: string; turns: number; output: number; cost: number | null }>;
+    const tools: Record<string, number> = {};
+    for (const r of this.db
+      .prepare(`SELECT s.tool_counts AS tc FROM sessions s WHERE ${scope}`)
+      .all(arg) as Array<{ tc: string }>) {
+      for (const [k, v] of Object.entries(JSON.parse(r.tc || "{}") as Record<string, number>))
+        tools[k] = (tools[k] ?? 0) + v;
+    }
+    const sessionRow = (order: string) =>
+      this.db
+        .prepare(
+          `SELECT s.id, s.title, s.project_id AS projectId, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt,
+                  COUNT(t.id) AS turns, SUM(t.cost_usd) AS cost, SUM(t.output) AS output, s.tool_calls AS toolCalls
+           FROM sessions s JOIN turns t ON t.session_id = s.id WHERE ${scope} AND s.kind != 'subagent'
+           GROUP BY s.id ORDER BY ${order} DESC LIMIT 1`,
+        )
+        .get(arg) as Record<string, unknown> | null;
+    const biggestTurn = this.db
+      .prepare(
+        `SELECT t.session_id AS sessionId, s.title, t.ts, t.output, t.thinking, t.cost_usd AS cost, t.model
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${scope} ORDER BY t.output DESC LIMIT 1`,
+      )
+      .get(arg) as Record<string, unknown> | null;
+    const busiestDay =
+      daily.slice().sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0) || b.turns - a.turns)[0] ?? null;
+    return {
+      totals: {
+        turns: Number(totals.turns ?? 0),
+        sessions: Number(sess.sessions ?? 0),
+        sessionsWithTurns: Number(totals.sessions ?? 0),
+        subagentSessions: Number(sess.subagent_sessions ?? 0),
+        toolCalls: Number(sess.tool_calls ?? 0),
+        subagents: Number(sess.subagents ?? 0),
+        sidechainTurns: Number(totals.sidechain ?? 0),
+        input: Number(totals.input ?? 0),
+        output: Number(totals.output ?? 0),
+        cacheWrite: Number(totals.cache_write ?? 0),
+        cacheRead: Number(totals.cache_read ?? 0),
+        thinking: Number(totals.thinking ?? 0),
+        cost: totals.cost == null ? null : Number(totals.cost),
+        firstTs: (totals.first_ts as string | null) ?? null,
+        lastTs: (totals.last_ts as string | null) ?? null,
+      },
+      daily,
+      byHour,
+      byModel,
+      tools: Object.entries(tools)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15),
+      records: {
+        costliestSession: sessionRow("cost"),
+        longestSession: sessionRow("turns"),
+        longestWallSession: sessionRow("(julianday(s.last_seen_at) - julianday(s.started_at))"),
+        biggestTurn,
+        busiestDay,
+      },
     };
   }
 
@@ -1140,7 +1297,7 @@ export class Store {
       projectId: (r.project_id as string) || null,
       owner: r.owner as string,
       sessionId: (r.session_id as string) || null,
-      pid: (r.pid as number) ?? null,
+      pid: isTrackedPid(r.pid as number) ? (r.pid as number) : null,
       port: (r.port as number) ?? null,
       acquiredAt: r.acquired_at as string,
       expiresAt: (r.expires_at as string) || null,
@@ -1164,39 +1321,46 @@ export class Store {
 
   /** Ports of live holdings — merged into the protected-ports rule automatically. */
   heldPorts(): number[] {
-    return this.resources()
-      .map((r) => r.port)
-      .filter((p): p is number => p != null);
+    // Hot path (every PreToolUse hook): one indexed read, no liveness probes — stale holdings
+    // are swept by the periodic reap and lazily on acquire.
+    return (
+      this.db
+        .prepare("SELECT port FROM resources WHERE released = 0 AND port IS NOT NULL")
+        .all() as Array<{ port: number }>
+    ).map((r) => r.port);
   }
 
-  /** Dead pid / expired lease → release + record the reap. */
-  reapResources() {
+  /** Dead pid / expired lease → release + record the reap. Returns the number reaped. */
+  reapResources(): number {
     const rows = this.db.prepare("SELECT * FROM resources WHERE released = 0").all() as Record<
       string,
       unknown
     >[];
     const now = Date.now();
-    for (const raw of rows) {
-      const r = this.rowToResource(raw);
-      const alive =
-        r.pid != null
-          ? Store.pidAlive(r.pid)
-          : r.expiresAt != null
-            ? new Date(r.expiresAt).getTime() > now
-            : true;
-      if (!alive) {
-        this.db
-          .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
-          .run(r.name, r.projectId ?? "");
-        this.append({
-          ts: new Date().toISOString(),
-          type: "resource.reaped",
-          projectId: r.projectId ?? "p_unknown",
-          sessionId: r.sessionId,
-          payload: { name: r.name, owner: r.owner, pid: r.pid, port: r.port },
-        });
-      }
-    }
+    let n = 0;
+    for (const raw of rows) if (this.reapIfDead(this.rowToResource(raw), now)) n++;
+    return n;
+  }
+
+  private reapIfDead(r: Resource, now = Date.now()): boolean {
+    if (r.released || isAliveHolding(r, now, Store.pidAlive)) return false;
+    this.db
+      .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
+      .run(r.name, r.projectId ?? "");
+    this.append({
+      ts: new Date().toISOString(),
+      type: "resource.reaped",
+      projectId: r.projectId ?? "p_unknown",
+      sessionId: r.sessionId,
+      payload: { name: r.name, owner: r.owner, pid: r.pid, port: r.port },
+    });
+    return true;
+  }
+
+  /** Only session ids the ledger already knows — anything else would mint a phantom session. */
+  private knownSession(id: string | null | undefined): string | null {
+    if (!id) return null;
+    return this.db.prepare("SELECT 1 FROM sessions WHERE id = ?").get(id) ? id : null;
   }
 
   acquireResource(input: {
@@ -1213,22 +1377,24 @@ export class Store {
     const raw = this.db
       .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ?")
       .get(input.name, key) as Record<string, unknown> | undefined;
-    const existing = raw ? this.rowToResource(raw) : null;
+    let existing = raw ? this.rowToResource(raw) : null;
+    if (existing && this.reapIfDead(existing)) existing = null; // lazy reap of this row only
     const d = canAcquire(existing, { owner: input.owner }, Date.now(), Store.pidAlive);
     if (!d.ok) return { ok: false, reason: acquireRefusalMessage(d.holder) };
+    const pid = isTrackedPid(input.pid) ? input.pid : null;
     const expiresAt =
-      input.pid != null
+      pid != null
         ? null
         : new Date(
             Date.now() + (input.leaseMinutes ?? DEFAULT_RESOURCE_LEASE_MINUTES) * 60_000,
           ).toISOString();
     const resource: Resource = {
       name: input.name,
-      kind: input.kind ?? (input.port != null ? "port" : input.pid != null ? "process" : "custom"),
+      kind: input.kind ?? (input.port != null ? "port" : pid != null ? "process" : "custom"),
       projectId: input.projectId ?? null,
       owner: input.owner,
-      sessionId: input.sessionId ?? null,
-      pid: input.pid ?? null,
+      sessionId: this.knownSession(input.sessionId),
+      pid,
       port: input.port ?? null,
       acquiredAt: new Date().toISOString(),
       expiresAt,
@@ -1269,18 +1435,25 @@ export class Store {
     return { ok: true, resource };
   }
 
+  /**
+   * Fail-closed like claims: only the holder may release, unless `force` (a human door —
+   * dashboard or `--force`) overrides. The override is recorded as an incident.
+   */
   releaseResource(
     name: string,
     projectId?: string | null,
     owner?: string,
+    force = false,
   ): { ok: boolean; reason?: string } {
     const raw = this.db
       .prepare("SELECT * FROM resources WHERE name = ? AND project_id = ? AND released = 0")
       .get(name, projectId ?? "") as Record<string, unknown> | undefined;
     if (!raw) return { ok: false, reason: "not held" };
     const r = this.rowToResource(raw);
-    if (owner && r.owner !== owner)
-      return { ok: false, reason: `held by ${r.owner}, not ${owner}` };
+    if (!force) {
+      if (!owner) return { ok: false, reason: `held by ${r.owner}; pass owner or force` };
+      if (r.owner !== owner) return { ok: false, reason: `held by ${r.owner}, not ${owner}` };
+    }
     this.db
       .prepare("UPDATE resources SET released = 1 WHERE name = ? AND project_id = ?")
       .run(name, projectId ?? "");
@@ -1289,7 +1462,12 @@ export class Store {
       type: "resource.released",
       projectId: r.projectId ?? "p_unknown",
       sessionId: r.sessionId,
-      payload: { name: r.name, owner: r.owner },
+      payload: {
+        name: r.name,
+        owner: r.owner,
+        by: owner ?? null,
+        forced: force && owner !== r.owner,
+      },
     });
     return { ok: true };
   }

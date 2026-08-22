@@ -11,7 +11,8 @@ sessions      id (CC session id), project_id, kind (interactive|spawned|subagent
 claims        id, project_id, task, owner_session_id, owner_label, worktree, branch,
               acquired_at, expires_at, released_at, state (held|expired|released|reaped|orphaned)
 handoffs      id, claim_id, done, remaining, files_json, verify, created_at
-resources     project_id, name (web|worker|db|…), holder_session_id, acquired_at, expires_at
+resources     name, project_id, kind (port|process|custom), owner, session_id, pid, port,
+              acquired_at, expires_at, released
 processes     pid, start_time, project_id, session_id, kind, port, cwd, cmd_label, started_at, ended_at
 gates         id, project_id, task, gate, verdict (pass|fail), rubric, evidence, session_id, created_at
 events        seq, ts, project_id, session_id, type, payload_json        -- append only

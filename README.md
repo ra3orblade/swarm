@@ -23,6 +23,7 @@ The rules teams write as prose in `CLAUDE.md` ("never edit in the shared tree", 
 - **Fleet view** — every live session across every project: title, model, current tool call, tokens, context size, cost, branch.
 - **Session view** — a live stream of an agent's reasoning and tool calls, with a stats panel (cost, % context cached, thinking tokens, tool histogram, subagents).
 - **Spend** — cost by project and by model, today and all-time, with a 14-day trend.
+- **Stats** — the fun numbers: all-time tokens, spend, turns and streaks, an activity calendar, tokens per day, cumulative spend, hour-of-day profile, model mix, tool leaderboard and record holders — plus what it all adds up to in novels and coffee.
 - **Worktrees** — every git worktree per repo with branch, dirty/unpushed state, and which session is working inside it — so orphaned work is visible.
 - **Zero instrumentation** — it reads Claude Code's own hooks and transcripts. Nothing to add to your repos.
 

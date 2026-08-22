@@ -3,9 +3,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "./bins";
 
-export const SWARM_HOME = process.env.SWARM_HOME ?? join(homedir(), ".swarm");
+export function swarmHome(): string {
+  return process.env.SWARM_HOME ?? join(homedir(), ".swarm");
+}
 export const DEFAULT_PORT = Number(process.env.SWARM_PORT ?? 7777);
-const INFO_FILE = join(SWARM_HOME, "daemon.json");
+const infoFile = () => join(swarmHome(), "daemon.json");
 
 export interface DaemonInfo {
   port: number;
@@ -16,9 +18,10 @@ export interface DaemonInfo {
 }
 
 export function readDaemonInfo(): DaemonInfo | null {
-  if (!existsSync(INFO_FILE)) return null;
+  const file = infoFile();
+  if (!existsSync(file)) return null;
   try {
-    return JSON.parse(readFileSync(INFO_FILE, "utf8")) as DaemonInfo;
+    return JSON.parse(readFileSync(file, "utf8")) as DaemonInfo;
   } catch {
     return null;
   }
@@ -26,14 +29,15 @@ export function readDaemonInfo(): DaemonInfo | null {
 
 /** Called by the daemon on boot. */
 export function writeDaemonInfo(info: Omit<DaemonInfo, "url">): DaemonInfo {
-  mkdirSync(SWARM_HOME, { recursive: true });
+  const home = swarmHome();
+  mkdirSync(home, { recursive: true });
   const full = { ...info, url: `http://127.0.0.1:${info.port}` };
-  writeFileSync(INFO_FILE, `${JSON.stringify(full, null, 2)}\n`);
+  writeFileSync(join(home, "daemon.json"), `${JSON.stringify(full, null, 2)}\n`);
   return full;
 }
 
 export function clearDaemonInfo() {
-  rmSync(INFO_FILE, { force: true });
+  rmSync(infoFile(), { force: true });
 }
 
 function alive(pid: number): boolean {

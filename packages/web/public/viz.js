@@ -21,8 +21,8 @@ function legend(keys, name = agentName, color = agentColor) {
  * Stacked column chart. days: ["2026-08-07", …]; series: { key: number[] } aligned to days.
  * Thin columns, 2px surface gaps between segments, baseline, hover tooltip per column.
  */
-function stackedColumns(days, series, { height = 150, fmt = fmtUsd } = {}) {
-  const keys = Object.keys(series).sort(agentSort);
+function stackedColumns(days, series, { height = 150, fmt = fmtUsd, color = agentColor, name = agentName, sort = agentSort, label = (d) => d.slice(5) } = {}) {
+  const keys = Object.keys(series).sort(sort);
   const totals = days.map((_, i) => keys.reduce((a, k) => a + (series[k][i] ?? 0), 0));
   const max = Math.max(1e-9, ...totals);
   const W = 1000, H = height, padB = 18, padT = 6, plotH = H - padB - padT;
@@ -41,11 +41,11 @@ function stackedColumns(days, series, { height = 150, fmt = fmtUsd } = {}) {
         acc += v;
         const h = Math.max(0, y0 - y1 - (acc - v > 0 ? 2 : 0));
         const top = acc === totals[i] ? 3 : 0; // round only the topmost data-end
-        return `<path d="${roundTop(x, y1, bw, h, top)}" fill="${agentColor(k)}"/>`;
+        return `<path d="${roundTop(x, y1, bw, h, top)}" fill="${color(k)}"/>`;
       })
       .join("");
-    const tip = `<b>${d}</b><br>${keys.filter((k) => series[k][i]).map((k) => `<i style="background:${agentColor(k)}"></i>${agentName(k)} ${fmt(series[k][i])}`).join("<br>")}<br><span>total ${fmt(totals[i])}</span>`;
-    const lbl = n <= 16 || i % Math.ceil(n / 16) === 0 ? `<text x="${x + bw / 2}" y="${H - 4}" class="ax mid">${d.slice(5)}</text>` : "";
+    const tip = `<b>${d}</b><br>${keys.filter((k) => series[k][i]).map((k) => `<i style="background:${color(k)}"></i>${name(k)} ${fmt(series[k][i])}`).join("<br>")}${keys.length > 1 ? `<br><span>total ${fmt(totals[i])}</span>` : ""}`;
+    const lbl = n <= 16 || i % Math.ceil(n / 16) === 0 ? `<text x="${x + bw / 2}" y="${H - 4}" class="ax mid">${label(d)}</text>` : "";
     return `<g class="col" data-tip="${attr(tip)}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/>${segs}${lbl}</g>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="chart" style="height:${H}px">${grid}<line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" class="base"/>${cols.join("")}</svg>`;
@@ -86,7 +86,7 @@ function compositionBar(parts, { fmt = fmtTok } = {}) {
   const segs = parts
     .map((p, i) => (p.v ? `<i data-tip="<b>${attr(p.label)}</b><br>${fmt(p.v)} · ${((100 * p.v) / total).toFixed(1)}%" style="flex:${p.v};background:${steps[i] ?? steps.at(-1)}"></i>` : ""))
     .join("");
-  const lg = parts.filter((p) => p.v).map((p, i) => `<span><i style="background:${steps[parts.indexOf(p)] ?? steps.at(-1)}"></i>${attr(p.label)} <em>${((100 * p.v) / total).toFixed(0)}%</em></span>`).join("");
+  const lg = parts.filter((p) => p.v).map((p, i) => `<span><i style="background:${steps[parts.indexOf(p)] ?? steps.at(-1)}"></i>${attr(p.label)} <em>${(100 * p.v) / total < 1 ? "<1" : ((100 * p.v) / total).toFixed(0)}%</em></span>`).join("");
   return `<div class="comp">${segs}</div><div class="legend small">${lg}</div>`;
 }
 
@@ -148,6 +148,78 @@ function timeline(sessions, { from, to, projName, now = Date.now() } = {}) {
 }
 
 // ---- helpers
+/**
+ * Single-series line with area fill (cumulative spend). days: string[]; values: number[] aligned.
+ * Hover column per point, tooltip shows the value and its delta from the previous point.
+ */
+function line(days, values, { height = 150, fmt = fmtUsd, color = "var(--acc)", label = (d) => d.slice(5) } = {}) {
+  const n = days.length;
+  if (!n) return "";
+  const max = Math.max(1e-9, ...values);
+  const W = 1000, H = height, padB = 18, padT = 6, plotH = H - padB - padT;
+  const slot = W / n;
+  const x = (i) => i * slot + slot / 2, y = (v) => padT + plotH - (v / max) * plotH;
+  const ticks = niceTicks(max, 3);
+  const grid = ticks.map((t) => `<line x1="0" x2="${W}" y1="${y(t)}" y2="${y(t)}" class="grid"/><text x="0" y="${y(t) - 3}" class="ax">${fmt(t)}</text>`).join("");
+  const d = values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const area = `${d}L${x(n - 1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z`;
+  const hover = days
+    .map((day, i) => {
+      const delta = i ? values[i] - values[i - 1] : values[0];
+      const tip = `<b>${day}</b><br>${fmt(values[i])}<br><span>${delta >= 0 ? "+" : ""}${fmt(delta)} that day</span>`;
+      const lbl = n <= 16 || i % Math.ceil(n / 16) === 0 ? `<text x="${x(i)}" y="${H - 4}" class="ax mid">${label(day)}</text>` : "";
+      return `<g class="pt" data-tip="${attr(tip)}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/><circle cx="${x(i)}" cy="${y(values[i])}" r="3" fill="${color}"/>${lbl}</g>`;
+    })
+    .join("");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="chart line" style="height:${H}px">${grid}<line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" class="base"/><path d="${area}" fill="${color}" opacity=".12"/><path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>${hover}</svg>`;
+}
+
+/**
+ * GitHub-style activity calendar: the last `weeks` weeks, one cell per day, one hue by opacity.
+ * byDay: { "2026-08-20": number }. Returns markup plus the streak numbers it computed.
+ */
+function calendar(byDay, { weeks = 52, fmt = fmtUsd, label = "cost", today = new Date() } = {}) {
+  const end = new Date(today); end.setHours(0, 0, 0, 0);
+  const start = new Date(end); start.setDate(end.getDate() - (weeks * 7 - 1) - end.getDay());
+  const iso = localDay;
+  const vals = Object.values(byDay).filter((v) => v > 0);
+  const max = Math.max(1e-9, ...vals);
+  const cols = [], months = [];
+  let lastMonth = -1;
+  for (let c = 0, d = new Date(start); d <= end; c++) {
+    const cells = [];
+    for (let r = 0; r < 7 && d <= end; r++, d.setDate(d.getDate() + 1)) {
+      if (r === 0 && d.getMonth() !== lastMonth) { lastMonth = d.getMonth(); months.push([c, d.toLocaleString(undefined, { month: "short" })]); }
+      const k = iso(d), v = byDay[k] ?? 0;
+      cells.push(`<i data-tip="<b>${k}</b><br>${v ? `${label} ${fmt(v)}` : "no activity"}" style="opacity:${v ? 0.18 + 0.82 * Math.sqrt(v / max) : 0}"></i>`);
+    }
+    cols.push(`<div class="cal-col">${cells.join("")}</div>`);
+  }
+  const mk = months.filter(([c], i) => i === 0 ? c < cols.length - 2 : true).map(([c, m]) => `<span style="left:${(100 * c) / cols.length}%">${m}</span>`).join("");
+  return `<div class="cal"><div class="cal-months">${mk}</div><div class="cal-grid" style="grid-template-columns:repeat(${cols.length},1fr)">${cols.join("")}</div></div>`;
+}
+
+/** "YYYY-MM-DD" of a Date in the viewer's local zone (the daemon buckets days in localtime too). */
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Current + longest run of consecutive active days. days: sorted "YYYY-MM-DD" strings with activity. */
+function streaks(days, today = new Date()) {
+  const set = new Set(days);
+  const iso = localDay;
+  let longest = 0, run = 0, prev = null;
+  for (const d of [...set].sort()) {
+    const t = Date.parse(`${d}T00:00:00Z`); // UTC: exact 24h steps, immune to DST
+    run = prev != null && t - prev === 86400e3 ? run + 1 : 1;
+    prev = t;
+    longest = Math.max(longest, run);
+  }
+  let current = 0;
+  const d = new Date(today); d.setHours(0, 0, 0, 0);
+  if (!set.has(iso(d))) d.setDate(d.getDate() - 1); // today may not have started yet
+  while (set.has(iso(d))) { current++; d.setDate(d.getDate() - 1); }
+  return { current, longest };
+}
+
 function roundTop(x, y, w, h, r) {
   if (h <= 0) return "";
   r = Math.min(r, w / 2, h);
@@ -182,4 +254,4 @@ function niceTicks(max, n) {
   });
 })();
 
-window.viz = { stackedColumns, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort };
+window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort };

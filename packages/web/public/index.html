@@ -300,6 +300,19 @@
   .hb .t{height:8px;background:var(--panel-2);border-radius:3px;overflow:hidden}
   .hb .t i{display:block;height:100%;border-radius:3px;min-width:2px}
   .hb .n{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-mono)}
+  .cal{position:relative;padding-top:16px}
+  .cal-months{position:absolute;top:0;left:0;right:0;height:14px}
+  .cal-months span{position:absolute;font:var(--fs-2xs) var(--mono);color:var(--faint)}
+  .cal-grid{display:grid;gap:2px}
+  .cal-col{display:grid;grid-template-rows:repeat(7,1fr);gap:2px;aspect-ratio:1/7}
+  .cal-col i{display:block;border-radius:2px;background:var(--acc);outline:1px solid var(--line-2);outline-offset:-1px}
+  .cal-col i:hover{outline-color:var(--fg)}
+  .chart.line .pt circle{opacity:0}.chart.line .pt:hover circle{opacity:1}
+  .records{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .rec{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+  .rec .l{font-size:var(--fs-sm);color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .rec .v{font-size:var(--fs-lg);font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+  .rec .d{font-size:var(--fs-mono);color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .hm{display:grid;grid-template-columns:34px 1fr;gap:3px 8px;align-items:center}
   .hm-lbl{font:var(--fs-xs) var(--mono);color:var(--faint)}
   .hm-row{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;height:16px}
@@ -391,6 +404,7 @@
   <a href="#" data-view="prs" class="nav"><i data-icon="git-pull-request"></i>PRs</a>
   <a href="#" data-view="timeline" class="nav"><i data-icon="clock-counter-clockwise"></i>Timeline</a>
   <a href="#" data-view="spend" class="nav"><i data-icon="coins"></i>Spend</a>
+  <a href="#" data-view="stats" class="nav"><i data-icon="chart-bar"></i>Stats</a>
   <span class="sp"></span>
   <span id="today"></span>
   <span id="daemon"><span class="dot"></span><span class="lbl">Daemon</span></span>
