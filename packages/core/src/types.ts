@@ -22,6 +22,7 @@ export type EventType =
   | "process.started"
   | "process.exited"
   | "gate.recorded"
+  | "session.notification"
   | "incident.opened"
   | "incident.acked"
   | "run.result";
@@ -50,6 +51,8 @@ export interface Project {
   commonDir: string | null;
   name: string;
   discovered: boolean;
+  /** Manual sidebar position for pinned projects (lower first); null = alphabetical after ordered ones. */
+  order: number | null;
   createdAt: string;
 }
 

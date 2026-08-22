@@ -156,9 +156,23 @@ export class Store {
     );
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
+    this.ensureColumn("projects", "sort_order", "INTEGER");
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
     this.slimExistingEvents();
+    this.retypeNotificationIncidents();
+  }
+
+  /**
+   * One-time: <0.3.1 recorded Claude Code Notification hooks as incident.opened. Retype them so
+   * the Incidents grid only shows rule decisions (those carry a `rule` in the payload).
+   */
+  private retypeNotificationIncidents() {
+    if (this.meta("notifications_retyped") === "1") return;
+    this.db.exec(
+      "UPDATE events SET type = 'session.notification' WHERE type = 'incident.opened' AND payload NOT LIKE '%\"rule\"%'",
+    );
+    this.setMeta("notifications_retyped", "1");
   }
 
   private meta(key: string): string | null {
@@ -417,15 +431,18 @@ export class Store {
   // ---------- projects
   projects(): Project[] {
     return (
-      this.db.query("SELECT * FROM projects ORDER BY discovered, name").all() as Array<
-        Record<string, unknown>
-      >
+      this.db
+        .query(
+          "SELECT * FROM projects ORDER BY discovered, sort_order IS NULL, sort_order, name COLLATE NOCASE",
+        )
+        .all() as Array<Record<string, unknown>>
     ).map((r) => ({
       id: r.id as string,
       root: r.root as string,
       commonDir: (r.common_dir as string) ?? null,
       name: r.name as string,
       discovered: Boolean(r.discovered),
+      order: typeof r.sort_order === "number" ? r.sort_order : null,
       createdAt: r.created_at as string,
     }));
   }
@@ -441,6 +458,7 @@ export class Store {
       commonDir: (r.common_dir as string) ?? null,
       name: r.name as string,
       discovered: Boolean(r.discovered),
+      order: typeof r.sort_order === "number" ? r.sort_order : null,
       createdAt: r.created_at as string,
     };
   }
@@ -476,7 +494,12 @@ export class Store {
     const ident = projectIdentity({ root, commonDir: gitCommonDir(root) });
     const existing = this.project(ident.id);
     if (!existing) {
-      const p: Project = { ...ident, discovered: !explicit, createdAt: new Date().toISOString() };
+      const p: Project = {
+        ...ident,
+        discovered: !explicit,
+        order: null,
+        createdAt: new Date().toISOString(),
+      };
       if (name) p.name = name;
       this.db
         .query(
@@ -507,6 +530,18 @@ export class Store {
         .run(patch.pinned ? 0 : 1, id);
     if (patch.name) this.db.query("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
     return this.project(id);
+  }
+
+  /** Persist the sidebar order of pinned projects: ids in display order. Unknown ids are skipped. */
+  reorderProjects(ids: string[]): Project[] {
+    const upd = this.db.query("UPDATE projects SET sort_order = ? WHERE id = ?");
+    this.db.transaction(() => {
+      ids.forEach((id, i) => {
+        upd.run(i, id);
+      });
+    })();
+    this.touch();
+    return this.projects();
   }
 
   removeProject(id: string): boolean {
@@ -599,7 +634,7 @@ export class Store {
     const state =
       e.type === "session.ended"
         ? "ended"
-        : p.hook === "Stop" || e.type === "incident.opened"
+        : p.hook === "Stop" || e.type === "session.notification"
           ? "waiting"
           : "active";
     this.db

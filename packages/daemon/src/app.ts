@@ -51,6 +51,12 @@ export function createApp(store = new Store()) {
       return c.json({ error: (e as Error).message }, 400);
     }
   });
+  app.put("/v1/projects/order", async (c) => {
+    const { ids } = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string"))
+      return c.json({ error: "ids: string[] required" }, 400);
+    return c.json(store.reorderProjects(ids));
+  });
   app.patch("/v1/projects/:id", async (c) => {
     const { pinned, name } = (await c.req.json().catch(() => ({}))) as {
       pinned?: boolean;
@@ -225,6 +231,9 @@ export function createApp(store = new Store()) {
       for (const e of store.since(since, 5000, full)) {
         await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
       }
+      // Flush headers now: with nothing to replay the browser's `open` wouldn't fire until the
+      // first heartbeat (15 s), leaving the dashboard's daemon dot red on a healthy connection.
+      await stream.writeSSE({ event: "ping", data: "" });
       await new Promise<void>((resolve) => {
         const off = store.subscribe((e) => {
           // serialised once per event by the store's wire cache; full replay is for `since` only

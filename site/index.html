@@ -166,11 +166,20 @@
 
   const os = /Mac/i.test(navigator.platform) ? "mac" : /Win/i.test(navigator.platform) ? "win" : /Linux/i.test(navigator.platform) ? "linux" : null;
   if (os) document.querySelector(`.dl .row[data-os="${os}"]`)?.classList.add("mine");
+  // Download counter: every asset of every GitHub release + npm installs (last 30 days).
+  const fmt = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+  const counts = Promise.all([
+    fetch("https://api.github.com/repos/ra3orblade/swarm/releases?per_page=100").then((r) => r.json()).then((rels) =>
+      Array.isArray(rels) ? rels.reduce((n, r) => n + (r.assets ?? []).reduce((m, a) => m + (a.download_count ?? 0), 0), 0) : 0).catch(() => 0),
+    fetch("https://api.npmjs.org/downloads/point/last-month/@ra3orblade/swarm").then((r) => r.json()).then((d) => d.downloads ?? 0).catch(() => 0),
+  ]);
   fetch("https://api.github.com/repos/ra3orblade/swarm/releases/latest")
     .then((r) => r.json())
-    .then((rel) => {
+    .then(async (rel) => {
       if (!rel?.assets) return;
-      document.getElementById("ver").textContent = `${rel.tag_name} · ${new Date(rel.published_at).toLocaleDateString()}`;
+      const [gh, npm] = await counts;
+      const dl = gh + npm ? ` · ${fmt(gh + npm)} downloads${npm ? ` (${fmt(npm)} via npm, 30d)` : ""}` : "";
+      document.getElementById("ver").textContent = `${rel.tag_name} · ${new Date(rel.published_at).toLocaleDateString()}${dl}`;
       document.getElementById("rel").textContent = ` · ${rel.tag_name}`;
       const buckets = { mac: [/\.dmg$/], win: [/-setup\.exe$/, /\.msi$/], linux: [/\.deb$/, /\.rpm$/] };
       const ext = (n) => n.match(/(\.[a-z0-9]+)$/i)?.[1] ?? n;

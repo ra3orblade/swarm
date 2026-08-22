@@ -13,6 +13,37 @@ if (new URLSearchParams(location.search).get("chrome") === "inset") {
     if (!inert(e)) twin()?.toggleMaximize?.();
   });
 }
+// UI zoom. The browser zooms natively; the desktop webview doesn't, so the app does it itself:
+// ⌘/Ctrl + − 0 here (and the native View menu in src-tauri/lib.rs, which calls swarmZoom).
+const ZOOM_STEPS = [0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+const isDesktop = () => Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__);
+let lastZoomAt = 0;
+window.swarmZoom = (dir) => {
+  const now = Date.now();
+  if (now - lastZoomAt < 80) return; // a native accelerator and the keydown can both fire — once is enough
+  lastZoomAt = now;
+  const cur = Number(localStorage.getItem("swarm.zoom")) || 1;
+  let z = 1;
+  if (dir !== 0) {
+    const i = ZOOM_STEPS.findIndex((v) => Math.abs(v - cur) < 0.01);
+    z = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, (i < 0 ? 3 : i) + dir))];
+  }
+  localStorage.setItem("swarm.zoom", String(z));
+  document.documentElement.style.setProperty("--ui-zoom", String(z));
+  document.documentElement.classList.toggle("zoomed", z !== 1);
+};
+{
+  const z = Number(localStorage.getItem("swarm.zoom")) || 1;
+  if (z !== 1) { document.documentElement.style.setProperty("--ui-zoom", String(z)); document.documentElement.classList.add("zoomed"); }
+}
+document.addEventListener("keydown", (ev) => {
+  if (!isDesktop() || !(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
+  const k = ev.key;
+  const dir = k === "=" || k === "+" ? 1 : k === "-" || k === "_" ? -1 : k === "0" ? 0 : null;
+  if (dir === null) return;
+  ev.preventDefault();
+  window.swarmZoom(dir);
+});
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
 const state = { projects: [], sessions: [], worktrees: {}, spend: null, incidents: [], resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
@@ -114,6 +145,8 @@ const VIEWS = ["fleet", "board", "prs", "timeline", "spend", "stats"];
   if (VIEWS.includes(v)) state.view = v;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
+  // Mark the restored tab before the first snapshot lands, so the nav doesn't flash "Fleet".
+  for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", a.dataset.view === state.view);
 }
 function render() {
   // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
@@ -121,7 +154,7 @@ function render() {
   const keep = af?.dataset?.filter ? { key: af.dataset.filter, tid: af.dataset.tid, pos: af.selectionStart } : null;
   state.dirty = false;
   lastRenderAt = Date.now();
-  renderProjects();
+  if (!dragPid) renderProjects(); // a re-render mid-drag would yank the row out from under the cursor
   renderHeader();
   if (state.session) renderSession();
   else if (state.view === "spend") renderSpend();
@@ -165,17 +198,51 @@ function renderProjects() {
   };
   const row = (p) => {
     const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
-    return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}">
+    return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}"${p.discovered ? "" : ' draggable="true"'}>
       <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = live("");
   $("#projects").innerHTML =
     `<h4>Projects <span class="h4-act" id="addProj" title="Add project">${ic("plus", 14)}</span></h4>` +
     `<div class="proj ${state.sel === null ? "sel" : ""}" data-id=""><span class="st ${liveAll ? "live" : ""}"></span>${ic("folders", 14)}<span class="nm">All projects</span><small>${liveAll || ""}</small></div>` +
-    pinned.map(row).join("") +
+    `<div id="pinned">${pinned.map(row).join("")}</div>` +
     (unpinned.length ? `<h4>Unpinned <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:400">· seen, not pinned</span></h4>${unpinned.map(row).join("")}` : "") +
     (!pinned.length && !unpinned.length ? `<div class="empty" style="padding:16px;font-size:12px">${PX.folder()}No projects yet.<br>Add a folder below, or start Claude in one.</div>` : "");
 }
+
+// Pinned projects reorder by drag-and-drop (native DnD on the rows; order persists on the daemon).
+let dragPid = null;
+const projectsEl = $("#projects");
+projectsEl.addEventListener("dragstart", (ev) => {
+  const r = ev.target.closest?.(".proj[draggable]");
+  if (!r) return;
+  dragPid = r.dataset.pid;
+  ev.dataTransfer.effectAllowed = "move";
+  ev.dataTransfer.setData("text/plain", dragPid);
+  requestAnimationFrame(() => r.classList.add("dragging")); // after the drag image is captured
+});
+projectsEl.addEventListener("dragover", (ev) => {
+  if (!dragPid) return;
+  const r = ev.target.closest?.(".proj[draggable]");
+  if (!r || r.dataset.pid === dragPid) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = "move";
+  const box = r.getBoundingClientRect();
+  const before = ev.clientY < box.top + box.height / 2;
+  const dragged = projectsEl.querySelector(`.proj[data-pid="${dragPid}"]`);
+  if (dragged) r.parentNode.insertBefore(dragged, before ? r : r.nextSibling); // live reflow = the drop preview
+});
+projectsEl.addEventListener("drop", (ev) => { if (dragPid) ev.preventDefault(); });
+projectsEl.addEventListener("dragend", () => {
+  if (!dragPid) return;
+  dragPid = null;
+  const ids = [...projectsEl.querySelectorAll("#pinned .proj[draggable]")].map((r) => r.dataset.pid);
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  for (const p of state.projects) if (rank.has(p.id)) p.order = rank.get(p.id);
+  state.projects.sort((a, b) => Number(a.discovered) - Number(b.discovered) || (a.order ?? 1e9) - (b.order ?? 1e9) || a.name.localeCompare(b.name));
+  renderProjects();
+  fetch("/v1/projects/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) }).then(refresh);
+});
 
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
@@ -866,7 +933,7 @@ function connect() {
     }
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released"]) es.addEventListener(t, onAny);
 }
 refresh().then(connect);
 setInterval(() => { if (!document.hidden) poll(); }, 5000);

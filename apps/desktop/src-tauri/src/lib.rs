@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use std::sync::Mutex;
 
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -109,6 +109,91 @@ fn navigate_when_ready(win: tauri::WebviewWindow, port: u16) {
             }
         }
     });
+}
+
+/// Zoom the dashboard. The webview has no native zoom shortcuts, so the View menu drives the
+/// page's own zoom (`swarmZoom` in app.js; `dir` is +1 / -1 / 0 = reset).
+fn zoom(app: &tauri::AppHandle, dir: i8) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(&format!("window.swarmZoom && window.swarmZoom({dir})"));
+    }
+}
+
+/// Application menu: App / Edit / View / Window. Without one, the webview gets no ⌘C/⌘V
+/// (macOS routes those through the Edit menu) and there is no way to zoom the UI.
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    // Distinct id from the tray's "update": tray menu events reach the app handler too.
+    let update =
+        MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
+    #[allow(unused_mut)]
+    let mut app_items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = vec![
+        Box::new(PredefinedMenuItem::about(app, Some("About Swarm"), None)?),
+        Box::new(PredefinedMenuItem::separator(app)?),
+        Box::new(update),
+        Box::new(PredefinedMenuItem::separator(app)?),
+    ];
+    #[cfg(target_os = "macos")]
+    {
+        app_items.push(Box::new(PredefinedMenuItem::services(app, None)?));
+        app_items.push(Box::new(PredefinedMenuItem::separator(app)?));
+        app_items.push(Box::new(PredefinedMenuItem::hide(app, None)?));
+        app_items.push(Box::new(PredefinedMenuItem::hide_others(app, None)?));
+        app_items.push(Box::new(PredefinedMenuItem::show_all(app, None)?));
+        app_items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    }
+    app_items.push(Box::new(PredefinedMenuItem::quit(app, None)?));
+    let app_refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        app_items.iter().map(|i| i.as_ref()).collect();
+    let swarm = Submenu::with_items(app, "Swarm", true, &app_refs)?;
+
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+
+    let zoom_in = MenuItem::with_id(app, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
+    let zoom_out = MenuItem::with_id(app, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+    let zoom_reset =
+        MenuItem::with_id(app, "zoom-reset", "Actual Size", true, Some("CmdOrCtrl+0"))?;
+    let reload = MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+    let view = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            &zoom_in,
+            &zoom_out,
+            &zoom_reset,
+            &PredefinedMenuItem::separator(app)?,
+            &reload,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
+
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+
+    Menu::with_items(app, &[&swarm, &edit, &view, &window])
 }
 
 fn open_window(app: &tauri::AppHandle) {
@@ -247,6 +332,8 @@ pub fn run() {
             });
             navigate_when_ready(win, port);
 
+            app.set_menu(app_menu(app.handle())?)?;
+
             let open = MenuItem::with_id(app, "open", "Open Swarm", true, None::<&str>)?;
             let update =
                 MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
@@ -266,6 +353,18 @@ pub fn run() {
                 .build(app)?;
 
             Ok(())
+        })
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "check-updates" => check_for_updates(app.clone()),
+            "zoom-in" => zoom(app, 1),
+            "zoom-out" => zoom(app, -1),
+            "zoom-reset" => zoom(app, 0),
+            "reload" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("location.reload()");
+                }
+            }
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("error while building Swarm")
