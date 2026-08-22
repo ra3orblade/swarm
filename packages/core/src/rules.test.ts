@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  absolutePath,
   guardBash,
+  guardWrite,
+  type HeldWorktree,
   isBroadStage,
   isDestructiveGit,
+  isInside,
   isPatternKill,
   type LiveSession,
   otherLiveInSameTree,
@@ -126,5 +130,74 @@ describe("rules v2: modes + protected ports", () => {
   it("off disables a rule", () => {
     const modes = { ...DEFAULT_MODES, pattern_kill: "off" as const };
     expect(guardBash("pkill -f node", me, [], Date.now(), modes).action).toBe("allow");
+  });
+});
+
+describe("guardWrite (no_foreign_worktree, claim_required_to_write)", () => {
+  const claims: HeldWorktree[] = [
+    { task: "auth", owner: "alice", worktree: "/home/a/.swarm/worktrees/repo/auth" },
+    { task: "billing", owner: "bob", worktree: "/home/a/.swarm/worktrees/repo/billing" },
+  ];
+  const shared = { cwd: "/repo", toplevel: "/repo" };
+  const inAuth = {
+    cwd: "/home/a/.swarm/worktrees/repo/auth",
+    toplevel: "/home/a/.swarm/worktrees/repo/auth",
+  };
+
+  it("path containment", () => {
+    expect(isInside("/a/b/c", "/a/b")).toBe(true);
+    expect(isInside("/a/b", "/a/b/")).toBe(true);
+    expect(isInside("/a/bc", "/a/b")).toBe(false);
+    expect(isInside("/a/b/../c", "/a/b")).toBe(false);
+    expect(absolutePath("src/x.ts", "/repo/")).toBe("/repo/src/x.ts");
+    expect(absolutePath("/abs", "/repo")).toBe("/abs");
+  });
+
+  it("asks when writing into someone else's worktree", () => {
+    const d = guardWrite("/home/a/.swarm/worktrees/repo/billing/src/x.ts", inAuth, claims);
+    expect(d.action).toBe("ask");
+    if (d.action !== "allow") expect(d.rule).toBe("no_foreign_worktree");
+  });
+  it("allows writing into your own worktree and the shared tree by default", () => {
+    expect(guardWrite("/home/a/.swarm/worktrees/repo/auth/src/x.ts", inAuth, claims).action).toBe(
+      "allow",
+    );
+    expect(guardWrite("/repo/src/x.ts", shared, claims).action).toBe("allow");
+  });
+  it("covers Bash by cwd", () => {
+    const d = guardWrite(
+      "/home/a/.swarm/worktrees/repo/auth",
+      shared,
+      claims,
+      DEFAULT_MODES,
+      "bash",
+    );
+    expect(d.action).toBe("ask");
+    expect(guardWrite("/repo", shared, claims, DEFAULT_MODES, "bash").action).toBe("allow");
+  });
+  it("honours deny/off", () => {
+    const deny = { ...DEFAULT_MODES, no_foreign_worktree: "deny" as const };
+    expect(guardWrite("/home/a/.swarm/worktrees/repo/auth/x", shared, claims, deny).action).toBe(
+      "deny",
+    );
+    const off = { ...DEFAULT_MODES, no_foreign_worktree: "off" as const };
+    expect(guardWrite("/home/a/.swarm/worktrees/repo/auth/x", shared, claims, off).action).toBe(
+      "allow",
+    );
+  });
+
+  it("claim_required_to_write is opt-in and only guards the shared checkout", () => {
+    const on = { ...DEFAULT_MODES, claim_required_to_write: "ask" as const };
+    const d = guardWrite("/repo/src/x.ts", shared, claims, on);
+    expect(d.action).toBe("ask");
+    if (d.action !== "allow") expect(d.rule).toBe("claim_required_to_write");
+    // writing from inside a claimed worktree is fine, even to the shared tree
+    expect(guardWrite("/repo/src/x.ts", inAuth, claims, on).action).toBe("allow");
+    // writes outside the repo are not its business
+    expect(guardWrite("/etc/hosts", shared, claims, on).action).toBe("allow");
+    // Bash is not a write
+    expect(guardWrite("/repo", shared, claims, on, "bash").action).toBe("allow");
+    // no toplevel (not a git dir): nothing to require
+    expect(guardWrite("/x/y", { cwd: "/x", toplevel: null }, claims, on).action).toBe("allow");
   });
 });

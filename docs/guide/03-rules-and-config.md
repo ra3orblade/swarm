@@ -31,6 +31,8 @@ shared_tree     = "ask"
 destructive_git = "ask"
 pattern_kill    = "ask"
 protected_ports = "ask"
+no_foreign_worktree     = "ask"
+claim_required_to_write = "off"
 
 [rules.protected]
 # Ports agents must not kill or free. Empty by default.
@@ -110,9 +112,26 @@ git stash clear
 git branch -D <name>
 ```
 
+### `no_foreign_worktree`
+
+The first rule that watches **file writes, not just Bash**. It matches a `Write` / `Edit` / `MultiEdit` / `NotebookEdit` whose path is inside a worktree that a held [claim](04-claims-and-worktrees.md) created — or a Bash command whose working directory is — when the session itself is not working from that worktree. Holding is inferred from position: every claim gets its own worktree, so the session running inside it is its holder, and any other session is a stranger.
+
+*Never touch a worktree you don't hold* is Swarm's oldest rule; this makes it a hook decision. The session is told to edit its own checkout or claim the task.
+
+### `claim_required_to_write`
+
+Off by default, because it demands a workflow. When a repo turns it on, file writes into the **shared checkout** (the main working tree, not any claimed worktree) are asked or denied unless the session is working from a claimed worktree. It turns claims from bookkeeping into the rule: on this repo, you claim a task, you get a worktree, you write there.
+
+```toml
+[rules]
+claim_required_to_write = "deny"
+```
+
+Bash is not covered — a `cat` is not a write — and neither are paths outside the repo.
+
 ## What rules are — and aren't
 
-Rules are **guardrails against accidents, not a security boundary**. They classify the Bash command Claude Code is about to run; they do not sandbox the agent. An agent that is denied `git add -A` can still write the same command into a script, a Makefile target or a heredoc and run that, and it can edit files directly without Bash at all. Swarm's rules exist to stop the common collisions — the broad stage that sweeps up a colleague's work, the `pkill -f` that takes down a neighbour's dev server — and to leave a record when they fire. They are not a defence against an agent that is trying to get around them; for that you need Claude Code's own permission system, and worktree isolation via [claims](04-claims-and-worktrees.md), which removes the shared checkout rather than guarding it.
+Rules are **guardrails against accidents, not a security boundary**. They classify the Bash command or file write Claude Code is about to make; they do not sandbox the agent. An agent that is denied `git add -A` can still write the same command into a script, a Makefile target or a heredoc and run that, and it can edit files directly without Bash at all. Swarm's rules exist to stop the common collisions — the broad stage that sweeps up a colleague's work, the `pkill -f` that takes down a neighbour's dev server — and to leave a record when they fire. They are not a defence against an agent that is trying to get around them; for that you need Claude Code's own permission system, and worktree isolation via [claims](04-claims-and-worktrees.md), which removes the shared checkout rather than guarding it.
 
 ## ask, deny, off
 

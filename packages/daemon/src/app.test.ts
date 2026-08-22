@@ -313,6 +313,67 @@ describe("rules + incidents (Phase 2)", () => {
     expect(store.incidents(5).length).toBe(1);
   });
 
+  it("no_foreign_worktree asks on a Write into someone else's claimed worktree", async () => {
+    const fs = require("node:fs");
+    const sh = (cwd: string, ...args: string[]) =>
+      Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-repo-")));
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@t");
+    sh(dir, "git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# repo\n");
+    sh(dir, "git", "add", "README.md");
+    sh(dir, "git", "commit", "-qm", "init");
+    const { app, store } = createApp(new Store(tmpHome()));
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "auth", "alice");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    // A session in the shared checkout writing into alice's worktree → ask.
+    const r = await hook(app, {
+      session_id: "s-foreign",
+      cwd: dir,
+      tool_name: "Write",
+      tool_input: { file_path: join(c.worktree, "src", "x.ts"), content: "x" },
+    });
+    const j = (await r.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(j.hookSpecificOutput?.permissionDecision).toBe("ask");
+    expect((store.incidents(5)[0] as { rule?: string }).rule).toBe("no_foreign_worktree");
+    // The holder (cwd inside the worktree) writes freely, with a relative path.
+    const r2 = await hook(app, {
+      session_id: "s-holder",
+      cwd: c.worktree,
+      tool_name: "Edit",
+      tool_input: { file_path: "src/x.ts" },
+    });
+    expect(
+      ((await r2.json()) as { hookSpecificOutput?: unknown }).hookSpecificOutput,
+    ).toBeUndefined();
+    // claim_required_to_write is off by default: writes to the shared tree pass…
+    const r3 = await hook(app, {
+      session_id: "s-shared",
+      cwd: dir,
+      tool_name: "Write",
+      tool_input: { file_path: join(dir, "README.md") },
+    });
+    expect(
+      ((await r3.json()) as { hookSpecificOutput?: unknown }).hookSpecificOutput,
+    ).toBeUndefined();
+    // …until the repo opts in.
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[rules]\nclaim_required_to_write = "deny"\n`);
+    const fresh = createApp(new Store(tmpHome()));
+    fresh.store.resolveProject(dir, true);
+    const r4 = await hook(fresh.app, {
+      session_id: "s-shared",
+      cwd: dir,
+      tool_name: "Write",
+      tool_input: { file_path: join(dir, "README.md") },
+    });
+    const j4 = (await r4.json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(j4.hookSpecificOutput?.permissionDecision).toBe("deny");
+    store.release(p.id, "auth", true);
+  });
+
   it("off disables a rule per-repo", async () => {
     const fs = require("node:fs");
     const dir = repo();

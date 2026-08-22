@@ -24,6 +24,10 @@ export interface RulesConfig {
   pattern_kill: RuleMode;
   /** Killing/freeing a port listed in `protected.ports`. */
   protected_ports: RuleMode;
+  /** Writing into a worktree held by another claim. */
+  no_foreign_worktree: RuleMode;
+  /** Writing into the shared checkout without a claim (opt-in). */
+  claim_required_to_write: RuleMode;
   protected: {
     /** Ports that agents must not kill/free (dev servers, databases, the daemon itself). */
     ports: number[];
@@ -45,6 +49,8 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     destructive_git: "ask",
     pattern_kill: "ask",
     protected_ports: "ask",
+    no_foreign_worktree: "ask",
+    claim_required_to_write: "off",
     protected: { ports: [] },
   },
 };
@@ -86,6 +92,8 @@ function validate(c: SwarmConfig): SwarmConfig {
       destructive_git: mode(c.rules?.destructive_git, "ask"),
       pattern_kill: mode(c.rules?.pattern_kill, "ask"),
       protected_ports: mode(c.rules?.protected_ports, "ask"),
+      no_foreign_worktree: mode(c.rules?.no_foreign_worktree, "ask"),
+      claim_required_to_write: mode(c.rules?.claim_required_to_write, "off"),
       protected: {
         ports: Array.isArray(c.rules?.protected?.ports)
           ? c.rules.protected.ports.filter((p) => Number.isInteger(p) && p > 0 && p < 65536)

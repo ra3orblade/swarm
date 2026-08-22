@@ -30,6 +30,8 @@ shared_tree     = "ask"   # broad `git add -A` / `git commit -a` while another l
 destructive_git = "ask"   # `git reset --hard`, `checkout .`, `clean -f`, `stash drop`, … same condition
 pattern_kill    = "ask"   # `pkill -f` and friends — pattern kills hit other agents' processes too
 protected_ports = "ask"   # kill/free of a port listed below
+no_foreign_worktree = "ask"      # a file write (or Bash cwd) inside a worktree another claim holds
+claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a claim (work in its worktree)
 
 [rules.protected]
 # Ports agents must not kill/free (dev servers, databases, the daemon itself).

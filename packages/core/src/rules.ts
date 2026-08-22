@@ -80,7 +80,13 @@ export function killedPorts(cmd: string): number[] {
   return [...ports];
 }
 
-export type RuleId = "pattern_kill" | "shared_tree" | "destructive_git" | "protected_ports";
+export type RuleId =
+  | "pattern_kill"
+  | "shared_tree"
+  | "destructive_git"
+  | "protected_ports"
+  | "no_foreign_worktree"
+  | "claim_required_to_write";
 export type GuardDecision =
   | { action: "allow" }
   | { action: "ask" | "deny"; rule: RuleId; reason: string };
@@ -91,6 +97,10 @@ export interface RuleModes {
   destructive_git: "ask" | "deny" | "off";
   pattern_kill: "ask" | "deny" | "off";
   protected_ports: "ask" | "deny" | "off";
+  /** Writing into a worktree claimed by someone else (the session's cwd is outside it). */
+  no_foreign_worktree: "ask" | "deny" | "off";
+  /** Writing into the shared checkout without holding a claim (opt-in: it demands a workflow). */
+  claim_required_to_write: "ask" | "deny" | "off";
   protected: { ports: number[] };
 }
 
@@ -99,6 +109,8 @@ export const DEFAULT_MODES: RuleModes = {
   destructive_git: "ask",
   pattern_kill: "ask",
   protected_ports: "ask",
+  no_foreign_worktree: "ask",
+  claim_required_to_write: "off",
   protected: { ports: [] },
 };
 
@@ -148,6 +160,95 @@ export function guardBash(
       const d = hit(
         "destructive_git",
         `Another session (${o.id.slice(0, 8)}) is active in this same checkout and may have uncommitted work. This command can discard it. Coordinate, or use a separate git worktree.`,
+      );
+      if (d.action !== "allow") return d;
+    }
+  }
+  return { action: "allow" };
+}
+
+// ---------- worktree ownership (M2.1: no_foreign_worktree, claim_required_to_write)
+
+/** A held claim's worktree, as the rules see it. */
+export interface HeldWorktree {
+  task: string;
+  owner: string;
+  /** Absolute worktree path. */
+  worktree: string;
+}
+
+/** Normalise a path for containment checks: no trailing slash, no `..`/`.` segments. */
+function norm(p: string): string {
+  const parts: string[] = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return `/${parts.join("/")}`;
+}
+
+/** `path` is `dir` or inside it. */
+export function isInside(path: string, dir: string): boolean {
+  if (!path || !dir) return false;
+  const a = norm(path);
+  const d = norm(dir);
+  return a === d || a.startsWith(`${d}/`);
+}
+
+/** Absolutise a tool `file_path` against the session's cwd. */
+export function absolutePath(path: string, cwd: string): string {
+  if (path.startsWith("/")) return path;
+  if (path.startsWith("~/")) return path; // leave the user's home alone; it is never a worktree
+  return `${cwd.replace(/\/+$/, "")}/${path}`;
+}
+
+/** Tools whose `file_path` is a write. */
+export const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+/**
+ * Evaluate a write at `target` (an absolute path — a file about to be edited, or the cwd of a
+ * Bash command) by a session whose cwd is `current.cwd`.
+ *
+ *  - `no_foreign_worktree`: `target` lies inside a worktree held by a claim, but the session's own
+ *    cwd does not — it is someone else's isolated checkout. Holding is inferred from position: the
+ *    worktree is created per claim, so the session working inside it is its holder.
+ *  - `claim_required_to_write` (opt-in): `target` lies in the project's shared checkout
+ *    (`current.toplevel`) rather than in any claimed worktree, and the session isn't working from a
+ *    claimed worktree either. The repo has declared that writes go through claims.
+ */
+export function guardWrite(
+  target: string,
+  current: { cwd: string; toplevel: string | null },
+  claims: HeldWorktree[],
+  modes: RuleModes = DEFAULT_MODES,
+  kind: "file" | "bash" = "file",
+): GuardDecision {
+  const hit = (rule: RuleId, reason: string): GuardDecision => {
+    const mode = modes[rule];
+    return mode === "off" ? { action: "allow" } : { action: mode, rule, reason };
+  };
+  const held = claims.filter((c) => c.worktree);
+  const mine = held.find((c) => isInside(current.cwd, c.worktree)) ?? null;
+  if (modes.no_foreign_worktree !== "off") {
+    const foreign = held.find((c) => isInside(target, c.worktree) && c !== mine);
+    if (foreign) {
+      const d = hit(
+        "no_foreign_worktree",
+        kind === "bash"
+          ? `This command runs inside the worktree for "${foreign.task}", held by ${foreign.owner}. Never touch a worktree you don't hold — work in your own checkout, or claim the task.`
+          : `${target} is inside the worktree for "${foreign.task}", held by ${foreign.owner}. Never touch a worktree you don't hold — edit your own checkout, or claim the task.`,
+      );
+      if (d.action !== "allow") return d;
+    }
+  }
+  if (modes.claim_required_to_write !== "off" && kind === "file" && current.toplevel && !mine) {
+    const inShared =
+      isInside(target, current.toplevel) && !held.some((c) => isInside(target, c.worktree));
+    if (inShared) {
+      const d = hit(
+        "claim_required_to_write",
+        `This repo requires a claim before writing to its shared checkout. Run \`swarm claim <task>\` (or the swarm_claim MCP tool) and work in the worktree it creates.`,
       );
       if (d.action !== "allow") return d;
     }

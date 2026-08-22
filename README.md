@@ -48,7 +48,7 @@ bunx @ra3orblade/swarm setup
 
 <p align="center"><img src="docs/art/screens/board.jpg" alt="Board view — worktrees and incidents" width="100%"></p>
 
-**Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
+**Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, plus `no_foreign_worktree` and the opt-in `claim_required_to_write` on file writes; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
 
 **PRs** — one merge queue across GitHub and GitLab, read through your already-authenticated `gh` / `glab`. Merge from the dashboard when checks and review are clear. No tokens stored.
 
@@ -88,6 +88,8 @@ shared_tree     = "deny"     # broad `git add -A` / `commit -a` while another li
 destructive_git = "ask"      # reset --hard, checkout ., clean -f …
 pattern_kill    = "ask"      # pkill -f and friends
 protected_ports = "ask"      # freeing a port listed below (or held as a resource)
+no_foreign_worktree     = "ask"  # file writes into a worktree another claim holds
+claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a claim
 
 [rules.protected]
 ports = [5432]

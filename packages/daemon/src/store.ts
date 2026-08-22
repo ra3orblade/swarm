@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
+  absolutePath,
   acquireRefusalMessage,
   canAcquire,
   canClaim,
@@ -26,6 +27,8 @@ import {
   fromLiteLLM,
   type GuardDecision,
   guardBash,
+  guardWrite,
+  type HeldWorktree,
   isActive,
   isAliveHolding,
   isTrackedPid,
@@ -49,6 +52,7 @@ import {
   releaseRefusalMessage,
   type SwarmEvent,
   type Turn,
+  WRITE_TOOLS,
 } from "@swarm/core";
 import {
   currentBranch,
@@ -325,13 +329,24 @@ export class Store {
   guardHook(
     raw: Record<string, unknown>,
   ): Extract<GuardDecision, { action: "ask" | "deny" }> | null {
-    if (raw.tool_name !== "Bash") return null;
-    const input = raw.tool_input as { command?: string } | undefined;
-    const cmd = input?.command;
-    if (!cmd) return null;
+    const tool = typeof raw.tool_name === "string" ? raw.tool_name : "";
+    const input = (raw.tool_input ?? {}) as { command?: string; file_path?: string };
     const id = typeof raw.session_id === "string" ? raw.session_id : "";
     const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
-    const current = { id, toplevel: this.toplevel(cwd) };
+    const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
+    const cmd = tool === "Bash" ? input.command : undefined;
+    if (!isWrite && !cmd) return null;
+    const current = { id, cwd, toplevel: this.toplevel(cwd) };
+    const modes = this.rulesFor(current.toplevel);
+    // Worktree ownership: a file write (or a Bash cwd) inside a claimed worktree the session
+    // doesn't hold, and — opt-in — writes into the shared checkout without a claim.
+    if (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off") {
+      const target = isWrite ? absolutePath(input.file_path as string, cwd) : cwd;
+      const w = guardWrite(target, current, this.heldWorktrees(), modes, isWrite ? "file" : "bash");
+      if (w.action !== "allow")
+        return this.openIncident(w, cwd, id, isWrite ? `${tool} ${target}` : (cmd as string));
+    }
+    if (!cmd) return null;
     const rows = this.db
       .query(
         "SELECT id, cwd, last_seen_at, state FROM sessions WHERE state != 'ended' AND last_seen_at > ?",
@@ -348,22 +363,44 @@ export class Store {
       lastSeenAt: r.last_seen_at,
       state: r.state,
     }));
-    const modes = this.rulesFor(current.toplevel);
     const d = guardBash(cmd, current, sessions, Date.now(), {
       ...modes,
       protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
     });
     if (d.action === "allow") return null;
-    // Record the decision as an incident: visible on the dashboard and in the event stream.
+    return this.openIncident(d, cwd, id, cmd);
+  }
+
+  /** Record a non-allow decision as an incident: visible on the dashboard and in the event stream. */
+  private openIncident(
+    d: Extract<GuardDecision, { action: "ask" | "deny" }>,
+    cwd: string,
+    sessionId: string,
+    command: string,
+  ) {
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
     this.append({
       ts: new Date().toISOString(),
       type: "incident.opened",
       projectId: project?.id ?? "p_unknown",
-      sessionId: id || null,
-      payload: { rule: d.rule, action: d.action, command: cmd.slice(0, 400), reason: d.reason },
+      sessionId: sessionId || null,
+      payload: { rule: d.rule, action: d.action, command: command.slice(0, 400), reason: d.reason },
     });
     return d;
+  }
+
+  /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
+  private heldWorktreesCache: { at: number; v: HeldWorktree[] } | null = null;
+  private heldWorktrees(): HeldWorktree[] {
+    if (this.heldWorktreesCache && Date.now() - this.heldWorktreesCache.at < 2_000)
+      return this.heldWorktreesCache.v;
+    const v = (
+      this.db
+        .query("SELECT task, owner, worktree FROM claims WHERE state = 'held' AND expires_at > ?")
+        .all(new Date().toISOString()) as Array<{ task: string; owner: string; worktree: string }>
+    ).filter((c) => c.worktree);
+    this.heldWorktreesCache = { at: Date.now(), v };
+    return v;
   }
 
   // ---------- pricing
