@@ -92,7 +92,8 @@
   body>aside{grid-column:1;grid-row:2}
   body>main{grid-column:2;grid-row:2}
   #projects h4{display:flex;align-items:center}
-  .h4-act{margin-left:auto;cursor:pointer;color:var(--faint);display:inline-flex;padding:2px;border-radius:var(--r-xs)}
+  /* -2px optical: the plus glyph is inset in its box; numbers print flush to theirs */
+  .h4-act{margin-left:auto;margin-right:-2px;cursor:pointer;color:var(--faint);display:inline-flex;padding:2px;border-radius:var(--r-xs)}
   .h4-act:hover{color:var(--acc)}
   .pk-h input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);
     padding:5px 9px;border-radius:var(--r-sm);font:var(--fs-mono) var(--mono);outline:none;min-width:0}
@@ -122,8 +123,8 @@
 
   /* sidebar */
   body>aside{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto;display:flex;flex-direction:column}
-  aside h4{margin:14px 8px 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.09em}
-  aside h4:first-child{margin-top:2px}
+  body>aside h4{margin:14px 8px 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.09em}
+  body>aside h4:first-child{margin-top:2px}
   .proj{padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:9px;
     color:var(--fg-2);transition:background var(--t-fast);user-select:none}
   .proj:hover{background:var(--panel-2)}
