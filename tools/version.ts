@@ -47,8 +47,9 @@ edit("apps/desktop/src-tauri/Cargo.lock", (s) =>
 
 // ── Release announcement ────────────────────────────────────────────────────────
 // Every release gets a draft X post under docs/marketing/, generated from the CHANGELOG
-// entry for this version. It is a draft: polish the hook before posting. Refuses to run
-// without a CHANGELOG entry so a release can't ship unannounced.
+// entry for this version. It is scaffolding, not copy: rewrite it around one real moment
+// (see docs/marketing/v0.3.0-x.md for the voice) before posting. Refuses to run without
+// a CHANGELOG entry so a release can't ship unannounced.
 const para =
   entry
     .split("\n")
@@ -78,7 +79,7 @@ const mkFile = join(mkPath, `v${v}-x.md`);
 if (!existsSync(mkFile)) {
   writeFileSync(
     mkFile,
-    `# X post — v${v}\n\nStatus: draft (generated ${date} by tools/version.ts from CHANGELOG.md; polish before posting, then flip to "posted" with the link).\n\n---\n\n${post}\n\n---\n\n## Thread (optional follow-ups)\n\n${bullets
+    `# X post — v${v}\n\nStatus: scaffold (generated ${date} by tools/version.ts from CHANGELOG.md). Rewrite before posting — one real scene per post, no feature lists; see v0.3.0-x.md for the voice. Flip to "posted" with the link once it's up.\n\n---\n\n${post}\n\n---\n\n## Thread (optional follow-ups)\n\n${bullets
       .slice(4)
       .map((b) => `- ${b.name}: ${b.blurb}`)
       .join("\n")}\n`,
