@@ -1,0 +1,5 @@
+apps/desktop/src-tauri/target
+node_modules
+npm
+.git
+*.db
