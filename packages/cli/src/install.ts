@@ -2,11 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { binCommand, resolveBin } from "@swarm/client";
-import { HOOK_EVENTS } from "@swarm/core";
+import { HOOK_EVENTS, type HookCoverage, hookCoverage, hookIsOurs } from "@swarm/core";
 
-const MARK = "swarm-hook"; // prod bin name
-const isOurs = (h: { command: string }) =>
-  h.command.includes(MARK) || h.command.includes("/packages/hook/src/bin.ts");
+const isOurs = hookIsOurs;
 const settingsPath = () =>
   process.env.CLAUDE_SETTINGS ?? join(homedir(), ".claude", "settings.json");
 /** User-scope MCP servers live in ~/.claude.json (`claude mcp add -s user`), NOT in settings.json —
@@ -218,6 +216,8 @@ export function uninstall(): number {
 
 export function status(): {
   installed: boolean;
+  /** Per-event hook coverage (M8.1b): which events lost their entry or got a short timeout. */
+  coverage: HookCoverage;
   mcp: boolean;
   path: string;
   shim: string;
@@ -234,5 +234,12 @@ export function status(): {
     if (existsSync(gp) && JSON.parse(readFileSync(gp, "utf8")).mcpServers?.swarm)
       otherAgents.push("gemini");
   } catch {}
-  return { installed, mcp: mcpRegistered(), path: settingsPath(), shim: shimPath(), otherAgents };
+  return {
+    installed,
+    coverage: hookCoverage(s),
+    mcp: mcpRegistered(),
+    path: settingsPath(),
+    shim: shimPath(),
+    otherAgents,
+  };
 }

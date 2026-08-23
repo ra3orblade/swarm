@@ -177,7 +177,7 @@ Hook install status per scope (user / project) with install/uninstall buttons, r
 swarm setup                        start the daemon, install hooks, open the dashboard (do this first)
 swarm start | stop | restart       manage the background daemon
 swarm status [-p]                  live sessions (whole machine, or one project)
-swarm doctor                       check everything and print the fix for each gap
+swarm doctor                       check everything and print the fix for each gap (incl. per-event hook coverage and org-policy overrides, M8.1)
 swarm add <path> [--name n]        register (pin) a project
 swarm ls                           list projects
 swarm ui                           open the dashboard
@@ -314,6 +314,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/prs/draft?project=&worktree=\|task=` · `POST /v1/prs/open` | PR title/body drafted from task, handoff, gates, files; `open` `{projectId, worktree\|task, title?, body?, draft?}` pushes and runs `gh pr create` / `glab mr create`, refuses dirty, reuses an open PR (M7.3) |
 | `GET /v1/gates?project=&task=` · `POST /v1/gates` · `POST /v1/gates/run` | gate runs (latest wins) and required/executable gate names; `run` `{projectId, task, gates?, wait?}` executes `[gates.<name>] cmd` gates sequentially in the held worktree via the process registry and records them (M7.4) |
 | `GET /v1/memory?q=&project=&kind=&task=&limit=` | full-text search (FTS5/BM25) over handoffs, incidents, gates and session text; hits carry a snippet with `\u0001`/`\u0002` around matches |
+| `GET /v1/policy?project=` | org policy for a project (M8.1): `path`, `locked`, `provenance` (key → default\|policy\|global\|repo), `overridden` (locked keys a lower layer tried to set) |
 | `GET /v1/rules/dryrun?project=&<rule>=ask\|deny\|off&limit=` | replay recorded tool calls under (overridden) rule modes: per-rule ask/deny counts, hits, flaky signals; records nothing |
 | `GET /v1/sessions/:id/resume` · `POST /v1/sessions/:id/resume` | the resume plan for a session (task, owner, prompt built from its latest handoff + last actions) / spawn a run from it (`RunInput` overrides accepted) |
 | `GET /v1/prs` · `POST /v1/prs/merge` | the forge queue (`{projectId, number}` to squash-merge via `gh` / `glab`) |

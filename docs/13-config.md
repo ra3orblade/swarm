@@ -14,6 +14,12 @@ built-in default when the policy sets none — and every attempt to override it 
 (`loadConfigDetailed().overridden`) so `doctor` and the daemon can treat it as a tamper signal.
 Everything else in the policy file is ordinary config that global and repo layers override.
 
+Tamper detection (M8.1b): on every `SessionStart` the daemon records an `incident.opened` with
+`rule = "policy"` — once per finding per daemon lifetime — for a locked key a lower layer tried to
+set, for a hook event whose `swarm-hook` entry was removed from `~/.claude/settings.json` or given a
+timeout under 5 s, and for `SWARM_GUARD=off` while the policy locks any rule (the variable is then
+ignored). `swarm doctor` prints the same findings; `GET /v1/policy?project=` exposes them.
+
 ```toml
 # ~/.swarm/policy.toml — what an org pins on every machine
 locked = ["rules.destructive_git", "rules.protected", "tasks.source"]

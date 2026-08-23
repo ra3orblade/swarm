@@ -7,8 +7,19 @@ import {
   resolveBaseUrl,
   SwarmClient,
 } from "@swarm/client";
+import { loadConfigDetailed } from "@swarm/core";
 import { install, status, uninstall } from "./install";
 import * as procs from "./procs";
+
+/** Root of the git checkout we were run in, or null outside a repo. */
+function gitToplevel(): string | null {
+  const r = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const out = r.exitCode === 0 ? r.stdout.toString().trim() : "";
+  return out || null;
+}
 
 const [cmd = "help", ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
@@ -140,6 +151,31 @@ try {
       );
       line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: swarm start");
       line(st.installed, "hooks installed", "run: swarm install");
+      if (st.installed && !st.coverage.complete) {
+        if (st.coverage.missing.length)
+          line(false, `hooks missing: ${st.coverage.missing.join(", ")}`, "run: swarm install");
+        if (st.coverage.short.length)
+          line(
+            false,
+            `hook timeout too short: ${st.coverage.short.join(", ")}`,
+            "run: swarm install",
+          );
+      }
+      // M8.1b: org policy — which file, what it locks, and whether lower layers fought it.
+      const pol = loadConfigDetailed({ repoRoot: gitToplevel() });
+      if (pol.policy.path) {
+        line(
+          true,
+          `policy ${pol.policy.path} (locked: ${pol.policy.locked.join(", ") || "nothing"})`,
+          "",
+        );
+        for (const o of pol.overridden)
+          line(
+            false,
+            `${o.layer} config overrides locked ${o.key}`,
+            `remove it — policy value stays in effect`,
+          );
+      }
       line(st.mcp, "MCP server registered", "run: swarm install");
       if (st.otherAgents.length)
         console.log(
