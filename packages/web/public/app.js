@@ -874,7 +874,6 @@ function renderAttribution() {
           { key: "worktree", label: "worktree", flex: true, get: (t) => t.worktree, cell: (t) => `<span class="now dim" title="${esc(t.worktree)}">${esc(short(t.worktree))}</span>` },
         ],
         rows: a.byTask,
-        leading: { width: 20, cell: () => "" },
         trailing: { width: 8, cell: () => "" },
         rerender: touch,
       }));
@@ -891,7 +890,6 @@ function renderAttribution() {
           { key: "turns", label: "turns", width: 64, num: true, get: (r) => r.turns, cell: (r) => String(r.turns) },
         ],
         rows: a.contextBudget,
-        leading: { width: 20, cell: () => "" },
         trailing: { width: 8, cell: () => "" },
         rerender: touch,
       }));
