@@ -37,7 +37,7 @@ const help = `swarm — control plane for AI-agent development
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   record a verification run (rubric required)
   gate ls [task]          latest verdict per gate (and the run history for one task)
-  run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--allowed-tools a,b] [--max-turns n]
+  run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--profile full|no-edits|read-only] [--allowed-tools a,b] [--max-turns n]
                           claim the task and spawn claude -p in its worktree; the session shows in Fleet
   run ls | send <task|id> "text" | stop <task|id>   steer (stdin) or stop a spawned run, by pid never pattern
   run resume <session-id> [--model m] [--permission-mode m]   spawn a run that picks up where a dead session stopped (its handoff + tail)
@@ -454,7 +454,14 @@ try {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path: resolve(".") }),
       })) as { id: string };
-      const VALUE_FLAGS = ["--max", "--parallel", "--model", "--permission-mode", "--max-turns"];
+      const VALUE_FLAGS = [
+        "--max",
+        "--parallel",
+        "--model",
+        "--permission-mode",
+        "--max-turns",
+        "--profile",
+      ];
       const positional = rest.filter(
         (a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(rest[i - 1] ?? ""),
       );
@@ -512,6 +519,7 @@ try {
           model: flag("--model"),
           permissionMode: flag("--permission-mode"),
           maxTurns: num("--max-turns"),
+          profile: flag("--profile"),
           owner: process.env.USER ?? "cli",
         }),
       }).then((x) => x.json())) as {
@@ -636,6 +644,7 @@ try {
         "--allowed-tools",
         "--max-turns",
         "--owner",
+        "--profile",
       ]);
       const positionals: string[] = [];
       for (let i = 0; i < rest.length; i++) {
@@ -695,7 +704,7 @@ try {
       if (!prompt && pf) prompt = await Bun.file(resolve(pf)).text();
       if (!task || !prompt)
         throw new Error(
-          'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]',
+          'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--profile p] [--allowed-tools a,b] [--max-turns n]',
         );
       const r = (await fetch(
         resumeFrom
@@ -716,6 +725,7 @@ try {
               .map((t) => t.trim())
               .filter(Boolean),
             maxTurns: flag("--max-turns") ? Number(flag("--max-turns")) : undefined,
+            profile: flag("--profile"),
           }),
         },
       ).then((x) => x.json())) as {

@@ -38,6 +38,7 @@ export interface DispatchOptions {
   permissionMode?: PermissionMode | undefined;
   model?: string | undefined;
   maxTurns?: number | undefined;
+  profile?: string | undefined;
   /** Cap on tasks accepted this call. */
   max?: number | undefined;
 }
@@ -157,6 +158,7 @@ export class Dispatcher {
         "acceptEdits") as PermissionMode,
       model: opts.model ?? cfg.dispatch.model ?? undefined,
       maxTurns: opts.maxTurns ?? cfg.dispatch.max_turns ?? undefined,
+      profile: opts.profile ?? cfg.dispatch.profile ?? undefined,
     });
     if (!r.ok) {
       if (e) {

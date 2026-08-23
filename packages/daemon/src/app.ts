@@ -49,6 +49,11 @@ export function createApp(store = new Store()) {
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
   const dispatcher = new Dispatcher(store, runner, forge);
+  // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
+  store.onBudgetStop((projectId) => {
+    dispatcher.clear(projectId);
+    for (const run of runner.list(projectId)) void runner.stop(run.id);
+  });
 
   app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
 
@@ -251,8 +256,17 @@ export function createApp(store = new Store()) {
       permissionMode: b.permissionMode,
       allowedTools: b.allowedTools,
       maxTurns: b.maxTurns,
+      profile: b.profile,
     });
     return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
+  });
+  // ---- budgets (0.7.0)
+  app.get("/v1/budget", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    return c.json(
+      store.budgetFor(project) ?? { status: null, config: store.config(project).budget },
+    );
   });
   // ---- M7.10: the SessionStart context, refreshable mid-session
   app.get("/v1/context", (c) => {
@@ -325,6 +339,7 @@ export function createApp(store = new Store()) {
       model?: string;
       maxTurns?: number;
       owner?: string;
+      profile?: string;
     };
     if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
     if (!b.ready && !b.tasks?.length)
@@ -336,6 +351,7 @@ export function createApp(store = new Store()) {
       permissionMode: b.permissionMode,
       model: b.model,
       maxTurns: b.maxTurns,
+      profile: b.profile,
     });
     return c.json(r, r.ok ? 202 : 409);
   });

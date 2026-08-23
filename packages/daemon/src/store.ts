@@ -18,6 +18,10 @@ import { swarmHome } from "@swarm/client";
 import {
   absolutePath,
   acquireRefusalMessage,
+  BUDGET_ASK_TOOLS,
+  type BudgetStatus,
+  budgetMessage,
+  budgetStatus,
   canAcquire,
   canClaim,
   canRelease,
@@ -81,10 +85,12 @@ import {
   projectIdentity,
   type Question,
   type Resource,
+  type RuleId,
   type RulesConfig,
   reapAction,
   releaseRefusalMessage,
   removeRefusalMessage,
+  type SwarmConfig,
   type SwarmEvent,
   sessionDoc,
   shouldAutoRenew,
@@ -1420,6 +1426,21 @@ export class Store {
     cwd: string,
     recordIncident = true,
   ): { decision: GuardDecision; display: string } {
+    // 0.7.0 budgets: past the ceiling with on_exceed = "ask", every spending tool asks first.
+    if (BUDGET_ASK_TOOLS.has(tool) && cwd && existsSync(cwd)) {
+      const project = this.resolveProject(cwd);
+      const b = this.budgetFor(project.id);
+      if (b && b.status.level === "exceeded" && b.config.on_exceed === "ask") {
+        const d = {
+          action: "ask" as const,
+          // not a rule in `RuleModes` — a ceiling; the incident feed shows it under "budget"
+          rule: "budget" as unknown as RuleId,
+          reason: `${budgetMessage(b.status, project.name)} — [budget] on_exceed = "ask": confirm each change, or raise the ceiling in .swarm.toml`,
+        };
+        // one incident per day per project is plenty (checkBudgets opened it); don't spam
+        return { decision: d, display: input.command ?? input.file_path ?? tool };
+      }
+    }
     const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
     const cmd = tool === "Bash" ? input.command : undefined;
     const current = { id: sessionId, cwd, toplevel: this.toplevel(cwd) };
@@ -2955,6 +2976,75 @@ export class Store {
         spark: sparks.get(r.id as string) ?? [],
       };
     });
+  }
+
+  // ---------- budgets (0.7.0)
+
+  /** USD spent by a project today (local day) and over the last 7 days, from the transcripts. */
+  projectSpend(projectId: string): { today: number; week: number } {
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const q = (since: string) =>
+      (
+        this.db
+          .query(
+            "SELECT COALESCE(SUM(t.cost_usd), 0) AS cost FROM turns t JOIN sessions s ON s.id = t.session_id WHERE s.project_id = ? AND t.ts >= ?",
+          )
+          .get(projectId, since) as { cost: number }
+      ).cost;
+    return { today: q(dayStart.toISOString()), week: q(weekStart) };
+  }
+
+  /** Budget status for a project, or null when it has no ceiling configured. */
+  budgetFor(projectId: string): { status: BudgetStatus; config: SwarmConfig["budget"] } | null {
+    const cfg = this.config(projectId).budget;
+    if (!cfg.daily && !cfg.weekly) return null;
+    return { status: budgetStatus(this.projectSpend(projectId), cfg), config: cfg };
+  }
+
+  private budgetNotified = new Map<string, string>(); // projectId → "<day>:<level>"
+  private budgetListeners = new Set<(projectId: string, s: BudgetStatus) => void>();
+  /** Called once per project per day when a ceiling is exceeded and `on_exceed = "stop"`. */
+  onBudgetStop(fn: (projectId: string, s: BudgetStatus) => void) {
+    this.budgetListeners.add(fn);
+  }
+
+  /**
+   * For the daemon tick: open a `budget` incident the first time a project crosses `warn_at` and
+   * again the first time it crosses 100% (per local day); fire the stop listeners on exceed+stop.
+   */
+  checkBudgets(): Array<{ projectId: string; status: BudgetStatus }> {
+    const day = new Date().toDateString();
+    const out: Array<{ projectId: string; status: BudgetStatus }> = [];
+    for (const p of this.projects()) {
+      const b = this.budgetFor(p.id);
+      if (!b || b.status.level === "ok") continue;
+      out.push({ projectId: p.id, status: b.status });
+      const key = `${day}:${b.status.level}`;
+      if (this.budgetNotified.get(p.id) === key) continue;
+      this.budgetNotified.set(p.id, key);
+      const msg = budgetMessage(b.status, p.name);
+      this.append({
+        ts: new Date().toISOString(),
+        type: "incident.opened",
+        projectId: p.id,
+        sessionId: null,
+        payload: {
+          rule: "budget",
+          action: b.status.level === "exceeded" ? b.config.on_exceed : "warn",
+          command: `${b.status.kind} budget`,
+          reason:
+            b.status.level === "exceeded"
+              ? `${msg}. ${b.config.on_exceed === "stop" ? "Spawned runs were stopped and the dispatch queue cleared." : b.config.on_exceed === "ask" ? "Every Bash/Edit/Write now asks first." : "Raise [budget] in .swarm.toml or wait for the next day."}`
+              : `${msg} — approaching the ceiling`,
+        },
+      });
+      if (b.status.level === "exceeded" && b.config.on_exceed === "stop")
+        for (const fn of this.budgetListeners) fn(p.id, b.status);
+      this.touch();
+    }
+    return out;
   }
 
   /** Spend rollups: per project and per model, today (local) and all-time. */

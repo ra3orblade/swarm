@@ -129,7 +129,7 @@ swarm answer <id> <text…>                # the agent gets it on its next tool 
 ## Dispatch
 
 ```sh
-swarm dispatch --ready [--max N] [--parallel N] [--permission-mode m] [--model m] [--max-turns n]
+swarm dispatch --ready [--max N] [--parallel N] [--permission-mode m] [--model m] [--max-turns n] [--profile p]
 swarm dispatch <task…>           # specific tasks (must be ready: unclaimed, dependencies done)
 swarm dispatch status            # per task: queued / running / done / gates-failed / no-pr / crashed / stopped
 swarm dispatch clear [task]      # drop queued (and finished) rows

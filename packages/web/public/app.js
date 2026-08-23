@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], budget: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -138,9 +138,12 @@ async function refresh() {
   }
   let attrChanged = false;
   if (state.view === "spend" && state.sel && !state.session) {
-    const a = await fetch(`/v1/attribution?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.attribution);
-    attrChanged = JSON.stringify(a) !== JSON.stringify(state.attribution);
-    state.attribution = a;
+    const [a, bd] = await Promise.all([
+      fetch(`/v1/attribution?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.attribution),
+      fetch(`/v1/budget?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.budget),
+    ]);
+    attrChanged = JSON.stringify(a) !== JSON.stringify(state.attribution) || JSON.stringify(bd) !== JSON.stringify(state.budget);
+    state.attribution = a; state.budget = bd;
   } else if (state.view === "spend" && !state.sel) {
     if (state.attribution) attrChanged = true;
     state.attribution = null;
@@ -717,6 +720,16 @@ function renderDispatch() {
     });
 }
 
+// 0.7.0: the project's [budget] ceiling against what it spent
+function budgetKpi(kpi) {
+  const b = state.sel ? state.budget : null;
+  if (!b?.status) return state.sel ? kpi("budget", "—", "no [budget] in .swarm.toml") : "";
+  const s = b.status;
+  const pct = Math.round(s.pct * 100);
+  const cls = s.level === "exceeded" ? "warn" : s.level === "warn" ? "acc" : "";
+  return kpi(`${s.kind} budget`, `<span class="${cls}">${pct}%</span>`, `${usd(s.spent)} of ${usd(s.limit)} · past it: ${b.config.on_exceed}`);
+}
+
 // ---------- spend
 function renderSpend() {
   const sp = state.spend;
@@ -766,7 +779,7 @@ function renderSpend() {
   const hm = sp.hourly.filter(inSel).map((c) => ({ dow: c.dow, hour: c.hour, v: c.cost ?? 0 }));
   $("#main").innerHTML =
     `<h2>Spend <span>${state.sel ? esc(projName(state.sel)) : "all projects"}</span>${rangeChips}</h2>
-     <div class="kpis">${kpi("today", usd(todayCost), `${todayTurns} turns`)}${kpi(`${N}-day total`, usd(total14), `${activeDays} active day${activeDays === 1 ? "" : "s"}`)}${kpi("today vs avg", prevDays ? `${todayCost >= avg ? "+" : ""}${(((todayCost - avg) / avg) * 100).toFixed(0)}%` : "—", prevDays ? `vs ${usd(avg)} / active day` : "no earlier days to compare")}${kpi("agents", agents.length, agents.map(agentLabel).join(" · ") || "—")}</div>
+     <div class="kpis">${kpi("today", usd(todayCost), `${todayTurns} turns`)}${kpi(`${N}-day total`, usd(total14), `${activeDays} active day${activeDays === 1 ? "" : "s"}`)}${kpi("today vs avg", prevDays ? `${todayCost >= avg ? "+" : ""}${(((todayCost - avg) / avg) * 100).toFixed(0)}%` : "—", prevDays ? `vs ${usd(avg)} / active day` : "no earlier days to compare")}${kpi("agents", agents.length, agents.map(agentLabel).join(" · ") || "—")}${budgetKpi(kpi)}</div>
      <div class="chart-card"><h3>Daily cost · last ${N} days <span>stacked by agent</span></h3>${viz.stackedColumns(days, series)}${agents.length > 1 ? viz.legend(agents) : ""}</div>
      <div class="cols">
        <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
@@ -1543,6 +1556,7 @@ function openRunDrawer(taskId) {
         <label>model<input id="rnModel" placeholder="default" value="${esc(last.model ?? "")}"></label>
         <label>max turns<input id="rnTurns" type="number" min="1" placeholder="∞" value="${esc(last.turns ?? "")}"></label>
       </div>
+      <label>profile<select id="rnProfile" title="full: every tool · no-edits: commands but no file edits · read-only: read and search only">${["full", "no-edits", "read-only"].map((m) => opt(m, last.profile ?? "full")).join("")}</select></label>
       <div class="dim" style="font-size:var(--fs-sm)">Claims <b>${esc(taskId)}</b> (or reuses your held worktree) and spawns <code>claude -p</code> there. The session appears in Fleet; steer it from its page.</div>
     </div>
     <div class="pk-f"><span class="grow"></span><button id="rnCancel">Cancel</button><button class="primary" id="rnGo" data-task="${esc(taskId)}">${ic("play", 13)} Run</button></div>
@@ -1552,11 +1566,11 @@ function openRunDrawer(taskId) {
 async function submitRun(taskId) {
   const prompt = $("#rnPrompt")?.value.trim();
   if (!prompt) return alert("A prompt is required.");
-  const mode = $("#rnMode")?.value, model = $("#rnModel")?.value.trim(), turns = $("#rnTurns")?.value;
-  localStorage.setItem("swarm.runOpts", JSON.stringify({ mode, model, turns }));
+  const mode = $("#rnMode")?.value, model = $("#rnModel")?.value.trim(), turns = $("#rnTurns")?.value, profile = $("#rnProfile")?.value;
+  localStorage.setItem("swarm.runOpts", JSON.stringify({ mode, model, turns, profile }));
   closePicker();
   const r = await fetch("/v1/runs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
-    projectId: state.sel, task: taskId, prompt, owner: "dashboard", permissionMode: mode, model: model || undefined, maxTurns: turns ? Number(turns) : undefined,
+    projectId: state.sel, task: taskId, prompt, owner: "dashboard", permissionMode: mode, model: model || undefined, maxTurns: turns ? Number(turns) : undefined, profile: profile && profile !== "full" ? profile : undefined,
   }) }).then((x) => x.json());
   if (!r.ok) return alert(r.error);
   state.tasks = null;
@@ -1579,6 +1593,7 @@ function openDispatchDrawer() {
         <label>permission mode<select id="dpMode">${["acceptEdits", "auto", "plan", "dontAsk", "manual", "bypassPermissions"].map((m) => opt(m, cfg.permission_mode ?? last.mode ?? "acceptEdits")).join("")}</select></label>
         <label>max turns<input id="dpTurns" type="number" min="1" placeholder="∞" value="${esc(cfg.max_turns ?? last.turns ?? "")}"></label>
       </div>
+      <label>profile<select id="dpProfile">${["full", "no-edits", "read-only"].map((m) => opt(m, cfg.profile ?? "full")).join("")}</select></label>
       <div class="dim" style="font-size:var(--fs-sm)">Each task gets its own claim + worktree and a <code>claude -p</code> run told to work there, run the gates, hand off and open a PR. The rest queue until a slot frees. Swarm derives the outcome from gates and PRs — a task is never flipped done by an agent.</div>
     </div>
     <div class="pk-f"><span class="grow"></span><button id="pkClose">Cancel</button><button class="primary" id="dispatchGo">${ic("play", 13)} Dispatch</button></div>
@@ -1588,7 +1603,8 @@ function openDispatchDrawer() {
 async function submitDispatch() {
   const tasks = [...document.querySelectorAll(".dpTask:checked")].map((i) => i.value);
   if (!tasks.length) return alert("Pick at least one task.");
-  const body = { projectId: state.sel, tasks, maxParallel: Number($("#dpPar")?.value) || undefined, permissionMode: $("#dpMode")?.value, maxTurns: Number($("#dpTurns")?.value) || undefined, owner: "dashboard" };
+  const prof = $("#dpProfile")?.value;
+  const body = { projectId: state.sel, tasks, maxParallel: Number($("#dpPar")?.value) || undefined, permissionMode: $("#dpMode")?.value, maxTurns: Number($("#dpTurns")?.value) || undefined, profile: prof && prof !== "full" ? prof : undefined, owner: "dashboard" };
   closePicker();
   const r = await fetch("/v1/dispatch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
   if (!r.ok) return alert(r.error);
