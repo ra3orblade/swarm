@@ -306,6 +306,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/worktrees?project=` · `POST /v1/worktrees` · `POST /v1/worktrees/remove` · `POST /v1/worktrees/open` · `POST /v1/worktrees/gc` | first-class worktrees (M7.2): fresh listing with `behind`/`merged`; create task-less (`name`, `baseRef`, `branch`); remove (`worktree` = path, folder name or branch; `force`); open on the desktop; gc (`apply`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/budget?project=` | the project's `[budget]` status (level, deciding ceiling, spent, pct) and config (0.7.0) |
 | `GET /v1/context?cwd=&session=` | the SessionStart context for a cwd, refreshable; delivers pending answers to `session` (M7.10) |
 | `GET /v1/questions?project=&session=&open=1` · `POST /v1/questions` · `POST /v1/questions/:id/answer` · `GET /v1/inbox?session=[&peek=1]` | ask-the-human (M7.7): `messages` table; `answer` also writes to a live spawned run's stdin; `inbox` returns undelivered answers and marks them delivered unless `peek` |
 | `GET /v1/dispatch?project=` · `POST /v1/dispatch` · `DELETE /v1/dispatch` | dispatch queue per project (entries with state/outcome/detail/cost + config); `POST` `{projectId, tasks?\|ready, max?, maxParallel?, permissionMode?, model?, maxTurns?}`; `DELETE` clears queued/finished (M7.5) |

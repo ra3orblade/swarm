@@ -1,6 +1,7 @@
 export * from "./adapters";
 export * from "./adapters/claude-code/hooks";
 export * from "./adapters/claude-code/transcript";
+export * from "./budget";
 export * from "./config";
 export * from "./dispatch";
 export * from "./dryrun";

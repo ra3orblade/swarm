@@ -38,6 +38,14 @@ claim_required_to_write = "off"
 # Ports agents must not kill or free. Empty by default.
 ports = []
 
+[budget]
+# Spend ceilings per repo (USD). warn_at opens an incident; past 100%, on_exceed:
+# "warn" | "ask" (spending tools ask first) | "stop" (spawned runs stopped)
+# daily = 25
+# weekly = 100
+warn_at = 0.8
+on_exceed = "warn"
+
 [worktree]
 # Make new worktrees start warm: untracked files to copy from the main checkout,
 # and one setup command to run inside the worktree. Both off by default.
@@ -135,6 +143,10 @@ claim_required_to_write = "deny"
 ```
 
 Bash is not covered — a `cat` is not a write — and neither are paths outside the repo.
+
+## Budgets
+
+A repo can carry a spend ceiling: `[budget] daily = 25` and/or `weekly = 100` (USD, from the same transcript-priced numbers the Spend view shows). At `warn_at` (80% by default) a `budget` incident opens once for the day; past 100% another does, and `on_exceed` says what else happens — `"warn"` nothing more, `"ask"` makes every Bash / Edit / Write in that repo ask first (the reason names the ceiling), `"stop"` stops the repo's spawned runs and clears its dispatch queue. The Spend view shows the ceiling as a tile when a project is selected. Budgets are checked every 30 seconds; an interactive session past the ceiling keeps working, it just confirms each change.
 
 ## What rules are — and aren't
 

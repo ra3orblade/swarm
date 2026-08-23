@@ -231,7 +231,7 @@ export function status(): {
   if (existsSync(cp) && CODEX_BLOCK_RE.test(readFileSync(cp, "utf8"))) otherAgents.push("codex");
   const gp = geminiSettingsPath();
   try {
-    if (existsSync(gp) && (JSON.parse(readFileSync(gp, "utf8")).mcpServers ?? {}).swarm)
+    if (existsSync(gp) && JSON.parse(readFileSync(gp, "utf8")).mcpServers?.swarm)
       otherAgents.push("gemini");
   } catch {}
   return { installed, mcp: mcpRegistered(), path: settingsPath(), shim: shimPath(), otherAgents };

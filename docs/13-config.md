@@ -65,6 +65,16 @@ ports = []                # e.g. [3000, 5432, 7777]
 # source = "linear"      # Linear GraphQL with LINEAR_API_KEY from the daemon's environment (never stored)
 # team = "ENG"           # Linear only: team key; all teams when unset
 
+[budget]
+# Spend ceiling per project (0.7.0), judged against what the transcripts say was spent. At `warn_at`
+# a `budget` incident opens (once per day); past 100% another does, and `on_exceed` decides what
+# else: "warn" (nothing), "ask" (every Bash/Edit/Write asks first, in every session of the repo),
+# "stop" (spawned runs stopped, the dispatch queue cleared). Ceilings are USD; unset = none.
+# daily = 25
+# weekly = 100
+warn_at = 0.8
+on_exceed = "warn"
+
 [dispatch]
 # `swarm dispatch` (M7.5): autonomous runs per project at once; the rest queue. Defaults for those
 # runs; `require_pr` = a dispatched task counts as done only once a PR is open for its branch.
@@ -73,6 +83,9 @@ max_parallel = 2
 # model = "claude-sonnet-5"
 # max_turns = 60
 require_pr = true
+# Permission profile for dispatched runs: "full" (default) | "no-edits" (commands, no file edits)
+# | "read-only" (read and search only). Also `swarm run --profile` and the Run drawer.
+# profile = "full"
 
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).

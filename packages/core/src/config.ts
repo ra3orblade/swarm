@@ -63,6 +63,8 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
   return out;
 }
 
+import type { BudgetConfig } from "./budget";
+
 export interface SwarmConfig {
   daemon: {
     /** Preferred port; the daemon still falls back to a free port when taken. */
@@ -86,6 +88,8 @@ export interface SwarmConfig {
     /** Executable gates: `[gates.<name>] cmd = "bun test"` (M7.4). */
     defs: Record<string, GateDef>;
   };
+  /** Spend ceiling per project (0.7.0). */
+  budget: BudgetConfig;
   dispatch: {
     /** Dispatched runs at once per project (M7.5). */
     max_parallel: number;
@@ -95,6 +99,8 @@ export interface SwarmConfig {
     max_turns: number | null;
     /** A dispatched task counts as done only once a PR is open for its branch. */
     require_pr: boolean;
+    /** Default permission profile for dispatched runs: full | no-edits | read-only. */
+    profile: string | null;
   };
   worktree: {
     /** Shell command run inside every new worktree right after `git worktree add`
@@ -114,12 +120,14 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
+  budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
   dispatch: {
     max_parallel: 2,
     permission_mode: null,
     model: null,
     max_turns: null,
     require_pr: true,
+    profile: null,
   },
   worktree: { setup: null, copy: [], open: null },
   rules: {
@@ -177,6 +185,12 @@ function validate(c: SwarmConfig): SwarmConfig {
   const mp = Number(d.max_parallel);
   const mt = Number(d.max_turns);
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const b = (c.budget ?? {}) as unknown as Partial<Record<string, unknown>>;
+  const usd = (v: unknown) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const warnAt = Number(b.warn_at);
   const auto = rawGates?.auto;
   return {
     ...c,
@@ -200,12 +214,21 @@ function validate(c: SwarmConfig): SwarmConfig {
         : "session-end",
       defs: parseGateDefs(rawGates),
     },
+    budget: {
+      daily: usd(b.daily),
+      weekly: usd(b.weekly),
+      warn_at: Number.isFinite(warnAt) && warnAt > 0 && warnAt < 1 ? warnAt : 0.8,
+      on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
+    },
     dispatch: {
       max_parallel: Number.isInteger(mp) && mp > 0 ? Math.min(mp, 16) : 2,
       permission_mode: str(d.permission_mode),
       model: str(d.model),
       max_turns: Number.isInteger(mt) && mt > 0 ? mt : null,
       require_pr: d.require_pr === undefined ? true : d.require_pr === true,
+      profile: ["full", "no-edits", "read-only"].includes(String(d.profile))
+        ? String(d.profile)
+        : null,
     },
     worktree: {
       setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,

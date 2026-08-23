@@ -13,6 +13,7 @@
  */
 import { appendFileSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { RUN_PROFILES, runProfile } from "@swarm/core";
 import { findBin } from "./forge";
 import type { Store } from "./store";
 
@@ -33,6 +34,8 @@ export interface RunInput {
   permissionMode?: PermissionMode | undefined;
   allowedTools?: string[] | undefined;
   maxTurns?: number | undefined;
+  /** Permission profile (core `RUN_PROFILES`): full | no-edits | read-only. */
+  profile?: string | undefined;
 }
 
 export interface Run {
@@ -45,6 +48,7 @@ export interface Run {
   owner: string;
   model: string | null;
   permissionMode: PermissionMode | null;
+  profile: string | null;
   prompt: string;
   log: string;
   startedAt: string;
@@ -152,7 +156,15 @@ export class Runner {
     ];
     if (input.model) args.push("--model", input.model);
     if (input.permissionMode) args.push("--permission-mode", input.permissionMode);
-    if (input.allowedTools?.length) args.push("--allowedTools", ...input.allowedTools);
+    const profile = runProfile(input.profile);
+    if (input.profile && !profile)
+      return {
+        ok: false,
+        reason: `unknown profile ${input.profile} — one of ${Object.keys(RUN_PROFILES).join(", ")}`,
+      };
+    const allowed = [...(input.allowedTools ?? []), ...(profile?.allowedTools ?? [])];
+    if (allowed.length) args.push("--allowedTools", ...allowed);
+    if (profile?.disallowedTools.length) args.push("--disallowedTools", ...profile.disallowedTools);
     if (input.maxTurns) args.push("--max-turns", String(input.maxTurns));
 
     // The session row first, typed `spawned`, so the hooks that follow attach to it.
@@ -175,6 +187,7 @@ export class Runner {
       owner: input.owner,
       model: input.model ?? null,
       permissionMode: input.permissionMode ?? null,
+      profile: input.profile ?? null,
       prompt: input.prompt,
       log,
       startedAt: new Date().toISOString(),
