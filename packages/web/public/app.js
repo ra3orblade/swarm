@@ -121,7 +121,7 @@ const getTheme = () => localStorage.getItem("swarm.theme") ?? "system";
 const setTheme = (t) => { localStorage.setItem("swarm.theme", t); if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; };
 setTheme(getTheme());
 const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
-const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
+const tail = (p, n = 16) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
@@ -1330,7 +1330,7 @@ function menuSpec(kind, d) {
       { divider: true },
       p.discovered ? { label: "Pin project", icon: "push-pin", run: () => pinProject(p.id, true) } : { label: "Unpin project", icon: "push-pin-slash", run: () => pinProject(p.id, false) },
       { label: "Settings…", icon: "sliders", caption: "name · icon · color", run: () => openProjectSettings(p.id) },
-      { label: "Copy path", icon: "copy", caption: tail(p.root), run: () => copy(p.root) },
+      { label: "Copy path", icon: "copy", caption: tail(p.root, 16), run: () => copy(p.root) },
       { divider: true },
       { label: "Remove from Swarm", icon: "trash", danger: true, run: () => removeProject(p.id) },
     ] };
@@ -1344,9 +1344,9 @@ function menuSpec(kind, d) {
       { divider: true },
       { section: "Copy" },
       { label: "Session id", icon: "copy", caption: s.id.slice(0, 8), run: () => copy(s.id) },
-      { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 18), run: () => copy(s.cwd) },
+      { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 16), run: () => copy(s.cwd) },
       ...(s.transcriptPath ? [{ label: "Transcript path", icon: "file-text", run: () => copy(s.transcriptPath) }] : []),
-      ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 18), run: () => copy(s.branch) }] : []),
+      ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 16), run: () => copy(s.branch) }] : []),
     ] };
   }
   if (kind === "worktree") {
@@ -1409,7 +1409,7 @@ function menuSpec(kind, d) {
   if (kind === "process") {
     return { items: [
       { label: "Copy pid", icon: "copy", caption: d.pid, run: () => copy(d.pid) },
-      ...(d.cwd ? [{ label: "Copy cwd", icon: "folder-simple", caption: tail(d.cwd, 18), run: () => copy(d.cwd) }] : []),
+      ...(d.cwd ? [{ label: "Copy cwd", icon: "folder-simple", caption: tail(d.cwd, 16), run: () => copy(d.cwd) }] : []),
       { divider: true },
       { label: "Stop", icon: "stop", danger: true, caption: "SIGTERM → SIGKILL", run: () => act.procStop(d.pid, d.proj) },
     ] };

@@ -453,8 +453,8 @@
   /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
   .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
   /* labels are the point of a menu: never ellipsize them — the caption yields instead */
-  .fm-row__name{flex:0 0 auto;overflow:visible;text-overflow:clip}
-  .fm-row__caption{flex:0 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fm-row__name{flex:1 1 auto;min-width:0}
+  .fm-row__caption{flex:0 1 auto;min-width:0;max-width:45%;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fm-ico .ph{vertical-align:0}
   main>h2:not(:first-child){margin-top:var(--gap-sec)}
   .mt-sec{margin-top:var(--gap-sec)}
