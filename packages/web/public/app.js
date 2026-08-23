@@ -51,7 +51,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
 // p2 (zero-pad) is defined in viz.js, which loads first
 const hhmm = (iso) => { const d = new Date(iso); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
-const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : id);
+const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : "(removed)");
 const short = (p) => String(p ?? "").replace(/^\/Users\/[^/]+/, "~");
 const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
@@ -294,13 +294,17 @@ projectsEl.addEventListener("dragend", () => {
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
 const FLEET_COLS = [
-  { key: "project", label: "project", width: 104, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
-  { key: "agent", label: "agent", width: 84, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
-  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}` },
-  { key: "branch", label: "branch", width: 134, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
-  { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\n")[0] : s.last) : s.last)}</span>` },
-  { key: "model", label: "model", width: 96, get: (s) => model(s.model), cell: (s) => `<span class="br">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</span>` },
-  { key: "trend", label: "trend", width: 100, sortable: false, filterable: false, get: () => null, cell: (s) => viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent)) },
+  { key: "project", label: "project", width: 96, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
+  { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
+  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}` },
+  { key: "branch", label: "branch", width: 116, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
+  { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => {
+    const line = s.lastText ? s.lastText.split("\n").find((l) => l.trim()) ?? "" : "";
+    if (s.state === "ended") return line ? `<span class="now dim" title="${esc(line)}">${esc(line)}</span>` : '<span class="dim">ended</span>';
+    return `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" && line ? line : s.last)}</span>`;
+  } },
+  { key: "model", label: "model", width: 84, get: (s) => model(s.model), cell: (s) => `<span class="br">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</span>` },
+  { key: "trend", label: "trend", width: 84, sortable: false, filterable: false, get: () => null, cell: (s) => viz.sparkline(s.spark.map((p) => p[0]), viz.agentColor(s.agent)) },
   { key: "out", label: "out", width: 66, num: true, get: (s) => s.tokens.output, cell: (s) => tok(s.tokens.output) },
   { key: "ctx", label: "ctx", width: 72, num: true, get: (s) => s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite, cell: (s) => tok(s.tokens.cacheRead + s.tokens.input + s.tokens.cacheWrite) },
   { key: "cost", label: "cost", width: 64, num: true, get: (s) => s.costUsd ?? 0, cell: (s) => usd(s.costUsd) },
@@ -415,13 +419,15 @@ function incidentColumns(full) {
     { key: "session", label: "session", width: 150, get: (i) => sess(i.sessionId)?.title ?? i.sessionId ?? "", cell: (i) => (i.sessionId ? `<a href="#" data-s="${i.sessionId}">${esc(sess(i.sessionId)?.title ?? i.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
     { key: "rule", label: "rule", width: 150, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
     { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : i.action === "orphaned" ? '<span class="badge warn">Orphaned</span>' : i.action === "failed" ? '<span class="badge warn">Failed</span>' : '<span class="badge acc">Asked</span>') },
-    { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.reason ?? "")}">${esc(i.command ?? "")}</span>` },
+    { key: "command", label: "command", flex: true, get: (i) => i.command, cell: (i) => `<span class="now" title="${esc(i.command ?? "")}${i.reason ? `\n\n${esc(i.reason)}` : ""}">${esc(cmdGist(i.command ?? ""))}</span>` },
     ...(full ? [
       { key: "reason", label: "reason", width: 260, get: (i) => i.reason ?? "", cell: (i) => `<span class="dim now" title="${esc(i.reason ?? "")}">${esc(i.reason ?? "")}</span>` },
       { key: "acked", label: "acked", width: 80, get: (i) => i.acked ?? "", cell: (i) => (i.acked ? `<span class="dim" title="${esc(i.acked)}">${ago(i.acked)}</span>` : '<span class="badge warn">Open</span>') },
     ] : []),
   ].filter((c) => !(c.key === "project" && state.sel) && !(c.key === "session" && !full));
 }
+/** The part of a shell command worth reading in a cell: drop a leading `cd <dir> &&` / `;`. */
+const cmdGist = (c) => c.replace(/^\s*cd\s+\S+\s*(&&|;)\s*/, "").replace(/\s+/g, " ").trim() || c;
 const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" || i.action === "orphaned" || i.action === "failed" ? "waiting" : "idle"}"></span>`;
 
 function renderIncidents() {
@@ -1208,7 +1214,7 @@ function renderSession() {
   const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${(state.worktrees[s.projectId] ?? []).some((w) => !w.main && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`))) ? `<a href="#" class="nav" id="sessDiff" title="What this session's worktree changed">${ic("folders", 13)} Diff</a>` : ""}${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("reload", 13)} Resume where it died</a>` : ""}</h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
-    ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
+    ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("processed", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
     ${stat("started", `${ago(s.startedAt)} ago`)}${stat("last seen", `${ago(s.lastSeenAt)} ago`)}
     ${subTurns.length ? stat("subagent turns", subTurns.length) : ""}
     </div>
