@@ -29,6 +29,7 @@ import {
   type DryRunReport,
   deriveHandoff,
   dryRunRules,
+  executedGateInput,
   formatHandoff,
   formatResumePrompt,
   fromLiteLLM,
@@ -853,6 +854,220 @@ export class Store {
   }
 
   /** Gates the repo declares as required (`.swarm.toml [gates] required`). */
+  // ---------- executed gates (M7.4)
+
+  /** `[gates.<name>] cmd` definitions for a project. */
+  gateDefs(projectId: string) {
+    const p = this.project(projectId);
+    return p ? loadConfig({ repoRoot: p.root, home: this.home }).gates : null;
+  }
+
+  private gateJobs = new Map<string, Promise<GateRun | null>>();
+  private gateBatches = new Map<string, Set<Promise<unknown>>>();
+  /** Resolve once every in-flight gate run or batch for this task has been recorded. */
+  async awaitGates(projectId: string, task: string): Promise<void> {
+    const prefix = `${projectId}:${task}:`;
+    await Promise.all([
+      ...[...this.gateJobs].filter(([k]) => k.startsWith(prefix)).map(([, v]) => v),
+      ...(this.gateBatches.get(`${projectId}:${task}`) ?? []),
+    ]);
+  }
+
+  /**
+   * Run one executable gate in the task's held worktree: `sh -c cmd`, registered in the process
+   * registry (`kind: gate`, singleton `gate:<task>:<gate>` so the same gate never runs twice at
+   * once), output to `~/.swarm/logs/<project>/gate-<task>-<gate>.log`, killed after `timeout`.
+   * Returns as soon as the process is started; the run is recorded when it exits (OQ-13).
+   */
+  runGate(
+    projectId: string,
+    task: string,
+    gate: string,
+    opts: { sessionId?: string | null; owner?: string } = {},
+  ):
+    | { ok: true; pid: number; log: string; done: Promise<GateRun | null> }
+    | { ok: false; reason: string } {
+    const p = this.project(projectId);
+    if (!p) return { ok: false, reason: "unknown project" };
+    const cfg = this.gateDefs(projectId);
+    const def = cfg?.defs[gate];
+    if (!def)
+      return {
+        ok: false,
+        reason: `gate ${gate} has no command — add [gates.${gate}] cmd = "…" to .swarm.toml, or record it with swarm gate record`,
+      };
+    const claim = this.claims(projectId).find((c) => c.task === task && c.state === "held");
+    const worktree = claim?.worktree;
+    if (!worktree || !existsSync(worktree))
+      return {
+        ok: false,
+        reason: `${task} has no held worktree to run ${gate} in — claim it first`,
+      };
+    const cwd = def.cwd ? join(worktree, def.cwd) : worktree;
+    if (!existsSync(cwd)) return { ok: false, reason: `gate cwd ${cwd} does not exist` };
+    const key = `${projectId}:${task}:${gate}`;
+    if (this.gateJobs.has(key))
+      return { ok: false, reason: `${gate} is already running on ${task}` };
+
+    const slug = (x: string) => x.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+    const logDir = join(this.home, "logs", projectId);
+    mkdirSync(logDir, { recursive: true });
+    const log = join(logDir, `gate-${slug(task)}-${slug(gate)}.log`);
+    writeFileSync(log, `$ ${def.cmd}\n# cwd ${cwd} · ${new Date().toISOString()}\n`);
+    const fd = openSync(log, "a");
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn(["sh", "-c", def.cmd], {
+        cwd,
+        stdin: "ignore",
+        stdout: fd,
+        stderr: fd,
+        env: {
+          ...process.env,
+          SWARM_WORKTREE: worktree,
+          SWARM_TASK: task,
+          SWARM_GATE: gate,
+          CI: process.env.CI ?? "1",
+        },
+      });
+    } catch (e) {
+      closeSync(fd);
+      const run = this.recordGate(projectId, {
+        ...executedGateInput(task, gate, def.cmd, {
+          exitCode: null,
+          durationMs: 0,
+          output: (e as Error).message,
+        }),
+        sessionId: opts.sessionId ?? null,
+      });
+      return { ok: true, pid: 0, log, done: Promise.resolve(run.ok ? run.run : null) };
+    }
+    const started = Date.now();
+    const reg = this.registerProcess({
+      pid: proc.pid,
+      projectId,
+      sessionId: opts.sessionId ?? null,
+      kind: "gate",
+      name: `gate:${task}:${gate}`,
+      cwd,
+      cmd: def.cmd,
+      owner: opts.owner ?? "daemon",
+      log,
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+          try {
+            proc.kill("SIGKILL");
+          } catch {}
+        }, 5000).unref();
+      } catch {}
+    }, def.timeout * 1000);
+    const done = proc.exited
+      .then((code) => {
+        clearTimeout(timer);
+        closeSync(fd);
+        let output = "";
+        try {
+          output = readFileSync(log, "utf8");
+        } catch {}
+        const input = executedGateInput(task, gate, def.cmd, {
+          exitCode: timedOut ? null : code,
+          timedOut,
+          durationMs: Date.now() - started,
+          output,
+        });
+        const run = this.recordGate(projectId, { ...input, sessionId: opts.sessionId ?? null });
+        if (reg.ok) this.processes(projectId); // sweeps the exited row → process.exited
+        return run.ok ? run.run : null;
+      })
+      .finally(() => {
+        this.gateJobs.delete(key);
+        this.touch();
+      });
+    this.gateJobs.set(key, done);
+    return { ok: true, pid: proc.pid, log, done };
+  }
+
+  /**
+   * Run several gates for a task one after another (test suites don't like company). Defaults to
+   * the required gates that have a command. Resolves with the recorded runs, in order.
+   */
+  async runGates(
+    projectId: string,
+    task: string,
+    gates?: string[],
+    opts: { sessionId?: string | null; owner?: string } = {},
+  ): Promise<{
+    started: string[];
+    skipped: Array<{ gate: string; reason: string }>;
+    runs: GateRun[];
+  }> {
+    const cfg = this.gateDefs(projectId);
+    const names = gates?.length ? gates : (cfg?.required ?? []).filter((g) => cfg?.defs[g]);
+    const key = `${projectId}:${task}`;
+    const batch = (async () => {
+      const started: string[] = [];
+      const skipped: Array<{ gate: string; reason: string }> = [];
+      const runs: GateRun[] = [];
+      for (const g of names) {
+        const r = this.runGate(projectId, task, g, opts);
+        if (!r.ok) {
+          skipped.push({ gate: g, reason: r.reason });
+          continue;
+        }
+        started.push(g);
+        const run = await r.done;
+        if (run) runs.push(run);
+      }
+      return { started, skipped, runs };
+    })();
+    const set = this.gateBatches.get(key) ?? new Set();
+    set.add(batch);
+    this.gateBatches.set(key, set);
+    try {
+      return await batch;
+    } finally {
+      set.delete(batch);
+      if (!set.size) this.gateBatches.delete(key);
+    }
+  }
+
+  /**
+   * M7.4 auto-gate: after a Stop / SessionEnd inside a held worktree, run the executable required
+   * gates and write the verdicts into that session's auto-handoff `verify` line.
+   */
+  private autoGateAt = new Map<string, number>();
+  autoGate(event: "Stop" | "SessionEnd", sessionId: string, cwd: string) {
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (!held) return;
+    const cfg = this.gateDefs(held.projectId);
+    if (!cfg || cfg.auto === "off") return;
+    if (cfg.auto === "session-end" && event !== "SessionEnd") return;
+    if (!cfg.required.some((g) => cfg.defs[g])) return;
+    const key = `${held.projectId}:${held.task}`;
+    const now = Date.now();
+    if (event === "Stop" && now - (this.autoGateAt.get(key) ?? 0) < 120_000) return; // a Stop per turn; don't re-test every minute
+    this.autoGateAt.set(key, now);
+    void this.runGates(held.projectId, held.task, undefined, { sessionId, owner: "auto" }).then(
+      (r) => {
+        if (!r.runs.length) return;
+        const line = r.runs
+          .map((x) => `${x.gate} ${x.verdict === "pass" ? "✓" : "✗"} (${x.rubric})`)
+          .join("; ");
+        this.db
+          .query(
+            "UPDATE handoffs SET verify = ? WHERE project_id = ? AND task = ? AND session_id = ? AND by LIKE 'auto%'",
+          )
+          .run(`auto-gates: ${line}`, held.projectId, held.task, sessionId);
+        this.touch();
+      },
+    );
+  }
+
   requiredGates(projectId: string): string[] {
     const p = this.project(projectId);
     return p ? loadConfig({ repoRoot: p.root, home: this.home }).gates.required : [];
@@ -1439,7 +1654,10 @@ export class Store {
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
     // M4.4: every pause is a potential death — keep a structured auto-handoff current.
     if ((event === "Stop" || event === "SessionEnd") && e.sessionId) {
-      if (existsSync(cwd)) this.autoHandoff(e.sessionId, cwd);
+      if (existsSync(cwd)) {
+        this.autoHandoff(e.sessionId, cwd);
+        this.autoGate(event, e.sessionId, cwd);
+      }
       this.rememberSession(e.sessionId);
     }
     if (e.sessionId && typeof raw.transcript_path === "string") {

@@ -4,7 +4,7 @@
  * pattern. Liveness is pid + start time, so a recycled pid is never mistaken for ours.
  */
 
-export type ProcessKind = "serve" | "proc";
+export type ProcessKind = "serve" | "proc" | "gate";
 
 export interface TrackedProcess {
   pid: number;

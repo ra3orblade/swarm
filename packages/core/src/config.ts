@@ -34,6 +34,35 @@ export interface RulesConfig {
   };
 }
 
+export interface GateDef {
+  /** Shell command; exit 0 = pass. */
+  cmd: string;
+  /** Seconds before the run is killed and recorded as a fail. */
+  timeout: number;
+  /** Directory to run in, relative to the worktree root. */
+  cwd: string | null;
+}
+
+export const DEFAULT_GATE_TIMEOUT_S = 900;
+const AUTO_MODES = ["session-end", "stop", "off"] as const;
+
+/** `[gates.<name>]` subtables → executable gate definitions; anything malformed is dropped. */
+export function parseGateDefs(gates: unknown): Record<string, GateDef> {
+  const out: Record<string, GateDef> = {};
+  if (!isRecord(gates)) return out;
+  for (const [name, v] of Object.entries(gates)) {
+    if (!isRecord(v) || typeof v.cmd !== "string" || !v.cmd.trim()) continue;
+    if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/i.test(name)) continue;
+    const t = Number(v.timeout);
+    out[name] = {
+      cmd: v.cmd.trim(),
+      timeout: Number.isFinite(t) && t > 0 ? Math.min(t, 86_400) : DEFAULT_GATE_TIMEOUT_S,
+      cwd: isRepoRelative(v.cwd) ? (v.cwd as string).trim() : null,
+    };
+  }
+  return out;
+}
+
 export interface SwarmConfig {
   daemon: {
     /** Preferred port; the daemon still falls back to a free port when taken. */
@@ -52,6 +81,10 @@ export interface SwarmConfig {
   gates: {
     /** Gates every task must pass before it counts as done, e.g. ["review", "tests"]. */
     required: string[];
+    /** When the daemon runs the executable required gates on its own for a held worktree (M7.4). */
+    auto: "session-end" | "stop" | "off";
+    /** Executable gates: `[gates.<name>] cmd = "bun test"` (M7.4). */
+    defs: Record<string, GateDef>;
   };
   worktree: {
     /** Shell command run inside every new worktree right after `git worktree add`
@@ -70,7 +103,7 @@ export interface SwarmConfig {
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null, labels: [], team: null },
-  gates: { required: [] },
+  gates: { required: [], auto: "session-end", defs: {} },
   worktree: { setup: null, copy: [], open: null },
   rules: {
     shared_tree: "ask",
@@ -122,6 +155,8 @@ function validate(c: SwarmConfig): SwarmConfig {
   const source = c.tasks?.source;
   const setup = c.worktree?.setup;
   const opener = c.worktree?.open;
+  const rawGates = c.gates as unknown as Record<string, unknown> | undefined;
+  const auto = rawGates?.auto;
   return {
     ...c,
     daemon: { port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777 },
@@ -134,6 +169,15 @@ function validate(c: SwarmConfig): SwarmConfig {
         ? c.tasks.labels.filter((l): l is string => typeof l === "string" && l.trim() !== "")
         : [],
       team: typeof c.tasks?.team === "string" && c.tasks.team.trim() ? c.tasks.team.trim() : null,
+    },
+    gates: {
+      required: Array.isArray(rawGates?.required)
+        ? rawGates.required.filter((g): g is string => typeof g === "string" && g.trim() !== "")
+        : [],
+      auto: AUTO_MODES.includes(auto as (typeof AUTO_MODES)[number])
+        ? (auto as SwarmConfig["gates"]["auto"])
+        : "session-end",
+      defs: parseGateDefs(rawGates),
     },
     worktree: {
       setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,
