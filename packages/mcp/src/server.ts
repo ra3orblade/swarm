@@ -257,6 +257,64 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_ask",
+    {
+      title: "Ask the human",
+      description:
+        "Park a question only a person can answer (a product decision, credentials, which of two designs). It shows on the dashboard with a notification; the answer comes back to you as context on a later tool call — or call swarm_inbox to check. Ask once, then either keep working on what doesn't depend on it or stop and say you're waiting. Don't use it for things you can find out yourself.",
+      inputSchema: {
+        question: z.string().describe("the question, with enough context to answer it cold"),
+        options: z.array(z.string()).optional().describe("up to 8 suggested answers"),
+      },
+    },
+    async ({ question, options }) => {
+      const pid = await projectId();
+      const r = await api<{ ok: boolean; error?: string; question?: { id: number } }>(
+        "/v1/questions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: pid,
+            sessionId: SESSION,
+            text: question,
+            options,
+            askedBy: "agent",
+            cwd: process.cwd(),
+          }),
+        },
+      );
+      if (!r.ok) return fail(`REFUSED: ${r.error}`);
+      return ok(
+        `asked as question #${r.question?.id}. A human will see it on the dashboard; the answer arrives as [swarm] context on a later tool call, or via swarm_inbox. Continue with what doesn't depend on it, or stop and say you're waiting.`,
+        r.question,
+      );
+    },
+  );
+
+  server.registerTool(
+    "swarm_inbox",
+    {
+      title: "Answers waiting for you",
+      description:
+        "Answers a human has given to your swarm_ask questions that you haven't received yet.",
+      inputSchema: {},
+    },
+    async () => {
+      const qs = await api<
+        Array<{ id: number; text: string; answer: string; answeredBy: string | null }>
+      >(`/v1/inbox?session=${encodeURIComponent(SESSION ?? "")}`);
+      if (!qs.length) return ok("no new answers", []);
+      return ok(
+        qs
+          .map((q) => `#${q.id} "${q.text}" → ${q.answeredBy ?? "a human"}: ${q.answer}`)
+          .join("\n"),
+        qs,
+      );
+    },
+  );
+
+  server.registerTool(
     "swarm_dispatch",
     {
       title: "Dispatch tasks to spawned agents",

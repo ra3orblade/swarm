@@ -181,6 +181,12 @@ Each task gets its own claim and worktree and a `claude -p` run (the same machin
 
 When a run ends, Swarm decides what it amounted to from the ledger, never from the agent's word: executable required gates that didn't pass are run again by the daemon; then **done** means every required gate passes and a PR is open for the branch (`[dispatch] require_pr = false` to drop that), otherwise **gates-failed**, **no-pr**, **crashed** (non-zero exit or an error result) or **stopped**. Anything short of done opens a `dispatch_failed` incident; the claim and worktree are kept so you can **Resume where it died** or release it. A dispatched run never edits the task list — flipping a task ✅ stays a human act.
 
+## When the agent needs you
+
+An autonomous run hits a question only a person can answer — which of two designs, whether to drop a column, a credential. Instead of guessing or stalling, it calls `swarm_ask` (up to eight suggested answers). The question shows on the session page under **waiting on you** with the options as one-click buttons (or *Answer…* for free text), the session gets an **Asking** badge on Fleet, and a desktop notification fires if you've enabled them. `swarm questions` lists what's open for the repo; `swarm answer <id> <text>` answers from a terminal.
+
+The answer reaches the agent without anyone relaying it: a spawned run gets it on stdin right away; an interactive session receives it as `[swarm]` context on its next tool call or prompt; an agent can also ask for it with `swarm_inbox`. If the session has ended, the next session that starts in that task's worktree is told about the open questions and any answers that never arrived. Each answer is delivered once. A question is answered once — a second answer is refused.
+
 ## Where things live
 
 - Worktrees: `~/.swarm/worktrees/<project-name>/<task>/` (under `SWARM_HOME` if set)

@@ -84,6 +84,14 @@ Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claim
 
 Inputs: `{ task: string, gates?: string[] }`. Runs the gates the repo defines as commands (`.swarm.toml [gates.<name>] cmd`) inside the task's held worktree and records the verdicts — exit 0 is a pass, the rubric is the command, the evidence is the output tail (the last lines are returned on a fail). Defaults to the required gates that have a command. Use it instead of `swarm_gate_record` whenever a gate has a command: the record then says exactly what ran.
 
+### `swarm_ask`
+
+Inputs: `{ question: string, options?: string[] }`. Park a question only a human can answer. It appears on the dashboard (with a notification); the answer comes back as `[swarm]` context on a later tool call — or on stdin for a spawned run — and can be polled with `swarm_inbox`. Ask once, then carry on with what doesn't depend on it or stop and say you're waiting.
+
+### `swarm_inbox`
+
+No inputs. Answers to your `swarm_ask` questions you haven't received yet.
+
 ### `swarm_dispatch`
 
 Inputs: `{ tasks?: string[], ready?: boolean, max?: number }`. Hands ready tasks to autonomous runs — a claim + worktree + `claude -p` each, `[dispatch] max_parallel` at a time, the rest queued. The outcome of each run is derived from gates and PRs when it ends, never from the agent. For a lead session that wants to fan work out; follow progress with `swarm_status` or the Board.

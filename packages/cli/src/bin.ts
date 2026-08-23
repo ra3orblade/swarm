@@ -30,6 +30,7 @@ const help = `swarm — control plane for AI-agent development
   gate run <task> [gate…]    execute the repo's [gates.<name>] cmd gates in the task's worktree and record them
   wt [ls|create|open|diff|rm|gc]  first-class worktrees: create task-less ones, open, diff, remove, collect stale
   pr open <task|worktree>    push the branch and open a PR/MR prefilled from the task, handoff, gates and files
+  questions [--all]          questions agents are waiting on a human for (this repo); answer <id> <text…>
   dispatch --ready | <task…> claim + spawn a run per task, [dispatch] max_parallel at a time; status | clear
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
@@ -388,6 +389,55 @@ try {
           throw new Error(
             "usage: swarm wt [ls] | create <name> | open <ref> | rm <ref> [--force] | gc [--apply]",
           );
+      }
+      break;
+    }
+    case "questions":
+    case "answer": {
+      await ensureDaemon({ quiet: true });
+      if (cmd === "questions") {
+        const q = new URLSearchParams();
+        if (!rest.includes("--all")) q.set("open", "1");
+        if (!rest.includes("--everywhere")) {
+          const proj = (await api("/v1/projects", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: resolve(".") }),
+          })) as { id: string };
+          q.set("project", proj.id);
+        }
+        const qs = (await api(`/v1/questions?${q}`)) as Array<{
+          id: number;
+          task: string | null;
+          text: string;
+          options: string[];
+          answer: string | null;
+          answeredBy: string | null;
+          createdAt: string;
+        }>;
+        if (json) console.log(JSON.stringify(qs));
+        else if (!qs.length) console.log("no open questions");
+        else
+          for (const x of qs)
+            console.log(
+              `#${x.id}  ${x.createdAt.slice(0, 16).replace("T", " ")}  ${x.task ? `[${x.task}] ` : ""}${x.text}${x.options.length ? `\n      options: ${x.options.join(" | ")}` : ""}${x.answer ? `\n      answered by ${x.answeredBy}: ${x.answer}` : ""}`,
+            );
+        break;
+      }
+      const [idRaw, ...words] = rest.filter((a) => !a.startsWith("--"));
+      const id = Number(idRaw);
+      const text = words.join(" ");
+      if (!id || !text) throw new Error("usage: swarm answer <id> <text…>");
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/questions/${id}/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, by: process.env.USER ?? "cli" }),
+      }).then((x) => x.json())) as { ok: boolean; error?: string };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok) console.log(`answered #${id}`);
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
       }
       break;
     }
