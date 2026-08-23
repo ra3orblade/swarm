@@ -20,6 +20,12 @@ set, for a hook event whose `swarm-hook` entry was removed from `~/.claude/setti
 timeout under 5 s, and for `SWARM_GUARD=off` while the policy locks any rule (the variable is then
 ignored). `swarm doctor` prints the same findings; `GET /v1/policy?project=` exposes them.
 
+Fail-closed (M8.1c): while the policy locks any rule the daemon maintains
+`~/.swarm/policy.cache.json` — the locked rule modes plus a snapshot of live sessions and held
+worktrees, with a sha256 integrity hash. If the daemon is unreachable on `PreToolUse` the hook shim
+evaluates exactly those locked rules from the cache and returns their `ask`/`deny`; unlocked rules
+keep failing open (OQ-3). A cache that fails its hash is ignored.
+
 ```toml
 # ~/.swarm/policy.toml — what an org pins on every machine
 locked = ["rules.destructive_git", "rules.protected", "tasks.source"]

@@ -52,7 +52,7 @@ Thin client. `add`, `ls`, `status`, `claim`, `renew`, `release`, `handoff`, `res
 Stdio MCP server exposing `swarm.status`, `swarm.claim`, `swarm.renew`, `swarm.handoff`, `swarm.resume`, `swarm.release`, `swarm.resource.acquire|release`, `swarm.gate.record`, `swarm.note`. Forwards to the daemon. Auto-detects project from `cwd`.
 
 ### `swarm-hook` (hook shim)
-One tiny binary/script referenced from Claude Code hook settings for every event type. Reads the hook JSON from stdin, POSTs to the daemon, writes back the daemon's decision (allow / deny with reason / additional context). Must be fast (<50 ms) and fail **open** when the daemon is unreachable — except for rules marked `critical`, which fail closed (e.g. edit-in-shared-tree).
+One tiny binary/script referenced from Claude Code hook settings for every event type. Reads the hook JSON from stdin, POSTs to the daemon, writes back the daemon's decision (allow / deny with reason / additional context). Must be fast (<50 ms) and fail **open** when the daemon is unreachable — except for rules the org policy locks, which it evaluates from the daemon-written `~/.swarm/policy.cache.json` and fails closed on (M8.1c, OQ-3).
 
 ### `web` (dashboard)
 Single-page app served by the daemon at `http://localhost:<port>`. Views: **Fleet** (every live session/agent across projects: project, worktree, claim, current tool call, tokens, cost, last activity), **Project** (board of claims, worktrees, resources, gate status per task), **Session** (live event stream with tool calls expanded, stdin box for spawned agents), **Incidents** (denied actions, reaped claims, orphaned worktrees/processes). No build step for users: shipped prebuilt inside the daemon package.

@@ -14,7 +14,7 @@ Decision contract:
 - `SessionStart` / `UserPromptSubmit` → `additionalContext` with the session's project, claim, worktree and any handoff payload, so the agent never reconstructs state.
 - Everything else → observe only.
 
-Latency budget 50 ms; the shim times out at 200 ms and fails open unless the matching rule is `critical`.
+Latency budget 50 ms; the shim times out at 400 ms and fails open — except for rules the org policy locks, which it evaluates from `~/.swarm/policy.cache.json` (M8.1c, OQ-3).
 
 ### B. stream-json (spawned agents)
 `swarm run` spawns `claude -p --output-format stream-json --input-format stream-json --verbose [--include-partial-messages]`, tags every line with `session_id` from the `system/init` event, and ingests `assistant`, `user`, `stream_event`, `result`. Permission prompts go through `--permission-prompt-tool mcp__swarm__permission`, which calls the same rule engine as path A. stdin is held open; `POST /v1/sessions/:id/input` writes a user message to it.

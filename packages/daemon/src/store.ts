@@ -10,6 +10,7 @@ import {
   realpathSync,
   renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -22,6 +23,7 @@ import {
   type BudgetStatus,
   budgetMessage,
   budgetStatus,
+  buildPolicyCache,
   canAcquire,
   canClaim,
   canRelease,
@@ -73,6 +75,7 @@ import {
   needsBootstrap,
   nextExpiry,
   normalizeHook,
+  POLICY_CACHE_FILE,
   type PolicyFinding,
   PRICES,
   type Price,
@@ -1422,7 +1425,28 @@ export class Store {
     if (hit && Date.now() - hit.at < 30_000) return hit.loaded;
     const loaded = loadConfigDetailed({ repoRoot, home: this.home });
     this.policyCache.set(key, { at: Date.now(), loaded });
+    this.writePolicyCache(loaded);
     return loaded;
+  }
+
+  /**
+   * M8.1c: keep `~/.swarm/policy.cache.json` current while the org policy locks rules, so the
+   * hook shim can enforce exactly those rules when this daemon is unreachable (fail-closed for
+   * locked rules only — OQ-3). Removed when nothing is locked. Refreshed whenever the policy is
+   * (re)loaded, i.e. at least every 30 s while sessions are active.
+   */
+  writePolicyCache(loaded: LoadedConfig): void {
+    const file = join(this.home, POLICY_CACHE_FILE);
+    try {
+      if (!hasLockedRules(loaded)) {
+        if (existsSync(file)) unlinkSync(file);
+        return;
+      }
+      const cache = buildPolicyCache(loaded, this.liveSessions(), this.heldWorktrees());
+      writeFileSync(file, JSON.stringify(cache), { mode: 0o600 });
+    } catch (e) {
+      console.error(`swarm: policy cache: ${(e as Error).message}`);
+    }
   }
 
   /** M8.1b: `SWARM_GUARD=off` is honoured only while no org policy locks a rule. */
