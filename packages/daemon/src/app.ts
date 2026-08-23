@@ -44,6 +44,12 @@ function wireJson(e: object): string {
   return s;
 }
 
+/** Repo root for the hook's cwd, used only to pick which policy applies. */
+function hookRepoRoot(store: Store, raw: Record<string, unknown>): string | null {
+  const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+  return cwd && existsSync(cwd) ? (store.resolveProject(cwd)?.root ?? null) : null;
+}
+
 export function createApp(store = new Store()) {
   const app = new Hono();
   const forge = new ForgeService(store);
@@ -136,6 +142,14 @@ export function createApp(store = new Store()) {
     });
   });
   // M4.6: rule dry-run over this project's history; ?shared_tree=deny&pattern_kill=off… override modes.
+  // M8.1b: org policy for a project — file, locked keys, who set each value, contested keys.
+  app.get("/v1/policy", (c) => {
+    const id = c.req.query("project");
+    const p = id ? store.project(id) : null;
+    if (id && !p) return c.json({ error: "unknown project" }, 404);
+    const { provenance, overridden, policy } = store.policyFor(p?.root ?? null);
+    return c.json({ ...policy, provenance, overridden });
+  });
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");
     if (!projectId) return c.json({ ok: false, error: "project required" }, 400);
@@ -669,6 +683,7 @@ export function createApp(store = new Store()) {
     store.ingestHook(event, raw);
     // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
     if (event === "SessionStart" && typeof raw.cwd === "string") {
+      store.checkPolicy(raw.cwd, typeof raw.session_id === "string" ? raw.session_id : null);
       const ctx = store.sessionContext(raw.cwd);
       if (ctx)
         return c.json({
@@ -685,7 +700,7 @@ export function createApp(store = new Store()) {
         : null;
     // M2.1 guard: on PreToolUse, ask before a shared-tree collision (broad git add, destructive git,
     // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
-    if (event === "PreToolUse" && process.env.SWARM_GUARD !== "off") {
+    if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
       const guard = store.guardHook(raw);
       if (guard) {
         return c.json({

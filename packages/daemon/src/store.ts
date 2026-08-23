@@ -51,6 +51,8 @@ import {
   type HeldWorktree,
   type HistoricalCall,
   handoffDoc,
+  hasLockedRules,
+  hookCoverage,
   incidentDoc,
   incidentKey,
   isActive,
@@ -62,13 +64,16 @@ import {
   type LeaseClaim,
   LIVE_WINDOW_MS,
   type LiveSession,
+  type LoadedConfig,
   type LogParseResult,
   loadConfig,
+  loadConfigDetailed,
   type MemoryDoc,
   type MemoryKind,
   needsBootstrap,
   nextExpiry,
   normalizeHook,
+  type PolicyFinding,
   PRICES,
   type Price,
   type ProcessKind,
@@ -81,6 +86,7 @@ import {
   pickPort,
   planBootstrap,
   planGc,
+  policyFindings,
   prDraft,
   projectIdentity,
   type Question,
@@ -405,7 +411,8 @@ export class Store {
 
   /** Evaluate a PreToolUse hook against the shared-tree guards; null = allow. */
   /** Rule modes for a session: global config overlaid with the repo's .swarm.toml. Cached briefly. */
-  private rulesCache = new Map<string, { at: number; rules: RulesConfig }>();
+  private policyCache = new Map<string, { at: number; loaded: LoadedConfig }>();
+  private policySeen = new Set<string>();
   // ---------- spawned sessions (M3.1)
   /** Create the session row ahead of the first hook, typed `spawned`, so it never looks interactive. */
   preregisterSpawnedSession(id: string, projectId: string, cwd: string, task: string) {
@@ -1405,12 +1412,62 @@ export class Store {
   }
 
   rulesFor(repoRoot: string | null): RulesConfig {
+    return this.policyFor(repoRoot).config.rules;
+  }
+
+  /** Config with provenance for a repo, cached 30 s (same cadence the rules always had). */
+  policyFor(repoRoot: string | null): LoadedConfig {
     const key = repoRoot ?? "";
-    const hit = this.rulesCache.get(key);
-    if (hit && Date.now() - hit.at < 30_000) return hit.rules;
-    const rules = loadConfig({ repoRoot, home: this.home }).rules;
-    this.rulesCache.set(key, { at: Date.now(), rules });
-    return rules;
+    const hit = this.policyCache.get(key);
+    if (hit && Date.now() - hit.at < 30_000) return hit.loaded;
+    const loaded = loadConfigDetailed({ repoRoot, home: this.home });
+    this.policyCache.set(key, { at: Date.now(), loaded });
+    return loaded;
+  }
+
+  /** M8.1b: `SWARM_GUARD=off` is honoured only while no org policy locks a rule. */
+  guardDisabled(repoRoot: string | null): boolean {
+    return process.env.SWARM_GUARD === "off" && !hasLockedRules(this.policyFor(repoRoot));
+  }
+
+  /** Claude Code's user settings (where `swarm install` wrote the hooks); null when unreadable. */
+  private claudeSettings(): unknown {
+    const p = process.env.CLAUDE_SETTINGS ?? join(homedir(), ".claude", "settings.json");
+    try {
+      return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * M8.1b tamper detection, run on every SessionStart: locked-key overrides in the session's
+   * repo, missing/short hook entries, and `SWARM_GUARD=off` under a locking policy. Each finding
+   * is recorded once per daemon lifetime as `incident.opened { rule: "policy" }`.
+   */
+  checkPolicy(cwd: string, sessionId: string | null): PolicyFinding[] {
+    const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const repoRoot = project?.root ?? null;
+    const loaded = this.policyFor(repoRoot);
+    const settings = this.claudeSettings();
+    const findings = policyFindings({
+      loaded,
+      coverage: settings === null ? null : hookCoverage(settings),
+      guardOff: process.env.SWARM_GUARD === "off",
+      repoRoot,
+    });
+    for (const f of findings) {
+      if (this.policySeen.has(f.key)) continue;
+      this.policySeen.add(f.key);
+      this.append({
+        ts: new Date().toISOString(),
+        type: "incident.opened",
+        projectId: project?.id ?? "p_unknown",
+        sessionId,
+        payload: { rule: "policy", action: "tampered", command: f.subject, reason: f.reason },
+      });
+    }
+    return findings;
   }
 
   /**
