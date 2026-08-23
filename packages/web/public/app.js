@@ -189,6 +189,9 @@ const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats
   for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", a.dataset.view === state.view);
 }
 function render() {
+  // A row menu is anchored to DOM that a re-render would replace (and the focus jump closes it):
+  // hold the frame while one is open; the next poll or interaction paints it.
+  if (window.menus?.isOpen()) { state.dirty = true; return; }
   // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
   const af = document.activeElement;
   const keep = af?.dataset?.filter ? { key: af.dataset.filter, tid: af.dataset.tid, pos: af.selectionStart } : null;
@@ -361,18 +364,45 @@ function renderPRs() {
           columns: cols,
           rows,
           leading: { width: 24, cell: (p) => `<span class="s ${p.checks === "fail" ? "waiting" : p.checks === "pass" ? "active" : "idle"}"></span>` },
-          trailing: { width: 96, cell: (p) => (green(p) ? `<a href="#" data-merge="${p.projectId}:${p.number}" title="Squash-merge via ${p.forge === "gitlab" ? "glab" : "gh"}">Merge</a>` : "") },
-          rowAttrs: () => "",
+          trailing: { width: 34, cell: (p) => more("pr", `data-pid="${esc(p.projectId)}" data-num="${p.number}"`) },
+          rowAttrs: (p) => `data-ctx="pr" data-pid="${esc(p.projectId)}" data-num="${p.number}"`,
           rerender: touch,
         })
       : `<div class="empty">${PX.idle()}No open pull requests.<br>Agent branches land here the moment they're pushed.</div>`);
 }
 
 // ---------- board (coordination: claims, worktrees, incidents)
+// Board representation toggles (cards vs table), persisted per section.
+const boardMode = (k) => localStorage.getItem(`swarm.board.${k}`) ?? "cards";
+const modeSeg = (k, a = "Cards", b = "Table") => `<span class="seg"><a href="#" data-bmode="${k}:cards" class="${boardMode(k) === "cards" ? "on" : ""}">${a}</a><a href="#" data-bmode="${k}:table" class="${boardMode(k) === "table" ? "on" : ""}">${b}</a></span>`;
+
+// KPI strip: the board at a glance — what is live, held, dirty, failing, waiting.
+function renderBoardKpis() {
+  const inSel = (pid) => !state.sel || pid === state.sel;
+  const live = state.sessions.filter((s) => inSel(s.projectId) && (s.state === "active" || s.state === "waiting"));
+  const waiting = live.filter((s) => s.state === "waiting").length;
+  const claims = (state.claims ?? []).filter((c) => c.state !== "released" && inSel(c.projectId));
+  const orphaned = claims.filter((c) => c.state === "orphaned").length;
+  const wts = (state.sel ? [state.sel] : state.projects.map((p) => p.id)).flatMap((id) => state.worktrees[id] ?? []);
+  const dirty = wts.filter((w) => w.dirty > 0).length, merged = wts.filter((w) => !w.main && w.merged).length;
+  const inc = (state.incidents ?? []).filter((i) => inSel(i.projectId) && !i.acked).length;
+  const tasks = state.sel && state.tasks?.tasks ? state.tasks.tasks : null;
+  const ready = tasks ? tasks.filter((t) => t.ready).length : null;
+  const gateFails = tasks ? tasks.filter((t) => (t.gates ?? []).some((g) => g.verdict === "fail")).length : 0;
+  if (!live.length && !claims.length && !wts.length && !inc && !tasks) return "";
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  return `<div class="kpis kpis-5">${
+    kpi("Live", live.length, waiting ? `${waiting} waiting on you` : live.length ? "sessions working" : "no sessions", waiting ? "hot" : "")
+  }${kpi("Held", claims.length, orphaned ? `${orphaned} orphaned` : claims.length ? "claims with a lease" : "nothing claimed", orphaned ? "hot" : "")
+  }${kpi("Worktrees", wts.length, dirty || merged ? `${dirty ? `${dirty} dirty` : ""}${dirty && merged ? " · " : ""}${merged ? `${merged} merged` : ""}` : "all clean", dirty ? "warm" : "")
+  }${tasks ? kpi("Ready", ready, gateFails ? `${gateFails} with failing gates` : `${tasks.filter((t) => t.status !== "done").length} open`, gateFails ? "hot" : "") : kpi("Projects", state.sel ? 1 : state.projects.length, "on the board")
+  }${kpi("Incidents", inc, inc ? "need a look" : "all acknowledged", inc ? "hot" : "")}</div>`;
+}
+
 function renderBoard() {
-  const parts = [renderTasks(), renderDispatch(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderBoardKpis(), renderTasks(), renderDispatch(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
-    ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
+    ? parts.join("").replace(/^(<div class="kpis[^>]*>[\s\S]*?<\/div><\/div>|)(<h2) class="mt-sec"/, "$1$2") // first section needs no top gap
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, processes, claims, worktrees, and incidents appear here.</div>`;
 }
 
@@ -393,7 +423,6 @@ function incidentColumns(full) {
   ].filter((c) => !(c.key === "project" && state.sel) && !(c.key === "session" && !full));
 }
 const incidentDot = (i) => `<span class="s ${i.acked ? "ended" : i.action === "deny" || i.action === "orphaned" || i.action === "failed" ? "waiting" : "idle"}"></span>`;
-const ackLink = (i) => (i.acked ? "" : `<a href="#" data-ack="${i.seq}" title="Mark as seen">Ack</a>`);
 
 function renderIncidents() {
   const rows = (state.incidents ?? []).filter((i) => !state.sel || i.projectId === state.sel);
@@ -405,8 +434,8 @@ function renderIncidents() {
       columns: incidentColumns(false),
       rows,
       leading: { width: 24, cell: incidentDot },
-      trailing: { width: 44, cell: ackLink },
-      rowAttrs: (i) => (i.sessionId ? `data-s="${i.sessionId}"` : ""),
+      trailing: { width: 34, cell: (i) => more("incident", `data-seq="${i.seq}"`) },
+      rowAttrs: (i) => `data-ctx="incident" data-seq="${i.seq}"`,
       rerender: touch,
     });
 }
@@ -486,8 +515,8 @@ function renderIncidentsView() {
           columns: incidentColumns(true),
           rows,
           leading: { width: 24, cell: incidentDot },
-          trailing: { width: 120, cell: (i) => `${i.suggestion ? `<a href="#" data-codify="${i.seq}" title="Turn this into a rule / lesson">${ic("shield", 12)} Codify</a> ` : ""}${ackLink(i)}` },
-          rowAttrs: () => "",
+          trailing: { width: 34, cell: (i) => more("incident", `data-seq="${i.seq}"`) },
+          rowAttrs: (i) => `data-ctx="incident" data-seq="${i.seq}"`,
           rerender: touch,
         })
       : `<div class="empty">${PX.idle()}${state.incFilter === "open" ? "No open incidents." : "No incidents yet."}<br>Every <code>ask</code> or <code>deny</code> a rule makes lands here; ack it once you've seen it.</div>`);
@@ -513,8 +542,8 @@ function renderProcesses() {
       columns: cols,
       rows,
       leading: { width: 24, cell: () => '<span class="s active"></span>' },
-      trailing: { width: 60, cell: (r) => `<a href="#" data-procstop="${r.pid}" data-procproj="${esc(r.projectId)}" title="SIGTERM, then SIGKILL after 3 s">Stop</a>` },
-      rowAttrs: () => "",
+      trailing: { width: 34, cell: (r) => more("process", `data-pid="${r.pid}" data-proj="${esc(r.projectId)}" data-cwd="${esc(r.cwd ?? "")}"`) },
+      rowAttrs: (r) => `data-ctx="process" data-pid="${r.pid}" data-proj="${esc(r.projectId)}" data-cwd="${esc(r.cwd ?? "")}"`,
       rerender: touch,
     });
 }
@@ -537,7 +566,8 @@ function renderResources() {
       columns: cols,
       rows,
       leading: { width: 24, cell: () => '<span class="s active"></span>' },
-      trailing: { width: 90, cell: (r) => `<a href="#" data-resrelease="${esc(r.name)}" data-resproj="${esc(r.projectId ?? "")}">Release</a>` },
+      trailing: { width: 34, cell: (r) => more("resource", `data-name="${esc(r.name)}" data-proj="${esc(r.projectId ?? "")}"`) },
+      rowAttrs: (r) => `data-ctx="resource" data-name="${esc(r.name)}" data-proj="${esc(r.projectId ?? "")}"`,
       rerender: touch,
     });
 }
@@ -600,16 +630,35 @@ function renderTasks() {
     ...(hasGates ? [{ key: "gates", label: "gates", width: 170, get: (t) => (t.gates ?? []).filter((g) => g.verdict === "pass").length, cell: (t) => gateChips(t.gates ?? []) }] : []),
   ];
   const srcLabel = state.tasks.source === "github" ? "GitHub Issues" : state.tasks.source === "linear" ? "Linear" : state.tasks.source;
+  const lane = (t) => (t.claimedBy ? "held" : t.status === "done" ? "done" : t.ready ? "ready" : t.status === "active" ? "held" : "blocked");
+  const card = (t) => `<div class="tcard ${lane(t)}" tabindex="0" role="button" data-menu="task" data-ctx="task" data-task="${esc(t.id)}" title="${esc(t.statusText)}">
+      <div class="tc-h"><b>${esc(t.id)}</b>${t.claimedBy ? `<span class="badge ok">${esc(t.claimedBy)}</span>` : ""}${t.depends.length && lane(t) === "blocked" ? `<span class="dim">← ${esc(t.depends.join(" "))}</span>` : ""}</div>
+      <div class="tc-t">${esc(t.title)}</div>
+      ${t.milestone ? `<div class="tc-m">${esc(t.milestone.split(" — ")[0])}</div>` : ""}
+      ${(t.gates ?? []).some((g) => g.verdict) ? `<div class="tc-g">${gateChips(t.gates)}</div>` : ""}
+    </div>`;
+  const kanban = () => {
+    const lanes = [["ready", "Ready"], ["held", "In progress"], ["blocked", "Blocked"], ["done", "Done"]];
+    const by = Object.fromEntries(lanes.map(([k]) => [k, []]));
+    for (const t of all) by[lane(t)].push(t);
+    by.done.reverse();
+    const CAP = 6;
+    return `<div class="kanban">${lanes.map(([k, label]) => {
+      const list = by[k];
+      const shown = k === "done" ? list.slice(0, CAP) : list;
+      return `<div class="lane ${k}"><div class="lane-h">${label} <span>${list.length}</span></div>${shown.map(card).join("") || '<div class="lane-empty">—</div>'}${list.length > shown.length ? `<div class="lane-more dim">+${list.length - shown.length} more in the table</div>` : ""}</div>`;
+    }).join("")}</div>`;
+  };
   return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(srcLabel)}${state.tasks.error ? ` · <span class="badge warn" title="${esc(state.tasks.error)}">${ic("warning", 12)} ${esc(state.tasks.error)}</span>` : ""}</span></h2>` +
-    `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}${ready.length ? `<span class="chip" id="dispatch" title="Claim a worktree per ready task and spawn a run in each, ${state.dispatch?.config?.max_parallel ?? 2} at a time">${ic("play", 12)} Dispatch</span>` : ""}</div>` +
-    (rows.length
+    `<div class="chips">${boardMode("tasks") === "cards" ? "" : chip("ready", "Ready", ready.length) + chip("open", "Open", all.filter((t) => t.status !== "done").length) + chip("all", "All", all.length)}${ready.length ? `<span class="chip" id="dispatch" title="Claim a worktree per ready task and spawn a run in each, ${state.dispatch?.config?.max_parallel ?? 2} at a time">${ic("play", 12)} Dispatch</span>` : ""}<span class="grow"></span>${modeSeg("tasks")}</div>` +
+    (all.length && boardMode("tasks") === "cards" ? kanban() : rows.length
       ? dataTable({
           id: "tasks",
           columns: cols,
           rows,
           leading: { width: 24, cell: (t) => `<span class="s ${t.claimedBy ? "active" : t.ready ? "waiting" : "idle"}"></span>` },
-          trailing: { width: 170, cell: (t) => (t.ready ? `<a href="#" data-run="${esc(t.id)}" title="Claim and spawn claude -p in a worktree">${ic("play", 12)} Run</a> · <a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : t.claimedBy ? `<a href="#" data-run="${esc(t.id)}" title="Spawn claude -p in the held worktree">${ic("play", 12)} Run</a>${(state.gates?.executable ?? []).length ? ` · <a href="#" data-gaterun="${esc(t.id)}" title="Execute the repo's [gates.<name>] cmd gates in this task's worktree: ${esc((state.gates.executable ?? []).join(", "))}">${ic("check", 12)} Gates</a>` : ""}` : "") },
-          rowAttrs: () => "",
+          trailing: { width: 34, cell: (t) => (t.ready || t.claimedBy ? more("task", `data-task="${esc(t.id)}"`) : "") },
+          rowAttrs: (t) => `data-ctx="task" data-task="${esc(t.id)}"`,
           rerender: touch,
         })
       : `<div class="empty">${PX.idle()}${state.taskFilter === "ready" ? "Nothing ready — every open task is blocked or held." : "No tasks."}</div>`);
@@ -636,12 +685,8 @@ function renderClaims() {
       columns: cols,
       rows,
       leading: { width: 24, cell: (c) => `<span class="s ${c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active"}"></span>` },
-      trailing: { width: 120, cell: (c) => {
-        const key = `${c.projectId}:${c.task}`;
-        return c.state === "orphaned"
-          ? `<a href="#" data-forcerelease="${key}" title="Discards the worktree AND its uncommitted work">Force release</a>`
-          : `<a href="#" data-release="${key}">Release</a>`;
-      } },
+      trailing: { width: 34, cell: (c) => more("claim", `data-pid="${esc(c.projectId)}" data-task="${esc(c.task)}"`) },
+      rowAttrs: (c) => `data-ctx="claim" data-pid="${esc(c.projectId)}" data-task="${esc(c.task)}"`,
       rerender: touch,
     });
 }
@@ -669,26 +714,30 @@ function renderWorktrees() {
     { key: "sessions", label: "sessions", width: 160, get: (w) => inside(w).length, cell: (w) => inside(w).map((x) => `<a href="#" data-s="${x.id}">${esc(x.title ?? x.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>' },
   ].filter((c) => !(c.key === "project" && state.sel));
   const heldBy = new Map(state.claims ? state.claims.filter((c) => c.state === "held").map((c) => [c.worktree, c.task]) : []);
-  const actions = (w) => {
-    const key = `${w.projectId}:${w.path}`;
-    const open = `<a href="#" data-wtopen="${esc(key)}" title="Open this worktree (editor / file manager; [worktree] open in .swarm.toml)">${ic("arrow-square-out", 12)} Open</a>`;
-    if (w.main) return open;
-    const diff = ` · <a href="#" data-wtdiff="${esc(key)}" title="What this worktree changed vs the main checkout's branch">${ic("folders", 12)} Diff</a>`;
-    const pr = w.branch && !w.merged ? ` · <a href="#" data-wtpr="${esc(key)}" title="Push the branch and open a PR prefilled from the task, handoff, gates and files">${ic("git-pull-request", 12)} PR</a>` : "";
-    if (heldBy.has(w.path)) return `${open}${diff}${pr}`;
-    return `${open}${diff}${pr} · <a href="#" data-wtrm="${esc(key)}" title="${w.dirty > 0 || w.ahead > 0 ? "Refuses while dirty / unpushed (you can force)" : "git worktree remove"}">${ic("trash", 12)} Remove</a>`;
-  };
   const gcBtn = state.sel ? ` <a href="#" class="nav" id="wtgc" title="Find worktrees whose branch is merged or whose claim is gone">${ic("trash", 12)} Collect stale</a>` : "";
   const newBtn = state.sel ? ` <a href="#" class="nav" id="wtnew" title="Create a task-less worktree (spike, review checkout)">${ic("plus", 12)} New worktree</a>` : "";
-  return `<h2 class="mt-sec hrow">Worktrees <span>${rows.length}</span>${newBtn}${gcBtn}</h2>` +
+  const stateOf = (w) => (inside(w).length ? "live" : w.dirty > 0 ? "dirty" : w.ahead > 0 ? "ahead" : w.merged ? "merged" : "clean");
+  const tile = (w) => `<div class="wt ${stateOf(w)}${w.main ? " main" : ""}${heldBy.has(w.path) ? " held" : ""}" tabindex="0" role="button" data-menu="worktree" data-ctx="worktree" data-pid="${esc(w.projectId)}" data-path="${esc(w.path)}" title="${esc(w.path)}">
+      <div class="wt-b"><span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span><span class="br">${esc(w.branch ?? "(detached)")}</span></div>
+      <div class="wt-m">${w.main ? "main tree" : w.merged ? "merged" : w.behind > 0 ? `${w.behind} behind` : w.behind === 0 ? "up to date" : ""}${w.dirty ? ` · <i class="warn">${w.dirty} dirty</i>` : ""}${w.ahead > 0 ? ` · <i class="acc">${w.ahead} unpushed</i>` : ""}${heldBy.has(w.path) ? ` · held: ${esc(heldBy.get(w.path))}` : ""}${inside(w).length ? ` · ${inside(w).map((x) => esc(x.title ?? x.id.slice(0, 8))).join(", ")}` : ""}</div>
+    </div>`;
+  const map = () => {
+    const groups = new Map();
+    for (const w of rows) (groups.get(w.projectId) ?? groups.set(w.projectId, []).get(w.projectId)).push(w);
+    const order = { live: 0, dirty: 1, ahead: 2, clean: 3, merged: 4 };
+    return `<div class="wtmap">${[...groups].map(([pid, list]) => `<div class="wt-group"><div class="wt-proj">${esc(projName(pid))} <span>${list.length}</span></div><div class="wt-tiles">${list.sort((a, b) => (b.main - a.main) || order[stateOf(a)] - order[stateOf(b)]).map(tile).join("")}</div></div>`).join("")}</div>`;
+  };
+  return `<h2 class="mt-sec hrow">Worktrees <span>${rows.length}</span>${newBtn}${gcBtn}<span class="grow"></span>${modeSeg("worktrees", "Map", "Table")}</h2>` +
+    (boardMode("worktrees") === "cards" ? map() :
     dataTable({
       id: "worktrees",
       columns: cols,
       rows,
       leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
-      trailing: { width: 230, cell: actions },
+      trailing: { width: 34, cell: (w) => more("worktree", `data-pid="${esc(w.projectId)}" data-path="${esc(w.path)}"`) },
+      rowAttrs: (w) => `data-ctx="worktree" data-pid="${esc(w.projectId)}" data-path="${esc(w.path)}"`,
       rerender: touch,
-    });
+    }));
 }
 
 // ---------- dispatch (M7.5)
@@ -1192,6 +1241,63 @@ function renderSession() {
 // ---------- menus (fancy-menus island; see src/menus.tsx). Menus are plain data.
 const pinProject = (id, pinned) => fetch(`/v1/projects/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ pinned }) }).then(refresh);
 const removeProject = (id) => fetch(`/v1/projects/${id}`, { method: "DELETE" }).then(refresh);
+// ---------- row actions (shared by the row menus, right-click, and any remaining links)
+const post = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
+const act = {
+  async wtOpen(projectId, worktree) { const r = await post("/v1/worktrees/open", { projectId, worktree }); if (!r.ok) alert(r.error); },
+  wtDiff(projectId, worktree) { openDiffDrawer(projectId, worktree); },
+  wtPr(projectId, worktree) { openPrDrawer(projectId, worktree); },
+  async wtRemove(projectId, worktree) {
+    const rm = (force) => post("/v1/worktrees/remove", { projectId, worktree, force });
+    if (!confirm(`Remove worktree ${short(worktree)}?`)) return;
+    const r = await rm(false);
+    if (!r.ok && (r.refused === "dirty" || r.refused === "unpushed")) {
+      if (confirm(`${r.error}\n\nRemove anyway (discards the work)?`)) await rm(true);
+    } else if (!r.ok) alert(r.error);
+    state.worktrees[projectId] = null;
+    refresh();
+  },
+  async claimTask(task) {
+    const r = await post("/v1/claims", { projectId: state.sel, task, owner: "dashboard" });
+    if (!r.ok) alert(r.error); else state.tasks = null;
+    refresh();
+  },
+  runTask(task) { openRunDrawer(task); },
+  async gateRun(task) {
+    const r = await post("/v1/gates/run", { projectId: state.sel, task });
+    if (!r.started?.length) alert(r.error ?? r.skipped?.[0]?.reason ?? "nothing ran");
+    else alert(`${task}: ${r.runs.map((x) => `${x.verdict === "pass" ? "✓" : "✗"} ${x.gate} — ${x.rubric}`).join("\n")}${r.skipped.length ? `\n\nskipped: ${r.skipped.map((x) => `${x.gate} (${x.reason})`).join(", ")}` : ""}`);
+    state.tasks = null;
+    refresh();
+  },
+  async releaseClaim(projectId, task, force) {
+    if (force && !confirm(`Force-release ${task}? This permanently discards its worktree and any uncommitted work.`)) return;
+    const r = await post("/v1/claims/release", { projectId, task, force });
+    if (!r.ok && confirm(`${r.error}\n\nForce-release anyway (discards the work)?`)) await post("/v1/claims/release", { projectId, task, force: true });
+    refresh();
+  },
+  async merge(projectId, number) {
+    if (!confirm(`Squash-merge #${number}?`)) return;
+    const r = await post("/v1/prs/merge", { projectId, number: Number(number) });
+    if (r.ok === false || r.error) alert(r.error);
+    refresh();
+  },
+  async procStop(pid, projectId) {
+    if (!confirm(`Stop pid ${pid}?`)) return;
+    const r = await fetch(`/v1/processes/${pid}?project=${encodeURIComponent(projectId)}`, { method: "DELETE" });
+    if (!r.ok) alert((await r.json()).error);
+    refresh();
+  },
+  resRelease(name, projectId) {
+    const q = new URLSearchParams({ force: "1" }); if (projectId) q.set("project", projectId);
+    return fetch(`/v1/resources/${encodeURIComponent(name)}?${q}`, { method: "DELETE" }).then(refresh);
+  },
+  ack(seq) { return fetch(`/v1/incidents/${seq}/ack`, { method: "POST" }).then(refresh); },
+  codify(seq) { codifyIncident(seq); },
+};
+/** Hover kebab that opens the row menu `kind`; `attrs` are the data-* the menu needs. */
+const more = (kind, attrs, title = "Actions") => `<span class="more" tabindex="0" role="button" data-menu="${kind}" ${attrs} title="${title}">${ic("dots-three", 15)}</span>`;
+
 function menuSpec(kind, d) {
   if (kind === "project") {
     const p = state.projects.find((x) => x.id === d.pid);
@@ -1221,6 +1327,88 @@ function menuSpec(kind, d) {
       { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 18), run: () => copy(s.cwd) },
       ...(s.transcriptPath ? [{ label: "Transcript path", icon: "file-text", run: () => copy(s.transcriptPath) }] : []),
       ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 18), run: () => copy(s.branch) }] : []),
+    ] };
+  }
+  if (kind === "worktree") {
+    const w = (state.worktrees[d.pid] ?? []).find((x) => x.path === d.path);
+    if (!w) return null;
+    const held = (state.claims ?? []).some((c) => c.state === "held" && c.worktree === w.path);
+    const sess = state.sessions.filter((x) => x.state !== "ended" && (x.cwd === w.path || x.cwd.startsWith(`${w.path}/`)));
+    return { title: w.branch ?? "(detached)", items: [
+      { label: "Open", icon: "arrow-square-out", caption: "editor", run: () => act.wtOpen(d.pid, w.path) },
+      ...(w.main ? [] : [{ label: "Diff", icon: "folders", caption: "vs main", run: () => act.wtDiff(d.pid, w.path) }]),
+      ...(w.branch && !w.merged && !w.main ? [{ label: "Open PR", icon: "git-pull-request", run: () => act.wtPr(d.pid, w.path) }] : []),
+      ...(sess.length ? [{ divider: true }, { section: "Sessions" }, ...sess.map((x) => ({ label: x.title ?? x.id.slice(0, 8), icon: "terminal-window", run: () => openSession(x.id) }))] : []),
+      { divider: true },
+      { label: "Copy path", icon: "copy", caption: tail(w.path, 14), run: () => copy(w.path) },
+      ...(w.branch ? [{ label: "Copy branch", icon: "git-branch", caption: tail(w.branch, 14), run: () => copy(w.branch) }] : []),
+      ...(w.main || held ? [] : [{ divider: true }, { label: "Remove", icon: "trash", danger: true, caption: w.dirty > 0 ? "dirty" : w.ahead > 0 ? "unpushed" : undefined, run: () => act.wtRemove(d.pid, w.path) }]),
+    ] };
+  }
+  if (kind === "task") {
+    const t = (state.tasks?.tasks ?? []).find((x) => x.id === d.task);
+    if (!t) return null;
+    const exec = state.gates?.executable ?? [];
+    return { title: t.id, items: [
+      ...(t.ready ? [
+        { label: "Run", icon: "play", caption: "claim + claude -p", run: () => act.runTask(t.id) },
+        { label: "Claim", icon: "folders", caption: "fresh worktree", run: () => act.claimTask(t.id) },
+      ] : t.claimedBy ? [
+        { label: "Run in worktree", icon: "play", run: () => act.runTask(t.id) },
+        ...(exec.length ? [{ label: "Run gates", icon: "check", caption: exec.join(", "), run: () => act.gateRun(t.id) }] : []),
+      ] : [{ label: t.status === "done" ? "Done" : "Blocked", disabled: true }]),
+      { divider: true },
+      { label: "Copy id", icon: "copy", caption: t.id, run: () => copy(t.id) },
+      { label: "Copy title", icon: "file-text", run: () => copy(`${t.id} — ${t.title}`) },
+    ] };
+  }
+  if (kind === "claim") {
+    const c = (state.claims ?? []).find((x) => x.projectId === d.pid && x.task === d.task);
+    if (!c) return null;
+    const w = (state.worktrees[c.projectId] ?? []).find((x) => x.path === c.worktree);
+    return { title: c.task, items: [
+      ...(w ? [{ label: "Open worktree", icon: "arrow-square-out", run: () => act.wtOpen(c.projectId, c.worktree) }, { label: "Diff", icon: "folders", run: () => act.wtDiff(c.projectId, c.worktree) }] : []),
+      { label: "Copy path", icon: "copy", caption: tail(c.worktree, 14), run: () => copy(c.worktree) },
+      { divider: true },
+      c.state === "orphaned"
+        ? { label: "Force release", icon: "trash", danger: true, caption: "discards work", run: () => act.releaseClaim(c.projectId, c.task, true) }
+        : { label: "Release claim", icon: "x", run: () => act.releaseClaim(c.projectId, c.task, false) },
+    ] };
+  }
+  if (kind === "pr") {
+    const p = (state.prs ?? []).find((x) => String(x.projectId) === d.pid && String(x.number) === d.num);
+    if (!p) return null;
+    const green = p.checks !== "fail" && p.mergeable && !p.draft;
+    return { title: `#${p.number}`, items: [
+      { label: "Open on " + (p.forge === "gitlab" ? "GitLab" : "GitHub"), icon: "arrow-square-out", run: () => window.open(p.url, "_blank") },
+      { label: "Copy URL", icon: "copy", run: () => copy(p.url) },
+      { divider: true },
+      { label: "Squash-merge", icon: "git-pull-request", disabled: !green, caption: green ? (p.forge === "gitlab" ? "glab" : "gh") : p.draft ? "draft" : p.checks === "fail" ? "checks failing" : "not mergeable", run: () => act.merge(p.projectId, p.number) },
+    ] };
+  }
+  if (kind === "process") {
+    return { items: [
+      { label: "Copy pid", icon: "copy", caption: d.pid, run: () => copy(d.pid) },
+      ...(d.cwd ? [{ label: "Copy cwd", icon: "folder-simple", caption: tail(d.cwd, 18), run: () => copy(d.cwd) }] : []),
+      { divider: true },
+      { label: "Stop", icon: "stop", danger: true, caption: "SIGTERM → SIGKILL", run: () => act.procStop(d.pid, d.proj) },
+    ] };
+  }
+  if (kind === "resource") {
+    return { title: d.name, items: [
+      { label: "Copy name", icon: "copy", run: () => copy(d.name) },
+      { divider: true },
+      { label: "Release", icon: "x", danger: true, caption: "force", run: () => act.resRelease(d.name, d.proj) },
+    ] };
+  }
+  if (kind === "incident") {
+    const i = [...(state.incidents ?? []), ...(state.allIncidents ?? [])].find((x) => String(x.seq) === d.seq);
+    if (!i) return null;
+    return { items: [
+      ...(i.sessionId ? [{ label: "Open session", icon: "terminal-window", run: () => openSession(i.sessionId) }] : []),
+      ...(i.suggestion ? [{ label: "Codify", icon: "shield", caption: "rule / lesson", run: () => act.codify(i.seq) }] : []),
+      { label: "Copy command", icon: "copy", run: () => copy(i.command ?? "") },
+      ...(i.acked ? [] : [{ divider: true }, { label: "Acknowledge", icon: "check", run: () => act.ack(i.seq) }]),
     ] };
   }
   if (kind === "settings") {
@@ -1356,6 +1544,14 @@ function openMenu(kind, anchor, d) {
   if (!window.menus) { console.warn("menus.js not built — run: bun run build:web"); return; }
   window.menus.open(anchor, spec);
 }
+// Enter / Space on a focused card, tile or kebab opens its menu like a click.
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter" && ev.key !== " ") return;
+  const t = ev.target.closest?.("[data-menu]");
+  if (!t || t.tagName === "INPUT") return;
+  ev.preventDefault();
+  openMenu(t.dataset.menu, t, t.dataset);
+});
 document.addEventListener("contextmenu", (ev) => {
   const t = ev.target.closest("[data-ctx]");
   if (!t) return;
@@ -1365,7 +1561,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1373,27 +1569,18 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
   if (t.dataset.taskFilter) { state.taskFilter = t.dataset.taskFilter; return touch(); }
+  if (t.dataset.bmode) { ev.preventDefault(); const [k, v] = t.dataset.bmode.split(":"); localStorage.setItem(`swarm.board.${k}`, v); return touch(); }
   if (t.dataset.run) { ev.preventDefault(); return openRunDrawer(t.dataset.run); }
   if (t.dataset.runstop) {
     ev.preventDefault();
     if (!confirm("Stop this run? Its stdin is closed, then the process is signalled by pid.")) return;
     return fetch(`/v1/runs/${encodeURIComponent(t.dataset.runstop)}`, { method: "DELETE" }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
   }
-  if (t.dataset.claim) {
-    ev.preventDefault();
-    const r = await fetch("/v1/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task: t.dataset.claim, owner: "dashboard" }) }).then((x) => x.json());
-    if (!r.ok) alert(r.error); else state.tasks = null;
-    return refresh();
-  }
-  if (t.dataset.wtopen) {
-    ev.preventDefault();
-    const i = t.dataset.wtopen.indexOf(":");
-    const r = await fetch("/v1/worktrees/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: t.dataset.wtopen.slice(0, i), worktree: t.dataset.wtopen.slice(i + 1) }) }).then((x) => x.json());
-    if (!r.ok) alert(r.error);
-    return;
-  }
-  if (t.dataset.wtdiff) { ev.preventDefault(); const i = t.dataset.wtdiff.indexOf(":"); return openDiffDrawer(t.dataset.wtdiff.slice(0, i), t.dataset.wtdiff.slice(i + 1)); }
-  if (t.dataset.wtpr) { ev.preventDefault(); const i = t.dataset.wtpr.indexOf(":"); return openPrDrawer(t.dataset.wtpr.slice(0, i), t.dataset.wtpr.slice(i + 1)); }
+  if (t.dataset.claim) { ev.preventDefault(); return act.claimTask(t.dataset.claim); }
+  const split = (v) => { const i = v.indexOf(":"); return [v.slice(0, i), v.slice(i + 1)]; };
+  if (t.dataset.wtopen) { ev.preventDefault(); return act.wtOpen(...split(t.dataset.wtopen)); }
+  if (t.dataset.wtdiff) { ev.preventDefault(); return act.wtDiff(...split(t.dataset.wtdiff)); }
+  if (t.dataset.wtpr) { ev.preventDefault(); return act.wtPr(...split(t.dataset.wtpr)); }
   if (t.dataset.dffile !== undefined) { ev.preventDefault(); return loadDiffFile(t.dataset.dffile); }
   if (t.id === "prGo") { ev.preventDefault(); return submitPr(); }
   if (t.id === "sessDiff") {
@@ -1403,19 +1590,7 @@ document.addEventListener("click", async (ev) => {
     const w = (state.worktrees[s.projectId] ?? []).find((x) => !x.main && (s.cwd === x.path || s.cwd.startsWith(`${x.path}/`)));
     return w ? openDiffDrawer(s.projectId, w.path) : null;
   }
-  if (t.dataset.wtrm) {
-    ev.preventDefault();
-    const i = t.dataset.wtrm.indexOf(":");
-    const projectId = t.dataset.wtrm.slice(0, i), worktree = t.dataset.wtrm.slice(i + 1);
-    const rm = (force) => fetch("/v1/worktrees/remove", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, worktree, force }) }).then((x) => x.json());
-    if (!confirm(`Remove worktree ${short(worktree)}?`)) return;
-    const r = await rm(false);
-    if (!r.ok && (r.refused === "dirty" || r.refused === "unpushed")) {
-      if (confirm(`${r.error}\n\nRemove anyway (discards the work)?`)) await rm(true);
-    } else if (!r.ok) alert(r.error);
-    state.worktrees[projectId] = null;
-    return refresh();
-  }
+  if (t.dataset.wtrm) { ev.preventDefault(); return act.wtRemove(...split(t.dataset.wtrm)); }
   if (t.id === "wtnew") {
     ev.preventDefault();
     const name = prompt("Worktree name (folder under ~/.swarm/worktrees/<project>/; branch wt/<name>):");
@@ -1445,25 +1620,13 @@ document.addEventListener("click", async (ev) => {
     state.dispatch = null;
     return refresh();
   }
-  if (t.dataset.gaterun) {
-    ev.preventDefault();
-    const task = t.dataset.gaterun;
-    t.textContent = "running…";
-    const r = await fetch("/v1/gates/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task }) }).then((x) => x.json());
-    if (!r.started?.length) alert(r.error ?? r.skipped?.[0]?.reason ?? "nothing ran");
-    else alert(`${task}: ${r.runs.map((x) => `${x.verdict === "pass" ? "✓" : "✗"} ${x.gate} — ${x.rubric}`).join("\n")}${r.skipped.length ? `\n\nskipped: ${r.skipped.map((x) => `${x.gate} (${x.reason})`).join(", ")}` : ""}`);
-    state.tasks = null;
-    return refresh();
-  }
+  if (t.dataset.gaterun) { ev.preventDefault(); return act.gateRun(t.dataset.gaterun); }
   if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
   if (t.id === "dryrun") { ev.preventDefault(); return openDryRun(); }
   if (t.dataset.skind !== undefined) { ev.preventDefault(); srch.kind = t.dataset.skind; return runSearch().then(renderSearch); }
   if (t.id === "drRun") { ev.preventDefault(); return runDryRun(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
-  if (t.dataset.ack) {
-    ev.preventDefault(); ev.stopPropagation();
-    return fetch(`/v1/incidents/${t.dataset.ack}/ack`, { method: "POST" }).then(refresh);
-  }
+  if (t.dataset.ack) { ev.preventDefault(); ev.stopPropagation(); return act.ack(t.dataset.ack); }
   if (t.dataset.ackall) {
     return fetch("/v1/incidents/ack", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: state.sel || undefined }) }).then(refresh);
   }
@@ -1471,37 +1634,13 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.sdays) { ev.preventDefault(); state.statsDays = Number(t.dataset.sdays); return touch(); }
   if (t.dataset.release || t.dataset.forcerelease) {
     ev.preventDefault();
-    const force = Boolean(t.dataset.forcerelease);
     const [projectId, task] = (t.dataset.release || t.dataset.forcerelease).split(":");
-    if (force && !confirm(`Force-release ${task}? This permanently discards its worktree and any uncommitted work.`)) return;
-    const r = await fetch("/v1/claims/release", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, task, force }) }).then((x) => x.json());
-    if (!r.ok) {
-      if (confirm(`${r.error}\n\nForce-release anyway (discards the work)?`)) {
-        await fetch("/v1/claims/release", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, task, force: true }) });
-      }
-    }
-    return refresh();
+    return act.releaseClaim(projectId, task, Boolean(t.dataset.forcerelease));
   }
   if (t.dataset.agent !== undefined && t.classList.contains("chip")) { state.agentFilter = t.dataset.agent || null; return touch(); }
-  if (t.dataset.merge !== undefined) {
-    ev.preventDefault();
-    const [projectId, number] = t.dataset.merge.split(":");
-    if (!confirm(`Squash-merge #${number}?`)) return;
-    return fetch("/v1/prs/merge", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId, number: Number(number) }),
-    }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
-  }
-  if (t.dataset.procstop) {
-    ev.preventDefault();
-    if (!confirm(`Stop pid ${t.dataset.procstop}?`)) return;
-    return fetch(`/v1/processes/${t.dataset.procstop}?project=${encodeURIComponent(t.dataset.procproj)}`, { method: "DELETE" }).then(async (r) => { if (!r.ok) alert((await r.json()).error); return refresh(); });
-  }
-  if (t.dataset.resrelease !== undefined) {
-    ev.preventDefault();
-    const q = new URLSearchParams({ force: "1" }); if (t.dataset.resproj) q.set("project", t.dataset.resproj);
-    return fetch(`/v1/resources/${encodeURIComponent(t.dataset.resrelease)}?${q}`, { method: "DELETE" }).then(refresh);
-  }
+  if (t.dataset.merge !== undefined) { ev.preventDefault(); return act.merge(...t.dataset.merge.split(":")); }
+  if (t.dataset.procstop) { ev.preventDefault(); return act.procStop(t.dataset.procstop, t.dataset.procproj); }
+  if (t.dataset.resrelease !== undefined) { ev.preventDefault(); return act.resRelease(t.dataset.resrelease, t.dataset.resproj); }
   if (t.id === "back") { ev.preventDefault(); state.session = null; return touch(); }
   if (t.id === "replay") { ev.preventDefault(); return openReplay(); }
   if (t.id === "resumeDead") { ev.preventDefault(); return resumeDead(); }
