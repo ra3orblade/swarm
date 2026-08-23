@@ -452,7 +452,7 @@ export function buildServer(): McpServer {
       }>("/v1/claims", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER }),
+        body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER, sessionId: SESSION }),
       });
       if (!r.ok) return fail(`REFUSED: ${r.error}`);
       return ok(

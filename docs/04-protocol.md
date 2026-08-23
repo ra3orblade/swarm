@@ -32,6 +32,8 @@ Latency budget 50 ms; the shim times out at 400 ms and fails open — except for
 
 `session.started|ended`, `prompt.submitted`, `tool.requested|allowed|denied|completed`, `agent.text`, `agent.delta`, `subagent.started|stopped`, `claim.acquired|renewed|released|expired|orphaned`, `resource.acquired|released`, `process.started|exited`, `gate.recorded`, `incident.opened|acked`, `run.result`.
 
+Every event also carries `actor` (`{kind: human|agent|run|daemon, id, session?}`, M8.2a) on the wire and in the DB.
+
 Payloads carry the raw Claude Code object under `raw` so nothing is lost when the upstream schema changes; the normalized fields are the ones the UI depends on.
 
 ## Versioning

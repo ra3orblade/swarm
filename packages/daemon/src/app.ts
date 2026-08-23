@@ -61,7 +61,9 @@ export function createApp(store = new Store()) {
     for (const run of runner.list(projectId)) void runner.stop(run.id);
   });
 
-  app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
+  app.get("/v1/health", (c) =>
+    c.json({ ok: true, version: VERSION, schema: store.schemaVersion() }),
+  );
 
   // ---- projects
   app.get("/v1/projects", (c) => c.json(store.snapshot().projects));
@@ -160,12 +162,12 @@ export function createApp(store = new Store()) {
     return c.json(store.dryRun(projectId, overrides, limit));
   });
   app.post("/v1/incidents/ack", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { project?: string };
-    return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined) });
+    const body = (await c.req.json().catch(() => ({}))) as { project?: string; by?: string };
+    return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined, body.by) });
   });
   app.post("/v1/incidents/:seq/ack", (c) => {
     const seq = Number(c.req.param("seq"));
-    if (!Number.isInteger(seq) || !store.ackIncident(seq))
+    if (!Number.isInteger(seq) || !store.ackIncident(seq, c.req.query("by")))
       return c.json({ ok: false, error: "no such incident" }, 404);
     return c.json({ ok: true });
   });
@@ -517,9 +519,10 @@ export function createApp(store = new Store()) {
       task?: string;
       owner?: string;
       baseRef?: string;
+      sessionId?: string | null;
     };
     if (!b.projectId || !b.task) return c.json({ error: "projectId and task required" }, 400);
-    const r = store.claim(b.projectId, b.task, b.owner ?? "cli", b.baseRef);
+    const r = store.claim(b.projectId, b.task, b.owner ?? "cli", b.baseRef, b.sessionId ?? null);
     return c.json(r, r.ok ? 201 : 409);
   });
   app.post("/v1/claims/renew", async (c) => {

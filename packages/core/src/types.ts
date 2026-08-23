@@ -1,3 +1,4 @@
+import type { Actor } from "./actor";
 /** Normalized Swarm event types (docs/04-protocol.md). */
 export type EventType =
   | "session.started"
@@ -48,6 +49,8 @@ export interface SwarmEvent<T = unknown> {
   type: EventType;
   projectId: string;
   sessionId: string | null;
+  /** Who caused it (M8.2a); the daemon derives it from `payload.owner`/`by` + session when absent. */
+  actor?: Actor;
   payload: T;
   /**
    * Raw upstream object (Claude Code hook input, stream-json line). Always present in memory (rules

@@ -150,6 +150,12 @@ try {
         "install Claude Code: https://claude.com/claude-code",
       );
       line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: swarm start");
+      if (running) {
+        const h = (await fetch(`${resolveBaseUrl()}/v1/health`)
+          .then((r) => r.json())
+          .catch(() => null)) as { version?: string; schema?: number } | null;
+        if (h) console.log(`· daemon v${h.version ?? "?"} · schema v${h.schema ?? 0}`);
+      }
       line(st.installed, "hooks installed", "run: swarm install");
       if (st.installed && !st.coverage.complete) {
         if (st.coverage.missing.length)

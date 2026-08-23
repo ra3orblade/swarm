@@ -19,6 +19,8 @@ events        seq, ts, project_id, session_id, type, payload_json        -- appe
 incidents     id, project_id, session_id, kind, detail, created_at, acked_at
 ```
 
+**Actor (M8.2a).** Every ledger row above (`claims`, `resources`, `processes`, `handoffs`, `gates`, `incident_acks`, `sessions`) and every `events` row carries `actor_kind` (`human | agent | run | daemon`) + `actor_id` (OS user / OIDC subject · session id · run id · `daemon`); events expose it as `actor: {kind, id, session?}`. Until the daemon authenticates callers (M8.2b) it derives the actor from the `owner`/`by` string and session id the client sends (`core/src/actor.ts actorFrom`); the same rule back-filled existing rows in schema migration v1. Schema changes that need a back-fill go through the versioned `migrate()` list in the store (`meta.schema_version`, reported by `/v1/health` and `swarm doctor`).
+
 Rules of the ledger:
 - A `task` may have at most one `held` claim. Claiming a held task fails with the holder's details.
 - `expires_at` advances on renew and on any hook activity from the holder session.
