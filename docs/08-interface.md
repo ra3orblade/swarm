@@ -299,7 +299,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/health` | liveness + version |
 | `GET /v1/state` | the dashboard snapshot: projects, sessions, claims, worktrees, resources, incidents, spend rollups |
 | `GET /v1/stats?project=` | Stats view numbers (`swarm stats`) |
-| `GET /v1/projects` · `POST /v1/projects` · `PATCH /v1/projects/:id` · `DELETE /v1/projects/:id` | register (pin) / rename / unpin a project; `POST` with `{path}` is idempotent and returns the project id |
+| `GET /v1/projects` · `POST /v1/projects` · `PATCH /v1/projects/:id` · `DELETE /v1/projects/:id` | register (pin) / unpin a project; `PATCH` takes `{name?, pinned?, icon?, color?}` — **project settings** (sidebar menu → Settings…): `icon` is an emoji / ≤ 4-char glyph, or a small image as a `data:image/png` URL (the drawer downsizes any image file to 64 px; ≤ 24 KB), shown instead of the folder icon, `color` a categorical slot `c1`…`c7` (a design token) tinting the project glyph everywhere; `POST` with `{path}` is idempotent and returns the project id |
 | `PUT /v1/projects/order` | `{ids}` in sidebar order — persists the manual order of pinned projects (`order`; unordered ones follow alphabetically) |
 | `GET /v1/fs/ls?path=` | directory listing for the dashboard's "add folder" picker (directories only) |
 | `GET /v1/claims` · `POST /v1/claims` · `POST /v1/claims/renew` · `POST /v1/claims/release` · `POST /v1/claims/reap` | the claim ledger (fail-closed; `release` refuses dirty/unpushed unless `force`) |

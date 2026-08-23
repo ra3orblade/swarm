@@ -68,6 +68,10 @@ export interface Project {
   discovered: boolean;
   /** Manual sidebar position for pinned projects (lower first); null = alphabetical after ordered ones. */
   order: number | null;
+  /** Project settings: a short glyph (emoji) shown instead of the folder icon, and a categorical
+   *  color slot `c1`…`c7` (a design token, never a raw color) used for its dot and badges. */
+  icon: string | null;
+  color: string | null;
   createdAt: string;
 }
 

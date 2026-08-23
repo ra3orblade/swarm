@@ -1,4 +1,5 @@
 const $ = (s) => document.querySelector(s);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 // macOS desktop app signals its overlay title bar via ?chrome=inset (see src-tauri/lib.rs).
 if (new URLSearchParams(location.search).get("chrome") === "inset") {
   document.documentElement.classList.add("chrome-inset");
@@ -51,6 +52,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
 // p2 (zero-pad) is defined in viz.js, which loads first
 const hhmm = (iso) => { const d = new Date(iso); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
+/** The project's glyph: its emoji icon, or the folder icon, tinted with its color slot. */
+const projGlyph = (p, size = 14) => p?.icon
+  ? `<span class="pg ${p.color ? `pg-${p.color}` : ""}">${p.icon.startsWith("data:image/") ? `<img class="pg-img" src="${esc(p.icon)}" alt="">` : esc(p.icon)}</span>`
+  : `<span class="pg ${p?.color ? `pg-${p.color}` : ""}">${ic("folder-simple", size)}</span>`;
+/** Project cell for tables: glyph + name. */
+const projCell = (id) => { const p = state.projects.find((x) => x.id === id); return p ? `${projGlyph(p, 12)} ${esc(p.name)}` : esc(projName(id)); };
 const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : "(removed)");
 const short = (p) => String(p ?? "").replace(/^\/Users\/[^/]+/, "~");
 const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
@@ -114,7 +121,7 @@ const getTheme = () => localStorage.getItem("swarm.theme") ?? "system";
 const setTheme = (t) => { localStorage.setItem("swarm.theme", t); if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; };
 setTheme(getTheme());
 const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
-const tail = (p, n = 24) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
+const tail = (p, n = 16) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
 
@@ -246,7 +253,7 @@ function renderProjects() {
   const row = (p) => {
     const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}"${p.discovered ? "" : ' draggable="true"'}>
-      <span class="st ${live(p.id) ? "live" : ""}"></span>${ic("folder-simple", 14)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+      <span class="st ${live(p.id) ? "live" : ""}"></span>${projGlyph(p)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = live("");
   $("#projects").innerHTML =
@@ -294,7 +301,7 @@ projectsEl.addEventListener("dragend", () => {
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
 const FLEET_COLS = [
-  { key: "project", label: "project", width: 96, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
+  { key: "project", label: "project", width: 112, get: (s) => projName(s.projectId), cell: (s) => projCell(s.projectId) },
   { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
   { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}` },
   { key: "branch", label: "branch", width: 116, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
@@ -415,7 +422,7 @@ function incidentColumns(full) {
   const sess = (id) => state.sessions.find((s) => s.id === id);
   return [
     { key: "ts", label: "when", width: 76, get: (i) => i.ts, cell: (i) => `<span class="dim" title="${esc(i.ts)}">${ago(i.ts)}</span>` },
-    { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => esc(projName(i.projectId)) },
+    { key: "project", label: "project", width: 104, get: (i) => projName(i.projectId), cell: (i) => projCell(i.projectId) },
     { key: "session", label: "session", width: 150, get: (i) => sess(i.sessionId)?.title ?? i.sessionId ?? "", cell: (i) => (i.sessionId ? `<a href="#" data-s="${i.sessionId}">${esc(sess(i.sessionId)?.title ?? i.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
     { key: "rule", label: "rule", width: 150, get: (i) => i.rule, cell: (i) => `<span class="br">${esc(i.rule ?? "")}</span>` },
     { key: "action", label: "action", width: 80, get: (i) => i.action, cell: (i) => (i.action === "deny" ? '<span class="badge warn">Denied</span>' : i.action === "orphaned" ? '<span class="badge warn">Orphaned</span>' : i.action === "failed" ? '<span class="badge warn">Failed</span>' : '<span class="badge acc">Asked</span>') },
@@ -535,7 +542,7 @@ function renderProcesses() {
   const cols = [
     { key: "name", label: "process", width: 150, get: (r) => r.name, cell: (r) => `<b>${esc(r.name)}</b>` },
     { key: "kind", label: "kind", width: 80, get: (r) => r.kind, cell: (r) => `<span class="badge">${esc(r.kind)}</span>` },
-    { key: "project", label: "project", width: 104, get: (r) => projName(r.projectId), cell: (r) => esc(projName(r.projectId)) },
+    { key: "project", label: "project", width: 104, get: (r) => projName(r.projectId), cell: (r) => projCell(r.projectId) },
     { key: "pid", label: "pid", width: 76, num: true, get: (r) => r.pid, cell: (r) => r.pid },
     { key: "port", label: "port", width: 70, num: true, get: (r) => r.port ?? 0, cell: (r) => (r.port != null ? `<a href="http://127.0.0.1:${r.port}/" target="_blank" rel="noopener">:${r.port}</a>` : '<span class="dim">—</span>') },
     { key: "owner", label: "owner", width: 110, get: (r) => r.owner, cell: (r) => esc(r.owner) },
@@ -678,7 +685,7 @@ function renderClaims() {
   const badge = (st) => st === "orphaned" ? '<span class="badge warn">Orphaned · holds work</span>' : st === "expired" ? '<span class="badge acc">Expired</span>' : '<span class="badge ok">Held</span>';
   const orphans = rows.filter((c) => c.state === "orphaned").length;
   const cols = [
-    { key: "project", label: "project", width: 104, get: (c) => projName(c.projectId), cell: (c) => esc(projName(c.projectId)) },
+    { key: "project", label: "project", width: 104, get: (c) => projName(c.projectId), cell: (c) => projCell(c.projectId) },
     { key: "task", label: "task", width: 140, get: (c) => c.task, cell: (c) => `<b>${esc(c.task)}</b>` },
     { key: "owner", label: "owner", width: 120, get: (c) => c.owner || "", cell: (c) => esc(c.owner || "—") },
     { key: "lease", label: "lease", width: 130, get: (c) => (c.state === "held" ? new Date(c.expiresAt).getTime() : 0), cell: (c) => `<span class="dim">${c.state === "held" ? leaseLeft(c.expiresAt) : "—"}</span>` },
@@ -711,7 +718,7 @@ function renderWorktrees() {
   const inside = (w) => byPath.get(w.path);
   const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
   const cols = [
-    { key: "project", label: "project", width: 104, get: (w) => projName(w.projectId), cell: (w) => esc(projName(w.projectId)) },
+    { key: "project", label: "project", width: 104, get: (w) => projName(w.projectId), cell: (w) => projCell(w.projectId) },
     { key: "branch", label: "branch", width: 240, get: (w) => w.branch ?? "", cell: (w) => `<span class="br">${esc(w.branch ?? "(detached)")}</span>${w.main ? ' <span class="badge">Main tree</span>' : ""}` },
     { key: "head", label: "head", width: 90, get: (w) => w.head, cell: (w) => `<span class="br">${esc(w.head)}</span>` },
     { key: "path", label: "path", flex: true, get: (w) => w.path, cell: (w) => `<span class="now" title="${esc(w.path)}">${esc(short(w.path))}</span>` },
@@ -731,7 +738,7 @@ function renderWorktrees() {
     const groups = new Map();
     for (const w of rows) (groups.get(w.projectId) ?? groups.set(w.projectId, []).get(w.projectId)).push(w);
     const order = { live: 0, dirty: 1, ahead: 2, clean: 3, merged: 4 };
-    return `<div class="wtmap">${[...groups].map(([pid, list]) => `<div class="wt-group"><div class="wt-proj">${esc(projName(pid))} <span>${list.length}</span></div><div class="wt-tiles">${list.sort((a, b) => (b.main - a.main) || order[stateOf(a)] - order[stateOf(b)]).map(tile).join("")}</div></div>`).join("")}</div>`;
+    return `<div class="wtmap">${[...groups].map(([pid, list]) => `<div class="wt-group"><div class="wt-proj">${projCell(pid)} <span>${list.length}</span></div><div class="wt-tiles">${list.sort((a, b) => (b.main - a.main) || order[stateOf(a)] - order[stateOf(b)]).map(tile).join("")}</div></div>`).join("")}</div>`;
   };
   return `<h2 class="mt-sec hrow">Worktrees <span>${rows.length}</span>${newBtn}${gcBtn}<span class="grow"></span>${modeSeg("worktrees", "Map", "Table")}</h2>` +
     (boardMode("worktrees") === "cards" ? map() :
@@ -867,7 +874,6 @@ function renderAttribution() {
           { key: "worktree", label: "worktree", flex: true, get: (t) => t.worktree, cell: (t) => `<span class="now dim" title="${esc(t.worktree)}">${esc(short(t.worktree))}</span>` },
         ],
         rows: a.byTask,
-        leading: { width: 20, cell: () => "" },
         trailing: { width: 8, cell: () => "" },
         rerender: touch,
       }));
@@ -884,7 +890,6 @@ function renderAttribution() {
           { key: "turns", label: "turns", width: 64, num: true, get: (r) => r.turns, cell: (r) => String(r.turns) },
         ],
         rows: a.contextBudget,
-        leading: { width: 20, cell: () => "" },
         trailing: { width: 8, cell: () => "" },
         rerender: touch,
       }));
@@ -937,6 +942,12 @@ async function runSearch() {
   srch.hits = j.hits ?? [];
   if (state.view === "search" && !state.session) renderSearch();
 }
+document.addEventListener("change", async (ev) => {
+  if (ev.target.id !== "psFile" || !ev.target.files?.[0]) return;
+  try { const d = await fileToIconDataUrl(ev.target.files[0]); $("#psImage").value = d; $("#psIcon").value = ""; setIconPreview(d); for (const e of $$(".emoji")) e.classList.remove("on"); }
+  catch (e) { alert(e.message); }
+});
+document.addEventListener("input", (ev) => { if (ev.target.id === "psIcon") { $("#psImage").value = ""; setIconPreview(ev.target.value.trim()); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === ev.target.value.trim()); } });
 document.addEventListener("input", (ev) => { if (ev.target.id === "srchQ") { srch.q = ev.target.value; clearTimeout(srch.db); srch.db = setTimeout(runSearch, 150); } });
 function renderStats() {
   const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
@@ -1316,7 +1327,8 @@ function menuSpec(kind, d) {
       { label: "Stats", icon: "chart-bar", run: () => { state.sel = p.id; state.view = "stats"; state.session = null; touch(); } },
       { divider: true },
       p.discovered ? { label: "Pin project", icon: "push-pin", run: () => pinProject(p.id, true) } : { label: "Unpin project", icon: "push-pin-slash", run: () => pinProject(p.id, false) },
-      { label: "Copy path", icon: "copy", caption: tail(p.root), run: () => copy(p.root) },
+      { label: "Settings…", icon: "sliders", caption: "name · icon · color", run: () => openProjectSettings(p.id) },
+      { label: "Copy path", icon: "copy", caption: tail(p.root, 16), run: () => copy(p.root) },
       { divider: true },
       { label: "Remove from Swarm", icon: "trash", danger: true, run: () => removeProject(p.id) },
     ] };
@@ -1330,9 +1342,9 @@ function menuSpec(kind, d) {
       { divider: true },
       { section: "Copy" },
       { label: "Session id", icon: "copy", caption: s.id.slice(0, 8), run: () => copy(s.id) },
-      { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 18), run: () => copy(s.cwd) },
+      { label: "Working directory", icon: "folder-simple", caption: tail(s.cwd, 16), run: () => copy(s.cwd) },
       ...(s.transcriptPath ? [{ label: "Transcript path", icon: "file-text", run: () => copy(s.transcriptPath) }] : []),
-      ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 18), run: () => copy(s.branch) }] : []),
+      ...(s.branch ? [{ label: "Branch", icon: "git-branch", caption: tail(s.branch, 16), run: () => copy(s.branch) }] : []),
     ] };
   }
   if (kind === "worktree") {
@@ -1395,7 +1407,7 @@ function menuSpec(kind, d) {
   if (kind === "process") {
     return { items: [
       { label: "Copy pid", icon: "copy", caption: d.pid, run: () => copy(d.pid) },
-      ...(d.cwd ? [{ label: "Copy cwd", icon: "folder-simple", caption: tail(d.cwd, 18), run: () => copy(d.cwd) }] : []),
+      ...(d.cwd ? [{ label: "Copy cwd", icon: "folder-simple", caption: tail(d.cwd, 16), run: () => copy(d.cwd) }] : []),
       { divider: true },
       { label: "Stop", icon: "stop", danger: true, caption: "SIGTERM → SIGKILL", run: () => act.procStop(d.pid, d.proj) },
     ] };
@@ -1567,7 +1579,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1575,6 +1587,10 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
   if (t.dataset.taskFilter) { state.taskFilter = t.dataset.taskFilter; return touch(); }
+  if (t.dataset.emoji !== undefined) { $("#psIcon").value = t.dataset.emoji; $("#psImage").value = ""; setIconPreview(t.dataset.emoji); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === t.dataset.emoji); return; }
+  if (t.id === "psAllEmoji") { const all = $("#psEmojiAll"); if (all.hidden) { all.innerHTML = buildEmojiGrid(); all.hidden = false; } else all.hidden = true; return; }
+  if (t.dataset.color !== undefined && t.classList.contains("swatch")) { for (const e of $$(".swatch")) e.classList.toggle("on", e === t); return; }
+  if (t.id === "psSave") { ev.preventDefault(); return saveProjectSettings(t.dataset.pid); }
   if (t.dataset.bmode) { ev.preventDefault(); const [k, v] = t.dataset.bmode.split(":"); localStorage.setItem(`swarm.board.${k}`, v); return touch(); }
   if (t.dataset.run) { ev.preventDefault(); return openRunDrawer(t.dataset.run); }
   if (t.dataset.runstop) {
@@ -1721,6 +1737,87 @@ async function submitRun(taskId) {
   state.tasks = null;
   await refresh();
   openSession(r.run.sessionId);
+}
+
+// ---------- project settings drawer
+const PROJECT_EMOJI = ["🐝", "🚀", "🧪", "📦", "🛠️", "🌐", "📊", "🤖", "🧠", "🎨", "🔒", "📚", "💬", "🏗️", "🧩", "⚡"];
+// Every emoji the platform font can draw, by Unicode block — no names, but browseable; the OS picker
+// (⌃⌘Space on macOS, Win+. on Windows) covers search. Filtered by the font once, lazily.
+const EMOJI_BLOCKS = [["Smileys & people", 0x1f600, 0x1f64f], ["Gestures & body", 0x1f440, 0x1f4ff], ["Animals & nature", 0x1f400, 0x1f43f], ["Food", 0x1f32d, 0x1f37f], ["Activity & travel", 0x1f680, 0x1f6ff], ["Objects", 0x1f4a0, 0x1f4ff], ["Symbols", 0x1f300, 0x1f32c], ["More", 0x1f900, 0x1f9ff], ["Extended", 0x1fa70, 0x1faff], ["Misc", 0x2600, 0x26ff], ["Dingbats", 0x2700, 0x27bf]];
+let emojiGrid = null;
+function buildEmojiGrid() {
+  if (emojiGrid) return emojiGrid;
+  // A code point counts as an emoji the platform can draw if it paints colored pixels.
+  const S = 20, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+  const c = cv.getContext("2d", { willReadFrequently: true });
+  c.font = `${S - 4}px system-ui`; c.textBaseline = "top";
+  const colored = (ch) => {
+    c.clearRect(0, 0, S, S); c.fillText(ch, 0, 0);
+    const d = c.getImageData(0, 0, S, S).data;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40 && (Math.abs(d[i] - d[i + 1]) > 24 || Math.abs(d[i + 1] - d[i + 2]) > 24)) return true;
+    return false;
+  };
+  emojiGrid = EMOJI_BLOCKS.map(([name, a, b]) => {
+    const list = [];
+    for (let cp = a; cp <= b; cp++) { const ch = String.fromCodePoint(cp); if (colored(ch)) list.push(ch); }
+    return list.length ? `<div class="emoji-sec">${esc(name)}</div><div class="emoji-row">${list.map((e) => `<span class="emoji" data-emoji="${e}">${e}</span>`).join("")}</div>` : "";
+  }).join("");
+  return emojiGrid;
+}
+function openProjectSettings(pid) {
+  const p = state.projects.find((x) => x.id === pid);
+  if (!p) return;
+  const slots = ["", "c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("sliders", 15)}<b>Project settings</b><span class="dim now" style="flex:1;margin-left:8px">${esc(p.root)}</span><button id="pkCancel" title="Close">${ic("x", 14)}</button></div>
+    <div class="pk-b">
+      <label>name<input id="psName" value="${esc(p.name)}" maxlength="60" spellcheck="false"></label>
+      <label>icon<div class="icon-row"><span class="pg pg-lg" id="psPreview">${p.icon ? (p.icon.startsWith("data:image/") ? `<img class="pg-img" src="${esc(p.icon)}" alt="">` : esc(p.icon)) : ic("folder-simple", 16)}</span><input id="psIcon" value="${esc(p.icon?.startsWith("data:image/") ? "" : (p.icon ?? ""))}" maxlength="4" placeholder="emoji or 1–2 letters · ${navigator.platform.startsWith("Mac") ? "⌃⌘Space" : "Win+."} opens the OS emoji picker" spellcheck="false" autocomplete="off"><label class="btn" title="PNG / JPEG / SVG / WebP — downsized to 64px and stored with the project">${ic("file-text", 13)} Image…<input type="file" id="psFile" accept="image/*" hidden></label></div></label>
+      <input type="hidden" id="psImage" value="${esc(p.icon?.startsWith("data:image/") ? p.icon : "")}">
+      <div class="emoji-row">${PROJECT_EMOJI.map((e) => `<span class="emoji ${p.icon === e ? "on" : ""}" data-emoji="${e}">${e}</span>`).join("")}<span class="emoji ${!p.icon ? "on" : ""}" data-emoji="" title="No icon">${ic("folder-simple", 14)}</span><span class="emoji more-emoji" id="psAllEmoji" title="Browse every emoji">…</span></div>
+      <div class="emoji-all" id="psEmojiAll" hidden></div>
+      <label>color</label>
+      <div class="swatches">${slots.map((c) => `<span class="swatch ${c ? `pg-${c}` : "none"} ${(p.color ?? "") === c ? "on" : ""}" data-color="${c}" title="${c || "none"}"></span>`).join("")}</div>
+      <label class="chk"><input type="checkbox" id="psPinned" ${p.discovered ? "" : "checked"}> pinned — always in the sidebar, drag to reorder</label>
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="pkCancel">Cancel</button><button class="primary" id="psSave" data-pid="${esc(p.id)}">Save</button></div>
+  </div>`;
+  $("#psName").focus();
+}
+/** Downsize an image file to a square 64px PNG data URL (center-cropped). */
+function fileToIconDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      // square: center-crop the shorter side (cover), never letterbox
+      const S = 64, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+      const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+      cv.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, S, S);
+      URL.revokeObjectURL(url);
+      resolve(cv.toDataURL("image/png"));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("not an image the browser can decode")); };
+    img.src = url;
+  });
+}
+function setIconPreview(icon) {
+  const el = $("#psPreview");
+  if (!el) return;
+  el.innerHTML = icon ? (icon.startsWith("data:image/") ? `<img class="pg-img" src="${esc(icon)}" alt="">` : esc(icon)) : ic("folder-simple", 16);
+}
+async function saveProjectSettings(pid) {
+  const body = {
+    name: $("#psName").value.trim() || undefined,
+    icon: $("#psImage").value || $("#psIcon").value.trim(),
+    color: $(".swatch.on")?.dataset.color ?? "",
+    pinned: $("#psPinned").checked,
+  };
+  const r = await fetch(`/v1/projects/${encodeURIComponent(pid)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) return alert((await r.json()).error ?? "could not save");
+  closePicker();
+  state.dirty = true;
+  refresh();
 }
 
 // ---------- dispatch drawer (M7.5)
