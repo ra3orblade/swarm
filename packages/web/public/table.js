@@ -114,7 +114,7 @@
         const attrs = rowAttrs ? rowAttrs(r) : "";
         const lc = leading ? `<td>${leading.cell(r)}</td>` : "";
         const tc = trailing ? `<td class="td-tools">${trailing.cell(r)}</td>` : "";
-        return `<tr ${attrs}>${lc}${visible.map((c) => `<td ${c.num ? 'class="num"' : ""}>${c.cell(r)}</td>`).join("")}${tc}</tr>`;
+        return `<tr ${attrs}>${lc}${visible.map((c) => `<td ${c.num || c.cls ? `class="${[c.num ? "num" : "", c.cls ?? ""].filter(Boolean).join(" ")}"` : ""}>${c.cell(r)}</td>`).join("")}${tc}</tr>`;
       })
       .join("");
 

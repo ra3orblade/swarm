@@ -38,6 +38,18 @@ REFUSED: login-form is held by alice until 2026-08-22T14:05:00.000Z. Pick anothe
 
 Re-claiming a task you already hold is allowed and is treated as a renew. An expired claim never blocks a new one.
 
+### Warm worktrees
+
+A fresh `git worktree add` has no `node_modules` and none of the untracked files your app needs (`.env.local`, …). Tell the repo's `.swarm.toml` what a new worktree needs and every claim — `swarm claim`, `swarm_claim`, `swarm run`, Run from the Board — does it for you:
+
+```toml
+[worktree]
+copy  = [".env.local", "config/dev.json"]   # copied from the main checkout (missing ones skipped)
+setup = "bun install"                         # run inside the new worktree
+```
+
+Files are copied before the claim returns; `setup` runs in the background so an interactive claim is instant — `swarm claim` prints the log path (`~/.swarm/logs/<project>/bootstrap-<task>.log`) and `swarm run` waits for it to finish before starting the agent. A `worktree.bootstrapped` event lands on the Timeline either way; a non-zero exit also opens a `bootstrap_failed` incident, but the claim is held regardless — the worktree is yours, it's just cold. Paths are repo-relative only (nothing above the repo root is ever copied); `setup` sees `SWARM_WORKTREE` and `SWARM_TASK` in its environment.
+
 ## Leases
 
 Leases exist so an abandoned claim eventually frees the task. Renew while you are still working:

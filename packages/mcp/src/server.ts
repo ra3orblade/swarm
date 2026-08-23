@@ -259,17 +259,20 @@ export function buildServer(): McpServer {
     },
     async ({ task, owner }) => {
       const pid = await projectId();
-      const r = await api<{ ok: boolean; worktree?: string; branch?: string; error?: string }>(
-        "/v1/claims",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER }),
-        },
-      );
+      const r = await api<{
+        ok: boolean;
+        worktree?: string;
+        branch?: string;
+        bootstrap?: string | null;
+        error?: string;
+      }>("/v1/claims", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER }),
+      });
       if (!r.ok) return fail(`REFUSED: ${r.error}`);
       return ok(
-        `claimed ${task} — work in ${r.worktree} (branch ${r.branch}). cd there before editing.`,
+        `claimed ${task} — work in ${r.worktree} (branch ${r.branch}). cd there before editing.${r.bootstrap ? ` Worktree setup is running in the background (log: ${r.bootstrap}); wait for it before installing or running tests.` : ""}`,
         r,
       );
     },

@@ -37,6 +37,12 @@ claim_required_to_write = "off"
 [rules.protected]
 # Ports agents must not kill or free. Empty by default.
 ports = []
+
+[worktree]
+# Make new worktrees start warm: untracked files to copy from the main checkout,
+# and one setup command to run inside the worktree. Both off by default.
+# copy  = [".env.local"]
+# setup = "bun install"
 ```
 
 A typical repo config, stricter than the defaults:

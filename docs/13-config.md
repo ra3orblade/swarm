@@ -52,6 +52,15 @@ ports = []                # e.g. [3000, 5432, 7777]
 # labels = ["swarm"]     # GitHub only: issues carrying every listed label
 # source = "linear"      # Linear GraphQL with LINEAR_API_KEY from the daemon's environment (never stored)
 # team = "ENG"           # Linear only: team key; all teams when unset
+
+[worktree]
+# Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).
+# `copy`: untracked files copied from the main checkout before setup — repo-relative only,
+# a missing source is skipped. `setup`: one shell command run inside the worktree, in the
+# background, output in ~/.swarm/logs/<project>/bootstrap-<task>.log; a non-zero exit opens a
+# `bootstrap_failed` incident but the claim stays held. `swarm run` waits for it before spawning.
+# copy  = [".env.local"]
+# setup = "bun install"
 ```
 
 ## How rules are enforced

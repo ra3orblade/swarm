@@ -2,6 +2,14 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Added
+- **Warm worktrees** — `.swarm.toml [worktree] copy = [".env.local"]` and `setup = "bun install"` bootstrap every new worktree: the files are copied from the main checkout as the claim is made and `setup` runs inside the worktree in the background (log in `~/.swarm/logs/<project>/bootstrap-<task>.log`, a `worktree.bootstrapped` event on the Timeline). `swarm run` waits for it before starting the agent; an interactive `swarm claim` prints the log path and returns at once. A failing setup opens a `bootstrap_failed` incident but never takes the claim away. Paths are repo-relative only (M7.1).
+
+### Fixed
+- The Fleet agent badge no longer renders a stray "…" after the pill: badge-only cells clip instead of ellipsizing, and the column got a few more pixels.
+
 ## [0.6.0] — 2026-08-23
 
 The learn release: the data Swarm has been collecting starts paying back. Replay what an agent did, see what each task cost, turn an incident into a rule, resume a session that died, try a rule on history before switching it on, read your backlog from GitHub or Linear, and search everything Swarm remembers.

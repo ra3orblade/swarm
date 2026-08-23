@@ -53,12 +53,22 @@ export interface SwarmConfig {
     /** Gates every task must pass before it counts as done, e.g. ["review", "tests"]. */
     required: string[];
   };
+  worktree: {
+    /** Shell command run inside every new worktree right after `git worktree add`
+     *  (e.g. `"bun install"`); null = nothing. Runs in the background; a non-zero exit opens an
+     *  incident but the claim stays held. */
+    setup: string | null;
+    /** Untracked files copied from the main checkout into the new worktree before `setup`
+     *  (e.g. [".env.local"]); repo-relative, missing sources are skipped. */
+    copy: string[];
+  };
 }
 
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [] },
+  worktree: { setup: null, copy: [] },
   rules: {
     shared_tree: "ask",
     destructive_git: "ask",
@@ -93,12 +103,21 @@ function parseToml(text: string, source: string): Record<string, unknown> {
   }
 }
 
+/** A non-empty relative path that stays inside the repo (no absolute, no `..` segment). */
+export function isRepoRelative(f: unknown): f is string {
+  if (typeof f !== "string") return false;
+  const t = f.trim();
+  if (!t || t.startsWith("/") || t.startsWith("\\") || /^[a-zA-Z]:/.test(t)) return false;
+  return !t.split(/[/\\]/).some((seg) => seg === "..");
+}
+
 /** Clamp known fields to valid values; never throw. */
 function validate(c: SwarmConfig): SwarmConfig {
   const mode = (v: unknown, fallback: RuleMode): RuleMode =>
     MODES.includes(v as RuleMode) ? (v as RuleMode) : fallback;
   const port = Number(c.daemon?.port);
   const source = c.tasks?.source;
+  const setup = c.worktree?.setup;
   return {
     ...c,
     daemon: { port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777 },
@@ -111,6 +130,12 @@ function validate(c: SwarmConfig): SwarmConfig {
         ? c.tasks.labels.filter((l): l is string => typeof l === "string" && l.trim() !== "")
         : [],
       team: typeof c.tasks?.team === "string" && c.tasks.team.trim() ? c.tasks.team.trim() : null,
+    },
+    worktree: {
+      setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,
+      copy: Array.isArray(c.worktree?.copy)
+        ? c.worktree.copy.filter((f): f is string => isRepoRelative(f))
+        : [],
     },
     rules: {
       ...c.rules,

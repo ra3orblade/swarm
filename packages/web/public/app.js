@@ -288,7 +288,7 @@ projectsEl.addEventListener("dragend", () => {
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
 const FLEET_COLS = [
   { key: "project", label: "project", width: 104, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
-  { key: "agent", label: "agent", width: 76, get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
+  { key: "agent", label: "agent", width: 84, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
   { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}` },
   { key: "branch", label: "branch", width: 134, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\n")[0] : s.last) : s.last)}</span>` },
@@ -1504,7 +1504,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");
