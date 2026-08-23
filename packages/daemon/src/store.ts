@@ -58,6 +58,7 @@ import {
   loadConfig,
   type MemoryDoc,
   type MemoryKind,
+  needsBootstrap,
   nextExpiry,
   normalizeHook,
   PRICES,
@@ -70,6 +71,7 @@ import {
   parseMemoryQuery,
   parseTranscriptChunk,
   pickPort,
+  planBootstrap,
   projectIdentity,
   type Resource,
   type RulesConfig,
@@ -79,6 +81,7 @@ import {
   sessionDoc,
   shouldAutoRenew,
   suggestFromIncident,
+  summarizeBootstrap,
   type Task,
   type TaskView,
   type TrackedProcess,
@@ -89,6 +92,7 @@ import {
   validateHandoff,
   WRITE_TOOLS,
 } from "@swarm/core";
+import { runBootstrap } from "./bootstrap";
 import {
   currentBranch,
   gitCommonDir,
@@ -1460,6 +1464,7 @@ export class Store {
     "claim.renewed",
     "claim.released",
     "claim.orphaned",
+    "worktree.bootstrapped",
     "gate.recorded",
     "handoff.recorded",
     "incident.opened",
@@ -1931,7 +1936,62 @@ export class Store {
       sessionId: null,
       payload: { task, owner, worktree: created, branch, summary: `claim ${task} by ${owner}` },
     });
-    return { ok: true as const, task, owner, worktree: created, branch, expiresAt };
+    const bootstrap = this.bootstrapWorktree(projectId, task, p.root, created);
+    return { ok: true as const, task, owner, worktree: created, branch, expiresAt, bootstrap };
+  }
+
+  /**
+   * M7.1: `.swarm.toml [worktree]` — copy untracked files and run `setup` in the new worktree.
+   * Copies happen now; `setup` runs in the background (`~/.swarm/logs/<project>/bootstrap-*.log`).
+   * The claim is held regardless; a non-zero exit opens a `bootstrap_failed` incident. Returns
+   * `null` when nothing is configured, else the log path — `awaitBootstrap(worktree)` waits.
+   */
+  private bootstraps = new Map<string, Promise<unknown>>();
+  private bootstrapWorktree(projectId: string, task: string, repoRoot: string, worktree: string) {
+    const plan = planBootstrap(loadConfig({ repoRoot, home: this.home }), repoRoot, worktree);
+    if (!needsBootstrap(plan)) return null;
+    const job = runBootstrap(plan, { worktree, home: this.home, projectId, task });
+    const done = job.done.then((o) => {
+      this.bootstraps.delete(worktree);
+      const ts = new Date().toISOString();
+      const ok = !o.setup || o.setup.exitCode === 0;
+      this.append({
+        ts,
+        type: "worktree.bootstrapped",
+        projectId,
+        sessionId: null,
+        payload: {
+          task,
+          worktree,
+          ok,
+          log: job.log,
+          ...o,
+          summary: `bootstrap ${task}: ${summarizeBootstrap(o)}`,
+        },
+      });
+      if (!ok)
+        this.append({
+          ts,
+          type: "incident.opened",
+          projectId,
+          sessionId: null,
+          payload: {
+            rule: "bootstrap_failed",
+            action: "failed",
+            command: o.setup?.command ?? "",
+            reason: `worktree setup for ${task} exited ${o.setup?.exitCode} — see ${job.log}`,
+          },
+        });
+      this.touch();
+      return o;
+    });
+    this.bootstraps.set(worktree, done);
+    return job.log;
+  }
+
+  /** Resolve once any in-flight bootstrap for `worktree` has finished (immediately when none). */
+  awaitBootstrap(worktree: string): Promise<unknown> {
+    return this.bootstraps.get(worktree) ?? Promise.resolve();
   }
 
   /**

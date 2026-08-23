@@ -189,10 +189,14 @@ try {
         ok: boolean;
         worktree?: string;
         branch?: string;
+        bootstrap?: string | null;
         error?: string;
       };
       if (json) console.log(JSON.stringify(r));
-      else if (r.ok) console.log(`claimed ${task} → ${r.worktree}\n  cd ${r.worktree}`);
+      else if (r.ok)
+        console.log(
+          `claimed ${task} → ${r.worktree}\n  cd ${r.worktree}${r.bootstrap ? `\n  bootstrapping in the background (setup log: ${r.bootstrap})` : ""}`,
+        );
       else {
         console.error(`REFUSED: ${r.error}`);
         process.exit(1);

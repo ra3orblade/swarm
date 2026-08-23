@@ -118,6 +118,8 @@ export class Runner {
       if (!c.ok) return { ok: false, reason: c.error };
       worktree = c.worktree;
     }
+    // M7.1: a fresh worktree may still be installing — don't start the agent on a cold tree.
+    await this.store.awaitBootstrap(worktree);
 
     const sessionId = crypto.randomUUID();
     const id = sessionId.slice(0, 8);

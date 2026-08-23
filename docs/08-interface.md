@@ -184,7 +184,7 @@ swarm ui                           open the dashboard
 swarm tail [--project p] [--session id]   follow the live event stream
 swarm install | uninstall          add/remove Swarm hooks (and the MCP server) in ~/.claude/settings.json
 
-swarm claim <task> [--owner n]     claim a task in a fresh isolated git worktree (fail-closed)
+swarm claim <task> [--owner n]     claim a task in a fresh isolated git worktree (fail-closed); runs `[worktree]` copy/setup (M7.1)
 swarm renew <task>                 extend the lease
 swarm release <task> [--force]     release + remove worktree; refuses if dirty or unpushed
 swarm claims                       list claims
