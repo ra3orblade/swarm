@@ -61,6 +61,9 @@ export interface SwarmConfig {
     /** Untracked files copied from the main checkout into the new worktree before `setup`
      *  (e.g. [".env.local"]); repo-relative, missing sources are skipped. */
     copy: string[];
+    /** Command that opens a worktree from the dashboard / `swarm wt open`, `{path}` substituted
+     *  (e.g. `"code {path}"`); null = the platform opener (`open` / `xdg-open`). */
+    open: string | null;
   };
 }
 
@@ -68,7 +71,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [] },
-  worktree: { setup: null, copy: [] },
+  worktree: { setup: null, copy: [], open: null },
   rules: {
     shared_tree: "ask",
     destructive_git: "ask",
@@ -118,6 +121,7 @@ function validate(c: SwarmConfig): SwarmConfig {
   const port = Number(c.daemon?.port);
   const source = c.tasks?.source;
   const setup = c.worktree?.setup;
+  const opener = c.worktree?.open;
   return {
     ...c,
     daemon: { port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777 },
@@ -136,6 +140,7 @@ function validate(c: SwarmConfig): SwarmConfig {
       copy: Array.isArray(c.worktree?.copy)
         ? c.worktree.copy.filter((f): f is string => isRepoRelative(f))
         : [],
+      open: typeof opener === "string" && opener.trim() ? opener.trim() : null,
     },
     rules: {
       ...c.rules,

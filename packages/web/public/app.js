@@ -661,15 +661,25 @@ function renderWorktrees() {
     { key: "head", label: "head", width: 90, get: (w) => w.head, cell: (w) => `<span class="br">${esc(w.head)}</span>` },
     { key: "path", label: "path", flex: true, get: (w) => w.path, cell: (w) => `<span class="now" title="${esc(w.path)}">${esc(short(w.path))}</span>` },
     { key: "state", label: "state", width: 170, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? '<span class="badge">Clean</span>' : ""}` },
+    { key: "drift", label: "drift", width: 120, get: (w) => (w.main ? -1 : w.behind), cell: (w) => (w.main ? "" : w.merged ? '<span class="badge" title="This branch is already in the main checkout\'s branch">Merged</span>' : w.behind > 0 ? `<span class="badge warn" title="Commits on the main checkout\'s branch this worktree lacks">${w.behind} behind</span>` : w.behind === 0 ? '<span class="badge">Up to date</span>' : '<span class="dim">—</span>') },
     { key: "sessions", label: "sessions", width: 160, get: (w) => inside(w).length, cell: (w) => inside(w).map((x) => `<a href="#" data-s="${x.id}">${esc(x.title ?? x.id.slice(0, 8))}</a>`).join(", ") || '<span class="dim">—</span>' },
   ].filter((c) => !(c.key === "project" && state.sel));
-  return `<h2 class="mt-sec">Worktrees <span>${rows.length}</span></h2>` +
+  const heldBy = new Map(state.claims ? state.claims.filter((c) => c.state === "held").map((c) => [c.worktree, c.task]) : []);
+  const actions = (w) => {
+    const key = `${w.projectId}:${w.path}`;
+    const open = `<a href="#" data-wtopen="${esc(key)}" title="Open this worktree (editor / file manager; [worktree] open in .swarm.toml)">${ic("arrow-square-out", 12)} Open</a>`;
+    if (w.main || heldBy.has(w.path)) return open;
+    return `${open} · <a href="#" data-wtrm="${esc(key)}" title="${w.dirty > 0 || w.ahead > 0 ? "Refuses while dirty / unpushed (you can force)" : "git worktree remove"}">${ic("trash", 12)} Remove</a>`;
+  };
+  const gcBtn = state.sel ? ` <a href="#" class="nav" id="wtgc" title="Find worktrees whose branch is merged or whose claim is gone">${ic("trash", 12)} Collect stale</a>` : "";
+  const newBtn = state.sel ? ` <a href="#" class="nav" id="wtnew" title="Create a task-less worktree (spike, review checkout)">${ic("plus", 12)} New worktree</a>` : "";
+  return `<h2 class="mt-sec hrow">Worktrees <span>${rows.length}</span>${newBtn}${gcBtn}</h2>` +
     dataTable({
       id: "worktrees",
       columns: cols,
       rows,
       leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
-      trailing: { width: 34, cell: () => "" },
+      trailing: { width: 150, cell: actions },
       rerender: touch,
     });
 }
@@ -1289,7 +1299,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],#wtnew,#wtgc");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1307,6 +1317,47 @@ document.addEventListener("click", async (ev) => {
     ev.preventDefault();
     const r = await fetch("/v1/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task: t.dataset.claim, owner: "dashboard" }) }).then((x) => x.json());
     if (!r.ok) alert(r.error); else state.tasks = null;
+    return refresh();
+  }
+  if (t.dataset.wtopen) {
+    ev.preventDefault();
+    const i = t.dataset.wtopen.indexOf(":");
+    const r = await fetch("/v1/worktrees/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: t.dataset.wtopen.slice(0, i), worktree: t.dataset.wtopen.slice(i + 1) }) }).then((x) => x.json());
+    if (!r.ok) alert(r.error);
+    return;
+  }
+  if (t.dataset.wtrm) {
+    ev.preventDefault();
+    const i = t.dataset.wtrm.indexOf(":");
+    const projectId = t.dataset.wtrm.slice(0, i), worktree = t.dataset.wtrm.slice(i + 1);
+    const rm = (force) => fetch("/v1/worktrees/remove", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, worktree, force }) }).then((x) => x.json());
+    if (!confirm(`Remove worktree ${short(worktree)}?`)) return;
+    const r = await rm(false);
+    if (!r.ok && (r.refused === "dirty" || r.refused === "unpushed")) {
+      if (confirm(`${r.error}\n\nRemove anyway (discards the work)?`)) await rm(true);
+    } else if (!r.ok) alert(r.error);
+    state.worktrees[projectId] = null;
+    return refresh();
+  }
+  if (t.id === "wtnew") {
+    ev.preventDefault();
+    const name = prompt("Worktree name (folder under ~/.swarm/worktrees/<project>/; branch wt/<name>):");
+    if (!name) return;
+    const r = await fetch("/v1/worktrees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, name }) }).then((x) => x.json());
+    if (!r.ok) alert(r.error);
+    state.worktrees[state.sel] = null;
+    return refresh();
+  }
+  if (t.id === "wtgc") {
+    ev.preventDefault();
+    const r = await fetch("/v1/worktrees/gc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel }) }).then((x) => x.json());
+    if (!r.candidates.length) return alert("Nothing to collect — no merged branches or released claims with a worktree left behind.");
+    const lines = r.candidates.map((c) => `${c.removable ? "•" : "✗"} ${c.branch ?? "(detached)"} — ${c.why}${c.blocker ? ` (blocked: ${c.blocker})` : ""}`).join("\n");
+    const n = r.candidates.filter((c) => c.removable).length;
+    if (!n) return alert(`Stale worktrees, none removable without force:\n\n${lines}`);
+    if (!confirm(`Stale worktrees:\n\n${lines}\n\nRemove the ${n} removable one${n === 1 ? "" : "s"}?`)) return;
+    await fetch("/v1/worktrees/gc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, apply: true }) });
+    state.worktrees[state.sel] = null;
     return refresh();
   }
   if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }
@@ -1504,7 +1555,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

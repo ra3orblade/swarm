@@ -59,3 +59,85 @@ export function summarizeBootstrap(o: BootstrapOutcome): string {
     );
   return parts.join("; ") || "nothing to do";
 }
+
+// ---------- first-class worktrees (M7.2): remove + gc decisions, pure
+
+export interface WorktreeFacts {
+  path: string;
+  branch: string | null;
+  main: boolean;
+  dirty: number; // -1 unknown
+  ahead: number; // -1 no upstream/unknown
+  /** Commits the base branch has that this worktree lacks; -1 unknown. */
+  behind: number;
+  /** Branch already merged into the base branch. */
+  merged: boolean;
+}
+
+export type RemoveRefusal = "main" | "held" | "dirty" | "unpushed";
+
+/**
+ * May this worktree be removed? The main checkout never; one held by a live claim only through
+ * `release`; dirty / unpushed only with `force`. Mirrors `canRelease` for task-less worktrees.
+ */
+export function canRemoveWorktree(
+  w: Pick<WorktreeFacts, "main" | "dirty" | "ahead">,
+  heldByClaim: string | null,
+  force: boolean,
+): { ok: true } | { ok: false; reason: RemoveRefusal } {
+  if (w.main) return { ok: false, reason: "main" };
+  if (heldByClaim) return { ok: false, reason: "held" };
+  if (force) return { ok: true };
+  if (w.dirty > 0) return { ok: false, reason: "dirty" };
+  if (w.ahead > 0) return { ok: false, reason: "unpushed" };
+  return { ok: true };
+}
+
+export function removeRefusalMessage(reason: RemoveRefusal, path: string, task?: string | null) {
+  switch (reason) {
+    case "main":
+      return `${path} is the main checkout — it is never removed`;
+    case "held":
+      return `${path} is held by claim ${task ?? "?"} — release the claim instead`;
+    case "dirty":
+      return `${path} has uncommitted changes — commit or stash them, or --force to discard`;
+    case "unpushed":
+      return `${path} has unpushed commits — push them, or --force to discard`;
+  }
+}
+
+export interface GcCandidate {
+  path: string;
+  branch: string | null;
+  why: "merged" | "released-claim";
+  removable: boolean;
+  blocker: RemoveRefusal | null;
+}
+
+/**
+ * Worktrees that have outlived their purpose: branch merged into base, or the claim that created
+ * them was released/expired without the directory going away. Never the main checkout, never one
+ * a live claim holds. `removable` says whether a plain (non-force) remove would succeed.
+ */
+export function planGc(
+  worktrees: WorktreeFacts[],
+  claims: Array<{ worktree: string; task: string; state: string }>,
+): GcCandidate[] {
+  const held = new Map(claims.filter((c) => c.state === "held").map((c) => [c.worktree, c.task]));
+  const stale = new Set(claims.filter((c) => c.state !== "held").map((c) => c.worktree));
+  const out: GcCandidate[] = [];
+  for (const w of worktrees) {
+    if (w.main || held.has(w.path)) continue;
+    const why = w.merged ? "merged" : stale.has(w.path) ? "released-claim" : null;
+    if (!why) continue;
+    const can = canRemoveWorktree(w, null, false);
+    out.push({
+      path: w.path,
+      branch: w.branch,
+      why,
+      removable: can.ok,
+      blocker: can.ok ? null : can.reason,
+    });
+  }
+  return out;
+}

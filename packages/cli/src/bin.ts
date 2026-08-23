@@ -27,6 +27,7 @@ const help = `swarm — control plane for AI-agent development
   tail [--project p] [--session id]   follow the live event stream
 
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
+  wt [ls|create|open|rm|gc]  first-class worktrees: create task-less ones, open, remove, collect stale
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
@@ -225,6 +226,132 @@ try {
       else {
         console.error(`REFUSED: ${r.error}`);
         process.exit(1);
+      }
+      break;
+    }
+    case "wt": {
+      await ensureDaemon({ quiet: true });
+      const sub = arg();
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const post = (path: string, body: Record<string, unknown>) =>
+        fetch(`${new SwarmClient().baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: proj.id, ...body }),
+        }).then((x) => x.json() as Promise<Record<string, unknown>>);
+      const refuse = (r: Record<string, unknown>) => {
+        if (json) console.log(JSON.stringify(r));
+        else if (!r.ok) {
+          console.error(`REFUSED: ${r.error}`);
+          process.exit(1);
+        }
+        return !r.ok;
+      };
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const VALUE_FLAGS = ["--base", "--branch"];
+      const positional = rest.filter(
+        (a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(rest[i - 1] ?? ""),
+      );
+      const target = positional[1];
+      switch (sub) {
+        case "create": {
+          if (!target)
+            throw new Error("usage: swarm wt create <name> [--base ref] [--branch name]");
+          const r = await post("/v1/worktrees", {
+            name: target,
+            baseRef: flag("--base"),
+            branch: flag("--branch"),
+          });
+          if (refuse(r) || json) break;
+          console.log(
+            `created ${r.name} → ${r.worktree} (branch ${r.branch})\n  cd ${r.worktree}${r.bootstrap ? `\n  bootstrapping in the background (setup log: ${r.bootstrap})` : ""}`,
+          );
+          break;
+        }
+        case "ls":
+        case undefined: {
+          const wts = (await api(`/v1/worktrees?project=${proj.id}`)) as Array<{
+            path: string;
+            branch: string | null;
+            head: string;
+            main: boolean;
+            dirty: number;
+            ahead: number;
+            behind: number;
+            merged: boolean;
+          }>;
+          if (json) console.log(JSON.stringify(wts));
+          else {
+            for (const w of wts) {
+              const st = w.main
+                ? "main"
+                : [
+                    w.dirty > 0 ? `${w.dirty} dirty` : "",
+                    w.ahead > 0 ? `${w.ahead} unpushed` : "",
+                    w.behind > 0 ? `${w.behind} behind` : "",
+                    w.merged ? "merged" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "clean";
+              console.log(
+                `${(w.branch ?? "(detached)").padEnd(32)} ${w.head}  ${st.padEnd(24)} ${w.path}`,
+              );
+            }
+            if (!wts.length) console.log("no worktrees");
+          }
+          break;
+        }
+        case "open": {
+          if (!target) throw new Error("usage: swarm wt open <name|path>");
+          const r = await post("/v1/worktrees/open", { worktree: target });
+          if (refuse(r) || json) break;
+          console.log(`opened ${r.worktree}`);
+          break;
+        }
+        case "rm": {
+          if (!target) throw new Error("usage: swarm wt rm <name|path> [--force]");
+          const r = await post("/v1/worktrees/remove", {
+            worktree: target,
+            force: rest.includes("--force"),
+          });
+          if (refuse(r) || json) break;
+          console.log(`removed ${r.worktree}`);
+          break;
+        }
+        case "gc": {
+          const r = (await post("/v1/worktrees/gc", { apply: rest.includes("--apply") })) as {
+            candidates: Array<{
+              path: string;
+              branch: string | null;
+              why: string;
+              removable: boolean;
+              blocker: string | null;
+            }>;
+            removed: string[];
+          };
+          if (json) console.log(JSON.stringify(r));
+          else if (!r.candidates.length) console.log("nothing to collect");
+          else {
+            for (const x of r.candidates)
+              console.log(
+                `${r.removed.includes(x.path) ? "removed " : x.removable ? "removable" : `blocked (${x.blocker})`}  ${x.why.padEnd(15)} ${x.branch ?? "(detached)"}  ${x.path}`,
+              );
+            if (!rest.includes("--apply") && r.candidates.some((x) => x.removable))
+              console.log("\nrun `swarm wt gc --apply` to remove the removable ones");
+          }
+          break;
+        }
+        default:
+          throw new Error(
+            "usage: swarm wt [ls] | create <name> | open <ref> | rm <ref> [--force] | gc [--apply]",
+          );
       }
       break;
     }

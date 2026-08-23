@@ -39,7 +39,7 @@ describe("worktree bootstrap (M7.1)", () => {
       .query("SELECT payload FROM events WHERE type = 'worktree.bootstrapped'")
       .all() as { payload: string }[];
     expect(ev.length).toBe(1);
-    const payload = JSON.parse(ev[0]!.payload);
+    const payload = JSON.parse(ev[0]?.payload ?? "{}");
     expect(payload.ok).toBe(true);
     expect(payload.copied).toEqual([".env.local"]);
     expect(payload.skipped).toEqual(["missing.txt"]);

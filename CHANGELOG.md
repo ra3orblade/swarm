@@ -5,6 +5,7 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- **Worktrees without a task** — `swarm wt create <name>` makes a worktree for a spike or a review checkout (under `~/.swarm/worktrees/<project>/`, branch `wt/<name>`, bootstrapped like a claim); `swarm wt` lists every worktree with **drift** against the main checkout's branch (*N behind*, *merged*); `swarm wt open` opens it with `[worktree] open = "code {path}"` or the file manager; `swarm wt rm` removes it with the same refusals as `release` (dirty, unpushed, never the main checkout, never a held claim); `swarm wt gc [--apply]` finds worktrees whose branch was merged or whose claim was released and the folder left behind. The Board's Worktrees section gets the drift column, **Open** / **Remove** per row, **New worktree** and **Collect stale** (M7.2).
 - **Warm worktrees** — `.swarm.toml [worktree] copy = [".env.local"]` and `setup = "bun install"` bootstrap every new worktree: the files are copied from the main checkout as the claim is made and `setup` runs inside the worktree in the background (log in `~/.swarm/logs/<project>/bootstrap-<task>.log`, a `worktree.bootstrapped` event on the Timeline). `swarm run` waits for it before starting the agent; an interactive `swarm claim` prints the log path and returns at once. A failing setup opens a `bootstrap_failed` incident but never takes the claim away. Paths are repo-relative only (M7.1).
 
 ### Fixed

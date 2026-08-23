@@ -3,9 +3,16 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRepoRelative, loadConfig } from "./config";
-import { needsBootstrap, planBootstrap, summarizeBootstrap } from "./worktree";
+import {
+  canRemoveWorktree,
+  needsBootstrap,
+  planBootstrap,
+  planGc,
+  removeRefusalMessage,
+  summarizeBootstrap,
+} from "./worktree";
 
-const cfg = (setup: string | null, copy: string[]) => ({ worktree: { setup, copy } });
+const cfg = (setup: string | null, copy: string[]) => ({ worktree: { setup, copy, open: null } });
 
 describe("planBootstrap", () => {
   test("nothing configured → empty plan", () => {
@@ -60,8 +67,8 @@ describe("config [worktree]", () => {
       `[worktree]\nsetup = "  bun install  "\ncopy = [".env.local", "../nope", 7]\n`,
     );
     const c = loadConfig({ home: dir, repoRoot: dir });
-    expect(c.worktree).toEqual({ setup: "bun install", copy: [".env.local"] });
-    expect(loadConfig({ home: dir }).worktree).toEqual({ setup: null, copy: [] });
+    expect(c.worktree).toEqual({ setup: "bun install", copy: [".env.local"], open: null });
+    expect(loadConfig({ home: dir }).worktree).toEqual({ setup: null, copy: [], open: null });
   });
 });
 
@@ -75,5 +82,71 @@ describe("summarizeBootstrap", () => {
         setup: { command: "bun install", exitCode: 1, durationMs: 2500 },
       }),
     ).toBe("copied .env.local; skipped x (missing); bun install → exit 1 in 2.5s");
+  });
+});
+
+describe("canRemoveWorktree", () => {
+  const w = (o: Partial<{ main: boolean; dirty: number; ahead: number }> = {}) => ({
+    main: false,
+    dirty: 0,
+    ahead: 0,
+    ...o,
+  });
+  test("main never, held never (even forced)", () => {
+    expect(canRemoveWorktree(w({ main: true }), null, true)).toEqual({ ok: false, reason: "main" });
+    expect(canRemoveWorktree(w(), "auth", true)).toEqual({ ok: false, reason: "held" });
+  });
+  test("dirty / unpushed refuse unless forced; unknown (-1) passes", () => {
+    expect(canRemoveWorktree(w({ dirty: 2 }), null, false)).toEqual({ ok: false, reason: "dirty" });
+    expect(canRemoveWorktree(w({ ahead: 1 }), null, false)).toEqual({
+      ok: false,
+      reason: "unpushed",
+    });
+    expect(canRemoveWorktree(w({ dirty: 2, ahead: 1 }), null, true)).toEqual({ ok: true });
+    expect(canRemoveWorktree(w({ dirty: -1, ahead: -1 }), null, false)).toEqual({ ok: true });
+  });
+  test("messages name the path", () => {
+    expect(removeRefusalMessage("held", "/wt", "auth")).toContain("claim auth");
+    expect(removeRefusalMessage("dirty", "/wt")).toMatch(/^\/wt has uncommitted/);
+  });
+});
+
+describe("planGc", () => {
+  const wt = (path: string, o: Partial<import("./worktree").WorktreeFacts> = {}) => ({
+    path,
+    branch: `b/${path}`,
+    main: false,
+    dirty: 0,
+    ahead: 0,
+    behind: 0,
+    merged: false,
+    ...o,
+  });
+  test("merged or released-claim worktrees are candidates; main and held never", () => {
+    const out = planGc(
+      [
+        wt("/main", { main: true, merged: true }),
+        wt("/held", { merged: true }),
+        wt("/merged"),
+        wt("/merged-dirty", { merged: true, dirty: 3 }),
+        wt("/stale"),
+        wt("/live"),
+      ].map((w) => (w.path === "/merged" ? { ...w, merged: true } : w)),
+      [
+        { worktree: "/held", task: "a", state: "held" },
+        { worktree: "/stale", task: "b", state: "released" },
+      ],
+    );
+    expect(out).toEqual([
+      { path: "/merged", branch: "b//merged", why: "merged", removable: true, blocker: null },
+      {
+        path: "/merged-dirty",
+        branch: "b//merged-dirty",
+        why: "merged",
+        removable: false,
+        blocker: "dirty",
+      },
+      { path: "/stale", branch: "b//stale", why: "released-claim", removable: true, blocker: null },
+    ]);
   });
 });
