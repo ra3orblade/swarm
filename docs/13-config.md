@@ -104,6 +104,12 @@ ports = []                # e.g. [3000, 5432, 7777]
 # cmd = "bun test"
 # timeout = 600
 # cwd = "packages"
+# Review as a gate (M7.9): a read-only `claude -p` over the worktree's diff with a fixed rubric
+# decides; findings become the evidence; any blocker/major finding fails; no JSON answer = fail.
+# [gates.review]
+# builtin = "review"
+# model = "sonnet"      # optional
+# timeout = 600         # default for builtins
 
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`

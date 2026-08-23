@@ -47,6 +47,7 @@ import {
   formatOpenQuestions,
   formatResumePrompt,
   fromLiteLLM,
+  type GateDef,
   type GateInput,
   type GateRun,
   type GuardDecision,
@@ -92,6 +93,7 @@ import {
   parseGrokUpdates,
   parseMarkdownTasks,
   parseMemoryQuery,
+  parseReviewVerdict,
   parseTranscriptChunk,
   pickPort,
   planBootstrap,
@@ -107,6 +109,9 @@ import {
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
+  reviewArgs,
+  reviewGateInput,
+  reviewPrompt,
   type SwarmConfig,
   type SwarmEvent,
   sessionDoc,
@@ -125,6 +130,7 @@ import {
   WRITE_TOOLS,
 } from "@swarm/core";
 import { runBootstrap } from "./bootstrap";
+import { findBin } from "./forge";
 import {
   currentBranch,
   gitCommonDir,
@@ -134,6 +140,7 @@ import {
   type Worktree,
   worktreeAdd,
   worktreeDiff,
+  worktreePatch,
   worktreeRemove,
 } from "./git";
 import { TaskSources } from "./task-sources";
@@ -1229,6 +1236,8 @@ export class Store {
     const logDir = join(this.home, "logs", projectId);
     mkdirSync(logDir, { recursive: true });
     const log = join(logDir, `gate-${slug(task)}-${slug(gate)}.log`);
+    if (def.builtin === "review")
+      return this.runReviewGate(projectId, task, gate, def, { worktree, cwd, key, log }, opts);
     writeFileSync(log, `$ ${def.cmd}\n# cwd ${cwd} · ${new Date().toISOString()}\n`);
     const fd = openSync(log, "a");
     let proc: ReturnType<typeof Bun.spawn>;
@@ -1306,6 +1315,159 @@ export class Store {
       });
     this.gateJobs.set(key, done);
     return { ok: true, pid: proc.pid, log, done };
+  }
+
+  /**
+   * M7.9 review gate: a read-only `claude -p` over the worktree's diff (vs the main checkout's
+   * branch) with a fixed rubric; the JSON verdict + findings become the gate run. Same registry,
+   * log and timeout handling as an executed gate; the reviewer never edits (tools restricted).
+   */
+  private runReviewGate(
+    projectId: string,
+    task: string,
+    gate: string,
+    def: GateDef,
+    where: { worktree: string; cwd: string; key: string; log: string },
+    opts: { sessionId?: string | null; owner?: string },
+  ):
+    | { ok: true; pid: number; log: string; done: Promise<GateRun | null> }
+    | { ok: false; reason: string } {
+    const bin = findBin("claude");
+    if (!bin)
+      return { ok: false, reason: "claude CLI not found — the review gate needs Claude Code" };
+    const p = this.project(projectId);
+    if (!p) return { ok: false, reason: "unknown project" };
+    const started = Date.now();
+    const record = (input: GateInput) => {
+      const run = this.recordGate(projectId, { ...input, sessionId: opts.sessionId ?? null });
+      return run.ok ? run.run : null;
+    };
+    const done = (async () => {
+      let diffText = "";
+      let stat = "";
+      try {
+        const diff = await worktreeDiff(p.root, where.worktree);
+        stat = diff.files
+          .map((f) => `${f.status ?? "M"} ${f.path} (+${f.added} -${f.deleted})`)
+          .join("\n");
+        diffText = await worktreePatch(where.worktree, diff.base);
+      } catch (e) {
+        return record(
+          reviewGateInput(task, gate, {
+            kind: "error",
+            reason: `diff failed: ${(e as Error).message}`,
+            durationMs: Date.now() - started,
+          }),
+        );
+      }
+      if (!diffText.trim())
+        return record(
+          reviewGateInput(task, gate, {
+            kind: "verdict",
+            durationMs: Date.now() - started,
+            verdict: { verdict: "pass", summary: "nothing to review — empty diff", findings: [] },
+          }),
+        );
+      const taskRow = this.tasks(projectId)?.tasks.find((t) => t.id === task) ?? null;
+      const w = this.findWorktree(projectId, where.worktree);
+      const prompt = reviewPrompt({
+        task,
+        title: taskRow?.title ?? null,
+        branch: w?.branch ?? null,
+        stat,
+        patch: diffText,
+      });
+      writeFileSync(
+        where.log,
+        `$ claude -p <review prompt, ${prompt.length} chars> --output-format json (read-only)\n# cwd ${where.cwd} · ${new Date().toISOString()}\n`,
+      );
+      let proc: ReturnType<typeof Bun.spawn>;
+      try {
+        proc = Bun.spawn([bin, ...reviewArgs(prompt, { model: def.model })], {
+          cwd: where.cwd,
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: {
+            ...process.env,
+            SWARM_WORKTREE: where.worktree,
+            SWARM_TASK: task,
+            SWARM_GATE: gate,
+            CLAUDE_CODE_DISABLE_AUTOUPDATE: "1",
+          },
+        });
+      } catch (e) {
+        return record(
+          reviewGateInput(task, gate, {
+            kind: "error",
+            reason: (e as Error).message,
+            durationMs: Date.now() - started,
+          }),
+        );
+      }
+      const reg = this.registerProcess({
+        pid: proc.pid,
+        projectId,
+        sessionId: opts.sessionId ?? null,
+        kind: "gate",
+        name: `gate:${task}:${gate}`,
+        cwd: where.cwd,
+        cmd: "claude -p (review)",
+        owner: opts.owner ?? "daemon",
+        log: where.log,
+      });
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          proc.kill("SIGTERM");
+          setTimeout(() => {
+            try {
+              proc.kill("SIGKILL");
+            } catch {}
+          }, 5000).unref();
+        } catch {}
+      }, def.timeout * 1000);
+      const [out, err] = await Promise.all([
+        new Response(proc.stdout as ReadableStream).text(),
+        new Response(proc.stderr as ReadableStream).text(),
+      ]);
+      const code = await proc.exited;
+      clearTimeout(timer);
+      try {
+        writeFileSync(
+          where.log,
+          `${readFileSync(where.log, "utf8")}${out}\n${err}\n# exit ${timedOut ? "timeout" : code} · ${((Date.now() - started) / 1000).toFixed(0)}s\n`,
+        );
+      } catch {}
+      if (reg.ok) this.processes(projectId);
+      const durationMs = Date.now() - started;
+      if (timedOut)
+        return record(
+          reviewGateInput(task, gate, {
+            kind: "error",
+            reason: `timed out after ${def.timeout}s`,
+            durationMs,
+            output: err,
+          }),
+        );
+      const verdict = parseReviewVerdict(out);
+      if (!verdict)
+        return record(
+          reviewGateInput(task, gate, {
+            kind: "error",
+            reason: code === 0 ? "no JSON verdict in the reply" : `claude exited ${code}`,
+            durationMs,
+            output: err || out,
+          }),
+        );
+      return record(reviewGateInput(task, gate, { kind: "verdict", verdict, durationMs }));
+    })().finally(() => {
+      this.gateJobs.delete(where.key);
+      this.touch();
+    });
+    this.gateJobs.set(where.key, done);
+    return { ok: true, pid: 0, log: where.log, done };
   }
 
   /**
