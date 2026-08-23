@@ -228,6 +228,8 @@
   tbody tr:last-child td{border-bottom:0}
   /* edge tool cell: never ellipsize (the browser's "…" showed as a stray dot on every row) */
   tbody td.td-tools{text-overflow:clip;padding-left:0;padding-right:0;text-align:center}
+  /* badge-only cells: the pill has its own margin, so the cell never needs an ellipsis */
+  tbody td.td-badge{text-overflow:clip}tbody td.td-badge .badge{margin-right:0}
   tbody tr{cursor:pointer;transition:background var(--t-fast)}
   tbody tr:hover{background:var(--panel-2)}
   td:first-child{overflow:visible}
