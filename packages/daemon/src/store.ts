@@ -13,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, userInfo } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
@@ -3996,7 +3996,9 @@ export class Store {
 
   snapshot() {
     const worktrees: Record<string, Worktree[]> = {};
-    const projects = this.projects();
+    // Auto-discovered repos under the OS temp dir are test fixtures and scratch clones (spawned
+    // runs' hooks still reach this daemon) — keep their history, keep them off the sidebar.
+    const projects = this.projects().filter((p) => !(p.discovered && isScratchRoot(p.root)));
     for (const p of projects) worktrees[p.id] = this.worktrees(p.id);
     return {
       projects,
@@ -4108,3 +4110,8 @@ function osUser(): string {
   }
 }
 const actorCols = (a: Actor): [string, string] => [a.kind, a.id];
+/** True for roots under the OS temp dir (or /tmp, /private/tmp on macOS). */
+function isScratchRoot(root: string): boolean {
+  const tmp = [tmpdir(), "/tmp", "/private/tmp", "/private/var/folders", "/var/folders"];
+  return tmp.some((t) => root === t || root.startsWith(`${t}/`));
+}
