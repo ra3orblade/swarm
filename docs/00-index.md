@@ -17,5 +17,6 @@ Status: living. Design docs plus the shipped surface; each doc carries its own s
 | 11 | [desktop-signing](11-desktop-signing.md) | Signing, notarization & autoupdate (reusing Apple creds) |
 | 12 | [design-tokens](12-design-tokens.md) | Dashboard design tokens — no raw values in CSS rules |
 | 13 | [config](13-config.md) | Configuration: global + per-repo TOML, rule modes |
+| 14 | [teams](14-teams.md) | M8 design: policy precedence, actor + auth + audit, team daemon forwarding |
 
 Conventions: specs before code; nothing is built from a doc marked `draft` without flagging it. Decisions are marked `> **Decision:**`. Task IDs in the roadmap are immutable.
