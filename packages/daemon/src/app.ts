@@ -254,6 +254,54 @@ export function createApp(store = new Store()) {
     });
     return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
+  // ---- ask the human (M7.7)
+  app.get("/v1/questions", (c) =>
+    c.json(
+      store.questions({
+        projectId: c.req.query("project") || undefined,
+        sessionId: c.req.query("session") || undefined,
+        open: c.req.query("open") === "1",
+      }),
+    ),
+  );
+  app.post("/v1/questions", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      sessionId?: string | null;
+      text?: unknown;
+      options?: unknown;
+      askedBy?: string | null;
+      cwd?: string | null;
+    };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
+    const r = store.ask(b.projectId, {
+      sessionId: b.sessionId ?? null,
+      text: b.text,
+      options: b.options,
+      askedBy: b.askedBy ?? null,
+      cwd: b.cwd ?? null,
+    });
+    return c.json(r, r.ok ? 201 : 400);
+  });
+  app.post("/v1/questions/:id/answer", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { text?: unknown; by?: string | null };
+    const r = store.answer(Number(c.req.param("id")), b.text, b.by ?? null);
+    if (r.ok && r.question.sessionId) {
+      // a spawned run can take it right now over stdin
+      const run = runner.get(r.question.sessionId);
+      if (run && run.sessionId === r.question.sessionId) {
+        const sent = runner.send(
+          run.id,
+          `[swarm] answer from ${b.by ?? "a human"} to your question "${r.question.text.slice(0, 200)}": ${r.question.answer}`,
+        );
+        if (sent.ok) store.inbox(r.question.sessionId); // mark delivered
+      }
+    }
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.get("/v1/inbox", (c) =>
+    c.json(store.inbox(c.req.query("session") || null, { peek: c.req.query("peek") === "1" })),
+  );
   // ---- dispatch (M7.5): claim + run ready tasks up to a per-project cap; outcome derived on exit
   app.get("/v1/dispatch", (c) => {
     const project = c.req.query("project");
@@ -606,6 +654,13 @@ export function createApp(store = new Store()) {
           hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx },
         });
     }
+    // M7.7: answers to this session's questions ride along as context on the next hook that
+    // accepts it (UserPromptSubmit / PreToolUse / PostToolUse).
+    const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    const answers =
+      event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse"
+        ? store.answerContext(sid)
+        : null;
     // M2.1 guard: on PreToolUse, ask before a shared-tree collision (broad git add, destructive git,
     // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
     if (event === "PreToolUse" && process.env.SWARM_GUARD !== "off") {
@@ -616,10 +671,16 @@ export function createApp(store = new Store()) {
             hookEventName: "PreToolUse",
             permissionDecision: guard.action,
             permissionDecisionReason: `[swarm] ${guard.reason}`,
+            ...(answers ? { additionalContext: answers } : {}),
           },
         });
       }
     }
+    if (answers)
+      return c.json({
+        additionalContext: answers,
+        hookSpecificOutput: { hookEventName: event, additionalContext: answers },
+      });
     return c.json({});
   });
   app.post("/v1/events", async (c) => {

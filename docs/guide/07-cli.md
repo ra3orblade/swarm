@@ -119,6 +119,13 @@ Permission prompts from the spawned agent are brokered by Swarm: the same [rules
 
 `swarm run` claims the task (fail-closed — or reuses a worktree you already hold), then the daemon spawns `claude -p` inside it with stream-json on both stdin and stdout. The session appears in Fleet marked ▶ spawned; tokens and cost come from its transcript like any other session, and each finished turn is a `run.result` event with the cost so far. Runs live as long as the daemon: `swarm stop` / a restart stops them cleanly (their pids are in the registry, never killed by pattern). Options: `--prompt-file`, `--model`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--allowed-tools Bash,Edit`, `--max-turns n`.
 
+## Questions from agents
+
+```sh
+swarm questions [--all] [--everywhere]   # open questions in this repo (all = answered too; everywhere = every repo)
+swarm answer <id> <text…>                # the agent gets it on its next tool call (or at once, if spawned)
+```
+
 ## Dispatch
 
 ```sh

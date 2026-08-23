@@ -30,7 +30,9 @@ import {
   deriveHandoff,
   dryRunRules,
   executedGateInput,
+  formatAnswers,
   formatHandoff,
+  formatOpenQuestions,
   formatResumePrompt,
   fromLiteLLM,
   type GateInput,
@@ -77,6 +79,7 @@ import {
   planGc,
   prDraft,
   projectIdentity,
+  type Question,
   type Resource,
   type RulesConfig,
   reapAction,
@@ -95,6 +98,7 @@ import {
   taskSourceKind,
   validateGateRun,
   validateHandoff,
+  validateQuestion,
   WRITE_TOOLS,
 } from "@swarm/core";
 import { runBootstrap } from "./bootstrap";
@@ -192,6 +196,12 @@ CREATE TABLE IF NOT EXISTS handoffs (
   files TEXT, verify TEXT, by TEXT, session_id TEXT, created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS handoffs_task ON handoffs(project_id, task, created_at);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, session_id TEXT, task TEXT, kind TEXT,
+  text TEXT, options TEXT, asked_by TEXT, created_at TEXT,
+  answer TEXT, answered_by TEXT, answered_at TEXT, delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS messages_open ON messages(project_id, answered_at, delivered_at);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -782,6 +792,8 @@ export class Store {
       );
       const h = this.latestHandoff(held.projectId, held.task);
       if (h) lines.push(formatHandoff(h));
+      const qc = this.questionContext(held.task, held.projectId);
+      if (qc) lines.push(qc);
       const required = this.requiredGates(held.projectId);
       if (required.length) {
         const st = gateStatus(this.gateRuns(held.projectId, held.task), required);
@@ -818,6 +830,176 @@ export class Store {
     if (on.length && (lines.length || on.some((x) => x.endsWith("=deny"))))
       lines.push(`[swarm] rules: ${on.join(" ")}`);
     return lines.length ? lines.join("\n") : null;
+  }
+
+  // ---------- ask the human (M7.7)
+  private rowToQuestion(r: Record<string, unknown>): Question {
+    return {
+      id: r.id as number,
+      projectId: r.project_id as string,
+      sessionId: (r.session_id as string) ?? null,
+      task: (r.task as string) ?? null,
+      text: r.text as string,
+      options: JSON.parse((r.options as string) || "[]"),
+      askedBy: (r.asked_by as string) ?? null,
+      createdAt: r.created_at as string,
+      answer: (r.answer as string) ?? null,
+      answeredBy: (r.answered_by as string) ?? null,
+      answeredAt: (r.answered_at as string) ?? null,
+      deliveredAt: (r.delivered_at as string) ?? null,
+    };
+  }
+
+  questions(
+    opts: {
+      projectId?: string | undefined;
+      sessionId?: string | undefined;
+      open?: boolean;
+      limit?: number;
+    } = {},
+  ): Question[] {
+    const where = ["kind = 'question'"];
+    const args: (string | number)[] = [];
+    if (opts.projectId) {
+      where.push("project_id = ?");
+      args.push(opts.projectId);
+    }
+    if (opts.sessionId) {
+      where.push("session_id = ?");
+      args.push(opts.sessionId);
+    }
+    if (opts.open) where.push("answered_at IS NULL");
+    args.push(opts.limit ?? 100);
+    return (
+      this.db
+        .query(`SELECT * FROM messages WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+        .all(...args) as Record<string, unknown>[]
+    ).map((r) => this.rowToQuestion(r));
+  }
+
+  question(id: number): Question | null {
+    const r = this.db
+      .query("SELECT * FROM messages WHERE id = ? AND kind = 'question'")
+      .get(id) as Record<string, unknown> | null;
+    return r ? this.rowToQuestion(r) : null;
+  }
+
+  /** An agent parks a question for a human. The session's task is inferred from its cwd. */
+  ask(
+    projectId: string,
+    input: {
+      sessionId?: string | null;
+      text: unknown;
+      options?: unknown;
+      askedBy?: string | null;
+      cwd?: string | null;
+    },
+  ) {
+    if (!this.project(projectId)) return { ok: false as const, error: "unknown project" };
+    const v = validateQuestion(input.text, input.options);
+    if (!v.ok) return { ok: false as const, error: v.reason };
+    const sessionId = this.knownSession(input.sessionId ?? null);
+    const task =
+      (input.cwd
+        ? this.heldClaimsWithWorktree().find((c) => isInside(input.cwd as string, c.worktree))?.task
+        : null) ?? null;
+    const createdAt = new Date().toISOString();
+    const r = this.db
+      .query(
+        `INSERT INTO messages (project_id, session_id, task, kind, text, options, asked_by, created_at)
+         VALUES (?, ?, ?, 'question', ?, ?, ?, ?)`,
+      )
+      .run(
+        projectId,
+        sessionId,
+        task,
+        v.text,
+        JSON.stringify(v.options),
+        input.askedBy ?? null,
+        createdAt,
+      );
+    const q = this.question(Number(r.lastInsertRowid)) as Question;
+    this.append({
+      ts: createdAt,
+      type: "question.asked",
+      projectId,
+      sessionId,
+      payload: {
+        id: q.id,
+        task,
+        text: v.text,
+        options: v.options,
+        summary: `question #${q.id}: ${v.text.slice(0, 120)}`,
+      },
+    });
+    this.touch();
+    return { ok: true as const, question: q };
+  }
+
+  /** A human answers. Delivery to the asking session happens on its next hook / stdin / inbox read. */
+  answer(id: number, text: unknown, by: string | null) {
+    const q = this.question(id);
+    if (!q) return { ok: false as const, error: `no question #${id}` };
+    if (q.answer !== null)
+      return {
+        ok: false as const,
+        error: `#${id} was already answered by ${q.answeredBy ?? "someone"}`,
+      };
+    const a = typeof text === "string" ? text.trim() : "";
+    if (!a) return { ok: false as const, error: "an answer is required" };
+    const at = new Date().toISOString();
+    this.db
+      .query("UPDATE messages SET answer = ?, answered_by = ?, answered_at = ? WHERE id = ?")
+      .run(a, by, at, id);
+    this.append({
+      ts: at,
+      type: "question.answered",
+      projectId: q.projectId,
+      sessionId: q.sessionId,
+      payload: { id, task: q.task, answer: a, by, summary: `answer to #${id}: ${a.slice(0, 120)}` },
+    });
+    this.touch();
+    return { ok: true as const, question: this.question(id) as Question };
+  }
+
+  /** Answers this session has not yet received; marks them delivered. */
+  inbox(sessionId: string | null, opts: { peek?: boolean } = {}): Question[] {
+    if (!sessionId) return [];
+    const rows = this.db
+      .query(
+        "SELECT * FROM messages WHERE kind = 'question' AND session_id = ? AND answered_at IS NOT NULL AND delivered_at IS NULL ORDER BY id",
+      )
+      .all(sessionId) as Record<string, unknown>[];
+    const qs = rows.map((r) => this.rowToQuestion(r));
+    if (qs.length && !opts.peek)
+      this.db
+        .query(`UPDATE messages SET delivered_at = ? WHERE id IN (${qs.map(() => "?").join(",")})`)
+        .run(new Date().toISOString(), ...qs.map((q) => q.id));
+    return qs;
+  }
+
+  /** Context to inject on a hook: undelivered answers (delivered now) for this session. */
+  answerContext(sessionId: string | null): string | null {
+    return formatAnswers(this.inbox(sessionId));
+  }
+
+  /** For SessionStart in a held worktree: open questions of that task + answers never delivered. */
+  questionContext(task: string | null, projectId: string): string | null {
+    if (!task) return null;
+    const qs = this.db
+      .query(
+        "SELECT * FROM messages WHERE kind = 'question' AND project_id = ? AND task = ? AND (answered_at IS NULL OR delivered_at IS NULL) ORDER BY id",
+      )
+      .all(projectId, task) as Record<string, unknown>[];
+    const list = qs.map((r) => this.rowToQuestion(r));
+    const parts = [formatAnswers(list), formatOpenQuestions(list)].filter(Boolean);
+    if (list.some((q) => q.answer !== null))
+      this.db
+        .query(
+          "UPDATE messages SET delivered_at = ? WHERE kind = 'question' AND project_id = ? AND task = ? AND answered_at IS NOT NULL AND delivered_at IS NULL",
+        )
+        .run(new Date().toISOString(), projectId, task);
+    return parts.length ? parts.join("\n") : null;
   }
 
   // ---------- gates (M2.2): latest run wins, fails are never deleted, rubric required
@@ -1697,6 +1879,8 @@ export class Store {
     "worktree.created",
     "worktree.removed",
     "pr.opened",
+    "question.asked",
+    "question.answered",
     "dispatch.queued",
     "dispatch.started",
     "dispatch.finished",
@@ -3518,6 +3702,7 @@ export class Store {
       processes: this.memoised("processes", 5000, () => this.processes()),
       incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),
       openIncidents: this.memoised("openIncidents", 30_000, () => this.openIncidents()),
+      questions: this.questions({ open: true, limit: 50 }),
       resources: this.resources(),
       seq: this.seq(),
     };

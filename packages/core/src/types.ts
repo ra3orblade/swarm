@@ -20,6 +20,8 @@ export type EventType =
   | "worktree.created"
   | "worktree.removed"
   | "pr.opened"
+  | "question.asked"
+  | "question.answered"
   | "dispatch.queued"
   | "dispatch.started"
   | "dispatch.finished"

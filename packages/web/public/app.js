@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -290,7 +290,7 @@ projectsEl.addEventListener("dragend", () => {
 const FLEET_COLS = [
   { key: "project", label: "project", width: 104, get: (s) => projName(s.projectId), cell: (s) => esc(projName(s.projectId)) },
   { key: "agent", label: "agent", width: 84, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
-  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}` },
+  { key: "session", label: "session", width: 236, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}` },
   { key: "branch", label: "branch", width: 134, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => `<span class="now" title="${esc(s.last)}">${esc(s.state === "waiting" ? (s.lastText ? s.lastText.split("\n")[0] : s.last) : s.last)}</span>` },
   { key: "model", label: "model", width: 96, get: (s) => model(s.model), cell: (s) => `<span class="br">${esc(model(s.model))}${s.models > 1 ? ` <span class="faint">+${s.models - 1}</span>` : ""}</span>` },
@@ -1087,6 +1087,19 @@ function replayGo(delta) {
 }
 
 // Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
+// M7.7: questions this session is waiting on a human for
+function questionCards(s) {
+  const qs = (state.questions ?? []).filter((q) => q.sessionId === s.id);
+  if (!qs.length) return "";
+  return `<h4>waiting on you</h4>${qs.map((q) => `<div class="perm"><div class="perm-t">${ic("warning", 13)} <b>Question #${q.id}</b>${q.task ? `<span class="dim"> · ${esc(q.task)}</span>` : ""}</div><div class="perm-c">${esc(q.text)}</div><div class="perm-b">${(q.options ?? []).map((o) => `<button class="ok" data-qanswer="${q.id}" data-text="${esc(o)}">${esc(o)}</button>`).join("")}<button data-qanswer="${q.id}">Answer…</button></div></div>`).join("")}`;
+}
+async function answerQuestion(id, preset) {
+  const text = preset ?? prompt(`Answer to question #${id}:`);
+  if (!text) return;
+  const r = await fetch(`/v1/questions/${id}/answer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, by: "dashboard" }) }).then((x) => x.json());
+  if (!r.ok) alert(r.error);
+  return refresh();
+}
 function stdinBox(s) {
   if (s.kind !== "spawned") return "";
   const run = (state.runs ?? []).find((r) => r.sessionId === s.id);
@@ -1106,6 +1119,8 @@ async function sendStdin() {
 }
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("#stdinSend")) return sendStdin();
+  const qa = ev.target.closest("[data-qanswer]");
+  if (qa) { ev.preventDefault(); return answerQuestion(Number(qa.dataset.qanswer), qa.dataset.text); }
   const a = ev.target.closest("[data-perm-allow]"), d = ev.target.closest("[data-perm-deny]");
   const key = a?.dataset.permAllow || d?.dataset.permDeny;
   if (key) {
@@ -1138,6 +1153,7 @@ function renderSession() {
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
+    ${questionCards(s)}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}`;
   if (logEl && isAppend(rows)) {
     // Same session, rows only appended: patch header + sidebar, append the new rows — #log keeps its
@@ -1228,7 +1244,7 @@ function disableNotifications() { try { localStorage.setItem(NOTIFY_KEY, "off");
 let lastNotifyAt = 0;
 function notifyForEvent(ev) {
   if (!notifyOn() || !("Notification" in window) || Notification.permission !== "granted") return;
-  if (!document.hidden && ev.type !== "permission.requested") return; // only permission prompts interrupt while you're looking
+  if (!document.hidden && ev.type !== "permission.requested" && ev.type !== "question.asked") return; // only prompts that block an agent interrupt while you're looking
   const now = Date.now();
   if (now - lastNotifyAt < 1500) return; // don't stack
   const p = ev.payload || {};
@@ -1237,6 +1253,10 @@ function notifyForEvent(ev) {
     title = `Permission needed: ${p.tool ?? "tool"}`;
     body = `${p.display ?? ""}
 ${p.reason ?? ""}`.slice(0, 180);
+    onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
+  } else if (ev.type === "question.asked") {
+    title = "An agent has a question";
+    body = `${p.task ? `${p.task}: ` : ""}${p.text ?? ""}`.slice(0, 180);
     onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
   } else if (ev.type === "claim.orphaned") {
     title = "Claim orphaned";
@@ -1711,7 +1731,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");
