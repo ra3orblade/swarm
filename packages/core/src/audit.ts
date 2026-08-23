@@ -164,14 +164,14 @@ const csvCell = (v: unknown) => {
 };
 export function formatAudit(rows: AuditRow[], format: "jsonl" | "csv" | "json"): string {
   if (format === "json") return JSON.stringify(rows);
-  if (format === "csv")
-    return (
-      [
-        AUDIT_COLUMNS.join(","),
-        ...rows.map((r) => AUDIT_COLUMNS.map((c) => csvCell(r[c])).join(",")),
-      ].join("\n") + "\n"
-    );
-  return rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : "");
+  if (format === "csv") {
+    const lines = [
+      AUDIT_COLUMNS.join(","),
+      ...rows.map((r) => AUDIT_COLUMNS.map((c) => csvCell(r[c])).join(",")),
+    ];
+    return `${lines.join("\n")}\n`;
+  }
+  return `${rows.map((r) => JSON.stringify(r)).join("\n")}${rows.length ? "\n" : ""}`;
 }
 
 /** `30d` / `12h` / `90m` / ISO date → ISO timestamp lower bound; null when unparsable. */
