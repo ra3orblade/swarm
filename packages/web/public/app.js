@@ -668,8 +668,11 @@ function renderWorktrees() {
   const actions = (w) => {
     const key = `${w.projectId}:${w.path}`;
     const open = `<a href="#" data-wtopen="${esc(key)}" title="Open this worktree (editor / file manager; [worktree] open in .swarm.toml)">${ic("arrow-square-out", 12)} Open</a>`;
-    if (w.main || heldBy.has(w.path)) return open;
-    return `${open} · <a href="#" data-wtrm="${esc(key)}" title="${w.dirty > 0 || w.ahead > 0 ? "Refuses while dirty / unpushed (you can force)" : "git worktree remove"}">${ic("trash", 12)} Remove</a>`;
+    if (w.main) return open;
+    const diff = ` · <a href="#" data-wtdiff="${esc(key)}" title="What this worktree changed vs the main checkout's branch">${ic("folders", 12)} Diff</a>`;
+    const pr = w.branch && !w.merged ? ` · <a href="#" data-wtpr="${esc(key)}" title="Push the branch and open a PR prefilled from the task, handoff, gates and files">${ic("git-pull-request", 12)} PR</a>` : "";
+    if (heldBy.has(w.path)) return `${open}${diff}${pr}`;
+    return `${open}${diff}${pr} · <a href="#" data-wtrm="${esc(key)}" title="${w.dirty > 0 || w.ahead > 0 ? "Refuses while dirty / unpushed (you can force)" : "git worktree remove"}">${ic("trash", 12)} Remove</a>`;
   };
   const gcBtn = state.sel ? ` <a href="#" class="nav" id="wtgc" title="Find worktrees whose branch is merged or whose claim is gone">${ic("trash", 12)} Collect stale</a>` : "";
   const newBtn = state.sel ? ` <a href="#" class="nav" id="wtnew" title="Create a task-less worktree (spike, review checkout)">${ic("plus", 12)} New worktree</a>` : "";
@@ -679,7 +682,7 @@ function renderWorktrees() {
       columns: cols,
       rows,
       leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
-      trailing: { width: 150, cell: actions },
+      trailing: { width: 230, cell: actions },
       rerender: touch,
     });
 }
@@ -1095,7 +1098,7 @@ function renderSession() {
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
   const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("reload", 13)} Resume where it died</a>` : ""}</h2>`;
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${(state.worktrees[s.projectId] ?? []).some((w) => !w.main && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`))) ? `<a href="#" class="nav" id="sessDiff" title="What this session's worktree changed">${ic("folders", 13)} Diff</a>` : ""}${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("reload", 13)} Resume where it died</a>` : ""}</h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("context", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
@@ -1299,7 +1302,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],#wtnew,#wtgc,[data-gaterun]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1325,6 +1328,17 @@ document.addEventListener("click", async (ev) => {
     const r = await fetch("/v1/worktrees/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: t.dataset.wtopen.slice(0, i), worktree: t.dataset.wtopen.slice(i + 1) }) }).then((x) => x.json());
     if (!r.ok) alert(r.error);
     return;
+  }
+  if (t.dataset.wtdiff) { ev.preventDefault(); const i = t.dataset.wtdiff.indexOf(":"); return openDiffDrawer(t.dataset.wtdiff.slice(0, i), t.dataset.wtdiff.slice(i + 1)); }
+  if (t.dataset.wtpr) { ev.preventDefault(); const i = t.dataset.wtpr.indexOf(":"); return openPrDrawer(t.dataset.wtpr.slice(0, i), t.dataset.wtpr.slice(i + 1)); }
+  if (t.dataset.dffile !== undefined) { ev.preventDefault(); return loadDiffFile(t.dataset.dffile); }
+  if (t.id === "prGo") { ev.preventDefault(); return submitPr(); }
+  if (t.id === "sessDiff") {
+    ev.preventDefault();
+    const s = state.sessions.find((x) => x.id === state.session);
+    if (!s) return;
+    const w = (state.worktrees[s.projectId] ?? []).find((x) => !x.main && (s.cwd === x.path || s.cwd.startsWith(`${x.path}/`)));
+    return w ? openDiffDrawer(s.projectId, w.path) : null;
   }
   if (t.dataset.wtrm) {
     ev.preventDefault();
@@ -1492,6 +1506,67 @@ async function submitRun(taskId) {
   openSession(r.run.sessionId);
 }
 
+// ---------- worktree diff + PR drawers (M7.3)
+const diffState = { projectId: null, worktree: null, base: null, files: [] };
+function colorPatch(patch) {
+  return esc(patch).split("\n").map((l) => {
+    const c = l.startsWith("+++") || l.startsWith("---") ? "m" : l.startsWith("@@") ? "h" : l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : l.startsWith("diff ") ? "m" : "";
+    return c ? `<span class="${c}">${l}</span>` : l;
+  }).join("\n");
+}
+async function openDiffDrawer(projectId, worktree) {
+  const q = new URLSearchParams({ project: projectId, worktree });
+  const d = await fetch(`/v1/worktrees/diff?${q}`).then((x) => x.json());
+  if (d.error) return alert(d.error);
+  Object.assign(diffState, { projectId, worktree: d.worktree, base: d.base, files: d.files });
+  const files = d.files.map((f) => `<a href="#" data-dffile="${esc(f.path)}"><span class="st">${esc(f.status)}</span><span class="pa" title="${esc(f.path)}">${esc(f.path)}</span>${f.added >= 0 ? `<span class="pl">+${f.added}</span><span class="mi">−${f.deleted}</span>` : '<span class="dim">bin</span>'}</a>`).join("");
+  $("#picker").innerHTML = `<div class="pk wide" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("folders", 15)}<b>Diff</b><span class="dim now" style="flex:1;margin-left:8px">${esc(short(d.worktree))} · vs ${esc(d.baseRef ?? "HEAD")} · ${d.commits.length} commit${d.commits.length === 1 ? "" : "s"} · ${d.files.length} file${d.files.length === 1 ? "" : "s"}${d.dirty ? ' · <span class="badge warn">dirty</span>' : ""}</span></div>
+    <div class="pk-b">
+      ${d.commits.length ? `<div class="dim" style="font-size:var(--fs-sm)">${d.commits.slice(0, 8).map(esc).join("<br>")}${d.commits.length > 8 ? `<br>… ${d.commits.length - 8} more` : ""}</div>` : ""}
+      ${d.files.length ? `<div class="df-files">${files}</div><pre class="df-patch" id="dfPatch"><span class="m">select a file — or view everything below</span></pre>` : '<div class="empty">Nothing changed.</div>'}
+    </div>
+    <div class="pk-f">${d.files.length ? `<a href="#" class="nav" data-dffile="">${ic("folders", 12)} Whole diff</a>` : ""}<span class="grow"></span><button id="pkClose">Close</button></div>
+  </div>`;
+  $("#pkClose")?.addEventListener("click", closePicker);
+}
+async function loadDiffFile(file) {
+  const q = new URLSearchParams({ project: diffState.projectId, worktree: diffState.worktree });
+  if (file) q.set("file", file); else q.set("patch", "1");
+  for (const a of document.querySelectorAll(".df-files a")) a.classList.toggle("on", a.dataset.dffile === file);
+  const el = $("#dfPatch"); if (el) el.innerHTML = '<span class="m">loading…</span>';
+  const d = await fetch(`/v1/worktrees/diff?${q}`).then((x) => x.json());
+  if (el) el.innerHTML = d.patch ? colorPatch(d.patch) : '<span class="m">(empty)</span>';
+}
+async function openPrDrawer(projectId, worktree) {
+  const q = new URLSearchParams({ project: projectId, worktree });
+  const d = await fetch(`/v1/prs/draft?${q}`).then((x) => x.json());
+  if (!d.ok) return alert(d.error);
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("git-pull-request", 15)}<b>Open PR</b><span class="dim now" style="flex:1;margin-left:8px">${esc(d.task)} · ${esc(d.worktree.branch ?? "")}${d.diff.dirty ? ' · <span class="badge warn">uncommitted changes — commit first</span>' : ""}</span></div>
+    <div class="pk-b">
+      <label>title<input id="prTitle" value="${esc(d.title)}"></label>
+      <label>body<textarea id="prBody" style="min-height:220px">${esc(d.body)}</textarea></label>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="prDraft" style="width:auto"> draft</label>
+      <div class="dim" style="font-size:var(--fs-sm)">Pushes <code>${esc(d.worktree.branch ?? "")}</code> to origin and runs <code>gh pr create</code> / <code>glab mr create</code> with your local login. Swarm never commits for you.</div>
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="pkClose">Cancel</button><button class="primary" id="prGo" data-project="${esc(projectId)}" data-worktree="${esc(d.worktree.path)}" ${d.diff.dirty ? "disabled" : ""}>${ic("git-pull-request", 13)} Open PR</button></div>
+  </div>`;
+  $("#pkClose")?.addEventListener("click", closePicker);
+}
+async function submitPr() {
+  const b = $("#prGo"); if (!b) return;
+  const projectId = b.dataset.project, worktree = b.dataset.worktree;
+  const title = $("#prTitle")?.value.trim(), body = $("#prBody")?.value, draft = $("#prDraft")?.checked;
+  b.disabled = true; b.textContent = "opening…";
+  const r = await fetch("/v1/prs/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, worktree, title, body, draft }) }).then((x) => x.json());
+  if (!r.ok) { b.disabled = false; b.textContent = "Open PR"; return alert(r.error); }
+  closePicker();
+  state.prs = [];
+  await refresh();
+  if (r.url) window.open(r.url, "_blank");
+}
+
 async function openPicker(focusPath = false) {
   await pickerGo("");
   if (focusPath) { const i = $("#pkPath"); if (i) { i.focus(); i.select(); } }
@@ -1565,7 +1640,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

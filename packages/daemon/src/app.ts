@@ -13,6 +13,7 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { ForgeService } from "./forge";
+import { worktreeDiff, worktreePatch } from "./git";
 import { type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 
@@ -442,6 +443,51 @@ export function createApp(store = new Store()) {
     await store.refreshWorktrees(b.projectId);
     const r = store.openWorktree(b.projectId, b.worktree);
     return c.json(r, r.ok ? 200 : 404);
+  });
+  // M7.3: what a worktree changed vs the main checkout's branch; `file` → unified diff of one file
+  app.get("/v1/worktrees/diff", async (c) => {
+    const project = c.req.query("project");
+    const ref = c.req.query("worktree");
+    if (!project || !ref) return c.json({ error: "project and worktree required" }, 400);
+    await store.refreshWorktrees(project);
+    const w = store.findWorktree(project, ref);
+    const p = store.project(project);
+    if (!w || !p) return c.json({ error: `no worktree ${ref}` }, 404);
+    const file = c.req.query("file") || undefined;
+    const d = await worktreeDiff(p.root, w.path);
+    if (file || c.req.query("patch") === "1")
+      return c.json({ ...d, worktree: w.path, patch: await worktreePatch(w.path, d.base, file) });
+    return c.json({ ...d, worktree: w.path });
+  });
+  // M7.3: PR draft from what Swarm knows (task title, handoff, gates, files) — and open it
+  app.get("/v1/prs/draft", async (c) => {
+    const project = c.req.query("project");
+    const ref = c.req.query("worktree") || c.req.query("task");
+    if (!project || !ref) return c.json({ error: "project and worktree|task required" }, 400);
+    const r = await store.prDraftFor(project, ref);
+    return c.json(r, r.ok ? 200 : 404);
+  });
+  app.post("/v1/prs/open", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      worktree?: string;
+      task?: string;
+      title?: string;
+      body?: string;
+      draft?: boolean;
+    };
+    const ref = b.worktree || b.task;
+    if (!b.projectId || !ref)
+      return c.json({ ok: false, error: "projectId and worktree|task required" }, 400);
+    const d = await store.prDraftFor(b.projectId, ref);
+    if (!d.ok) return c.json(d, 404);
+    const r = await forge.openPR(b.projectId, d.worktree, {
+      title: b.title?.trim() || d.title,
+      body: b.body ?? d.body,
+      isDraft: b.draft ?? false,
+    });
+    if (r.ok) store.recordPrOpened(b.projectId, d.task, d.worktree.path, r.url);
+    return c.json(r, r.ok ? 201 : 409);
   });
   app.post("/v1/worktrees/gc", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; apply?: boolean };

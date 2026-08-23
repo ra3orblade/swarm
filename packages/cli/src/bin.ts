@@ -28,7 +28,8 @@ const help = `swarm — control plane for AI-agent development
 
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
   gate run <task> [gate…]    execute the repo's [gates.<name>] cmd gates in the task's worktree and record them
-  wt [ls|create|open|rm|gc]  first-class worktrees: create task-less ones, open, remove, collect stale
+  wt [ls|create|open|diff|rm|gc]  first-class worktrees: create task-less ones, open, diff, remove, collect stale
+  pr open <task|worktree>    push the branch and open a PR/MR prefilled from the task, handoff, gates and files
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
@@ -326,6 +327,39 @@ try {
           console.log(`removed ${r.worktree}`);
           break;
         }
+        case "diff": {
+          if (!target)
+            throw new Error("usage: swarm wt diff <name|path|task> [--file f] [--patch]");
+          const q = new URLSearchParams({ project: proj.id, worktree: target });
+          const file = flag("--file");
+          if (file) q.set("file", file);
+          if (rest.includes("--patch")) q.set("patch", "1");
+          const d = (await api(`/v1/worktrees/diff?${q}`)) as {
+            error?: string;
+            baseRef: string | null;
+            files: Array<{ path: string; added: number; deleted: number; status: string }>;
+            commits: string[];
+            dirty: boolean;
+            patch?: string;
+          };
+          if (d.error) {
+            console.error(`REFUSED: ${d.error}`);
+            process.exit(1);
+          }
+          if (json) console.log(JSON.stringify(d));
+          else if (d.patch !== undefined) console.log(d.patch);
+          else {
+            console.log(
+              `vs ${d.baseRef ?? "HEAD"} · ${d.commits.length} commit${d.commits.length === 1 ? "" : "s"} · ${d.files.length} file${d.files.length === 1 ? "" : "s"}${d.dirty ? " · dirty" : ""}`,
+            );
+            for (const c of d.commits) console.log(`  ${c}`);
+            for (const f of d.files)
+              console.log(
+                `${f.status} ${f.added >= 0 ? `+${f.added}`.padStart(6) : "   bin"} ${f.deleted >= 0 ? `-${f.deleted}`.padStart(6) : "      "}  ${f.path}`,
+              );
+          }
+          break;
+        }
         case "gc": {
           const r = (await post("/v1/worktrees/gc", { apply: rest.includes("--apply") })) as {
             candidates: Array<{
@@ -353,6 +387,62 @@ try {
           throw new Error(
             "usage: swarm wt [ls] | create <name> | open <ref> | rm <ref> [--force] | gc [--apply]",
           );
+      }
+      break;
+    }
+    case "pr": {
+      await ensureDaemon({ quiet: true });
+      const sub = arg();
+      const VALUE_FLAGS = ["--title", "--body"];
+      const positional = rest.filter(
+        (a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(rest[i - 1] ?? ""),
+      );
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const target = positional[1];
+      if (sub !== "open" || !target)
+        throw new Error(
+          "usage: swarm pr open <task|worktree> [--title t] [--body b] [--draft] [--dry-run]",
+        );
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      if (rest.includes("--dry-run")) {
+        const d = (await api(
+          `/v1/prs/draft?project=${proj.id}&worktree=${encodeURIComponent(target)}`,
+        )) as {
+          ok: boolean;
+          error?: string;
+          title: string;
+          body: string;
+        };
+        if (json) console.log(JSON.stringify(d));
+        else if (!d.ok) {
+          console.error(`REFUSED: ${d.error}`);
+          process.exit(1);
+        } else console.log(`${flag("--title") ?? d.title}\n\n${flag("--body") ?? d.body}`);
+        break;
+      }
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/prs/open`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: proj.id,
+          worktree: target,
+          title: flag("--title"),
+          body: flag("--body"),
+          draft: rest.includes("--draft"),
+        }),
+      }).then((x) => x.json())) as { ok: boolean; url?: string; error?: string };
+      if (json) console.log(JSON.stringify(r));
+      else if (r.ok) console.log(`opened ${r.url}`);
+      else {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
       }
       break;
     }

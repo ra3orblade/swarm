@@ -193,6 +193,8 @@ swarm wt [ls]                      every worktree with dirty / unpushed / behind
 swarm wt create <name> [--base r]  task-less worktree under ~/.swarm/worktrees, branch wt/<name>, bootstrapped
 swarm wt open|rm <ref> [--force]   open via `[worktree] open` / remove (refuses dirty, unpushed, main, held)
 swarm wt gc [--apply]              stale worktrees (merged branch / released claim); --apply removes the clean ones
+swarm wt diff <ref> [--file f] [--patch]   what a worktree changed vs the main branch (M7.3)
+swarm pr open <task|ref> [--title] [--body] [--draft] [--dry-run]   push + open a PR/MR prefilled from task, handoff, gates, files (M7.3)
 
 swarm res ls                                              held singletons (project + machine-global)
 swarm res acquire <name> [--owner n] [--pid n] [--port n]  e.g. web, worker, db, port:3000
@@ -261,6 +263,7 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_resume` | `{task}` | latest handoff, formatted (`auto:` handoffs are derived by the daemon at Stop/SessionEnd) |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
 | `swarm_gate_run` | `{task, gates?}` | executes the repo's `[gates.<name>] cmd` gates in the task's held worktree and records them; exit 0 = pass (M7.4) |
+| `swarm_pr_open` | `{task, title?, body?, draft?}` | pushes the worktree branch and opens a PR/MR via `gh`/`glab`, drafted from task + handoff + gates + files; refuses dirty (M7.3) |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
 
@@ -297,6 +300,8 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/worktrees?project=` · `POST /v1/worktrees` · `POST /v1/worktrees/remove` · `POST /v1/worktrees/open` · `POST /v1/worktrees/gc` | first-class worktrees (M7.2): fresh listing with `behind`/`merged`; create task-less (`name`, `baseRef`, `branch`); remove (`worktree` = path, folder name or branch; `force`); open on the desktop; gc (`apply`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/worktrees/diff?project=&worktree=[&file=\|&patch=1]` | commits + files (incl. working tree and untracked) vs the merge-base with the main checkout's branch; `file`/`patch` add a unified diff (M7.3) |
+| `GET /v1/prs/draft?project=&worktree=\|task=` · `POST /v1/prs/open` | PR title/body drafted from task, handoff, gates, files; `open` `{projectId, worktree\|task, title?, body?, draft?}` pushes and runs `gh pr create` / `glab mr create`, refuses dirty, reuses an open PR (M7.3) |
 | `GET /v1/gates?project=&task=` · `POST /v1/gates` · `POST /v1/gates/run` | gate runs (latest wins) and required/executable gate names; `run` `{projectId, task, gates?, wait?}` executes `[gates.<name>] cmd` gates sequentially in the held worktree via the process registry and records them (M7.4) |
 | `GET /v1/memory?q=&project=&kind=&task=&limit=` | full-text search (FTS5/BM25) over handoffs, incidents, gates and session text; hits carry a snippet with `\u0001`/`\u0002` around matches |
 | `GET /v1/rules/dryrun?project=&<rule>=ask\|deny\|off&limit=` | replay recorded tool calls under (overridden) rule modes: per-rule ask/deny counts, hits, flaky signals; records nothing |

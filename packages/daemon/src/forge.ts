@@ -102,6 +102,78 @@ export class ForgeService {
     return prs.map((pr) => ({ ...pr, projectId, projectRoot: root }));
   }
 
+  /**
+   * M7.3: push a worktree's branch and open a PR / MR for it through the forge CLI. Refuses a
+   * dirty worktree (commit first — Swarm never commits for you) and a branch with nothing on it.
+   */
+  async openPR(
+    projectId: string,
+    worktree: { path: string; branch: string | null; dirty: number; main: boolean },
+    draft: { title: string; body: string; isDraft?: boolean },
+  ): Promise<{ ok: true; url: string; number: number | null } | { ok: false; error: string }> {
+    const p = this.store.projects().find((x) => x.id === projectId);
+    if (!p) return { ok: false, error: "unknown project" };
+    if (worktree.main)
+      return { ok: false, error: "that is the main checkout — open the PR from a task worktree" };
+    if (!worktree.branch) return { ok: false, error: "detached HEAD — check out a branch first" };
+    if (worktree.dirty > 0)
+      return {
+        ok: false,
+        error: `${worktree.path} has uncommitted changes — commit them first (Swarm never commits for you)`,
+      };
+    const remote = this.remote(p.root);
+    if (!remote) return { ok: false, error: "no GitHub/GitLab remote on origin" };
+    const cli = remote.forge === "github" ? "gh" : "glab";
+    const bin = findBin(cli);
+    if (!bin) return { ok: false, error: `${cli} is not installed` };
+    const sh = async (cmd: string[], cwd: string) => {
+      const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+      const out =
+        (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+      return { ok: (await proc.exited) === 0, out: out.trim() };
+    };
+    const push = await sh(["git", "push", "-u", "origin", worktree.branch], worktree.path);
+    if (!push.ok) return { ok: false, error: `git push failed: ${push.out.slice(0, 400)}` };
+    // already open? reuse it
+    const existing = this.prs().find(
+      (x) => x.projectId === projectId && x.branch === worktree.branch,
+    );
+    if (existing) return { ok: true, url: existing.url, number: existing.number };
+    const cmd =
+      remote.forge === "github"
+        ? [
+            bin,
+            "pr",
+            "create",
+            "--head",
+            worktree.branch,
+            "--title",
+            draft.title,
+            "--body",
+            draft.body,
+            ...(draft.isDraft ? ["--draft"] : []),
+          ]
+        : [
+            bin,
+            "mr",
+            "create",
+            "--source-branch",
+            worktree.branch,
+            "--title",
+            draft.title,
+            "--description",
+            draft.body,
+            "--yes",
+            ...(draft.isDraft ? ["--draft"] : []),
+          ];
+    const r = await sh(cmd, worktree.path);
+    if (!r.ok) return { ok: false, error: `${cli} failed: ${r.out.slice(0, 400)}` };
+    const url = r.out.match(/https?:\/\/\S+/)?.[0] ?? r.out;
+    const num = Number(url.match(/\/(\d+)\s*$/)?.[1]);
+    this.cache.delete(projectId);
+    return { ok: true, url, number: Number.isFinite(num) ? num : null };
+  }
+
   /** Merge a PR via the forge CLI. Squash to match the repo's prevailing style. */
   async merge(projectId: string, number: number): Promise<{ ok: boolean; output: string }> {
     const p = this.store.projects().find((x) => x.id === projectId);

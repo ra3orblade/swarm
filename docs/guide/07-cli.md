@@ -63,6 +63,8 @@ swarm tasks [--ready] [--json]   # the repo's task source; --ready = unclaimed w
 swarm wt [ls]                    # every worktree: branch · head · dirty / unpushed / behind / merged · path
 swarm wt create <name>           # task-less worktree (spike, review checkout); [--base ref] [--branch b]
 swarm wt open|rm <ref> [--force] # open in your editor ([worktree] open) / remove (refuses dirty, unpushed, held)
+swarm wt diff <ref> [--file f] [--patch]   # commits + files vs the main branch; a unified diff with --file / --patch
+swarm pr open <task|ref> [--draft] [--dry-run]   # push + gh pr create / glab mr create, prefilled from task, handoff, gates, files
 swarm wt gc [--apply]            # propose (and with --apply remove) merged or abandoned worktrees
 ```
 

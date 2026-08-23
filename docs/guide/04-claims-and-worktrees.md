@@ -129,6 +129,12 @@ swarm wt rm <name|path> [--force]                 # remove; refuses dirty / unpu
 swarm wt gc [--apply]                             # stale worktrees: branch merged into main, or a released claim that left its folder behind
 ```
 
+### What changed, and opening the PR
+
+**Diff** on a worktree row (or on a session page whose cwd is a worktree) shows what that worktree carries beyond the main checkout's branch — commits since the merge-base, files with +/− counts, uncommitted and untracked changes included — and a unified diff per file. `swarm wt diff <ref>` prints the same; `--file f` or `--patch` prints the patch.
+
+**PR** pushes the branch and opens a pull request (GitHub via `gh`) or merge request (GitLab via `glab`) with your local login, prefilled from what Swarm knows: the task's title from the task source, the latest handoff as the summary, the required gates as a checklist, and the file list. Edit the title and body in the drawer, tick *draft* if you like. It refuses a worktree with uncommitted changes — Swarm never commits for you — and reuses the PR if one is already open for that branch. From a terminal: `swarm pr open <task|worktree> [--title] [--body] [--draft]`, `--dry-run` to see the draft; from an agent: `swarm_pr_open`. A `pr.opened` event lands on the Timeline.
+
 `rm` follows the same rules as `release`: dirty or unpushed work is refused unless you `--force`, the main checkout is never removed, and a worktree a live claim holds is refused outright — release the claim instead. `gc` only ever proposes; `--apply` (or **Collect stale** on the Board) removes the candidates that would pass a plain `rm`, and lists the rest with what blocks them. "Merged" means the worktree's HEAD came into the main checkout's branch through a merge; a squash-merged branch isn't detected — `rm` it by hand.
 
 ## A task source

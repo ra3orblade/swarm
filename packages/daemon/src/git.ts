@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
+import { type DiffFile, parseNumstat } from "@swarm/core";
 
 function git(cwd: string, args: string[]): string | null {
   try {
@@ -221,4 +222,76 @@ export function heldWork(path: string): { dirty: boolean; unpushed: boolean } {
     unpushed = baselines.length > 1 ? count(["HEAD", "--not", ...baselines]) > 0 : false;
   }
   return { dirty, unpushed };
+}
+
+// ---------- M7.3: what changed in a worktree, against the main checkout's branch
+
+export interface WorktreeDiff {
+  /** Ref the diff is measured from (merge-base of base and HEAD), or null when there is no base. */
+  base: string | null;
+  baseRef: string | null;
+  /** Committed + working-tree changes vs base; untracked files listed with status `?`. */
+  files: DiffFile[];
+  commits: string[];
+  dirty: boolean;
+}
+
+/** Files + commits a worktree carries beyond the main checkout's branch, working tree included. */
+export async function worktreeDiff(root: string, path: string): Promise<WorktreeDiff> {
+  const wts = parseWorktreeList((await gitAsync(root, ["worktree", "list", "--porcelain"])) ?? "");
+  const baseRef =
+    wts[0]?.path === realpathOr(root) || wts[0]?.main ? (wts[0]?.branch ?? null) : null;
+  const isMain = wts[0]?.path === path;
+  const mb =
+    baseRef && !isMain ? (await gitAsync(path, ["merge-base", baseRef, "HEAD"]))?.trim() : null;
+  const from = mb || "HEAD";
+  const [numstat, names, log, status] = await Promise.all([
+    gitAsync(path, ["diff", "--numstat", from]),
+    gitAsync(path, ["diff", "--name-status", from]),
+    mb ? gitAsync(path, ["log", "--format=%s", `${mb}..HEAD`]) : Promise.resolve(""),
+    gitAsync(path, ["status", "--porcelain"]),
+  ]);
+  const files = parseNumstat(numstat ?? "", names ?? "");
+  for (const line of (status ?? "").split("\n")) {
+    if (line.startsWith("?? "))
+      files.push({ path: line.slice(3), added: -1, deleted: -1, status: "?" });
+  }
+  return {
+    base: mb ?? null,
+    baseRef,
+    files,
+    commits: (log ?? "").split("\n").filter(Boolean),
+    dirty: (status ?? "").trim().length > 0,
+  };
+}
+
+/** Unified diff of one file (or everything) in a worktree against `base`; untracked files shown whole. */
+export async function worktreePatch(
+  path: string,
+  base: string | null,
+  file?: string,
+): Promise<string> {
+  const from = base ?? "HEAD";
+  if (file) {
+    const tracked = (await gitAsync(path, ["ls-files", "--error-unmatch", "--", file])) !== null;
+    if (!tracked) {
+      // untracked: present it as an add (`--no-index` exits 1 when the files differ — that's success here)
+      const p = Bun.spawn(["git", "-C", path, "diff", "--no-index", "--", "/dev/null", file], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const [out] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+      return out;
+    }
+    return (await gitAsync(path, ["diff", from, "--", file])) ?? "";
+  }
+  return (await gitAsync(path, ["diff", from])) ?? "";
+}
+
+function realpathOr(p: string) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }

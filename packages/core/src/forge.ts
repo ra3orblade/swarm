@@ -122,3 +122,78 @@ export function normalizeGitlab(raw: unknown, repo: string): ForgePR[] {
     };
   });
 }
+
+// ---------- M7.3: worktree diff + PR drafts (pure)
+
+export interface DiffFile {
+  path: string;
+  added: number; // -1 = binary
+  deleted: number;
+  /** `M`odified, `A`dded, `D`eleted, `R`enamed, `?` untracked */
+  status: string;
+}
+
+/** `git diff --numstat` lines (+ optional `--name-status` lines) → files. */
+export function parseNumstat(numstat: string, nameStatus = ""): DiffFile[] {
+  const status = new Map<string, string>();
+  for (const line of nameStatus.split("\n")) {
+    const [st, ...rest] = line.split("\t");
+    if (!st || !rest.length) continue;
+    status.set(rest[rest.length - 1] as string, st[0] as string);
+  }
+  const out: DiffFile[] = [];
+  for (const line of numstat.split("\n")) {
+    const [a, d, ...rest] = line.split("\t");
+    if (a === undefined || d === undefined || !rest.length) continue;
+    const raw = rest.join("\t");
+    // renames come as `old => new` or `{a => b}/x`; keep the new side
+    const path = raw.includes(" => ") ? raw.replace(/\{?([^{}]*) => ([^{}]*)\}?/, "$2") : raw;
+    out.push({
+      path,
+      added: a === "-" ? -1 : Number(a),
+      deleted: d === "-" ? -1 : Number(d),
+      status: status.get(path) ?? "M",
+    });
+  }
+  return out;
+}
+
+export interface PrDraftInput {
+  task: string;
+  title?: string | null;
+  handoff?: { done: string; remaining: string; verify: string | null; files: string[] } | null;
+  gates?: Array<{ gate: string; verdict: string | null }>;
+  files?: DiffFile[];
+  commits?: string[];
+}
+
+/** Title + body for a PR from what Swarm knows about the task. Plain markdown, no emoji. */
+export function prDraft(i: PrDraftInput): { title: string; body: string } {
+  const title = (i.title?.trim() ? `${i.task}: ${i.title.trim()}` : i.task).slice(0, 120);
+  const b: string[] = [];
+  b.push("## Summary");
+  if (i.handoff?.done.trim()) b.push(i.handoff.done.trim());
+  else if (i.commits?.length) b.push(i.commits.map((c) => `- ${c}`).join("\n"));
+  else b.push(`Work on ${i.task}.`);
+  if (i.handoff?.remaining.trim() && !/^(nothing|none|—|-)\.?$/i.test(i.handoff.remaining.trim()))
+    b.push(`\n## Remaining\n${i.handoff.remaining.trim()}`);
+  if (i.gates?.length) {
+    b.push("\n## Gates");
+    b.push(
+      i.gates
+        .map(
+          (g) =>
+            `- ${g.verdict === "pass" ? "[x]" : "[ ]"} ${g.gate}${g.verdict === "fail" ? " — failed" : g.verdict ? "" : " — not run"}`,
+        )
+        .join("\n"),
+    );
+  }
+  if (i.handoff?.verify?.trim()) b.push(`\n## Verify\n${i.handoff.verify.trim()}`);
+  if (i.files?.length) {
+    const shown = i.files.slice(0, 30);
+    b.push(
+      `\n## Files (${i.files.length})\n${shown.map((f) => `- \`${f.path}\`${f.added >= 0 ? ` +${f.added} −${f.deleted}` : " (binary)"}`).join("\n")}${i.files.length > shown.length ? `\n- … ${i.files.length - shown.length} more` : ""}`,
+    );
+  }
+  return { title, body: b.join("\n") };
+}
