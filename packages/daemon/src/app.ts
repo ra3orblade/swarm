@@ -4,12 +4,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readToken } from "@swarm/client";
 import {
+  formatAudit,
   formatHandoff,
   MEMORY_KINDS,
   type MemoryKind,
   RULE_IDS,
   type RuleId,
   type SwarmEvent,
+  sinceToIso,
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -178,6 +180,33 @@ export function createApp(store = new Store()) {
     if (id && !p) return c.json({ error: "unknown project" }, 404);
     const { provenance, overridden, policy } = store.policyFor(p?.root ?? null);
     return c.json({ ...policy, provenance, overridden });
+  });
+  // M8.2c audit export: ?since=30d|ISO &project= &type= &format=json|jsonl|csv
+  app.get("/v1/audit", (c) => {
+    const since = sinceToIso(c.req.query("since"));
+    if (c.req.query("since") && !since)
+      return c.json({ error: "since: use 30d / 12h / 90m or an ISO date" }, 400);
+    const pid = c.req.query("project") || null;
+    if (pid && !store.project(pid)) return c.json({ error: "unknown project" }, 404);
+    const rows = store.audit({
+      since,
+      projectId: pid,
+      type: c.req.query("type") || null,
+      limit: Number(c.req.query("limit")) || undefined,
+    });
+    const format =
+      c.req.query("format") === "csv"
+        ? "csv"
+        : c.req.query("format") === "jsonl"
+          ? "jsonl"
+          : "json";
+    const ct =
+      format === "csv"
+        ? "text/csv; charset=utf-8"
+        : format === "jsonl"
+          ? "application/x-ndjson"
+          : "application/json";
+    return c.body(formatAudit(rows, format), 200, { "content-type": ct });
   });
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");
