@@ -52,6 +52,11 @@ set `SWARM_STRICT_PORT=1` to make it fail instead of falling back.
 # Preferred port. SWARM_PORT env still wins; if the port is taken the daemon
 # falls back to a free one and records it in ~/.swarm/daemon.json.
 port = 7777
+# Daemon token (M8.2b). The daemon writes a secret to ~/.swarm/token (0600) on first start; every
+# Swarm client on the machine sends it as `Authorization: Bearer`. "loopback-optional" (default)
+# lets local callers — a browser tab, curl — omit it; "required" makes every /v1 call carry it
+# (open the dashboard via `swarm ui`, which passes it along). Non-loopback callers always need it.
+auth = "loopback-optional"
 
 [rules]
 # Each rule: "ask" (agent must confirm), "deny" (blocked), or "off".

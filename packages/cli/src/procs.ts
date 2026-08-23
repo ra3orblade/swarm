@@ -5,7 +5,7 @@
  */
 import { mkdirSync, openSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SwarmClient, swarmHome } from "@swarm/client";
+import { authedFetch as fetch, SwarmClient, swarmHome } from "@swarm/client";
 
 type Json = Record<string, unknown>;
 

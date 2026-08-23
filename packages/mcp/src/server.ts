@@ -7,7 +7,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ensureDaemon, resolveBaseUrl } from "@swarm/client";
+import { ensureDaemon, authedFetch as fetch, resolveBaseUrl } from "@swarm/client";
 import { z } from "zod";
 
 const OWNER = process.env.SWARM_OWNER ?? "agent";

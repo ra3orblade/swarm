@@ -72,6 +72,9 @@ export interface SwarmConfig {
   daemon: {
     /** Preferred port; the daemon still falls back to a free port when taken. */
     port: number;
+    /** `loopback-optional` (default): local callers may omit the token; `required`: every request
+     *  must carry `~/.swarm/token` (M8.2b). Non-loopback callers always need it. */
+    auth: "loopback-optional" | "required";
   };
   rules: RulesConfig;
   tasks: {
@@ -120,7 +123,7 @@ export interface SwarmConfig {
 }
 
 export const DEFAULT_CONFIG: SwarmConfig = {
-  daemon: { port: 7777 },
+  daemon: { port: 7777, auth: "loopback-optional" },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
@@ -197,7 +200,10 @@ function validate(c: SwarmConfig): SwarmConfig {
   const auto = rawGates?.auto;
   return {
     ...c,
-    daemon: { port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777 },
+    daemon: {
+      port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 7777,
+      auth: c.daemon?.auth === "required" ? "required" : "loopback-optional",
+    },
     tasks: {
       source:
         typeof source === "string" && source.trim() && !source.startsWith("/")

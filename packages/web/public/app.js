@@ -1,5 +1,24 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+// M8.2b daemon token: `swarm ui` (and the desktop app) open the dashboard with ?token=…; it is kept
+// in sessionStorage, stripped from the URL, and sent on every /v1 request. Loopback without a token
+// still works while `[daemon] auth = "loopback-optional"`.
+const TOKEN = (() => {
+  const q = new URLSearchParams(location.search);
+  const t = q.get("token");
+  if (t) { try { sessionStorage.setItem("swarm.token", t); } catch {} q.delete("token"); history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`); return t; }
+  try { return sessionStorage.getItem("swarm.token"); } catch { return null; }
+})();
+if (TOKEN) {
+  const rawFetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (!url.startsWith("/v1/")) return rawFetch(input, init);
+    const headers = new Headers(init.headers || {});
+    headers.set("authorization", `Bearer ${TOKEN}`);
+    return rawFetch(input, { ...init, headers });
+  };
+}
 // macOS desktop app signals its overlay title bar via ?chrome=inset (see src-tauri/lib.rs).
 if (new URLSearchParams(location.search).get("chrome") === "inset") {
   document.documentElement.classList.add("chrome-inset");
@@ -1970,7 +1989,7 @@ let pending = false;
 const pollSoon = () => { if (!pending) { pending = true; setTimeout(() => { pending = false; poll(); }, 400); } };
 let backoff = 1500;
 function connect() {
-  const es = new EventSource(`/v1/events?since=${state.seq}`);
+  const es = new EventSource(`/v1/events?since=${state.seq}${TOKEN ? `&token=${TOKEN}` : ""}`);
   const on = () => { backoff = 1500; $("#daemon .dot").classList.add("on"); };
   es.addEventListener("open", on);
   es.addEventListener("ping", on);

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readToken } from "@swarm/client";
 import {
   formatHandoff,
   MEMORY_KINDS,
@@ -61,8 +62,31 @@ export function createApp(store = new Store()) {
     for (const run of runner.list(projectId)) void runner.stop(run.id);
   });
 
+  // M8.2b auth: the machine token (~/.swarm/token) as `Authorization: Bearer` or `?token=` (SSE).
+  // Loopback callers may omit it unless `[daemon] auth = "required"`; anyone else never may.
+  app.use("/v1/*", async (c, next) => {
+    if (c.req.path === "/v1/health") return next();
+    const token = readToken(store.home);
+    const given = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? c.req.query("token");
+    if (token && given && given === token) return next();
+    if (given) return c.json({ error: "unauthorized: wrong daemon token" }, 401);
+    const ip = (
+      c.env as { requestIP?: (r: Request) => { address: string } | null } | undefined
+    )?.requestIP?.(c.req.raw)?.address;
+    const loopback = !ip || ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+    if (loopback && store.policyFor(null).config.daemon.auth !== "required") return next();
+    return c.json(
+      { error: "unauthorized: send the daemon token (~/.swarm/token) as Authorization: Bearer" },
+      401,
+    );
+  });
   app.get("/v1/health", (c) =>
-    c.json({ ok: true, version: VERSION, schema: store.schemaVersion() }),
+    c.json({
+      ok: true,
+      version: VERSION,
+      schema: store.schemaVersion(),
+      auth: store.policyFor(null).config.daemon.auth,
+    }),
   );
 
   // ---- projects
