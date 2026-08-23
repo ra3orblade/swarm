@@ -88,7 +88,7 @@ const configs = [0, 1, 2].map((depth) =>
     id: `swarm-actions-${depth}`,
     kind: MenuKind.Menu,
     group: "swarm",
-    position: { minWidth: 200, maxWidth: 320 },
+    position: { minWidth: 260, maxWidth: 420 },
     // No chrome/title header — menus are anchored to what they act on, so a title bar is
     // redundant (and fancy-menus renders it whenever the title config exists, even if empty).
     // Submenus still get their own back-button header.

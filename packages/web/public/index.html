@@ -452,6 +452,9 @@
   .fm-row[data-pressed="true"] .fm-ico{color:var(--acc)}
   /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
   .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
+  /* labels are the point of a menu: never ellipsize them — the caption yields instead */
+  .fm-row__name{flex:0 0 auto;overflow:visible;text-overflow:clip}
+  .fm-row__caption{flex:0 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fm-ico .ph{vertical-align:0}
   main>h2:not(:first-child){margin-top:var(--gap-sec)}
   .mt-sec{margin-top:var(--gap-sec)}
@@ -487,7 +490,7 @@
   .wt-m{font-size:var(--fs-xs);color:var(--faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .wt-m i{font-style:normal} .wt-m i.warn{color:var(--warn)} .wt-m i.acc{color:var(--acc)}
   .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-  .chip{font:500 var(--fs-md) var(--sans);padding:4px 11px;border-radius:var(--r-pill);background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;user-select:none}
+  .chip{display:inline-flex;align-items:center;gap:5px;font:500 var(--fs-md) var(--sans);padding:4px 11px;border-radius:var(--r-pill);background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;user-select:none}
   .chip:hover{border-color:var(--acc);color:var(--fg-2)}
   .chip.on{background:var(--acc-soft);border-color:transparent;color:var(--acc)}
   .seg{display:inline-flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:2px}
