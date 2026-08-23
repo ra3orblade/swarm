@@ -50,6 +50,8 @@ export interface Run {
   startedAt: string;
   endedAt: string | null;
   exitCode: number | null;
+  /** Set when `stop()` was asked for — a stopped run is not a crashed one. */
+  stopped?: boolean;
   /** Latest `result` line: cost so far, turns, error flag. */
   result: { costUsd: number; turns: number; isError: boolean; at: string } | null;
   /** Permission prompts the rules didn't auto-resolve, awaiting a human (M3.2). */
@@ -76,6 +78,12 @@ const PERMISSION_MODES: PermissionMode[] = [
 
 export class Runner {
   private live = new Map<string, { run: Run; proc: ReturnType<typeof Bun.spawn> }>();
+  private endListeners = new Set<(run: Run) => void>();
+  /** Called with the final Run when a spawned process exits (M7.5 dispatcher hooks in here). */
+  onEnd(fn: (run: Run) => void): () => void {
+    this.endListeners.add(fn);
+    return () => this.endListeners.delete(fn);
+  }
 
   constructor(
     private store: Store,
@@ -245,6 +253,13 @@ export class Runner {
     });
     this.store.endSpawnedSession(entry.run.sessionId);
     this.live.delete(id);
+    for (const fn of this.endListeners) {
+      try {
+        fn(entry.run);
+      } catch (e) {
+        console.error("swarm run: onEnd listener failed:", (e as Error).message);
+      }
+    }
   }
 
   private onLine(run: Run, line: string) {
@@ -406,6 +421,7 @@ export class Runner {
     const run = this.get(id);
     if (!run) return { ok: false, reason: "no live run" };
     const entry = this.live.get(run.id);
+    run.stopped = true;
     try {
       const stdin = entry?.proc.stdin;
       if (stdin && typeof stdin !== "number") stdin.end();

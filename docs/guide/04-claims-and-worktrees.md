@@ -166,6 +166,21 @@ GitHub issues become `GH-<n>`: closed is done, an `in progress` / `wip` label is
 
 With a source set, the Board's **Tasks** section lists what's **Ready** — todo, dependencies done, not claimed — with a *Claim* action per row; **Open** and **All** show the rest. `swarm tasks --ready` prints the same list and the MCP tool `swarm_next_task` hands an agent the first one.
 
+## Dispatch: hand out the ready tasks
+
+Once a repo has a task source, executable gates and warm worktrees, one command hands out the work:
+
+```sh
+swarm dispatch --ready            # every ready task, [dispatch] max_parallel at a time
+swarm dispatch M7.6 M7.7 --max 1  # specific tasks; cap this round
+swarm dispatch status             # queued / running / finished with outcome and cost
+swarm dispatch clear              # drop the queue and finished rows (running ones keep going)
+```
+
+Each task gets its own claim and worktree and a `claude -p` run (the same machinery as `swarm run`) with a prompt that says: work only here, commit as you go, run the executable gates with `swarm_gate_run`, record the others, hand off, open the PR, and stop if a human has to decide something. Tasks beyond the cap queue and start as slots free. From the Board: the **Dispatch** chip on Tasks opens a picker (which ready tasks, how many at a time, permission mode); a **Dispatch** section then shows each task's state. From an agent: `swarm_dispatch` — a lead session can fan work out.
+
+When a run ends, Swarm decides what it amounted to from the ledger, never from the agent's word: executable required gates that didn't pass are run again by the daemon; then **done** means every required gate passes and a PR is open for the branch (`[dispatch] require_pr = false` to drop that), otherwise **gates-failed**, **no-pr**, **crashed** (non-zero exit or an error result) or **stopped**. Anything short of done opens a `dispatch_failed` incident; the claim and worktree are kept so you can **Resume where it died** or release it. A dispatched run never edits the task list — flipping a task ✅ stays a human act.
+
 ## Where things live
 
 - Worktrees: `~/.swarm/worktrees/<project-name>/<task>/` (under `SWARM_HOME` if set)

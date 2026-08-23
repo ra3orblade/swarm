@@ -45,7 +45,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -154,12 +154,13 @@ async function refresh() {
   }
   let tasksChanged = false;
   if (state.view === "board" && state.sel && !state.session) {
-    const [t, g] = await Promise.all([
+    const [t, g, d] = await Promise.all([
       fetch(`/v1/tasks?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.tasks),
       fetch(`/v1/gates?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.gates),
+      fetch(`/v1/dispatch?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.dispatch),
     ]);
-    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks) || JSON.stringify(g) !== JSON.stringify(state.gates);
-    state.tasks = t; state.gates = g;
+    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks) || JSON.stringify(g) !== JSON.stringify(state.gates) || JSON.stringify(d) !== JSON.stringify(state.dispatch);
+    state.tasks = t; state.gates = g; state.dispatch = d;
   }
   let incChanged = false;
   if (state.view === "incidents" && !state.session) {
@@ -366,7 +367,7 @@ function renderPRs() {
 
 // ---------- board (coordination: claims, worktrees, incidents)
 function renderBoard() {
-  const parts = [renderTasks(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderTasks(), renderDispatch(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<h2) class="mt-sec"/, "$1") // first section needs no top gap
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, processes, claims, worktrees, and incidents appear here.</div>`;
@@ -597,7 +598,7 @@ function renderTasks() {
   ];
   const srcLabel = state.tasks.source === "github" ? "GitHub Issues" : state.tasks.source === "linear" ? "Linear" : state.tasks.source;
   return `<h2 class="mt-sec">Tasks <span>${ready.length} ready · ${all.length} in ${esc(srcLabel)}${state.tasks.error ? ` · <span class="badge warn" title="${esc(state.tasks.error)}">${ic("warning", 12)} ${esc(state.tasks.error)}</span>` : ""}</span></h2>` +
-    `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}</div>` +
+    `<div class="chips">${chip("ready", "Ready", ready.length)}${chip("open", "Open", all.filter((t) => t.status !== "done").length)}${chip("all", "All", all.length)}${ready.length ? `<span class="chip" id="dispatch" title="Claim a worktree per ready task and spawn a run in each, ${state.dispatch?.config?.max_parallel ?? 2} at a time">${ic("play", 12)} Dispatch</span>` : ""}</div>` +
     (rows.length
       ? dataTable({
           id: "tasks",
@@ -683,6 +684,35 @@ function renderWorktrees() {
       rows,
       leading: { width: 24, cell: (w) => `<span class="s ${inside(w).length ? "active" : w.dirty > 0 ? "waiting" : "ended"}"></span>` },
       trailing: { width: 230, cell: actions },
+      rerender: touch,
+    });
+}
+
+// ---------- dispatch (M7.5)
+function renderDispatch() {
+  const d = state.dispatch;
+  if (!state.sel || !d?.entries?.length) return "";
+  const rows = d.entries;
+  const oc = (e) => e.state === "queued" ? '<span class="badge">Queued</span>'
+    : e.state === "running" ? '<span class="badge acc">Running</span>'
+    : e.outcome === "done" ? '<span class="badge ok">Done</span>'
+    : e.outcome === "stopped" ? '<span class="badge">Stopped</span>'
+    : `<span class="badge warn">${esc(e.outcome ?? "?")}</span>`;
+  const cols = [
+    { key: "task", label: "task", width: 90, get: (e) => e.task, cell: (e) => `<b>${esc(e.task)}</b>` },
+    { key: "title", label: "title", flex: true, get: (e) => e.title, cell: (e) => esc(e.title) },
+    { key: "state", label: "state", width: 110, get: (e) => (e.state === "running" ? 0 : e.state === "queued" ? 1 : 2), cell: oc },
+    { key: "cost", label: "cost", width: 70, num: true, get: (e) => e.costUsd ?? -1, cell: (e) => (e.costUsd != null ? usd(e.costUsd) : '<span class="dim">—</span>') },
+    { key: "detail", label: "detail", width: 360, get: (e) => e.detail ?? "", cell: (e) => `<span class="dim" title="${esc(e.detail ?? "")}">${esc(e.detail ?? "")}</span>` },
+  ];
+  const running = rows.filter((e) => e.state === "running").length, queued = rows.filter((e) => e.state === "queued").length;
+  return `<h2 class="mt-sec hrow">Dispatch <span>${running} running · ${queued} queued · cap ${d.config?.max_parallel ?? 2}</span><a href="#" class="nav" id="dispatchClear" title="Drop queued tasks and clear finished rows (running ones keep going)">${ic("trash", 12)} Clear</a></h2>` +
+    dataTable({
+      id: "dispatch",
+      columns: cols,
+      rows,
+      leading: { width: 24, cell: (e) => `<span class="s ${e.state === "running" ? "active" : e.state === "queued" ? "waiting" : e.outcome === "done" ? "ended" : "waiting"}"></span>` },
+      trailing: { width: 90, cell: (e) => (e.sessionId ? `<a href="#" data-s="${esc(e.sessionId)}">session</a>` : "") },
       rerender: touch,
     });
 }
@@ -1302,7 +1332,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun]");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1372,6 +1402,14 @@ document.addEventListener("click", async (ev) => {
     if (!confirm(`Stale worktrees:\n\n${lines}\n\nRemove the ${n} removable one${n === 1 ? "" : "s"}?`)) return;
     await fetch("/v1/worktrees/gc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, apply: true }) });
     state.worktrees[state.sel] = null;
+    return refresh();
+  }
+  if (t.id === "dispatch") { ev.preventDefault(); return openDispatchDrawer(); }
+  if (t.id === "dispatchGo") { ev.preventDefault(); return submitDispatch(); }
+  if (t.id === "dispatchClear") {
+    ev.preventDefault();
+    await fetch("/v1/dispatch", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel }) });
+    state.dispatch = null;
     return refresh();
   }
   if (t.dataset.gaterun) {
@@ -1504,6 +1542,39 @@ async function submitRun(taskId) {
   state.tasks = null;
   await refresh();
   openSession(r.run.sessionId);
+}
+
+// ---------- dispatch drawer (M7.5)
+function openDispatchDrawer() {
+  const ready = (state.tasks?.tasks ?? []).filter((t) => t.ready);
+  const cfg = state.dispatch?.config ?? {};
+  const last = (() => { try { return JSON.parse(localStorage.getItem("swarm.runOpts") || "{}"); } catch { return {}; } })();
+  const opt = (v, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${v || "default"}</option>`;
+  $("#picker").innerHTML = `<div class="pk" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("play", 15)}<b>Dispatch</b><span class="dim now" style="flex:1;margin-left:8px">${ready.length} ready task${ready.length === 1 ? "" : "s"}</span></div>
+    <div class="pk-b">
+      <div class="df-files" style="max-height:30vh">${ready.map((t) => `<label style="display:flex;gap:8px;padding:4px 8px;align-items:center"><input type="checkbox" class="dpTask" value="${esc(t.id)}" checked style="width:auto"><b>${esc(t.id)}</b><span class="pa dim">${esc(t.title)}</span></label>`).join("")}</div>
+      <div class="row">
+        <label>at a time<input id="dpPar" type="number" min="1" max="16" value="${cfg.max_parallel ?? 2}"></label>
+        <label>permission mode<select id="dpMode">${["acceptEdits", "auto", "plan", "dontAsk", "manual", "bypassPermissions"].map((m) => opt(m, cfg.permission_mode ?? last.mode ?? "acceptEdits")).join("")}</select></label>
+        <label>max turns<input id="dpTurns" type="number" min="1" placeholder="∞" value="${esc(cfg.max_turns ?? last.turns ?? "")}"></label>
+      </div>
+      <div class="dim" style="font-size:var(--fs-sm)">Each task gets its own claim + worktree and a <code>claude -p</code> run told to work there, run the gates, hand off and open a PR. The rest queue until a slot frees. Swarm derives the outcome from gates and PRs — a task is never flipped done by an agent.</div>
+    </div>
+    <div class="pk-f"><span class="grow"></span><button id="pkClose">Cancel</button><button class="primary" id="dispatchGo">${ic("play", 13)} Dispatch</button></div>
+  </div>`;
+  $("#pkClose")?.addEventListener("click", closePicker);
+}
+async function submitDispatch() {
+  const tasks = [...document.querySelectorAll(".dpTask:checked")].map((i) => i.value);
+  if (!tasks.length) return alert("Pick at least one task.");
+  const body = { projectId: state.sel, tasks, maxParallel: Number($("#dpPar")?.value) || undefined, permissionMode: $("#dpMode")?.value, maxTurns: Number($("#dpTurns")?.value) || undefined, owner: "dashboard" };
+  closePicker();
+  const r = await fetch("/v1/dispatch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
+  if (!r.ok) return alert(r.error);
+  if (r.rejected?.length) alert(`Not dispatched:\n${r.rejected.map((x) => `${x.id} — ${x.reason}`).join("\n")}`);
+  state.tasks = null; state.dispatch = null;
+  return refresh();
 }
 
 // ---------- worktree diff + PR drawers (M7.3)
@@ -1640,7 +1711,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

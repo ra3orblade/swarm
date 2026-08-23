@@ -12,9 +12,10 @@ import {
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
-import { type RunInput, Runner } from "./runner";
+import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.6.0";
@@ -47,6 +48,7 @@ export function createApp(store = new Store()) {
   const app = new Hono();
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
+  const dispatcher = new Dispatcher(store, runner, forge);
 
   app.get("/v1/health", (c) => c.json({ ok: true, version: VERSION }));
 
@@ -252,6 +254,42 @@ export function createApp(store = new Store()) {
     });
     return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
+  // ---- dispatch (M7.5): claim + run ready tasks up to a per-project cap; outcome derived on exit
+  app.get("/v1/dispatch", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    return c.json({ entries: dispatcher.status(project), config: store.config(project).dispatch });
+  });
+  app.post("/v1/dispatch", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      tasks?: string[];
+      ready?: boolean;
+      max?: number;
+      maxParallel?: number;
+      permissionMode?: PermissionMode;
+      model?: string;
+      maxTurns?: number;
+      owner?: string;
+    };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
+    if (!b.ready && !b.tasks?.length)
+      return c.json({ ok: false, error: "tasks or ready:true required" }, 400);
+    const r = await dispatcher.dispatch(b.projectId, b.ready ? "ready" : (b.tasks as string[]), {
+      owner: b.owner ?? "dispatch",
+      max: b.max,
+      maxParallel: b.maxParallel,
+      permissionMode: b.permissionMode,
+      model: b.model,
+      maxTurns: b.maxTurns,
+    });
+    return c.json(r, r.ok ? 202 : 409);
+  });
+  app.delete("/v1/dispatch", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; task?: string };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
+    return c.json({ ok: true, cleared: dispatcher.clear(b.projectId, b.task) });
+  });
   app.post("/v1/runs/:id/send", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as { text?: string };
     if (!b.text?.trim()) return c.json({ ok: false, error: "text required" }, 400);
@@ -339,13 +377,11 @@ export function createApp(store = new Store()) {
       return c.json({ ok: false, error: "projectId and task required" }, 400);
     const opts = { sessionId: b.sessionId ?? null, owner: "cli" };
     if (b.wait === false) {
-      const names = b.gates?.length
-        ? b.gates
-        : (store.gateDefs(b.projectId)?.required ?? []).filter(
-            (g) => store.gateDefs(b.projectId!)?.defs[g],
-          );
+      const projectId = b.projectId;
+      const cfg = store.gateDefs(projectId);
+      const names = b.gates?.length ? b.gates : (cfg?.required ?? []).filter((g) => cfg?.defs[g]);
       // sequential like runGates, but detached from the request
-      void store.runGates(b.projectId, b.task, names, opts);
+      void store.runGates(projectId, b.task, names, opts);
       return c.json({ ok: true, started: names, runs: [] }, 202);
     }
     const r = await store.runGates(b.projectId, b.task, b.gates, opts);
@@ -634,5 +670,5 @@ export function createApp(store = new Store()) {
     });
   });
 
-  return { app, store, forge, runner };
+  return { app, store, forge, runner, dispatcher };
 }

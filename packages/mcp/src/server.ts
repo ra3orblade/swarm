@@ -257,6 +257,50 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_dispatch",
+    {
+      title: "Dispatch tasks to spawned agents",
+      description:
+        "Hand ready tasks to autonomous runs: each gets its own claim + worktree and a `claude -p` run with a prompt built from the task (work in the worktree, run gates, hand off, open the PR). At most [dispatch] max_parallel run at once per repo; the rest queue. When a run ends Swarm derives the outcome from the ledger (gates satisfied, PR open) — never from the agent's word — and opens an incident if it fell short. Use from a lead session to fan work out; check progress with swarm_status or the Board.",
+      inputSchema: {
+        tasks: z
+          .array(z.string())
+          .optional()
+          .describe("task ids; omit with ready=true to take every ready task"),
+        ready: z.boolean().optional(),
+        max: z.number().int().positive().optional().describe("cap on tasks accepted this call"),
+      },
+    },
+    async ({ tasks, ready, max }) => {
+      const pid = await projectId();
+      const r = await api<{
+        ok: boolean;
+        error?: string;
+        started: string[];
+        queued: string[];
+        rejected: Array<{ id: string; reason: string }>;
+      }>("/v1/dispatch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: pid,
+          tasks,
+          ready: ready ?? !tasks?.length,
+          max,
+          owner: "mcp",
+        }),
+      });
+      if (!r.ok) return fail(`REFUSED: ${r.error}`);
+      const lines = [
+        ...r.started.map((t) => `started ${t}`),
+        ...r.queued.map((t) => `queued ${t}`),
+        ...r.rejected.map((x) => `rejected ${x.id} — ${x.reason}`),
+      ];
+      return ok(lines.join("\n") || "nothing to dispatch", r);
+    },
+  );
+
+  server.registerTool(
     "swarm_pr_open",
     {
       title: "Open a pull request for a task",
