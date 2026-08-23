@@ -1,9 +1,12 @@
 /**
- * Swarm configuration (M0.9.7).
+ * Swarm configuration (M0.9.7, org policy layer M8.1).
  *
- * Two layers, deep-merged over built-in defaults:
- *   1. `~/.swarm/config.toml`   — global, per-machine
- *   2. `<repo>/.swarm.toml`     — per-repo, wins over global
+ * Three layers, deep-merged over built-in defaults — later wins:
+ *   1. `~/.swarm/policy.toml` (or `$SWARM_POLICY`) — org policy; the only layer that may
+ *      carry `locked = ["rules.destructive_git", …]`: dotted keys (or whole subtrees) that
+ *      the layers below cannot override. Overrides are reported, not silently applied.
+ *   2. `~/.swarm/config.toml`   — global, per-machine
+ *   3. `<repo>/.swarm.toml`     — per-repo, wins over global
  *
  * TOML is parsed with Bun's built-in parser. Unknown keys are kept (forward
  * compatibility); known keys are validated and fall back to defaults with a
@@ -255,21 +258,122 @@ function validate(c: SwarmConfig): SwarmConfig {
 }
 
 export interface LoadConfigOptions {
-  /** Swarm home dir holding config.toml (default: env SWARM_HOME or ~/.swarm). */
+  /** Swarm home dir holding config.toml + policy.toml (default: env SWARM_HOME or ~/.swarm). */
   home?: string;
   /** Repo root holding .swarm.toml; omit to load only the global layer. */
   repoRoot?: string | null;
+  /** Org policy file (default: env SWARM_POLICY or `<home>/policy.toml`). */
+  policy?: string | null;
+}
+
+/** Which file a merged value came from. */
+export type ConfigLayer = "default" | "policy" | "global" | "repo";
+
+export interface LockedOverride {
+  /** Dotted key that a lower layer tried to set. */
+  key: string;
+  /** The layer that tried. */
+  layer: ConfigLayer;
+  /** What it tried to set (the policy value stays in effect). */
+  attempted: unknown;
+}
+
+export interface LoadedConfig {
+  config: SwarmConfig;
+  /** Leaf dotted key → the layer whose value is in effect. */
+  provenance: Record<string, ConfigLayer>;
+  /** Attempts by global/repo config to change a locked key; each is a tamper signal (M8.1). */
+  overridden: LockedOverride[];
+  policy: {
+    /** Path of the policy file that was read, or null when none exists. */
+    path: string | null;
+    /** Locked dotted keys as declared by the policy. */
+    locked: string[];
+  };
+}
+
+function leafPaths(v: unknown, prefix = ""): string[] {
+  if (!isRecord(v)) return prefix ? [prefix] : [];
+  const keys = Object.keys(v);
+  if (keys.length === 0) return prefix ? [prefix] : [];
+  return keys.flatMap((k) => leafPaths(v[k], prefix ? `${prefix}.${k}` : k));
+}
+
+function getPath(v: unknown, path: string): unknown {
+  let cur = v;
+  for (const seg of path.split(".")) {
+    if (!isRecord(cur)) return undefined;
+    cur = cur[seg];
+  }
+  return cur;
+}
+
+function setPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const segs = path.split(".");
+  let cur = obj;
+  for (const seg of segs.slice(0, -1)) {
+    if (!isRecord(cur[seg])) cur[seg] = {};
+    cur = cur[seg] as Record<string, unknown>;
+  }
+  cur[segs[segs.length - 1] as string] = value;
+}
+
+const isLockedBy = (path: string, lock: string) => path === lock || path.startsWith(`${lock}.`);
+
+function readLayer(path: string): Record<string, unknown> | null {
+  return existsSync(path) ? parseToml(readFileSync(path, "utf8"), path) : null;
+}
+
+/** Load every layer and report where each value came from and which locked keys were contested. */
+export function loadConfigDetailed(opts: LoadConfigOptions = {}): LoadedConfig {
+  const home = opts.home ?? process.env.SWARM_HOME ?? join(process.env.HOME ?? "", ".swarm");
+  const policyPath = opts.policy ?? process.env.SWARM_POLICY ?? join(home, "policy.toml");
+  const policyRaw = readLayer(policyPath);
+  const locked = Array.isArray(policyRaw?.locked)
+    ? policyRaw.locked.filter(
+        (k): k is string => typeof k === "string" && /^[a-z0-9_.-]+$/i.test(k),
+      )
+    : [];
+  const policy: Record<string, unknown> = { ...(policyRaw ?? {}) };
+  delete policy.locked;
+
+  const layers: Array<[ConfigLayer, Record<string, unknown> | null]> = [
+    ["policy", policyRaw ? policy : null],
+    ["global", readLayer(join(home, "config.toml"))],
+    ["repo", opts.repoRoot ? readLayer(join(opts.repoRoot, ".swarm.toml")) : null],
+  ];
+
+  const provenance: Record<string, ConfigLayer> = {};
+  for (const p of leafPaths(DEFAULT_CONFIG)) provenance[p] = "default";
+  const overridden: LockedOverride[] = [];
+  let cfg: SwarmConfig = DEFAULT_CONFIG;
+  for (const [layer, raw] of layers) {
+    if (!raw) continue;
+    for (const p of leafPaths(raw)) {
+      const lock = layer !== "policy" && locked.find((l) => isLockedBy(p, l));
+      if (lock) overridden.push({ key: p, layer, attempted: getPath(raw, p) });
+      else provenance[p] = layer;
+    }
+    cfg = merge(cfg, raw);
+  }
+  if (overridden.length) {
+    // Reinstate the policy's (or default's) value for every contested locked key.
+    const out = structuredClone(cfg) as unknown as Record<string, unknown>;
+    for (const { key } of overridden) {
+      const fromPolicy = getPath(policy, key);
+      setPath(out, key, fromPolicy === undefined ? getPath(DEFAULT_CONFIG, key) : fromPolicy);
+      provenance[key] = fromPolicy === undefined ? "default" : "policy";
+    }
+    cfg = out as unknown as SwarmConfig;
+  }
+  return {
+    config: validate(cfg),
+    provenance,
+    overridden,
+    policy: { path: policyRaw ? policyPath : null, locked },
+  };
 }
 
 export function loadConfig(opts: LoadConfigOptions = {}): SwarmConfig {
-  const home = opts.home ?? process.env.SWARM_HOME ?? join(process.env.HOME ?? "", ".swarm");
-  let cfg: SwarmConfig = DEFAULT_CONFIG;
-  const globalPath = join(home, "config.toml");
-  if (existsSync(globalPath))
-    cfg = merge(cfg, parseToml(readFileSync(globalPath, "utf8"), globalPath));
-  if (opts.repoRoot) {
-    const repoPath = join(opts.repoRoot, ".swarm.toml");
-    if (existsSync(repoPath)) cfg = merge(cfg, parseToml(readFileSync(repoPath, "utf8"), repoPath));
-  }
-  return validate(cfg);
+  return loadConfigDetailed(opts).config;
 }

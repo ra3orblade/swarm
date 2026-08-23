@@ -2,10 +2,27 @@
 
 Status: current. The TOML config layers and the rule modes they control.
 
-Two TOML layers, deep-merged over built-in defaults — later wins:
+Three TOML layers, deep-merged over built-in defaults — later wins:
 
-1. `~/.swarm/config.toml` — global, per-machine
-2. `<repo>/.swarm.toml` — per-repo (commit it; it's how a repo declares its rules)
+1. `~/.swarm/policy.toml` (or the file `SWARM_POLICY` points at) — org policy, optional (M8.1)
+2. `~/.swarm/config.toml` — global, per-machine
+3. `<repo>/.swarm.toml` — per-repo (commit it; it's how a repo declares its rules)
+
+The policy layer is the only one that may carry `locked`: a list of dotted keys (or whole
+subtrees) that the layers below cannot change. A locked key keeps the policy's value — or the
+built-in default when the policy sets none — and every attempt to override it is reported
+(`loadConfigDetailed().overridden`) so `doctor` and the daemon can treat it as a tamper signal.
+Everything else in the policy file is ordinary config that global and repo layers override.
+
+```toml
+# ~/.swarm/policy.toml — what an org pins on every machine
+locked = ["rules.destructive_git", "rules.protected", "tasks.source"]
+
+[rules]
+destructive_git = "deny"
+[rules.protected]
+ports = [5432]
+```
 
 Invalid values fall back to defaults with a warning; invalid TOML is ignored —
 configuration can never take the daemon down. The daemon re-reads repo config
