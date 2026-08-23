@@ -205,7 +205,9 @@
   .stdin button.danger{color:var(--warn);border-color:var(--warn-soft)}
   .stdin .hint{color:var(--dim);font-size:var(--fs-sm)}
   .pk-f{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
-  .pk-f button{flex:none}.pk-f .grow{flex:1}
+  .pk-f button{flex:none}
+  /* a flex spacer, anywhere (the picker header relied on this being global and it wasn't) */
+  .grow{flex:1}
   .pk-f .primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
   .pk-f .primary:hover{filter:brightness(1.06);color:var(--acc-contrast)}
   .proj .nm .pdir{opacity:.5;font-weight:400}
@@ -213,7 +215,10 @@
   .proj[draggable]{cursor:grab}
   .proj.dragging{opacity:.35;background:var(--panel-2);outline:1px dashed var(--acc)}
   button{background:var(--panel);border:1px solid var(--line);color:var(--fg-2);padding:var(--pad-ctl);
-    border-radius:var(--r-sm);font:600 var(--fs-md) var(--sans);cursor:pointer;transition:border-color var(--t-fast),color var(--t-fast)}
+    border-radius:var(--r-sm);font:600 var(--fs-md) var(--sans);cursor:pointer;transition:border-color var(--t-fast),color var(--t-fast);
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;line-height:1}
+  /* icon-only buttons (the picker's ×): square, the glyph dead-centre */
+  .pk-h button{padding:6px;line-height:0}
   button:hover{border-color:var(--acc);color:var(--fg)}
 
   /* main */
