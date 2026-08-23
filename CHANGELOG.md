@@ -2,7 +2,9 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.7.0] — 2026-08-23
+
+The orchestrate release: Swarm runs a task end to end on its own and you stay in control. New worktrees start warm, gates execute instead of being vouched for, `swarm dispatch` hands ready tasks to autonomous runs whose outcome is derived from the ledger, an agent that needs a human decision can ask for one, and a budget keeps the bill in bounds.
 
 ### Added
 - **Budgets** — `[budget] daily = 25` / `weekly = 100` in `.swarm.toml` puts a spend ceiling on a repo, judged from the same transcript-priced numbers as the Spend view. At `warn_at` (80%) a `budget` incident opens; past 100% `on_exceed` decides: `"warn"`, `"ask"` (every Bash / Edit / Write in the repo asks first), or `"stop"` (spawned runs stopped, dispatch queue cleared). One incident per level per day; a budget tile on the Spend view.
