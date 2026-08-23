@@ -84,6 +84,10 @@ Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claim
 
 Inputs: `{ task: string, gates?: string[] }`. Runs the gates the repo defines as commands (`.swarm.toml [gates.<name>] cmd`) inside the task's held worktree and records the verdicts — exit 0 is a pass, the rubric is the command, the evidence is the output tail (the last lines are returned on a fail). Defaults to the required gates that have a command. Use it instead of `swarm_gate_record` whenever a gate has a command: the record then says exactly what ran.
 
+### `swarm_dispatch`
+
+Inputs: `{ tasks?: string[], ready?: boolean, max?: number }`. Hands ready tasks to autonomous runs — a claim + worktree + `claude -p` each, `[dispatch] max_parallel` at a time, the rest queued. The outcome of each run is derived from gates and PRs when it ends, never from the agent. For a lead session that wants to fan work out; follow progress with `swarm_status` or the Board.
+
 ### `swarm_pr_open`
 
 Inputs: `{ task: string, title?: string, body?: string, draft?: boolean }`. Pushes the task's worktree branch and opens a PR / MR through the locally logged-in `gh` / `glab`, with the title and body drafted from the task, the latest handoff, the gates and the changed files (override either). Refuses uncommitted changes — commit first. The natural last step of a task, after `swarm_handoff` and the gates.

@@ -86,6 +86,16 @@ export interface SwarmConfig {
     /** Executable gates: `[gates.<name>] cmd = "bun test"` (M7.4). */
     defs: Record<string, GateDef>;
   };
+  dispatch: {
+    /** Dispatched runs at once per project (M7.5). */
+    max_parallel: number;
+    /** Defaults for dispatched runs; null = Claude Code's defaults. */
+    permission_mode: string | null;
+    model: string | null;
+    max_turns: number | null;
+    /** A dispatched task counts as done only once a PR is open for its branch. */
+    require_pr: boolean;
+  };
   worktree: {
     /** Shell command run inside every new worktree right after `git worktree add`
      *  (e.g. `"bun install"`); null = nothing. Runs in the background; a non-zero exit opens an
@@ -104,6 +114,13 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777 },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
+  dispatch: {
+    max_parallel: 2,
+    permission_mode: null,
+    model: null,
+    max_turns: null,
+    require_pr: true,
+  },
   worktree: { setup: null, copy: [], open: null },
   rules: {
     shared_tree: "ask",
@@ -156,6 +173,10 @@ function validate(c: SwarmConfig): SwarmConfig {
   const setup = c.worktree?.setup;
   const opener = c.worktree?.open;
   const rawGates = c.gates as unknown as Record<string, unknown> | undefined;
+  const d = (c.dispatch ?? {}) as Partial<Record<string, unknown>>;
+  const mp = Number(d.max_parallel);
+  const mt = Number(d.max_turns);
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   const auto = rawGates?.auto;
   return {
     ...c,
@@ -178,6 +199,13 @@ function validate(c: SwarmConfig): SwarmConfig {
         ? (auto as SwarmConfig["gates"]["auto"])
         : "session-end",
       defs: parseGateDefs(rawGates),
+    },
+    dispatch: {
+      max_parallel: Number.isInteger(mp) && mp > 0 ? Math.min(mp, 16) : 2,
+      permission_mode: str(d.permission_mode),
+      model: str(d.model),
+      max_turns: Number.isInteger(mt) && mt > 0 ? mt : null,
+      require_pr: d.require_pr === undefined ? true : d.require_pr === true,
     },
     worktree: {
       setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,

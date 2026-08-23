@@ -858,6 +858,12 @@ export class Store {
   /** Gates the repo declares as required (`.swarm.toml [gates] required`). */
   // ---------- executed gates (M7.4)
 
+  /** The merged config for a project (global + repo `.swarm.toml`). */
+  config(projectId: string) {
+    const p = this.project(projectId);
+    return loadConfig({ repoRoot: p?.root ?? null, home: this.home });
+  }
+
   /** `[gates.<name>] cmd` definitions for a project. */
   gateDefs(projectId: string) {
     const p = this.project(projectId);
@@ -1691,6 +1697,9 @@ export class Store {
     "worktree.created",
     "worktree.removed",
     "pr.opened",
+    "dispatch.queued",
+    "dispatch.started",
+    "dispatch.finished",
     "gate.recorded",
     "handoff.recorded",
     "incident.opened",

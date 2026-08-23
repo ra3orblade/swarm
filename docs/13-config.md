@@ -65,6 +65,15 @@ ports = []                # e.g. [3000, 5432, 7777]
 # source = "linear"      # Linear GraphQL with LINEAR_API_KEY from the daemon's environment (never stored)
 # team = "ENG"           # Linear only: team key; all teams when unset
 
+[dispatch]
+# `swarm dispatch` (M7.5): autonomous runs per project at once; the rest queue. Defaults for those
+# runs; `require_pr` = a dispatched task counts as done only once a PR is open for its branch.
+max_parallel = 2
+# permission_mode = "acceptEdits"
+# model = "claude-sonnet-5"
+# max_turns = 60
+require_pr = true
+
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).
 # `copy`: untracked files copied from the main checkout before setup — repo-relative only,

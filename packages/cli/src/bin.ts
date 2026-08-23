@@ -30,6 +30,7 @@ const help = `swarm — control plane for AI-agent development
   gate run <task> [gate…]    execute the repo's [gates.<name>] cmd gates in the task's worktree and record them
   wt [ls|create|open|diff|rm|gc]  first-class worktrees: create task-less ones, open, diff, remove, collect stale
   pr open <task|worktree>    push the branch and open a PR/MR prefilled from the task, handoff, gates and files
+  dispatch --ready | <task…> claim + spawn a run per task, [dispatch] max_parallel at a time; status | clear
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
@@ -387,6 +388,93 @@ try {
           throw new Error(
             "usage: swarm wt [ls] | create <name> | open <ref> | rm <ref> [--force] | gc [--apply]",
           );
+      }
+      break;
+    }
+    case "dispatch": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const VALUE_FLAGS = ["--max", "--parallel", "--model", "--permission-mode", "--max-turns"];
+      const positional = rest.filter(
+        (a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(rest[i - 1] ?? ""),
+      );
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const num = (n: string) => {
+        const v = flag(n);
+        return v ? Number(v) : undefined;
+      };
+      const sub = positional[0];
+      if (sub === "status" || (!sub && !rest.includes("--ready"))) {
+        const d = (await api(`/v1/dispatch?project=${proj.id}`)) as {
+          entries: Array<{
+            task: string;
+            state: string;
+            outcome: string | null;
+            detail: string | null;
+            runId: string | null;
+            costUsd: number | null;
+          }>;
+          config: { max_parallel: number };
+        };
+        if (json) console.log(JSON.stringify(d));
+        else if (!d.entries.length)
+          console.log(
+            `nothing dispatched (max_parallel ${d.config.max_parallel}); swarm dispatch --ready | <task…>`,
+          );
+        else
+          for (const e of d.entries)
+            console.log(
+              `${(e.state === "finished" ? (e.outcome ?? "?") : e.state).padEnd(13)} ${e.task.padEnd(10)} ${e.runId ? `run ${e.runId} ` : ""}${e.costUsd != null ? `$${e.costUsd.toFixed(2)} ` : ""}${e.detail ?? ""}`,
+            );
+        break;
+      }
+      if (sub === "clear") {
+        const r = (await fetch(`${new SwarmClient().baseUrl}/v1/dispatch`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: proj.id, task: positional[1] }),
+        }).then((x) => x.json())) as { cleared: number };
+        console.log(json ? JSON.stringify(r) : `cleared ${r.cleared}`);
+        break;
+      }
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/dispatch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: proj.id,
+          ready: rest.includes("--ready"),
+          tasks: positional,
+          max: num("--max"),
+          maxParallel: num("--parallel"),
+          model: flag("--model"),
+          permissionMode: flag("--permission-mode"),
+          maxTurns: num("--max-turns"),
+          owner: process.env.USER ?? "cli",
+        }),
+      }).then((x) => x.json())) as {
+        ok: boolean;
+        error?: string;
+        started: string[];
+        queued: string[];
+        rejected: Array<{ id: string; reason: string }>;
+      };
+      if (json) console.log(JSON.stringify(r));
+      else if (!r.ok) {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      } else {
+        for (const t of r.started) console.log(`started   ${t}`);
+        for (const t of r.queued) console.log(`queued    ${t}`);
+        for (const x of r.rejected) console.log(`rejected  ${x.id} — ${x.reason}`);
+        if (!r.started.length && !r.queued.length) console.log("nothing to dispatch");
+        else console.log("\nwatch: swarm dispatch status · swarm run ls · the Board");
       }
       break;
     }

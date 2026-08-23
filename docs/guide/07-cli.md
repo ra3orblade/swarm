@@ -119,6 +119,17 @@ Permission prompts from the spawned agent are brokered by Swarm: the same [rules
 
 `swarm run` claims the task (fail-closed — or reuses a worktree you already hold), then the daemon spawns `claude -p` inside it with stream-json on both stdin and stdout. The session appears in Fleet marked ▶ spawned; tokens and cost come from its transcript like any other session, and each finished turn is a `run.result` event with the cost so far. Runs live as long as the daemon: `swarm stop` / a restart stops them cleanly (their pids are in the registry, never killed by pattern). Options: `--prompt-file`, `--model`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--allowed-tools Bash,Edit`, `--max-turns n`.
 
+## Dispatch
+
+```sh
+swarm dispatch --ready [--max N] [--parallel N] [--permission-mode m] [--model m] [--max-turns n]
+swarm dispatch <task…>           # specific tasks (must be ready: unclaimed, dependencies done)
+swarm dispatch status            # per task: queued / running / done / gates-failed / no-pr / crashed / stopped
+swarm dispatch clear [task]      # drop queued (and finished) rows
+```
+
+Details: [Claims and worktrees → Dispatch](04-claims-and-worktrees.md#dispatch-hand-out-the-ready-tasks).
+
 ## Search
 
 ```sh

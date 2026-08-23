@@ -17,4 +17,18 @@ source = "docs/06-roadmap.md"
 
 [gates]
 # Every task passes review before it counts as done; `swarm gate record <task> review pass --rubric "…"`.
-required = ["review"]
+# tests + lint run themselves (`swarm gate run <task>`), review is a recorded verdict.
+required = ["tests", "lint", "review"]
+
+[worktree]
+# New worktrees (claims, `swarm wt create`, dispatch) start warm: deps installed, nothing to copy.
+setup = "bun install"
+
+[gates.tests]
+cmd = "bun run test"
+[gates.lint]
+cmd = "bun run lint && bun run typecheck"
+
+[dispatch]
+# Two autonomous runs at a time is what this machine and one reviewer can keep up with.
+max_parallel = 2
