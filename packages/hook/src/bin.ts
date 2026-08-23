@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DEFAULT_PORT, resolveBaseUrl, swarmHome } from "@swarm/client";
+import { DEFAULT_PORT, authedFetch as fetch, resolveBaseUrl, swarmHome } from "@swarm/client";
 import { evaluateOffline, POLICY_CACHE_FILE, verifyPolicyCache } from "@swarm/core";
 
 const event = process.argv[2] ?? "Unknown";

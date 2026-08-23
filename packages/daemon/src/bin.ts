@@ -1,5 +1,10 @@
 #!/usr/bin/env bun
-import { clearDaemonInfo, DEFAULT_PORT as ENV_PORT, writeDaemonInfo } from "@swarm/client";
+import {
+  clearDaemonInfo,
+  DEFAULT_PORT as ENV_PORT,
+  ensureToken,
+  writeDaemonInfo,
+} from "@swarm/client";
 import { loadConfig } from "@swarm/core";
 import { createApp, VERSION } from "./app";
 
@@ -26,6 +31,7 @@ function serve(): ReturnType<typeof Bun.serve> {
 const server = serve();
 const port = server.port ?? DEFAULT_PORT;
 
+ensureToken();
 writeDaemonInfo({ port, pid: process.pid, version: VERSION, startedAt: new Date().toISOString() });
 // one-time backfill of recent-ish agent history on boot, then cheap live ticks
 const backfillDays = Number(process.env.SWARM_CODEX_BACKFILL_DAYS ?? 30);

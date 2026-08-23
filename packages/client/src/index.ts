@@ -1,22 +1,22 @@
 import type { SwarmEvent } from "@swarm/core";
-import { resolveBaseUrl } from "./daemon";
+import { authedFetch, resolveBaseUrl } from "./daemon";
 
 export * from "./bins";
 export * from "./daemon";
 
 export interface ClientOptions {
   baseUrl?: string;
-  fetch?: typeof fetch;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 }
 
 /** Thin typed HTTP client for swarmd. Every CLI/MCP/hook/web call goes through here. */
 export class SwarmClient {
   readonly baseUrl: string;
-  private readonly f: typeof fetch;
+  private readonly f: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
   constructor(opts: ClientOptions = {}) {
     this.baseUrl = resolveBaseUrl(opts.baseUrl);
-    this.f = opts.fetch ?? fetch;
+    this.f = opts.fetch ?? authedFetch;
   }
 
   async health(): Promise<{ ok: boolean; version: string }> {

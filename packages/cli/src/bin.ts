@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import {
   daemonCommand,
   ensureDaemon,
+  authedFetch as fetch,
   readDaemonInfo,
+  readToken,
   resolveBaseUrl,
   SwarmClient,
 } from "@swarm/client";
@@ -1386,7 +1388,8 @@ try {
     }
     case "ui": {
       const base = await ensureDaemon();
-      Bun.spawn(["open", base]).unref?.();
+      const tok = readToken();
+      Bun.spawn(["open", tok ? `${base}/?token=${tok}` : base]).unref?.();
       console.log(base);
       break;
     }

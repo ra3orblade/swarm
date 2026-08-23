@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,43 @@ export function writeDaemonInfo(info: Omit<DaemonInfo, "url">): DaemonInfo {
   writeFileSync(join(home, "daemon.json"), `${JSON.stringify(full, null, 2)}\n`);
   return full;
 }
+
+// ---------- M8.2b: daemon token
+// One secret per Swarm home, created by the daemon on first start (mode 0600). Every client on the
+// machine reads it and sends `Authorization: Bearer …`; the daemon requires it for non-loopback
+// callers always, and for loopback callers when `[daemon] auth = "required"`.
+const tokenFile = (home = swarmHome()) => join(home, "token");
+export function readToken(home = swarmHome()): string | null {
+  try {
+    const t = readFileSync(tokenFile(home), "utf8").trim();
+    return /^[a-f0-9]{64}$/.test(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+/** Create the token if missing; returns it. Daemon-side. */
+export function ensureToken(home = swarmHome()): string {
+  const cur = readToken(home);
+  if (cur) return cur;
+  mkdirSync(home, { recursive: true });
+  const t = randomBytes(32).toString("hex");
+  writeFileSync(tokenFile(home), `${t}\n`, { mode: 0o600 });
+  return t;
+}
+export function authHeaders(home = swarmHome()): Record<string, string> {
+  const t = readToken(home);
+  return t ? { authorization: `Bearer ${t}` } : {};
+}
+/** `fetch` that carries the daemon token. Drop-in: `import { authedFetch as fetch }`. */
+export const authedFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> => {
+  const h = new Headers(init?.headers);
+  const t = readToken();
+  if (t && !h.has("authorization")) h.set("authorization", `Bearer ${t}`);
+  return fetch(input, { ...init, headers: h });
+};
 
 export function clearDaemonInfo() {
   rmSync(infoFile(), { force: true });
