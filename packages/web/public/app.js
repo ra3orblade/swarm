@@ -1786,15 +1786,16 @@ function openProjectSettings(pid) {
   </div>`;
   $("#psName").focus();
 }
-/** Downsize an image file to a 64px PNG data URL (keeps aspect, transparent padding). */
+/** Downsize an image file to a square 64px PNG data URL (center-cropped). */
 function fileToIconDataUrl(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
+      // square: center-crop the shorter side (cover), never letterbox
       const S = 64, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
-      const k = Math.min(S / img.width, S / img.height), w = img.width * k, h = img.height * k;
-      cv.getContext("2d").drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+      const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+      cv.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, S, S);
       URL.revokeObjectURL(url);
       resolve(cv.toDataURL("image/png"));
     };
