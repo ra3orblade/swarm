@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { HOOK_EVENTS } from "./adapters/claude-code/hooks";
-import { hasLockedRules, hookCoverage, hookIsOurs, policyFindings } from "./policy";
+import { DEFAULT_CONFIG } from "./config";
+import {
+  buildPolicyCache,
+  evaluateOffline,
+  hasLockedRules,
+  hookCoverage,
+  hookIsOurs,
+  offlineModes,
+  policyFindings,
+  verifyPolicyCache,
+} from "./policy";
 
 const settingsWith = (events: string[], timeout = 5) => ({
   hooks: Object.fromEntries(
@@ -66,5 +76,74 @@ describe("policyFindings", () => {
     expect(policyFindings({ loaded: clean, guardOff: true })).toEqual([]);
     expect(hasLockedRules({ policy: { path: null, locked: ["tasks.source"] } })).toBe(false);
     expect(hasLockedRules({ policy: { path: null, locked: ["rules"] } })).toBe(true);
+  });
+});
+
+describe("policy cache — fail-closed for locked rules (M8.1c)", () => {
+  const loaded = {
+    config: {
+      ...DEFAULT_CONFIG,
+      rules: {
+        ...DEFAULT_CONFIG.rules,
+        pattern_kill: "deny" as const,
+        shared_tree: "deny" as const,
+        protected: { ports: [5432] },
+      },
+    },
+    policy: { path: "/p", locked: ["rules.pattern_kill", "rules.protected"] },
+  };
+  test("offlineModes keeps only locked rules", () => {
+    const m = offlineModes(loaded);
+    expect(m.pattern_kill).toBe("deny");
+    expect(m.protected.ports).toEqual([5432]);
+    expect(m.shared_tree).toBe("off"); // set but not locked → not enforced offline
+    expect(m.protected_ports).toBe("off"); // ports are locked but the rule mode is not
+    expect(offlineModes({ ...loaded, policy: { path: "/p", locked: ["rules"] } }).shared_tree).toBe(
+      "deny",
+    );
+  });
+  test("build → verify round-trips; any edit breaks the hash", () => {
+    const c = buildPolicyCache(loaded, [], [], new Date("2026-08-23T00:00:00Z"));
+    expect(verifyPolicyCache(JSON.parse(JSON.stringify(c)))).toEqual(c);
+    expect(verifyPolicyCache({ ...c, modes: { ...c.modes, pattern_kill: "off" } })).toBeNull();
+    expect(verifyPolicyCache({ ...c, version: 99 })).toBeNull();
+    expect(verifyPolicyCache(null)).toBeNull();
+    expect(verifyPolicyCache("{}")).toBeNull();
+  });
+  test("evaluateOffline enforces locked rules and nothing else", () => {
+    const c = buildPolicyCache(loaded, [], [{ task: "T1", owner: "bob", worktree: "/wt/t1" }]);
+    const top = () => "/repo";
+    const bash = (command: string) =>
+      evaluateOffline(
+        c,
+        { tool_name: "Bash", tool_input: { command }, session_id: "s", cwd: "/repo" },
+        top,
+      );
+    expect(bash("pkill -f node")).toMatchObject({ action: "deny", rule: "pattern_kill" });
+    expect(bash("git add -A")).toEqual({ action: "allow" }); // shared_tree not locked
+    expect(bash("ls")).toEqual({ action: "allow" });
+    // no_foreign_worktree is not locked → a foreign write passes offline
+    expect(
+      evaluateOffline(
+        c,
+        { tool_name: "Write", tool_input: { file_path: "/wt/t1/a.ts" }, cwd: "/repo" },
+        top,
+      ),
+    ).toEqual({ action: "allow" });
+    const all = buildPolicyCache(
+      { ...loaded, policy: { path: "/p", locked: ["rules"] } },
+      [],
+      c.worktrees,
+    );
+    expect(
+      evaluateOffline(
+        all,
+        { tool_name: "Write", tool_input: { file_path: "/wt/t1/a.ts" }, cwd: "/repo" },
+        top,
+      ),
+    ).toMatchObject({ action: "ask", rule: "no_foreign_worktree" });
+    expect(evaluateOffline(c, { tool_name: "Read", tool_input: {} }, top)).toEqual({
+      action: "allow",
+    });
   });
 });
