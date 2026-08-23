@@ -65,6 +65,7 @@ const help = `swarm — control plane for AI-agent development
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
+  audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
@@ -1001,6 +1002,35 @@ try {
           console.log(
             `${h.kind.padEnd(8)} ${h.ts.slice(0, 16).replace("T", " ")}  ${h.title}${h.task ? `  [${h.task}]` : ""}\n         ${h.snippet.split("\u0001").join("").split("\u0002").join("").replace(/\s+/g, " ")}${h.sessionId ? `\n         session ${h.sessionId}` : ""}`,
           );
+      break;
+    }
+    case "audit": {
+      if (rest[0] !== "export")
+        throw new Error(
+          "usage: swarm audit export [--since 30d] [-p] [--type t] [--format jsonl|csv|json] [--limit n]",
+        );
+      await ensureDaemon({ quiet: true });
+      const q = new URLSearchParams();
+      const val = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      if (val("--since")) q.set("since", val("--since") as string);
+      if (val("--type")) q.set("type", val("--type") as string);
+      if (val("--limit")) q.set("limit", val("--limit") as string);
+      q.set("format", val("--format") ?? "jsonl");
+      if (rest.includes("-p")) {
+        const proj = (await api("/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: resolve(".") }),
+        })) as { id: string };
+        q.set("project", proj.id);
+      }
+      const r = await fetch(`${new SwarmClient().baseUrl}/v1/audit?${q}`);
+      if (!r.ok)
+        throw new Error(((await r.json()) as { error?: string }).error ?? `audit: ${r.status}`);
+      process.stdout.write(await r.text());
       break;
     }
     case "rules": {

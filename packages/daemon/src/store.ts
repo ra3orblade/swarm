@@ -18,10 +18,12 @@ import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
   type Actor,
+  AUDIT_TYPES_SQL,
   absolutePath,
   acquireRefusalMessage,
   actorFrom,
   actorFromColumns,
+  auditRow,
   BUDGET_ASK_TOOLS,
   type BudgetStatus,
   budgetMessage,
@@ -32,6 +34,7 @@ import {
   canRelease,
   canRemoveWorktree,
   claimRefusalMessage,
+  compileRedactions,
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
@@ -62,6 +65,7 @@ import {
   incidentKey,
   isActive,
   isAliveHolding,
+  isAuditType,
   isAutoHandoff,
   isInside,
   isOurs,
@@ -100,6 +104,7 @@ import {
   type RuleId,
   type RulesConfig,
   reapAction,
+  redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
   type SwarmConfig,
@@ -2026,7 +2031,31 @@ export class Store {
   }
 
   // ---------- events
-  append(e: SwarmEvent): SwarmEvent {
+  /** Compiled `[privacy] redact` patterns, refreshed with the policy cache (M8.2c). */
+  private redactions(): RegExp[] {
+    const cfg = this.policyFor(null).config.privacy;
+    const key = cfg.redact.join("\u0000");
+    if (this.redactCache?.key !== key)
+      this.redactCache = { key, res: compileRedactions(cfg.redact) };
+    return this.redactCache.res;
+  }
+  private redactCache: { key: string; res: RegExp[] } | null = null;
+
+  append(e0: SwarmEvent): SwarmEvent {
+    const privacy = this.policyFor(null).config.privacy;
+    let e = e0;
+    if (
+      !privacy.store_prompts &&
+      e.type === "prompt.submitted" &&
+      e.payload &&
+      typeof e.payload === "object"
+    ) {
+      const { prompt: _p, ...rest } = e.payload as Record<string, unknown>;
+      e = { ...e, payload: { ...rest, prompt: "[not stored]" } };
+    }
+    const res = this.redactions();
+    if (res.length)
+      e = { ...e, payload: redactValue(e.payload, res), raw: redactValue(e.raw, res) };
     const slim = slimForStorage(e);
     const p = (e.payload ?? {}) as { owner?: unknown; by?: unknown };
     const actor =
@@ -2068,12 +2097,58 @@ export class Store {
     return stored;
   }
 
+  /**
+   * M8.2c audit: the ledger-changing subset of the event log, with actor. Never includes `raw`.
+   * `since` is an ISO lower bound; `limit` caps rows (newest first, returned oldest first).
+   */
+  audit(
+    opts: {
+      since?: string | null;
+      projectId?: string | null;
+      type?: string | null;
+      limit?: number | undefined;
+    } = {},
+  ) {
+    const where = [`type IN (${AUDIT_TYPES_SQL})`];
+    const args: (string | number)[] = [];
+    if (opts.since) {
+      where.push("ts >= ?");
+      args.push(opts.since);
+    }
+    if (opts.projectId) {
+      where.push("project_id = ?");
+      args.push(opts.projectId);
+    }
+    if (opts.type && isAuditType(opts.type)) {
+      where.push("type = ?");
+      args.push(opts.type);
+    }
+    const limit = Math.min(Math.max(opts.limit ?? 10_000, 1), 100_000);
+    const rows = this.db
+      .query(
+        `SELECT * FROM (SELECT ${WIRE_COLS} FROM events WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?) ORDER BY seq`,
+      )
+      .all(...args, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => auditRow(wireRowToEvent(r)));
+  }
+
   /** Drop events older than `days` (keeping incidents) and reclaim space. Returns rows removed. */
-  prune(days = 30): number {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-    const n = this.db
-      .query("DELETE FROM events WHERE ts < ? AND type != 'incident.opened'")
+  prune(days?: number): number {
+    const cfg = this.policyFor(null).config;
+    const chatter = days ?? cfg.events.retain_days;
+    const cutoff = new Date(Date.now() - chatter * 86_400_000).toISOString();
+    // chatter (tool calls, deltas, …) ages out; audit records only when [audit] retain_days > 0
+    let n = this.db
+      .query(`DELETE FROM events WHERE ts < ? AND type NOT IN (${AUDIT_TYPES_SQL})`)
       .run(cutoff).changes;
+    if (cfg.audit.retain_days > 0) {
+      const acut = new Date(Date.now() - cfg.audit.retain_days * 86_400_000).toISOString();
+      n += this.db
+        .query(
+          `DELETE FROM events WHERE ts < ? AND type IN (${AUDIT_TYPES_SQL}) AND type != 'incident.opened'`,
+        )
+        .run(acut).changes;
+    }
     // old rows keep their summary; the bulky columns are only useful for recent debugging
     const old = new Date(Date.now() - 7 * 86_400_000).toISOString();
     this.db.query("UPDATE events SET raw = NULL WHERE ts < ? AND raw IS NOT NULL").run(old);
@@ -2217,6 +2292,8 @@ export class Store {
   }
 
   private persistTurns(sessionId: string, agentId: string | null, turns: Turn[]) {
+    const privacy = this.policyFor(null).config.privacy;
+    const res = this.redactions();
     const up = this.db.query(
       `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, text, tools)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2240,7 +2317,7 @@ export class Store {
           t.usage.cacheRead,
           t.usage.thinking,
           costUsd(t.model, t.usage, this.prices),
-          t.text,
+          privacy.store_reasoning ? redactValue(t.text, res) : "",
           JSON.stringify(t.tools),
         );
       }

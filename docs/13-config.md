@@ -58,6 +58,22 @@ port = 7777
 # (open the dashboard via `swarm ui`, which passes it along). Non-loopback callers always need it.
 auth = "loopback-optional"
 
+[events]
+# Days of chatter (tool calls, deltas, prompts) kept in ~/.swarm/swarm.db. Global only.
+retain_days = 30
+
+[audit]
+# Days of audit records kept — ledger changes, rule decisions, human answers, incidents — with
+# who did it. 0 = forever (the default). Export with `swarm audit export` (M8.2c).
+retain_days = 0
+
+[privacy]
+# What is stored at all. Global only; an org policy can lock these.
+store_prompts = true      # false: prompt text is replaced by "[not stored]" (the event is kept)
+store_reasoning = true    # false: assistant text from transcripts is not stored (token counts are)
+redact = []               # regexes replaced by "[redacted]" in every stored string, e.g. ["ACME-[0-9]+"]
+                          # long API-key-looking tokens and Bearer credentials are always redacted
+
 [rules]
 # Each rule: "ask" (agent must confirm), "deny" (blocked), or "off".
 shared_tree     = "ask"   # broad `git add -A` / `git commit -a` while another live session shares the checkout

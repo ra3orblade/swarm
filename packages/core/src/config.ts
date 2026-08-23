@@ -66,6 +66,7 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
   return out;
 }
 
+import { DEFAULT_PRIVACY, type PrivacyConfig } from "./audit";
 import type { BudgetConfig } from "./budget";
 
 export interface SwarmConfig {
@@ -96,6 +97,11 @@ export interface SwarmConfig {
   };
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
+  /** Retention (M8.2c): chatter events vs the audit subset (`0` = keep forever). Global only. */
+  events: { retain_days: number };
+  audit: { retain_days: number };
+  /** What is stored at all (M8.2c). Global only. */
+  privacy: PrivacyConfig;
   dispatch: {
     /** Dispatched runs at once per project (M7.5). */
     max_parallel: number;
@@ -127,6 +133,9 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
+  events: { retain_days: 30 },
+  audit: { retain_days: 0 },
+  privacy: DEFAULT_PRIVACY,
   dispatch: {
     max_parallel: 2,
     permission_mode: null,
@@ -178,6 +187,10 @@ export function isRepoRelative(f: unknown): f is string {
   return !t.split(/[/\\]/).some((seg) => seg === "..");
 }
 
+const days = (v: unknown, fallback: number) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? Math.min(n, 3650) : fallback;
+};
 /** Clamp known fields to valid values; never throw. */
 function validate(c: SwarmConfig): SwarmConfig {
   const mode = (v: unknown, fallback: RuleMode): RuleMode =>
@@ -228,6 +241,21 @@ function validate(c: SwarmConfig): SwarmConfig {
       weekly: usd(b.weekly),
       warn_at: Number.isFinite(warnAt) && warnAt > 0 && warnAt < 1 ? warnAt : 0.8,
       on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
+    },
+    events: {
+      retain_days: days((c.events as { retain_days?: unknown } | undefined)?.retain_days, 30),
+    },
+    audit: {
+      retain_days: days((c.audit as { retain_days?: unknown } | undefined)?.retain_days, 0),
+    },
+    privacy: {
+      store_prompts: (c.privacy as Partial<PrivacyConfig> | undefined)?.store_prompts !== false,
+      store_reasoning: (c.privacy as Partial<PrivacyConfig> | undefined)?.store_reasoning !== false,
+      redact: Array.isArray((c.privacy as Partial<PrivacyConfig> | undefined)?.redact)
+        ? ((c.privacy as PrivacyConfig).redact as unknown[]).filter(
+            (r): r is string => typeof r === "string" && r.length > 0,
+          )
+        : [],
     },
     dispatch: {
       max_parallel: Number.isInteger(mp) && mp > 0 ? Math.min(mp, 16) : 2,
