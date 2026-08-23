@@ -1991,7 +1991,10 @@ export class Store {
       this.db.query("UPDATE projects SET name = ? WHERE id = ?").run(patch.name.trim(), id);
     if (patch.icon !== undefined) {
       const icon = (patch.icon ?? "").trim();
-      if ([...icon].length > 4) return undefined;
+      // an emoji / short glyph, or a small raster image as a data URL (the drawer downsizes to 64px)
+      const isImage = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(icon);
+      if (!isImage && [...icon].length > 4) return undefined;
+      if (isImage && icon.length > 24_000) return undefined;
       this.db.query("UPDATE projects SET icon = ? WHERE id = ?").run(icon || null, id);
     }
     if (patch.color !== undefined) {
