@@ -47,6 +47,88 @@ function mcpRegistered(): boolean {
   return Boolean((c.mcpServers as Record<string, unknown> | undefined)?.swarm);
 }
 
+// ---------- M7.10: the same MCP server for other agent CLIs that host MCP (Codex, Gemini CLI).
+// Only touched when the CLI's config dir already exists — we never create another tool's config.
+const codexConfigPath = () => process.env.CODEX_CONFIG ?? join(homedir(), ".codex", "config.toml");
+const geminiSettingsPath = () =>
+  process.env.GEMINI_SETTINGS ?? join(homedir(), ".gemini", "settings.json");
+
+/** `[mcp_servers.swarm]` block for Codex's TOML config; replaced in place, never duplicated. */
+function codexBlock(): string {
+  const { command, args } = mcpServerConfig();
+  return `[mcp_servers.swarm]\ncommand = ${JSON.stringify(command)}\nargs = ${JSON.stringify(args)}\n`;
+}
+const CODEX_BLOCK_RE = /\[mcp_servers\.swarm\]\n(?:(?!\[)[^\n]*\n?)*/;
+function registerCodex(): boolean {
+  const p = codexConfigPath();
+  if (!existsSync(join(p, ".."))) return false;
+  const cur = existsSync(p) ? readFileSync(p, "utf8") : "";
+  const next = CODEX_BLOCK_RE.test(cur)
+    ? cur.replace(CODEX_BLOCK_RE, codexBlock())
+    : `${cur.trimEnd()}${cur.trim() ? "\n\n" : ""}${codexBlock()}`;
+  if (next !== cur) writeFileSync(p, next);
+  return true;
+}
+function unregisterCodex(): boolean {
+  const p = codexConfigPath();
+  if (!existsSync(p)) return false;
+  const cur = readFileSync(p, "utf8");
+  if (!CODEX_BLOCK_RE.test(cur)) return false;
+  writeFileSync(
+    p,
+    cur
+      .replace(CODEX_BLOCK_RE, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd()
+      .concat("\n"),
+  );
+  return true;
+}
+function registerGemini(): boolean {
+  const p = geminiSettingsPath();
+  if (!existsSync(join(p, ".."))) return false;
+  let c: Record<string, unknown> = {};
+  try {
+    c = existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>) : {};
+  } catch {
+    return false; // someone else's broken JSON is not ours to rewrite
+  }
+  const mcp = (c.mcpServers as Record<string, unknown> | undefined) ?? {};
+  mcp.swarm = mcpServerConfig();
+  c.mcpServers = mcp;
+  writeFileSync(p, `${JSON.stringify(c, null, 2)}\n`);
+  return true;
+}
+function unregisterGemini(): boolean {
+  const p = geminiSettingsPath();
+  if (!existsSync(p)) return false;
+  try {
+    const c = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
+    const mcp = (c.mcpServers as Record<string, unknown> | undefined) ?? {};
+    if (!mcp.swarm) return false;
+    delete mcp.swarm;
+    if (Object.keys(mcp).length) c.mcpServers = mcp;
+    else delete c.mcpServers;
+    writeFileSync(p, `${JSON.stringify(c, null, 2)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** Which other agent CLIs got the MCP server. */
+export function registerOtherAgents(): string[] {
+  const out: string[] = [];
+  if (registerCodex()) out.push("codex");
+  if (registerGemini()) out.push("gemini");
+  return out;
+}
+export function unregisterOtherAgents(): string[] {
+  const out: string[] = [];
+  if (unregisterCodex()) out.push("codex");
+  if (unregisterGemini()) out.push("gemini");
+  return out;
+}
+
 /** The command Claude Code should run for each hook event — portable across clone, global
  *  install and `npx` (see `resolveBin` in @swarm/client). */
 const hookCommand = (event: string) => `${binCommand("swarm-hook")} ${event}`;
@@ -97,6 +179,7 @@ export function install(): string[] {
   save(s);
   // register the MCP server (user scope, ~/.claude.json) so agents get the swarm_* tools
   registerMcp();
+  registerOtherAgents();
   return added;
 }
 
@@ -129,12 +212,27 @@ export function uninstall(): number {
   else delete s.mcpServers;
   save(s);
   if (unregisterMcp()) removed++;
+  removed += unregisterOtherAgents().length;
   return removed;
 }
 
-export function status(): { installed: boolean; mcp: boolean; path: string; shim: string } {
+export function status(): {
+  installed: boolean;
+  mcp: boolean;
+  path: string;
+  shim: string;
+  otherAgents: string[];
+} {
   const s = load();
   const hooks = (s.hooks as Hooks | undefined) ?? {};
   const installed = Object.values(hooks).some((l) => l.some((g) => g.hooks.some(isOurs)));
-  return { installed, mcp: mcpRegistered(), path: settingsPath(), shim: shimPath() };
+  const otherAgents: string[] = [];
+  const cp = codexConfigPath();
+  if (existsSync(cp) && CODEX_BLOCK_RE.test(readFileSync(cp, "utf8"))) otherAgents.push("codex");
+  const gp = geminiSettingsPath();
+  try {
+    if (existsSync(gp) && (JSON.parse(readFileSync(gp, "utf8")).mcpServers ?? {}).swarm)
+      otherAgents.push("gemini");
+  } catch {}
+  return { installed, mcp: mcpRegistered(), path: settingsPath(), shim: shimPath(), otherAgents };
 }

@@ -257,6 +257,25 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_context",
+    {
+      title: "Refresh your Swarm context",
+      description:
+        "What Swarm told you at session start, current as of now: what you hold (task, worktree, lease left), the latest handoff, gate status, held resources, the repo's rule modes — plus any answers to your questions and questions still open. Call it after a long stretch of work, when resuming, or when you are not sure what you hold.",
+      inputSchema: {},
+    },
+    async () => {
+      const r = await api<{ text: string | null }>(
+        `/v1/context?cwd=${encodeURIComponent(process.cwd())}&session=${encodeURIComponent(SESSION ?? "")}`,
+      );
+      return ok(
+        r.text ?? "[swarm] nothing to report: no claim here, no open questions, default rules.",
+        r,
+      );
+    },
+  );
+
+  server.registerTool(
     "swarm_ask",
     {
       title: "Ask the human",

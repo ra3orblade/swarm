@@ -90,7 +90,9 @@ try {
       const base = await ensureDaemon();
       const evs = install();
       console.log(`✓ daemon running at ${base}`);
-      console.log(`✓ installed hooks for ${evs.length} events + MCP server (${status().path})`);
+      console.log(
+        `✓ installed hooks for ${evs.length} events + MCP server (${status().path})${status().otherAgents.length ? ` · MCP also for ${status().otherAgents.join(", ")}` : ""}`,
+      );
       console.log("✓ any Claude session you start now will appear in Swarm");
       Bun.spawn(["open", base]).unref?.();
       console.log(`\nOpen the dashboard: ${base}`);
@@ -139,6 +141,10 @@ try {
       line(running, `daemon ${info ? `(pid ${info.pid}, ${info.url})` : ""}`, "run: swarm start");
       line(st.installed, "hooks installed", "run: swarm install");
       line(st.mcp, "MCP server registered", "run: swarm install");
+      if (st.otherAgents.length)
+        console.log(
+          `✓ MCP server also registered for ${st.otherAgents.join(", ")} (swarm_* tools in those CLIs too)`,
+        );
       // Forge CLIs feed the PRs view. Informational: Swarm works without them.
       const forge = (bin: string, auth: string[]) => {
         const path = Bun.which(bin);

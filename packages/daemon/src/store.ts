@@ -1002,6 +1002,23 @@ export class Store {
     return parts.length ? parts.join("\n") : null;
   }
 
+  /**
+   * M7.10: what a session would be told at SessionStart, on demand, plus what has happened since —
+   * undelivered answers (delivered now) and its own open questions.
+   */
+  contextFor(cwd: string, sessionId: string | null): { text: string | null; parts: string[] } {
+    const parts: string[] = [];
+    const base = this.sessionContext(cwd);
+    if (base) parts.push(base);
+    const answers = this.answerContext(sessionId);
+    if (answers) parts.push(answers);
+    const open = formatOpenQuestions(
+      this.questions({ sessionId: sessionId ?? undefined, open: true }),
+    );
+    if (open && !base?.includes(open)) parts.push(open);
+    return { text: parts.length ? parts.join("\n") : null, parts };
+  }
+
   // ---------- gates (M2.2): latest run wins, fails are never deleted, rubric required
   private rowToGate(r: Record<string, unknown>): GateRun {
     return {

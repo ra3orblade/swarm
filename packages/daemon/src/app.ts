@@ -254,6 +254,12 @@ export function createApp(store = new Store()) {
     });
     return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
+  // ---- M7.10: the SessionStart context, refreshable mid-session
+  app.get("/v1/context", (c) => {
+    const cwd = c.req.query("cwd");
+    if (!cwd) return c.json({ error: "cwd required" }, 400);
+    return c.json(store.contextFor(cwd, c.req.query("session") || null));
+  });
   // ---- ask the human (M7.7)
   app.get("/v1/questions", (c) =>
     c.json(
