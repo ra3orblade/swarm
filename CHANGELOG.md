@@ -2,6 +2,33 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.8.0] — 2026-08-23
+
+The trust release: Swarm becomes something a team and a security reviewer can rely on, without giving up local-first. An org can pin the rules that matter and they hold even when the daemon is down; every record says who did it; the daemon has a credential; what is stored is exportable and redactable; a second agent can be the reviewer. And the dashboard stopped looking like a list of tables.
+
+### Added
+- **Org policy layer** — a third config file, `~/.swarm/policy.toml` (or `$SWARM_POLICY`), sits under global and repo config and may declare `locked = ["rules.destructive_git", "rules.protected", …]`: dotted keys or whole subtrees the layers below cannot change. A locked key keeps the policy's value, every attempt to override it is a `policy` incident, and `swarm doctor` shows which file set each value and who tried to change it. `GET /v1/policy` exposes provenance (M8.1).
+- **Tamper detection** — on every session start the daemon checks that all ten hook entries are still in `~/.claude/settings.json` with a sane timeout, that no lower config layer fights a locked key, and that `SWARM_GUARD=off` isn't set while the policy locks rules (it is then ignored). Each finding opens a `policy` incident once; `swarm doctor` prints the same (M8.1b).
+- **Fail-closed for locked rules** — while the policy locks any rule the daemon keeps `~/.swarm/policy.cache.json` (locked modes + a snapshot of live sessions and held worktrees, integrity-hashed). If the daemon is unreachable on a tool call, the hook shim enforces exactly those rules from the cache; everything else still fails open (M8.1c, OQ-3 resolved).
+- **Who did it** — every ledger record and every event carries an `actor` (`human` / `agent` / `run` / `daemon` + id); existing rows were back-filled from the owner strings clients always sent. Schema changes now go through versioned migrations (`/v1/health` and `doctor` report the schema version) (M8.2a).
+- **Daemon token** — the daemon creates `~/.swarm/token` on first start; the CLI, MCP server, hook shim and `swarm ui` send it. Local callers may still omit it by default; `[daemon] auth = "required"` makes every call carry it, a wrong token is always refused, and anything that isn't loopback always needs it (M8.2b).
+- **Audit log + export** — the ledger-changing subset of events (claims, worktrees, PRs, questions, dispatch, resources, processes, gates, handoffs, permissions, incidents, run results, session start/end), with actor: `swarm audit export [--since 30d] [-p] [--type …] [--format jsonl|csv|json]` and `GET /v1/audit`. Retention is split — `[events] retain_days = 30` for chatter, `[audit] retain_days = 0` (forever) for audit rows (M8.2c).
+- **Privacy on ingest** — `[privacy] store_prompts = false` keeps the event but not the prompt text, `store_reasoning = false` keeps token counts but not assistant text, `redact = ["ACME-[0-9]+"]` scrubs stored strings; API-key-looking tokens and `Bearer …` credentials are always redacted. Global-only keys an org can lock (M8.2c).
+- **Review as a gate** — `[gates.review] builtin = "review"` (optional `model`, `timeout`) spawns a read-only `claude -p` over the worktree's diff with a fixed rubric. The verdict is derived from the findings (any blocker/major fails, whatever the reviewer claims), findings are the evidence, and a reviewer that times out or won't answer in JSON is a fail with that reason. Same registry, logs, incidents and triggers as executed gates (M7.9).
+- **Project settings** — sidebar menu → **Settings…**: name, icon (any emoji — a quick row, a browse-all grid, or the OS picker — or an image file, downsized to a square), a color slot, pinned. The glyph replaces the folder icon everywhere the project appears.
+- **Board that is a board** — a KPI strip (live / held / worktrees / ready / incidents), tasks as a kanban (Ready · In progress · Blocked · Done), and a worktree map of tiles grouped by project and colored by live / dirty / unpushed / merged. Tasks and Worktrees keep a Cards | Table toggle.
+- **Row menus** — every row on the Board, PRs and Incidents has one menu (hover kebab, right-click, or Enter) carrying its actions — open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy — instead of inline links; destructive ones last and confirmed. Menus are wider and labels never ellipsize.
+
+### Changed
+- `doctor` reports the daemon and schema version, per-event hook coverage, and the policy file with its locked keys.
+- `/v1/health` reports `schema` and `auth`.
+
+### Fixed
+- Scratch repositories under the OS temp dir (test fixtures, spawned-run clones) no longer appear as projects in the sidebar.
+- Fleet's `now` column had no room; ended sessions show their last assistant line instead of "session ended".
+- Incidents show the command's gist (the leading `cd … &&` stripped) and `(removed)` instead of a raw id for a deleted project; Spend's attribution tables lost their empty first column.
+- Emoji tiles and the icon preview no longer clip in the desktop app's WebKit view.
+
 ## [0.7.0] — 2026-08-23
 
 The orchestrate release: Swarm runs a task end to end on its own and you stay in control. New worktrees start warm, gates execute instead of being vouched for, `swarm dispatch` hands ready tasks to autonomous runs whose outcome is derived from the ledger, an agent that needs a human decision can ask for one, and a budget keeps the bill in bounds.
