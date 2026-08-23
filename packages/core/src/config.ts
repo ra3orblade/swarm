@@ -38,12 +38,16 @@ export interface RulesConfig {
 }
 
 export interface GateDef {
-  /** Shell command; exit 0 = pass. */
+  /** Shell command; exit 0 = pass. Empty for a builtin. */
   cmd: string;
   /** Seconds before the run is killed and recorded as a fail. */
   timeout: number;
   /** Directory to run in, relative to the worktree root. */
   cwd: string | null;
+  /** `review` (M7.9): a read-only `claude -p` review of the worktree diff decides, not a command. */
+  builtin: "review" | null;
+  /** Model for a builtin reviewer; null = Claude Code's default. */
+  model: string | null;
 }
 
 export const DEFAULT_GATE_TIMEOUT_S = 900;
@@ -54,13 +58,19 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
   const out: Record<string, GateDef> = {};
   if (!isRecord(gates)) return out;
   for (const [name, v] of Object.entries(gates)) {
-    if (!isRecord(v) || typeof v.cmd !== "string" || !v.cmd.trim()) continue;
+    if (!isRecord(v)) continue;
+    const builtin = v.builtin === "review" ? "review" : null;
+    const cmd = typeof v.cmd === "string" ? v.cmd.trim() : "";
+    if (!cmd && !builtin) continue;
     if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/i.test(name)) continue;
     const t = Number(v.timeout);
     out[name] = {
-      cmd: v.cmd.trim(),
-      timeout: Number.isFinite(t) && t > 0 ? Math.min(t, 86_400) : DEFAULT_GATE_TIMEOUT_S,
+      cmd: builtin ? "" : cmd,
+      timeout:
+        Number.isFinite(t) && t > 0 ? Math.min(t, 86_400) : builtin ? 600 : DEFAULT_GATE_TIMEOUT_S,
       cwd: isRepoRelative(v.cwd) ? (v.cwd as string).trim() : null,
+      builtin,
+      model: typeof v.model === "string" && v.model.trim() ? v.model.trim() : null,
     };
   }
   return out;

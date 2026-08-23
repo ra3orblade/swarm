@@ -109,9 +109,18 @@ describe("executed gates (M7.4)", () => {
         huge: { cmd: "x", timeout: 1e9 },
       }),
     ).toEqual({
-      test: { cmd: "bun test", timeout: 60, cwd: "packages" },
-      lint: { cmd: "bun run lint", timeout: 900, cwd: null },
-      huge: { cmd: "x", timeout: 86_400, cwd: null },
+      test: { cmd: "bun test", timeout: 60, cwd: "packages", builtin: null, model: null },
+      lint: { cmd: "bun run lint", timeout: 900, cwd: null, builtin: null, model: null },
+      huge: { cmd: "x", timeout: 86_400, cwd: null, builtin: null, model: null },
+    });
+    // M7.9: a builtin needs no cmd; defaults to a 10-minute timeout; model is optional
+    expect(
+      parseGateDefs({
+        review: { builtin: "review", model: " sonnet " },
+        nope: { builtin: "other" },
+      }),
+    ).toEqual({
+      review: { cmd: "", timeout: 600, cwd: null, builtin: "review", model: "sonnet" },
     });
     expect(parseGateDefs(null)).toEqual({});
   });

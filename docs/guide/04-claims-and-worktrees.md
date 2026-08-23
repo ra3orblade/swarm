@@ -265,6 +265,17 @@ cmd = "bun run lint && bun run typecheck"
 
 `swarm gate run login-form` (or `swarm_gate_run` from the agent, or **Gates** on a held task row on the Board) runs every required gate that has a `cmd`, one after another, inside the task's held worktree — exit 0 is a pass. The record is honest by construction: the rubric is the command that ran and how it ended (`ran \`bun test\` — exit 1 in 12.4s`), the evidence is the tail of its output, the full log is at `~/.swarm/logs/<project>/gate-<task>-<gate>.log`, and the run shows in the process registry while it's going. `review` above has no command, so it still needs a recorded verdict — mixing the two is the point.
 
+Or let a second agent be the reviewer:
+
+```toml
+[gates.review]
+builtin = "review"   # a read-only `claude -p` over the worktree's diff, with a fixed rubric
+model = "sonnet"     # optional; default = Claude Code's default
+timeout = 600
+```
+
+The review gate spawns Claude Code non-interactively in the held worktree with the diff against the main branch and the rubric *no blocker/major findings — correctness, data loss, security, broken Swarm invariants, missing tests for changed behaviour*. The reviewer may read and search the tree but cannot edit or run anything (tool allow-list, not prose). It must answer in JSON; the verdict is derived from the findings — any blocker/major fails, regardless of what the reviewer claimed — and the findings become the gate's evidence (`- [major] src/auth.ts:42 — token compared with ==`). A reviewer that times out or won't answer in JSON is a **fail** with that reason, never a silent pass. An empty diff passes without spawning. Runs, logs and incidents work exactly like executed gates.
+
 The daemon also runs them on its own: when a session working in a held worktree **ends**, the executable required gates run and their verdicts land in that session's auto-handoff `verify` line — so the next session (or **Resume where it died**) starts from "tests ✓, lint ✗" rather than a guess. `[gates] auto = "stop"` does it after every turn instead (throttled to once per two minutes per task); `"off"` turns it off.
 
 Three rules, all fail-closed: a run with no rubric is rejected (a bare "pass" is noise); the **latest** run of a gate decides, so a fail followed by a pass is a pass — but the fail stays on record; and every fail opens a `gate_failed` incident. On the Board, each task shows ✓ / ✗ / — per declared gate, and **Recent gates** lists the runs with rubric, evidence and the session that recorded them.
