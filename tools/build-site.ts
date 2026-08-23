@@ -121,8 +121,11 @@ const css = `
 
 const mark = `<svg class="mark" viewBox="0 0 96 66" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="12" y="6" width="6" height="6" fill="#a3e635"/><rect x="36" y="6" width="6" height="6" fill="#7cc02f"/><rect x="42" y="6" width="6" height="6" fill="#7cc02f"/><rect x="48" y="6" width="6" height="6" fill="#7cc02f"/><rect x="54" y="6" width="6" height="6" fill="#4f7d24"/><rect x="24" y="18" width="6" height="6" fill="#a3e635"/><rect x="42" y="18" width="6" height="6" fill="#7cc02f"/><rect x="48" y="18" width="6" height="6" fill="#7cc02f"/><rect x="54" y="18" width="6" height="6" fill="#7cc02f"/><rect x="60" y="18" width="6" height="6" fill="#7cc02f"/><rect x="66" y="18" width="6" height="6" fill="#7cc02f"/><rect x="72" y="18" width="6" height="6" fill="#4f7d24"/><rect x="6" y="30" width="6" height="6" fill="#a3e635"/><rect x="30" y="30" width="6" height="6" fill="#a3e635"/><rect x="36" y="30" width="6" height="6" fill="#a3e635"/><rect x="42" y="30" width="6" height="6" fill="#a3e635"/><rect x="48" y="30" width="6" height="6" fill="#a3e635"/><rect x="54" y="30" width="6" height="6" fill="#a3e635"/><rect x="60" y="30" width="6" height="6" fill="#a3e635"/><rect x="66" y="30" width="6" height="6" fill="#a3e635"/><rect x="72" y="30" width="6" height="6" fill="#a3e635"/><rect x="78" y="30" width="6" height="6" fill="#4f7d24"/><rect x="24" y="42" width="6" height="6" fill="#a3e635"/><rect x="42" y="42" width="6" height="6" fill="#7cc02f"/><rect x="48" y="42" width="6" height="6" fill="#7cc02f"/><rect x="54" y="42" width="6" height="6" fill="#7cc02f"/><rect x="60" y="42" width="6" height="6" fill="#7cc02f"/><rect x="66" y="42" width="6" height="6" fill="#4f7d24"/><rect x="12" y="54" width="6" height="6" fill="#a3e635"/><rect x="36" y="54" width="6" height="6" fill="#7cc02f"/><rect x="42" y="54" width="6" height="6" fill="#7cc02f"/><rect x="48" y="54" width="6" height="6" fill="#7cc02f"/><rect x="54" y="54" width="6" height="6" fill="#4f7d24"/></svg>`;
 
+// the same icon files the landing page links (site/favicon.svg, favicon.ico, apple-touch-icon.png)
 const favicon =
-  readFileSync(join(root, "site", "index.html"), "utf8").match(/<link rel="icon"[^>]*>/)?.[0] ?? "";
+  readFileSync(join(root, "site", "index.html"), "utf8")
+    .match(/<link rel="(?:icon|apple-touch-icon)"[^>]*>/g)
+    ?.join("\n") ?? "";
 
 type Page = {
   title: string;
