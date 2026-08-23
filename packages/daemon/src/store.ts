@@ -13,12 +13,15 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
+  type Actor,
   absolutePath,
   acquireRefusalMessage,
+  actorFrom,
+  actorFromColumns,
   BUDGET_ASK_TOOLS,
   type BudgetStatus,
   budgetMessage,
@@ -258,6 +261,7 @@ export class Store {
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.ensureColumn("projects", "sort_order", "INTEGER");
+    this.migrate();
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
     this.slimExistingEvents();
@@ -387,6 +391,86 @@ export class Store {
     }
   }
 
+  /** Current schema version; `meta.schema_version` records what this database has applied. */
+  static readonly SCHEMA_VERSION = 1;
+  schemaVersion(): number {
+    return Number(this.meta("schema_version") ?? 0);
+  }
+  /**
+   * Versioned migrations (M8.2a). Each runs once, in order, inside a transaction; the version is
+   * bumped after each. `CREATE TABLE IF NOT EXISTS` + `ensureColumn` still cover fresh databases —
+   * migrations are for changes that need a back-fill.
+   */
+  private migrate() {
+    const steps: Array<(db: Database) => void> = [
+      // v1 — actor on every ledger record (M8.2a). Back-fill from the free-form owner/by strings.
+      (db) => {
+        for (const t of [
+          "events",
+          "claims",
+          "resources",
+          "processes",
+          "handoffs",
+          "gates",
+          "incident_acks",
+          "sessions",
+        ]) {
+          this.ensureColumn(t, "actor_kind", "TEXT");
+          this.ensureColumn(t, "actor_id", "TEXT");
+        }
+        const user = osUser();
+        const fill = (
+          table: string,
+          ownerCol: string | null,
+          sessionCol: string | null,
+          key: string,
+        ) => {
+          const rows = db
+            .query(
+              `SELECT rowid AS rid, ${ownerCol ?? "NULL"} AS owner, ${sessionCol ?? "NULL"} AS sid FROM ${table} WHERE actor_kind IS NULL`,
+            )
+            .all() as Array<{ rid: number; owner: string | null; sid: string | null }>;
+          const upd = db.query(`UPDATE ${table} SET actor_kind = ?, actor_id = ? WHERE rowid = ?`);
+          for (const r of rows) {
+            const a = actorFrom(r.owner, r.sid, { user });
+            upd.run(a.kind, a.id, r.rid);
+          }
+          return `${key}:${rows.length}`;
+        };
+        fill("claims", "owner", null, "claims");
+        fill("resources", "owner", "session_id", "resources");
+        fill("processes", "owner", "session_id", "processes");
+        fill("handoffs", "by", "session_id", "handoffs");
+        fill("gates", "NULL", "session_id", "gates"); // recorded by the session; daemon-run gates carry no session
+        fill("incident_acks", "'dashboard'", null, "acks"); // acks only ever came from a person
+        fill("sessions", "NULL", "id", "sessions"); // a session's actor is the agent itself
+        // events: owner/by live inside the JSON payload
+        fill(
+          "events",
+          "COALESCE(json_extract(payload, '$.owner'), json_extract(payload, '$.by'))",
+          "session_id",
+          "events",
+        );
+      },
+    ];
+    for (let v = this.schemaVersion(); v < steps.length; v++) {
+      const step = steps[v] as (db: Database) => void;
+      this.db.transaction(() => {
+        step(this.db);
+        this.setMeta("schema_version", String(v + 1));
+      })();
+    }
+  }
+
+  /** The actor for a write, from what the caller sent (owner / session) — see core/actor.ts. */
+  actorFor(
+    owner: string | null | undefined,
+    sessionId?: string | null,
+    runId?: string | null,
+  ): Actor {
+    return actorFrom(owner, sessionId, { user: osUser(), runId });
+  }
+
   private migrateProjectsJson(file: string) {
     if (!existsSync(file)) return;
     try {
@@ -471,8 +555,8 @@ export class Store {
     const sessionId = this.knownSession(h.sessionId);
     const ins = this.db
       .query(
-        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         projectId,
@@ -484,6 +568,7 @@ export class Store {
         handoff.by,
         sessionId,
         handoff.createdAt,
+        ...actorCols(this.actorFor(handoff.by, sessionId)),
       );
     this.remember(handoffDoc(projectId, Number(ins.lastInsertRowid), handoff, sessionId));
     this.append({
@@ -560,8 +645,8 @@ export class Store {
       .run(held.projectId, held.task, sessionId);
     const ins = this.db
       .query(
-        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO handoffs (project_id, task, done, remaining, files, verify, by, session_id, created_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         held.projectId,
@@ -573,6 +658,7 @@ export class Store {
         h.by,
         sessionId,
         h.createdAt,
+        ...actorCols(this.actorFor(h.by, sessionId)),
       );
     this.remember(handoffDoc(held.projectId, Number(ins.lastInsertRowid), h, sessionId));
     this.touch();
@@ -1308,8 +1394,8 @@ export class Store {
     const sessionId = this.knownSession(input.sessionId);
     const r = this.db
       .query(
-        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, created_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         projectId,
@@ -1320,6 +1406,7 @@ export class Store {
         input.evidence?.trim() || null,
         sessionId,
         createdAt,
+        ...actorCols(this.actorFor(input.sessionId ? null : "daemon", sessionId)),
       );
     const run = this.rowToGate(
       this.db.query("SELECT * FROM gates WHERE id = ?").get(Number(r.lastInsertRowid)) as Record<
@@ -1911,9 +1998,16 @@ export class Store {
   // ---------- events
   append(e: SwarmEvent): SwarmEvent {
     const slim = slimForStorage(e);
+    const p = (e.payload ?? {}) as { owner?: unknown; by?: unknown };
+    const actor =
+      e.actor ??
+      this.actorFor(
+        typeof p.owner === "string" ? p.owner : typeof p.by === "string" ? p.by : null,
+        e.sessionId,
+      );
     const r = this.db
       .query(
-        "INSERT INTO events (ts, type, project_id, session_id, payload, raw) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO events (ts, type, project_id, session_id, payload, raw, actor_kind, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         e.ts,
@@ -1922,8 +2016,10 @@ export class Store {
         e.sessionId,
         JSON.stringify(slim.payload ?? null),
         slim.raw === undefined ? null : JSON.stringify(slim.raw),
+        actor.kind,
+        actor.id,
       );
-    const stored = { ...e, seq: Number(r.lastInsertRowid) };
+    const stored = { ...e, actor, seq: Number(r.lastInsertRowid) };
     if (stored.type === "incident.opened")
       this.remember(
         incidentDoc(
@@ -2443,7 +2539,13 @@ export class Store {
     return join(this.home, "worktrees", slug(p?.name ?? projectId), slug(task));
   }
 
-  claim(projectId: string, task: string, owner: string, baseRef = "HEAD") {
+  claim(
+    projectId: string,
+    task: string,
+    owner: string,
+    baseRef = "HEAD",
+    sessionId: string | null = null,
+  ) {
     const p = this.project(projectId);
     if (!p) return { ok: false as const, error: "unknown project" };
     const now = Date.now();
@@ -2461,17 +2563,28 @@ export class Store {
     const acquiredAt = new Date(now).toISOString();
     this.db
       .query(
-        `INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, released_at, state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'held')
+        `INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, released_at, state, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'held', ?, ?)
          ON CONFLICT(project_id, task) DO UPDATE SET owner=excluded.owner, worktree=excluded.worktree, branch=excluded.branch,
-           acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released_at=NULL, state='held'`,
+           acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released_at=NULL, state='held',
+           actor_kind=excluded.actor_kind, actor_id=excluded.actor_id`,
       )
-      .run(projectId, task, owner, created, branch, acquiredAt, expiresAt);
+      .run(
+        projectId,
+        task,
+        owner,
+        created,
+        branch,
+        acquiredAt,
+        expiresAt,
+        ...actorCols(this.actorFor(owner, sessionId)),
+      );
     this.append({
       ts: acquiredAt,
       type: "claim.acquired",
       projectId,
-      sessionId: null,
+      sessionId,
+      actor: this.actorFor(owner, sessionId),
       payload: { task, owner, worktree: created, branch, summary: `claim ${task} by ${owner}` },
     });
     const bootstrap = this.bootstrapWorktree(projectId, task, p.root, created);
@@ -3423,28 +3536,30 @@ export class Store {
   }
 
   /** Acknowledge one incident (idempotent). Returns false if no such incident. */
-  ackIncident(seq: number): boolean {
+  ackIncident(seq: number, by?: string | null): boolean {
     const row = this.db
       .query("SELECT seq FROM events WHERE seq = ? AND type = 'incident.opened'")
       .get(seq);
     if (!row) return false;
     this.db
-      .query("INSERT OR IGNORE INTO incident_acks (seq, acked_at) VALUES (?, ?)")
-      .run(seq, new Date().toISOString());
+      .query(
+        "INSERT OR IGNORE INTO incident_acks (seq, acked_at, actor_kind, actor_id) VALUES (?, ?, ?, ?)",
+      )
+      .run(seq, new Date().toISOString(), ...actorCols(this.actorFor(by ?? "dashboard")));
     this.touch();
     return true;
   }
 
   /** Acknowledge every open incident (optionally one project's). Returns how many. */
-  ackAllIncidents(projectId?: string): number {
+  ackAllIncidents(projectId?: string, by?: string | null): number {
     const at = new Date().toISOString();
     const r = this.db
       .query(
-        `INSERT OR IGNORE INTO incident_acks (seq, acked_at)
-         SELECT e.seq, ? FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
+        `INSERT OR IGNORE INTO incident_acks (seq, acked_at, actor_kind, actor_id)
+         SELECT e.seq, ?, ?, ? FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
          WHERE e.type = 'incident.opened' AND a.seq IS NULL${projectId ? " AND e.project_id = ?" : ""}`,
       )
-      .run(at, ...(projectId ? [projectId] : []));
+      .run(at, ...actorCols(this.actorFor(by ?? "dashboard")), ...(projectId ? [projectId] : []));
     this.touch();
     return Number(r.changes);
   }
@@ -3689,8 +3804,8 @@ export class Store {
       .run(p.startedAt, p.projectId, p.name);
     this.db
       .query(
-        `INSERT INTO processes (pid, start_time, project_id, session_id, kind, name, port, cwd, cmd, owner, log, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO processes (pid, start_time, project_id, session_id, kind, name, port, cwd, cmd, owner, log, started_at, ended_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         p.pid,
@@ -3705,6 +3820,7 @@ export class Store {
         p.owner,
         p.log,
         p.startedAt,
+        ...actorCols(this.actorFor(p.owner, p.sessionId)),
       );
     this.append({
       ts: p.startedAt,
@@ -3799,11 +3915,12 @@ export class Store {
     };
     this.db
       .query(
-        `INSERT INTO resources (name, project_id, kind, owner, session_id, pid, port, acquired_at, expires_at, released)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `INSERT INTO resources (name, project_id, kind, owner, session_id, pid, port, acquired_at, expires_at, released, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(name, project_id) DO UPDATE SET
            kind=excluded.kind, owner=excluded.owner, session_id=excluded.session_id, pid=excluded.pid,
-           port=excluded.port, acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released=0`,
+           port=excluded.port, acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released=0,
+           actor_kind=excluded.actor_kind, actor_id=excluded.actor_id`,
       )
       .run(
         resource.name,
@@ -3815,6 +3932,7 @@ export class Store {
         resource.port,
         resource.acquiredAt,
         resource.expiresAt,
+        ...actorCols(this.actorFor(resource.owner, resource.sessionId)),
       );
     this.append({
       ts: resource.acquiredAt,
@@ -3899,7 +4017,7 @@ export class Store {
 
 /** Columns the dashboard and CLI actually consume; payload is reduced to hook + summary + small keys. */
 const WIRE_COLS =
-  "seq, ts, type, project_id, session_id, json_remove(payload, '$.toolInput', '$.toolResponse', '$.prompt') AS payload";
+  "seq, ts, type, project_id, session_id, actor_kind, actor_id, json_remove(payload, '$.toolInput', '$.toolResponse', '$.prompt') AS payload";
 
 /** Tool I/O keys across adapters (Claude Code snake_case, Grok/Codex camelCase). */
 const RAW_TOOL_KEYS = ["tool_input", "tool_response", "toolInput", "toolResponse", "toolResult"];
@@ -3953,7 +4071,7 @@ function toWire(e: SwarmEvent): SwarmEvent {
 
 function wireRowToEvent(r: Record<string, unknown>): SwarmEvent {
   const p = JSON.parse((r.payload as string) ?? "null") as Record<string, unknown> | null;
-  return {
+  const e: SwarmEvent = {
     seq: r.seq as number,
     ts: r.ts as string,
     type: r.type as SwarmEvent["type"],
@@ -3961,6 +4079,9 @@ function wireRowToEvent(r: Record<string, unknown>): SwarmEvent {
     sessionId: (r.session_id as string) ?? null,
     payload: p,
   };
+  const a = actorFromColumns(r.actor_kind as string, r.actor_id as string, r.session_id as string);
+  if (a) e.actor = a;
+  return e;
 }
 
 function rowToEvent(r: Record<string, unknown>): SwarmEvent {
@@ -3973,5 +4094,17 @@ function rowToEvent(r: Record<string, unknown>): SwarmEvent {
     payload: JSON.parse((r.payload as string) ?? "null"),
   };
   if (r.raw) e.raw = JSON.parse(r.raw as string);
+  const a = actorFromColumns(r.actor_kind as string, r.actor_id as string, r.session_id as string);
+  if (a) e.actor = a;
   return e;
 }
+
+/** The OS user the daemon runs as — the local human principal until OIDC (M8.3, OQ-17). */
+function osUser(): string {
+  try {
+    return userInfo().username || process.env.USER || "me";
+  } catch {
+    return process.env.USER || "me";
+  }
+}
+const actorCols = (a: Actor): [string, string] => [a.kind, a.id];

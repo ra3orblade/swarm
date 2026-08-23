@@ -1,3 +1,4 @@
+export * from "./actor";
 export * from "./adapters";
 export * from "./adapters/claude-code/hooks";
 export * from "./adapters/claude-code/transcript";
