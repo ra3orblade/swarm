@@ -84,6 +84,10 @@ Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claim
 
 Inputs: `{ task: string, gates?: string[] }`. Runs the gates the repo defines as commands (`.swarm.toml [gates.<name>] cmd`) inside the task's held worktree and records the verdicts — exit 0 is a pass, the rubric is the command, the evidence is the output tail (the last lines are returned on a fail). Defaults to the required gates that have a command. Use it instead of `swarm_gate_record` whenever a gate has a command: the record then says exactly what ran.
 
+### `swarm_pr_open`
+
+Inputs: `{ task: string, title?: string, body?: string, draft?: boolean }`. Pushes the task's worktree branch and opens a PR / MR through the locally logged-in `gh` / `glab`, with the title and body drafted from the task, the latest handoff, the gates and the changed files (override either). Refuses uncommitted changes — commit first. The natural last step of a task, after `swarm_handoff` and the gates.
+
 ### `swarm_search`
 
 Inputs: `{ query: string, kind?: "handoff" | "incident" | "gate" | "session", all_projects?: boolean, limit?: number }`. Full-text search over Swarm's memory for this repo — handoffs, incidents (commands the rules stopped, and why), gate runs, and what past sessions last said. Not the codebase. Words are AND-ed, the last is a prefix, quote a phrase, `kind:` / `task:` filter inline. Ask it before redoing work, or when a rule blocks you and you want to see how it was handled before.

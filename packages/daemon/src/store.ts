@@ -75,6 +75,7 @@ import {
   pickPort,
   planBootstrap,
   planGc,
+  prDraft,
   projectIdentity,
   type Resource,
   type RulesConfig,
@@ -105,6 +106,7 @@ import {
   listWorktreesAsync,
   type Worktree,
   worktreeAdd,
+  worktreeDiff,
   worktreeRemove,
 } from "./git";
 import { TaskSources } from "./task-sources";
@@ -1688,6 +1690,7 @@ export class Store {
     "worktree.bootstrapped",
     "worktree.created",
     "worktree.removed",
+    "pr.opened",
     "gate.recorded",
     "handoff.recorded",
     "incident.opened",
@@ -2613,6 +2616,54 @@ export class Store {
     } catch (e) {
       return { ok: false as const, error: (e as Error).message };
     }
+  }
+
+  /**
+   * M7.3: the PR title/body Swarm can write for a worktree — by worktree ref or task id. Task
+   * title from the task source, summary from the latest handoff, required-gate verdicts, files.
+   */
+  async prDraftFor(projectId: string, ref: string) {
+    const p = this.project(projectId);
+    if (!p) return { ok: false as const, error: "unknown project" };
+    await this.refreshWorktrees(projectId);
+    const claim = this.claims(projectId).find((c) => c.task === ref && c.state === "held");
+    const w = this.findWorktree(projectId, claim?.worktree ?? ref);
+    if (!w) return { ok: false as const, error: `no worktree or held task ${ref}` };
+    const task =
+      claim?.task ??
+      this.claims(projectId).find((c) => c.state === "held" && c.worktree === w.path)?.task ??
+      (w.branch?.startsWith("task/") ? w.branch.slice(5) : null) ??
+      basename(w.path);
+    const taskRow = this.tasks(projectId)?.tasks.find((t) => t.id === task) ?? null;
+    const handoff = this.latestHandoff(projectId, task);
+    const required = this.requiredGates(projectId);
+    const gates = required.length
+      ? this.gateStatusFor(this.gateRuns(projectId, task), required).map((g) => ({
+          gate: g.gate,
+          verdict: g.verdict,
+        }))
+      : [];
+    const diff = await worktreeDiff(p.root, w.path);
+    const d = prDraft({
+      task,
+      title: taskRow?.title ?? null,
+      handoff,
+      gates,
+      files: diff.files,
+      commits: diff.commits,
+    });
+    return { ok: true as const, task, worktree: w, ...d, diff };
+  }
+
+  recordPrOpened(projectId: string, task: string, worktree: string, url: string) {
+    this.append({
+      ts: new Date().toISOString(),
+      type: "pr.opened",
+      projectId,
+      sessionId: null,
+      payload: { task, worktree, url, summary: `PR opened for ${task}: ${url}` },
+    });
+    this.touch();
   }
 
   /** Forget cached worktrees (after claim/release) so the next snapshot re-lists. */

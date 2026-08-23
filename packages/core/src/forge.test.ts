@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { normalizeGithub, normalizeGitlab, parseRemote } from "./forge";
+import { describe, expect, it, test } from "bun:test";
+import { normalizeGithub, normalizeGitlab, parseNumstat, parseRemote, prDraft } from "./forge";
 
 describe("forge", () => {
   it("parses github/gitlab remotes in ssh and https forms", () => {
@@ -111,5 +111,51 @@ describe("forge", () => {
       review: "approved",
     });
     expect(prs[1]).toMatchObject({ checks: "pending", mergeable: false, draft: true });
+  });
+});
+
+describe("M7.3 diff + PR draft", () => {
+  test("parseNumstat handles binaries, renames and name-status", () => {
+    const files = parseNumstat(
+      "3\t1\tsrc/a.ts\n-\t-\timg.png\n0\t0\t{old => new}/x.ts\n1\t0\tb.ts\n",
+      "M\tsrc/a.ts\nA\timg.png\nR100\told/x.ts\tnew/x.ts\n",
+    );
+    expect(files).toEqual([
+      { path: "src/a.ts", added: 3, deleted: 1, status: "M" },
+      { path: "img.png", added: -1, deleted: -1, status: "A" },
+      { path: "new/x.ts", added: 0, deleted: 0, status: "R" },
+      { path: "b.ts", added: 1, deleted: 0, status: "M" },
+    ]);
+    expect(parseNumstat("")).toEqual([]);
+  });
+
+  test("prDraft uses the handoff, gates and files; falls back to commits", () => {
+    const d = prDraft({
+      task: "M7.3",
+      title: "Worktree diff + Open PR",
+      handoff: {
+        done: "Diff view and PR button.",
+        remaining: "nothing",
+        verify: "bun test",
+        files: [],
+      },
+      gates: [
+        { gate: "tests", verdict: "pass" },
+        { gate: "review", verdict: null },
+        { gate: "lint", verdict: "fail" },
+      ],
+      files: [
+        { path: "a.ts", added: 2, deleted: 1, status: "M" },
+        { path: "b.png", added: -1, deleted: -1, status: "A" },
+      ],
+    });
+    expect(d.title).toBe("M7.3: Worktree diff + Open PR");
+    expect(d.body).toBe(
+      "## Summary\nDiff view and PR button.\n\n## Gates\n- [x] tests\n- [ ] review — not run\n- [ ] lint — failed\n\n## Verify\nbun test\n\n## Files (2)\n- `a.ts` +2 −1\n- `b.png` (binary)",
+    );
+    const c = prDraft({ task: "T-1", commits: ["fix a", "fix b"] });
+    expect(c.title).toBe("T-1");
+    expect(c.body).toBe("## Summary\n- fix a\n- fix b");
+    expect(prDraft({ task: "T-2" }).body).toBe("## Summary\nWork on T-2.");
   });
 });

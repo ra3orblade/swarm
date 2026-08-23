@@ -168,6 +168,14 @@
   .pk-b textarea{min-height:120px;resize:vertical;font-family:var(--mono);font-size:var(--fs-sm);line-height:1.5}
   .pk-b input:focus,.pk-b textarea:focus,.pk-b select:focus{border-color:var(--acc)}
   .pk-b .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  /* Worktree diff drawer (M7.3) */
+  .pk.wide{width:min(960px,96vw)}
+  .df-files{display:grid;gap:1px;max-height:22vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
+  .df-files a{display:flex;gap:10px;padding:4px 8px;color:var(--fg-2);text-decoration:none;font:var(--fs-sm) var(--mono)}
+  .df-files a:hover,.df-files a.on{background:var(--panel-2);color:var(--fg)}
+  .df-files .st{width:12px;color:var(--dim)}.df-files .pl{color:var(--ok)}.df-files .mi{color:var(--warn)}.df-files .pa{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .df-patch{max-height:44vh;overflow:auto;margin:0;padding:8px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);font:var(--fs-sm) var(--mono);line-height:1.45;white-space:pre}
+  .df-patch .a{color:var(--ok)}.df-patch .d{color:var(--warn)}.df-patch .h{color:var(--acc)}.df-patch .m{color:var(--dim)}
   /* What's New (release notes) */
   .wn .pk-b{max-height:64vh;overflow:auto;gap:2px}
   .wn h3{margin:0 0 2px;font:600 var(--fs-lg) var(--sans);color:var(--fg)}

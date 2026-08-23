@@ -257,6 +257,31 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_pr_open",
+    {
+      title: "Open a pull request for a task",
+      description:
+        "Push the task's worktree branch and open a PR (GitHub via gh) or MR (GitLab via glab) for it, with the title and body drafted from the task, the latest handoff, the required gates' verdicts and the changed files — pass title/body to override. Refuses uncommitted changes: commit first. Use it as the last step of a task, after swarm_handoff and the gates.",
+      inputSchema: {
+        task: z.string().describe("task id (held) or worktree name/path"),
+        title: z.string().optional(),
+        body: z.string().optional().describe("markdown; default is drafted from the handoff"),
+        draft: z.boolean().optional().describe("open as a draft PR"),
+      },
+    },
+    async ({ task, title, body, draft }) => {
+      const pid = await projectId();
+      const r = await api<{ ok: boolean; url?: string; error?: string }>("/v1/prs/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: pid, worktree: task, title, body, draft }),
+      });
+      if (!r.ok) return fail(`REFUSED: ${r.error}`);
+      return ok(`opened ${r.url}`, r);
+    },
+  );
+
+  server.registerTool(
     "swarm_gates",
     {
       title: "Gate status",

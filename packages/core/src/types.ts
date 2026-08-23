@@ -19,6 +19,7 @@ export type EventType =
   | "worktree.bootstrapped"
   | "worktree.created"
   | "worktree.removed"
+  | "pr.opened"
   | "resource.acquired"
   | "resource.released"
   | "resource.reaped"
