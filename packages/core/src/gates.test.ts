@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { type GateRun, gateStatus, gatesSatisfied, validateGateRun } from "./gates";
+import { parseGateDefs } from "./config";
+import {
+  evidenceTail,
+  executedGateInput,
+  type GateRun,
+  gateStatus,
+  gatesSatisfied,
+  validateGateRun,
+} from "./gates";
 
 const run = (o: Partial<GateRun>): GateRun => ({
   id: 1,
@@ -85,5 +93,62 @@ describe("gates", () => {
     expect(
       gatesSatisfied([...pass, run({ gate: "lint", verdict: "fail", id: 3 })], ["review"]),
     ).toBe(true);
+  });
+});
+
+describe("executed gates (M7.4)", () => {
+  it("parseGateDefs keeps only well-formed subtables", () => {
+    expect(
+      parseGateDefs({
+        required: ["test"],
+        auto: "stop",
+        test: { cmd: " bun test ", timeout: 60, cwd: "packages" },
+        lint: { cmd: "bun run lint", timeout: -5, cwd: "../x" },
+        bad: { timeout: 3 },
+        "no spaces": { cmd: "x" },
+        huge: { cmd: "x", timeout: 1e9 },
+      }),
+    ).toEqual({
+      test: { cmd: "bun test", timeout: 60, cwd: "packages" },
+      lint: { cmd: "bun run lint", timeout: 900, cwd: null },
+      huge: { cmd: "x", timeout: 86_400, cwd: null },
+    });
+    expect(parseGateDefs(null)).toEqual({});
+  });
+
+  it("exit 0 passes, anything else fails, rubric names the command; output validates", () => {
+    const pass = executedGateInput("auth", "test", "bun test", {
+      exitCode: 0,
+      durationMs: 1234,
+      output: "ok\n",
+    });
+    expect(pass.verdict).toBe("pass");
+    expect(pass.rubric).toBe("ran `bun test` — exit 0 in 1.2s");
+    expect(pass.evidence).toBe("ok");
+    expect(validateGateRun(pass)).toEqual({ ok: true });
+    expect(
+      executedGateInput("a", "t", "x", { exitCode: 1, durationMs: 0, output: "" }).verdict,
+    ).toBe("fail");
+    const to = executedGateInput("a", "t", "x", {
+      exitCode: null,
+      timedOut: true,
+      durationMs: 900_000,
+      output: "",
+    });
+    expect(to.verdict).toBe("fail");
+    expect(to.rubric).toContain("timed out");
+    expect(to.evidence).toBeNull();
+    expect(
+      executedGateInput("a", "t", "x", { exitCode: null, durationMs: 1, output: "" }).rubric,
+    ).toContain("could not start");
+  });
+
+  it("evidenceTail keeps the end, on a line boundary", () => {
+    expect(evidenceTail("short")).toBe("short");
+    const long = Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n");
+    const t = evidenceTail(long, 100);
+    expect(t.startsWith("…line ")).toBe(true);
+    expect(t.length).toBeLessThanOrEqual(101);
+    expect(t.endsWith("line 299")).toBe(true);
   });
 });

@@ -27,6 +27,7 @@ const help = `swarm — control plane for AI-agent development
   tail [--project p] [--session id]   follow the live event stream
 
   claim <task> [--owner n]   claim a task in a fresh isolated git worktree (fail-closed)
+  gate run <task> [gate…]    execute the repo's [gates.<name>] cmd gates in the task's worktree and record them
   wt [ls|create|open|rm|gc]  first-class worktrees: create task-less ones, open, remove, collect stale
   renew <task>            extend the lease;  release <task> [--force]   release + remove worktree
   claims                  list claims;  reap   release abandoned claims (keeps ones holding work)
@@ -601,6 +602,39 @@ try {
           console.error(`REFUSED: ${r.error}`);
           process.exit(1);
         }
+        break;
+      }
+      if (sub === "run") {
+        const [, task, ...gates] = positionals;
+        if (!task)
+          throw new Error(
+            "usage: swarm gate run <task> [gate…]   (default: the required gates that have a cmd)",
+          );
+        const r = (await fetch(`${new SwarmClient().baseUrl}/v1/gates/run`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: proj.id,
+            task,
+            gates,
+            sessionId: process.env.CLAUDE_SESSION_ID ?? null,
+          }),
+        }).then((x) => x.json())) as {
+          ok: boolean;
+          error?: string;
+          started: string[];
+          skipped: Array<{ gate: string; reason: string }>;
+          runs: Array<{ gate: string; verdict: string; rubric: string }>;
+        };
+        if (json) console.log(JSON.stringify(r));
+        else {
+          for (const x of r.runs ?? [])
+            console.log(`${x.verdict === "pass" ? "✓" : "✗"} ${x.gate.padEnd(12)} ${x.rubric}`);
+          for (const x of r.skipped ?? [])
+            console.log(`– ${x.gate.padEnd(12)} skipped: ${x.reason}`);
+          if (r.error && !r.started?.length) console.error(`REFUSED: ${r.error}`);
+        }
+        if (!r.ok) process.exit(1);
         break;
       }
       if (sub === "ls") {

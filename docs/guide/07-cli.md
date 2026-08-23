@@ -68,6 +68,18 @@ swarm wt gc [--apply]            # propose (and with --apply remove) merged or a
 
 Details and semantics: [Claims and worktrees](04-claims-and-worktrees.md).
 
+## Gates and handoffs
+
+```sh
+swarm gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   # a verdict you vouch for; rubric required
+swarm gate run <task> [gate…]     # execute [gates.<name>] cmd gates in the task's worktree; default = required ones with a cmd
+swarm gate ls [task]              # required gates, verdicts, history
+swarm handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]
+swarm resume [task]               # the latest handoff for a task (auto: ones are derived by the daemon)
+```
+
+Details: [Claims and worktrees → Gates](04-claims-and-worktrees.md#gates).
+
 ## Runtime resources
 
 ```sh

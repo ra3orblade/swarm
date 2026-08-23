@@ -319,9 +319,44 @@ export function createApp(store = new Store()) {
     const required = store.requiredGates(project);
     return c.json({
       required,
+      executable: Object.keys(store.gateDefs(project)?.defs ?? {}),
       runs,
       status: task ? store.gateStatusFor(runs, required) : undefined,
     });
+  });
+  // M7.4: execute gates in the task's held worktree. `wait` (default true) returns the recorded
+  // runs; `wait:false` returns as soon as they are started (poll GET /v1/gates?task=).
+  app.post("/v1/gates/run", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      task?: string;
+      gates?: string[];
+      sessionId?: string | null;
+      wait?: boolean;
+    };
+    if (!b.projectId || !b.task)
+      return c.json({ ok: false, error: "projectId and task required" }, 400);
+    const opts = { sessionId: b.sessionId ?? null, owner: "cli" };
+    if (b.wait === false) {
+      const names = b.gates?.length
+        ? b.gates
+        : (store.gateDefs(b.projectId)?.required ?? []).filter(
+            (g) => store.gateDefs(b.projectId!)?.defs[g],
+          );
+      // sequential like runGates, but detached from the request
+      void store.runGates(b.projectId, b.task, names, opts);
+      return c.json({ ok: true, started: names, runs: [] }, 202);
+    }
+    const r = await store.runGates(b.projectId, b.task, b.gates, opts);
+    const ok = r.started.length > 0 && r.runs.every((x) => x.verdict === "pass");
+    return c.json(
+      {
+        ok,
+        ...r,
+        error: r.started.length ? undefined : (r.skipped[0]?.reason ?? "no executable gates"),
+      },
+      r.started.length ? 200 : 409,
+    );
   });
   app.post("/v1/gates", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {

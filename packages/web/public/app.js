@@ -604,7 +604,7 @@ function renderTasks() {
           columns: cols,
           rows,
           leading: { width: 24, cell: (t) => `<span class="s ${t.claimedBy ? "active" : t.ready ? "waiting" : "idle"}"></span>` },
-          trailing: { width: 120, cell: (t) => (t.ready ? `<a href="#" data-run="${esc(t.id)}" title="Claim and spawn claude -p in a worktree">${ic("play", 12)} Run</a> · <a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : t.claimedBy ? `<a href="#" data-run="${esc(t.id)}" title="Spawn claude -p in the held worktree">${ic("play", 12)} Run</a>` : "") },
+          trailing: { width: 170, cell: (t) => (t.ready ? `<a href="#" data-run="${esc(t.id)}" title="Claim and spawn claude -p in a worktree">${ic("play", 12)} Run</a> · <a href="#" data-claim="${esc(t.id)}" title="Claim into a fresh worktree">Claim</a>` : t.claimedBy ? `<a href="#" data-run="${esc(t.id)}" title="Spawn claude -p in the held worktree">${ic("play", 12)} Run</a>${(state.gates?.executable ?? []).length ? ` · <a href="#" data-gaterun="${esc(t.id)}" title="Execute the repo's [gates.<name>] cmd gates in this task's worktree: ${esc((state.gates.executable ?? []).join(", "))}">${ic("check", 12)} Gates</a>` : ""}` : "") },
           rowAttrs: () => "",
           rerender: touch,
         })
@@ -1299,7 +1299,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],#wtnew,#wtgc");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],#wtnew,#wtgc,[data-gaterun]");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1358,6 +1358,16 @@ document.addEventListener("click", async (ev) => {
     if (!confirm(`Stale worktrees:\n\n${lines}\n\nRemove the ${n} removable one${n === 1 ? "" : "s"}?`)) return;
     await fetch("/v1/worktrees/gc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, apply: true }) });
     state.worktrees[state.sel] = null;
+    return refresh();
+  }
+  if (t.dataset.gaterun) {
+    ev.preventDefault();
+    const task = t.dataset.gaterun;
+    t.textContent = "running…";
+    const r = await fetch("/v1/gates/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId: state.sel, task }) }).then((x) => x.json());
+    if (!r.started?.length) alert(r.error ?? r.skipped?.[0]?.reason ?? "nothing ran");
+    else alert(`${task}: ${r.runs.map((x) => `${x.verdict === "pass" ? "✓" : "✗"} ${x.gate} — ${x.rubric}`).join("\n")}${r.skipped.length ? `\n\nskipped: ${r.skipped.map((x) => `${x.gate} (${x.reason})`).join(", ")}` : ""}`);
+    state.tasks = null;
     return refresh();
   }
   if (t.dataset.codify) { ev.preventDefault(); return codifyIncident(t.dataset.codify); }

@@ -205,6 +205,7 @@ swarm proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, without a po
 swarm tasks [--ready]                                     the repo's task source
 swarm gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   rubric required; latest run wins
 swarm gate ls [task]                                      required gates + verdicts (+ history for one task)
+swarm gate run <task> [gate…]                             execute [gates.<name>] cmd gates in the held worktree, record verdicts (M7.4)
 swarm handoff <task> --done "…" --remaining "…" [--files a,b] [--verify "…"]   notes for the next holder
 swarm resume <task>                                       latest handoff (also injected on SessionStart)
 swarm run --task <id> --prompt "…"|--prompt-file f [--model] [--permission-mode] [--allowed-tools a,b] [--max-turns n]
@@ -259,6 +260,7 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_search` | `{query, kind?, all_projects?, limit?}` | full-text search over Swarm's memory: handoffs, incidents, gates, what sessions said |
 | `swarm_resume` | `{task}` | latest handoff, formatted (`auto:` handoffs are derived by the daemon at Stop/SessionEnd) |
 | `swarm_gate_record` | `{task, gate, verdict, rubric, evidence?}` | records a run; rejects a missing rubric; a fail opens an incident |
+| `swarm_gate_run` | `{task, gates?}` | executes the repo's `[gates.<name>] cmd` gates in the task's held worktree and records them; exit 0 = pass (M7.4) |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
 
@@ -295,6 +297,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/worktrees?project=` · `POST /v1/worktrees` · `POST /v1/worktrees/remove` · `POST /v1/worktrees/open` · `POST /v1/worktrees/gc` | first-class worktrees (M7.2): fresh listing with `behind`/`merged`; create task-less (`name`, `baseRef`, `branch`); remove (`worktree` = path, folder name or branch; `force`); open on the desktop; gc (`apply`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
+| `GET /v1/gates?project=&task=` · `POST /v1/gates` · `POST /v1/gates/run` | gate runs (latest wins) and required/executable gate names; `run` `{projectId, task, gates?, wait?}` executes `[gates.<name>] cmd` gates sequentially in the held worktree via the process registry and records them (M7.4) |
 | `GET /v1/memory?q=&project=&kind=&task=&limit=` | full-text search (FTS5/BM25) over handoffs, incidents, gates and session text; hits carry a snippet with `\u0001`/`\u0002` around matches |
 | `GET /v1/rules/dryrun?project=&<rule>=ask\|deny\|off&limit=` | replay recorded tool calls under (overridden) rule modes: per-rule ask/deny counts, hits, flaky signals; records nothing |
 | `GET /v1/sessions/:id/resume` · `POST /v1/sessions/:id/resume` | the resume plan for a session (task, owner, prompt built from its latest handoff + last actions) / spawn a run from it (`RunInput` overrides accepted) |

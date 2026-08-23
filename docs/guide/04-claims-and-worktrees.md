@@ -220,4 +220,24 @@ swarm gate record login-form review fail --rubric "read the diff; the error path
 swarm gate ls login-form
 ```
 
+### Gates that run themselves
+
+A gate the repo can express as a command doesn't need anyone's word for it. Give it one:
+
+```toml
+[gates]
+required = ["tests", "lint", "review"]
+
+[gates.tests]
+cmd = "bun test"
+timeout = 600        # seconds; killed and recorded as a fail after that (default 900)
+
+[gates.lint]
+cmd = "bun run lint && bun run typecheck"
+```
+
+`swarm gate run login-form` (or `swarm_gate_run` from the agent, or **Gates** on a held task row on the Board) runs every required gate that has a `cmd`, one after another, inside the task's held worktree — exit 0 is a pass. The record is honest by construction: the rubric is the command that ran and how it ended (`ran \`bun test\` — exit 1 in 12.4s`), the evidence is the tail of its output, the full log is at `~/.swarm/logs/<project>/gate-<task>-<gate>.log`, and the run shows in the process registry while it's going. `review` above has no command, so it still needs a recorded verdict — mixing the two is the point.
+
+The daemon also runs them on its own: when a session working in a held worktree **ends**, the executable required gates run and their verdicts land in that session's auto-handoff `verify` line — so the next session (or **Resume where it died**) starts from "tests ✓, lint ✗" rather than a guess. `[gates] auto = "stop"` does it after every turn instead (throttled to once per two minutes per task); `"off"` turns it off.
+
 Three rules, all fail-closed: a run with no rubric is rejected (a bare "pass" is noise); the **latest** run of a gate decides, so a fail followed by a pass is a pass — but the fail stays on record; and every fail opens a `gate_failed` incident. On the Board, each task shows ✓ / ✗ / — per declared gate, and **Recent gates** lists the runs with rubric, evidence and the session that recorded them.

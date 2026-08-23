@@ -90,3 +90,38 @@ export function gatesSatisfied(runs: GateRun[], declared: string[]): boolean {
   const st = gateStatus(runs, declared);
   return declared.every((g) => st.find((s) => s.gate === g)?.verdict === "pass");
 }
+
+/** Keep the last `max` characters of a log as gate evidence, on a line boundary when possible. */
+export function evidenceTail(output: string, max = 2000): string {
+  const t = output.trimEnd();
+  if (t.length <= max) return t;
+  const cut = t.slice(-max);
+  const nl = cut.indexOf("\n");
+  return `…${nl >= 0 && nl < 200 ? cut.slice(nl + 1) : cut}`;
+}
+
+/**
+ * M7.4: an executed gate's outcome as a recordable run. Exit 0 passes; anything else — including
+ * a timeout or a command that could not start — fails. The rubric is the command itself, so the
+ * record says exactly what was checked.
+ */
+export function executedGateInput(
+  task: string,
+  gate: string,
+  cmd: string,
+  outcome: { exitCode: number | null; timedOut?: boolean; durationMs: number; output: string },
+): GateInput {
+  const how =
+    outcome.timedOut === true
+      ? "timed out"
+      : outcome.exitCode === null
+        ? "could not start"
+        : `exit ${outcome.exitCode}`;
+  return {
+    task,
+    gate,
+    verdict: outcome.exitCode === 0 && !outcome.timedOut ? "pass" : "fail",
+    rubric: `ran \`${cmd}\` — ${how} in ${(outcome.durationMs / 1000).toFixed(1)}s`,
+    evidence: evidenceTail(outcome.output) || null,
+  };
+}

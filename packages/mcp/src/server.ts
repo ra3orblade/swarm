@@ -219,6 +219,44 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "swarm_gate_run",
+    {
+      title: "Run the repo's executable gates",
+      description:
+        "Execute the gates this repo defines as commands (.swarm.toml [gates.<name>] cmd, e.g. tests, lint, typecheck) inside the task's held worktree and record the verdicts — exit 0 is a pass. Runs the required ones by default. Prefer this over recording a verdict yourself whenever a gate has a command: the record then says exactly what ran.",
+      inputSchema: {
+        task: z.string().describe("task id whose worktree to run in (must be held)"),
+        gates: z
+          .array(z.string())
+          .optional()
+          .describe("gate names; default = required gates that have a cmd"),
+      },
+    },
+    async ({ task, gates }) => {
+      const pid = await projectId();
+      const r = await api<{
+        ok: boolean;
+        error?: string;
+        started: string[];
+        skipped: Array<{ gate: string; reason: string }>;
+        runs: Array<{ gate: string; verdict: string; rubric: string; evidence: string | null }>;
+      }>("/v1/gates/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: pid, task, gates, sessionId: SESSION }),
+      });
+      if (!r.started?.length)
+        return fail(`REFUSED: ${r.error ?? r.skipped?.[0]?.reason ?? "nothing ran"}`);
+      const lines = r.runs.map(
+        (x) =>
+          `${x.verdict === "pass" ? "✓" : "✗"} ${x.gate}: ${x.rubric}${x.verdict === "fail" && x.evidence ? `\n${x.evidence.split("\n").slice(-15).join("\n")}` : ""}`,
+      );
+      for (const x of r.skipped) lines.push(`– ${x.gate}: skipped (${x.reason})`);
+      return ok(`${r.ok ? "all gates passed" : "gate failure"} on ${task}\n${lines.join("\n")}`, r);
+    },
+  );
+
+  server.registerTool(
     "swarm_gates",
     {
       title: "Gate status",

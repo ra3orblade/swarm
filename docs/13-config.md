@@ -42,6 +42,18 @@ ports = []                # e.g. [3000, 5432, 7777]
 # `swarm gate record <task> <gate> pass|fail --rubric "…"` (or the swarm_gate_record MCP tool);
 # the latest run per gate decides, a run without a rubric is rejected, a fail opens an incident.
 # required = ["review", "tests"]
+# When the daemon runs the executable required gates on its own inside a held worktree (M7.4):
+# "session-end" (default), "stop" (after every turn, at most every 2 min per task), or "off".
+# auto = "session-end"
+
+# Executable gates (M7.4): any `[gates.<name>]` with a `cmd` can be run by `swarm gate run <task>`,
+# the swarm_gate_run MCP tool, or the Board. Exit 0 = pass; the rubric becomes the command and the
+# evidence the tail of its output. Runs in the task's held worktree (`cwd` is relative to it),
+# registered in the process registry (kind `gate`), killed after `timeout` seconds (default 900).
+# [gates.tests]
+# cmd = "bun test"
+# timeout = 600
+# cwd = "packages"
 
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
