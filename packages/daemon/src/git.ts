@@ -37,6 +37,8 @@ export interface Worktree {
   main: boolean;
   dirty: number; // changed files; -1 = unknown
   ahead: number; // commits not on upstream; -1 = no upstream/unknown
+  behind: number; // commits the main checkout's branch has that this one lacks; -1 = unknown (M7.2)
+  merged: boolean; // HEAD already reachable from the main checkout's branch (M7.2)
 }
 
 function parseWorktreeList(out: string): Worktree[] {
@@ -51,6 +53,8 @@ function parseWorktreeList(out: string): Worktree[] {
         main: wts.length === 0,
         dirty: -1,
         ahead: -1,
+        behind: -1,
+        merged: false,
       });
     }
     cur = null;
@@ -74,17 +78,49 @@ function applyStatus(w: Worktree, st: string | null, ah: string | null) {
   w.ahead = a === undefined || a === "" ? -1 : Number(a);
 }
 
+/**
+ * Drift against the main checkout's branch. `merged` = HEAD is reachable from base but is *not* on
+ * base's first-parent line — i.e. it came in through a merge. A worktree that is merely behind (or
+ * fresh at the tip) sits on that line and is not "merged"; a squash merge is not detected at all.
+ */
+function applyDrift(
+  w: Worktree,
+  behind: string | null,
+  ancestor: boolean,
+  firstParents: string | null,
+) {
+  const b = behind?.trim();
+  w.behind = b === undefined || b === "" ? -1 : Number(b);
+  const onLine = firstParents?.split("\n").some((sha) => sha.startsWith(w.head)) ?? true;
+  w.merged = ancestor && !onLine;
+}
+/** How far back along base's first-parent line we look when deciding "merged" vs "behind". */
+const FIRST_PARENT_DEPTH = "5000";
+/** The ref other worktrees are measured against: the main checkout's branch, else nothing. */
+const baseOf = (wts: Worktree[]) => (wts[0]?.main ? wts[0].branch : null);
+
 /** Synchronous listing — blocks the event loop for ~30 ms per worktree; use only off the request path. */
 export function listWorktrees(root: string): Worktree[] {
   const out = git(root, ["worktree", "list", "--porcelain"]);
   if (!out) return [];
   const wts = parseWorktreeList(out);
+  const base = baseOf(wts);
+  const line = base
+    ? git(root, ["rev-list", "--first-parent", "-n", FIRST_PARENT_DEPTH, base])
+    : null;
   for (const w of wts) {
     applyStatus(
       w,
       git(w.path, ["status", "--porcelain", "--untracked-files=no"]),
       git(w.path, ["rev-list", "--count", "@{upstream}..HEAD"]),
     );
+    if (base && !w.main)
+      applyDrift(
+        w,
+        git(w.path, ["rev-list", "--count", `HEAD..${base}`]),
+        git(w.path, ["merge-base", "--is-ancestor", "HEAD", base]) !== null,
+        line,
+      );
   }
   return wts;
 }
@@ -104,13 +140,21 @@ export async function listWorktreesAsync(root: string): Promise<Worktree[]> {
   const out = await gitAsync(root, ["worktree", "list", "--porcelain"]);
   if (!out) return [];
   const wts = parseWorktreeList(out);
+  const base = baseOf(wts);
+  const line = base
+    ? await gitAsync(root, ["rev-list", "--first-parent", "-n", FIRST_PARENT_DEPTH, base])
+    : null;
   await Promise.all(
     wts.map(async (w) => {
-      const [st, ah] = await Promise.all([
+      const drift = base && !w.main;
+      const [st, ah, be, mg] = await Promise.all([
         gitAsync(w.path, ["status", "--porcelain", "--untracked-files=no"]),
         gitAsync(w.path, ["rev-list", "--count", "@{upstream}..HEAD"]),
+        drift ? gitAsync(w.path, ["rev-list", "--count", `HEAD..${base}`]) : null,
+        drift ? gitAsync(w.path, ["merge-base", "--is-ancestor", "HEAD", base]) : null,
       ]);
       applyStatus(w, st, ah);
+      if (drift) applyDrift(w, be, mg !== null, line);
     }),
   );
   return wts;

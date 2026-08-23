@@ -21,6 +21,7 @@ import {
   canAcquire,
   canClaim,
   canRelease,
+  canRemoveWorktree,
   claimRefusalMessage,
   costUsd,
   DEFAULT_FROM_PORT,
@@ -72,11 +73,13 @@ import {
   parseTranscriptChunk,
   pickPort,
   planBootstrap,
+  planGc,
   projectIdentity,
   type Resource,
   type RulesConfig,
   reapAction,
   releaseRefusalMessage,
+  removeRefusalMessage,
   type SwarmEvent,
   sessionDoc,
   shouldAutoRenew,
@@ -1465,6 +1468,8 @@ export class Store {
     "claim.released",
     "claim.orphaned",
     "worktree.bootstrapped",
+    "worktree.created",
+    "worktree.removed",
     "gate.recorded",
     "handoff.recorded",
     "incident.opened",
@@ -2279,6 +2284,117 @@ export class Store {
       .finally(() => this.wtInflight.delete(projectId));
     this.wtInflight.set(projectId, run);
     return run;
+  }
+
+  // ---------- first-class worktrees (M7.2)
+
+  /** Task-less worktree under `~/.swarm/worktrees/<project>/<name>` on branch `wt/<name>` (bootstrapped like a claim). */
+  createWorktree(projectId: string, name: string, baseRef = "HEAD", branch?: string) {
+    const p = this.project(projectId);
+    if (!p) return { ok: false as const, error: "unknown project" };
+    const slug = name.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
+    if (!slug || slug === "." || slug === "..")
+      return { ok: false as const, error: "bad worktree name" };
+    const path = this.worktreePath(projectId, slug);
+    if (existsSync(path)) return { ok: false as const, error: `${path} already exists` };
+    mkdirSync(dirname(path), { recursive: true });
+    const br = branch?.trim() || `wt/${slug}`;
+    const created = worktreeAdd(p.root, path, br, baseRef);
+    if (!created) return { ok: false as const, error: `git worktree add failed for ${name}` };
+    this.invalidateWorktrees(projectId);
+    this.append({
+      ts: new Date().toISOString(),
+      type: "worktree.created",
+      projectId,
+      sessionId: null,
+      payload: { name: slug, worktree: created, branch: br, summary: `worktree ${slug} created` },
+    });
+    const bootstrap = this.bootstrapWorktree(projectId, slug, p.root, created);
+    return { ok: true as const, name: slug, worktree: created, branch: br, bootstrap };
+  }
+
+  /** Resolve a worktree by absolute path, or by its folder name under this project's worktree dir. */
+  findWorktree(projectId: string, ref: string): Worktree | null {
+    const wts = this.wtCache.get(projectId)?.v ?? [];
+    const abs = ref.startsWith("/") ? ref.replace(/\/+$/, "") : null;
+    return (
+      wts.find((w) => w.path === abs) ??
+      wts.find((w) => !w.main && basename(w.path) === ref) ??
+      wts.find((w) => w.branch === ref) ??
+      null
+    );
+  }
+
+  /** Remove a worktree: never the main tree, never one a live claim holds; dirty/unpushed need force. */
+  async removeWorktree(projectId: string, ref: string, force = false) {
+    const p = this.project(projectId);
+    if (!p) return { ok: false as const, error: "unknown project" };
+    await this.refreshWorktrees(projectId);
+    const w = this.findWorktree(projectId, ref);
+    if (!w) return { ok: false as const, error: `no worktree ${ref} in ${p.name}` };
+    const held = this.claims(projectId).find((c) => c.state === "held" && c.worktree === w.path);
+    const can = canRemoveWorktree(w, held?.task ?? null, force);
+    if (!can.ok)
+      return {
+        ok: false as const,
+        error: removeRefusalMessage(can.reason, w.path, held?.task),
+        refused: can.reason,
+      };
+    if (!worktreeRemove(p.root, w.path, force))
+      return { ok: false as const, error: `git worktree remove failed for ${w.path}` };
+    this.invalidateWorktrees(projectId);
+    this.append({
+      ts: new Date().toISOString(),
+      type: "worktree.removed",
+      projectId,
+      sessionId: null,
+      payload: {
+        worktree: w.path,
+        branch: w.branch,
+        force,
+        summary: `worktree ${basename(w.path)} removed`,
+      },
+    });
+    return { ok: true as const, worktree: w.path };
+  }
+
+  /** Worktrees that have outlived their purpose (merged branch / released claim); `apply` removes the clean ones. */
+  async gcWorktrees(projectId: string, apply = false) {
+    await this.refreshWorktrees(projectId);
+    const plan = planGc(this.wtCache.get(projectId)?.v ?? [], this.claims(projectId));
+    const removed: string[] = [];
+    if (apply)
+      for (const c of plan) {
+        if (!c.removable) continue;
+        const r = await this.removeWorktree(projectId, c.path, false);
+        if (r.ok) removed.push(c.path);
+      }
+    return { candidates: plan, removed };
+  }
+
+  /** Open a worktree on the desktop: `[worktree] open` with `{path}` substituted, else the platform opener. */
+  openWorktree(projectId: string, ref: string) {
+    const p = this.project(projectId);
+    if (!p) return { ok: false as const, error: "unknown project" };
+    const w = this.findWorktree(projectId, ref);
+    if (!w) return { ok: false as const, error: `no worktree ${ref}` };
+    const cfg = loadConfig({ repoRoot: p.root, home: this.home }).worktree.open;
+    const cmd = cfg
+      ? ["sh", "-c", cfg.replace(/\{path\}/g, `'${w.path.replace(/'/g, "'\\''")}'`)]
+      : [
+          process.platform === "darwin"
+            ? "open"
+            : process.platform === "win32"
+              ? "explorer"
+              : "xdg-open",
+          w.path,
+        ];
+    try {
+      Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref();
+      return { ok: true as const, worktree: w.path, command: cmd.join(" ") };
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
+    }
   }
 
   /** Forget cached worktrees (after claim/release) so the next snapshot re-lists. */

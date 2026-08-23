@@ -189,6 +189,10 @@ swarm renew <task>                 extend the lease
 swarm release <task> [--force]     release + remove worktree; refuses if dirty or unpushed
 swarm claims                       list claims
 swarm reap                         release abandoned claims (keeps ones holding work)
+swarm wt [ls]                      every worktree with dirty / unpushed / behind / merged (M7.2)
+swarm wt create <name> [--base r]  task-less worktree under ~/.swarm/worktrees, branch wt/<name>, bootstrapped
+swarm wt open|rm <ref> [--force]   open via `[worktree] open` / remove (refuses dirty, unpushed, main, held)
+swarm wt gc [--apply]              stale worktrees (merged branch / released claim); --apply removes the clean ones
 
 swarm res ls                                              held singletons (project + machine-global)
 swarm res acquire <name> [--owner n] [--pid n] [--port n]  e.g. web, worker, db, port:3000
@@ -288,6 +292,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `PUT /v1/projects/order` | `{ids}` in sidebar order — persists the manual order of pinned projects (`order`; unordered ones follow alphabetically) |
 | `GET /v1/fs/ls?path=` | directory listing for the dashboard's "add folder" picker (directories only) |
 | `GET /v1/claims` · `POST /v1/claims` · `POST /v1/claims/renew` · `POST /v1/claims/release` · `POST /v1/claims/reap` | the claim ledger (fail-closed; `release` refuses dirty/unpushed unless `force`) |
+| `GET /v1/worktrees?project=` · `POST /v1/worktrees` · `POST /v1/worktrees/remove` · `POST /v1/worktrees/open` · `POST /v1/worktrees/gc` | first-class worktrees (M7.2): fresh listing with `behind`/`merged`; create task-less (`name`, `baseRef`, `branch`); remove (`worktree` = path, folder name or branch; `force`); open on the desktop; gc (`apply`) |
 | `GET /v1/resources?project=` · `POST /v1/resources` · `DELETE /v1/resources/:name` | runtime-resource singletons (acquire is `201` or `409` with who holds it) |
 | `GET /v1/incidents?limit=` | recent rule hits (`incident.opened`) |
 | `GET /v1/memory?q=&project=&kind=&task=&limit=` | full-text search (FTS5/BM25) over handoffs, incidents, gates and session text; hits carry a snippet with `\u0001`/`\u0002` around matches |

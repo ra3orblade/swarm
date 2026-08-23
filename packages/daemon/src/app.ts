@@ -376,6 +376,43 @@ export function createApp(store = new Store()) {
     const r = store.release(b.projectId ?? "", b.task ?? "", b.force ?? false);
     return c.json(r, r.ok ? 200 : 409);
   });
+  // ---- worktrees (M7.2): first-class, task-less
+  app.get("/v1/worktrees", async (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    return c.json(await store.refreshWorktrees(project));
+  });
+  app.post("/v1/worktrees", async (c) => {
+    const b = (await c.req.json()) as {
+      projectId?: string;
+      name?: string;
+      baseRef?: string;
+      branch?: string;
+    };
+    if (!b.projectId || !b.name) return c.json({ error: "projectId and name required" }, 400);
+    const r = store.createWorktree(b.projectId, b.name, b.baseRef, b.branch);
+    return c.json(r, r.ok ? 201 : 409);
+  });
+  app.post("/v1/worktrees/remove", async (c) => {
+    const b = (await c.req.json()) as { projectId?: string; worktree?: string; force?: boolean };
+    if (!b.projectId || !b.worktree)
+      return c.json({ error: "projectId and worktree required" }, 400);
+    const r = await store.removeWorktree(b.projectId, b.worktree, b.force ?? false);
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.post("/v1/worktrees/open", async (c) => {
+    const b = (await c.req.json()) as { projectId?: string; worktree?: string };
+    if (!b.projectId || !b.worktree)
+      return c.json({ error: "projectId and worktree required" }, 400);
+    await store.refreshWorktrees(b.projectId);
+    const r = store.openWorktree(b.projectId, b.worktree);
+    return c.json(r, r.ok ? 200 : 404);
+  });
+  app.post("/v1/worktrees/gc", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; apply?: boolean };
+    if (!b.projectId) return c.json({ error: "projectId required" }, 400);
+    return c.json(await store.gcWorktrees(b.projectId, b.apply ?? false));
+  });
   app.post("/v1/claims/reap", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as { projectId?: string };
     return c.json({ reaped: store.reap(b.projectId) });

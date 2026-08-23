@@ -115,7 +115,21 @@ An orphaned claim is the signal that finished-but-unpushed work is sitting somew
 
 The **Board** view lists every claim that isn't released, orphaned ones first: task, owner, lease remaining, worktree path and a state badge (**Held**, **Expired**, **Orphaned · holds work**). *Release* behaves like the CLI — it refuses to discard work and then offers a force-release in a second confirmation. Orphaned rows get *Force release* directly, with the same warning.
 
-Below it, **Worktrees** lists every worktree of the project, including ones you made by hand with `git worktree add`: branch, head, path, **Dirty** / **Unpushed** / **Clean**, and which live sessions are inside. That is the fastest way to spot the worktree nobody owns.
+Below it, **Worktrees** lists every worktree of the project, including ones you made by hand with `git worktree add`: branch, head, path, **Dirty** / **Unpushed** / **Clean**, **drift** against the main checkout's branch (*N behind*, *Up to date*, or **Merged** once its commits are in), and which live sessions are inside. That is the fastest way to spot the worktree nobody owns.
+
+### Worktrees without a task
+
+Not every worktree is a claim — a spike, a review checkout, a second copy to run tests in. `swarm wt` manages those, and the Board's Worktrees section has the same actions:
+
+```sh
+swarm wt create <name> [--base ref] [--branch b]   # ~/.swarm/worktrees/<project>/<name> on branch wt/<name>; bootstrapped like a claim
+swarm wt                                          # list: branch · head · state (dirty / unpushed / behind / merged) · path
+swarm wt open <name|path>                         # open it — `[worktree] open = "code {path}"` in .swarm.toml, else the file manager
+swarm wt rm <name|path> [--force]                 # remove; refuses dirty / unpushed work, never the main checkout, never a held claim
+swarm wt gc [--apply]                             # stale worktrees: branch merged into main, or a released claim that left its folder behind
+```
+
+`rm` follows the same rules as `release`: dirty or unpushed work is refused unless you `--force`, the main checkout is never removed, and a worktree a live claim holds is refused outright — release the claim instead. `gc` only ever proposes; `--apply` (or **Collect stale** on the Board) removes the candidates that would pass a plain `rm`, and lists the rest with what blocks them. "Merged" means the worktree's HEAD came into the main checkout's branch through a merge; a squash-merged branch isn't detected — `rm` it by hand.
 
 ## A task source
 

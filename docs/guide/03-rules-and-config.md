@@ -43,6 +43,7 @@ ports = []
 # and one setup command to run inside the worktree. Both off by default.
 # copy  = [".env.local"]
 # setup = "bun install"
+# open  = "code {path}"    # what `swarm wt open` / the Board's Open runs; default: the file manager
 ```
 
 A typical repo config, stricter than the defaults:

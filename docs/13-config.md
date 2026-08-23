@@ -61,6 +61,9 @@ ports = []                # e.g. [3000, 5432, 7777]
 # `bootstrap_failed` incident but the claim stays held. `swarm run` waits for it before spawning.
 # copy  = [".env.local"]
 # setup = "bun install"
+# `open`: command for `swarm wt open` / the Board's Open action, `{path}` substituted (shell-quoted);
+# default is the platform opener (`open` / `xdg-open` / `explorer`).
+# open  = "code {path}"
 ```
 
 ## How rules are enforced

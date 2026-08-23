@@ -60,6 +60,10 @@ swarm release <task> [--force]   # remove the worktree; refuses dirty/unpushed w
 swarm claims                     # state · task · owner · worktree
 swarm reap                       # release expired claims; keep (orphan) ones holding work
 swarm tasks [--ready] [--json]   # the repo's task source; --ready = unclaimed with dependencies done
+swarm wt [ls]                    # every worktree: branch · head · dirty / unpushed / behind / merged · path
+swarm wt create <name>           # task-less worktree (spike, review checkout); [--base ref] [--branch b]
+swarm wt open|rm <ref> [--force] # open in your editor ([worktree] open) / remove (refuses dirty, unpushed, held)
+swarm wt gc [--apply]            # propose (and with --apply remove) merged or abandoned worktrees
 ```
 
 Details and semantics: [Claims and worktrees](04-claims-and-worktrees.md).
