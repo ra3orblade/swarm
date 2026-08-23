@@ -261,6 +261,8 @@ export class Store {
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.ensureColumn("projects", "sort_order", "INTEGER");
+    this.ensureColumn("projects", "icon", "TEXT");
+    this.ensureColumn("projects", "color", "TEXT");
     this.migrate();
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
@@ -1887,6 +1889,8 @@ export class Store {
       name: r.name as string,
       discovered: Boolean(r.discovered),
       order: typeof r.sort_order === "number" ? r.sort_order : null,
+      icon: (r.icon as string) ?? null,
+      color: (r.color as string) ?? null,
       createdAt: r.created_at as string,
     }));
   }
@@ -1903,6 +1907,8 @@ export class Store {
       name: r.name as string,
       discovered: Boolean(r.discovered),
       order: typeof r.sort_order === "number" ? r.sort_order : null,
+      icon: (r.icon as string) ?? null,
+      color: (r.color as string) ?? null,
       createdAt: r.created_at as string,
     };
   }
@@ -1942,6 +1948,8 @@ export class Store {
         ...ident,
         discovered: !explicit,
         order: null,
+        icon: null,
+        color: null,
         createdAt: new Date().toISOString(),
       };
       if (name) p.name = name;
@@ -1964,7 +1972,14 @@ export class Store {
 
   updateProject(
     id: string,
-    patch: { pinned?: boolean | undefined; name?: string | undefined },
+    patch: {
+      pinned?: boolean | undefined;
+      name?: string | undefined;
+      /** Emoji / short glyph (≤ 4 code points); "" or null clears. */
+      icon?: string | null | undefined;
+      /** Color slot c1…c7; "" or null clears. */
+      color?: string | null | undefined;
+    },
   ): Project | undefined {
     const cur = this.project(id);
     if (!cur) return undefined;
@@ -1972,7 +1987,19 @@ export class Store {
       this.db
         .query("UPDATE projects SET discovered = ? WHERE id = ?")
         .run(patch.pinned ? 0 : 1, id);
-    if (patch.name) this.db.query("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
+    if (patch.name?.trim())
+      this.db.query("UPDATE projects SET name = ? WHERE id = ?").run(patch.name.trim(), id);
+    if (patch.icon !== undefined) {
+      const icon = (patch.icon ?? "").trim();
+      if ([...icon].length > 4) return undefined;
+      this.db.query("UPDATE projects SET icon = ? WHERE id = ?").run(icon || null, id);
+    }
+    if (patch.color !== undefined) {
+      const color = (patch.color ?? "").trim();
+      if (color && !/^c[1-7]$/.test(color)) return undefined;
+      this.db.query("UPDATE projects SET color = ? WHERE id = ?").run(color || null, id);
+    }
+    this.touch();
     return this.project(id);
   }
 

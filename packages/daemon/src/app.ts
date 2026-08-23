@@ -83,12 +83,15 @@ export function createApp(store = new Store()) {
     return c.json(store.reorderProjects(ids));
   });
   app.patch("/v1/projects/:id", async (c) => {
-    const { pinned, name } = (await c.req.json().catch(() => ({}))) as {
+    const { pinned, name, icon, color } = (await c.req.json().catch(() => ({}))) as {
       pinned?: boolean;
       name?: string;
+      icon?: string | null;
+      color?: string | null;
     };
-    const p = store.updateProject(c.req.param("id"), { pinned, name });
-    return p ? c.json(p) : c.json({ error: "not found" }, 404);
+    if (!store.project(c.req.param("id"))) return c.json({ error: "not found" }, 404);
+    const p = store.updateProject(c.req.param("id"), { pinned, name, icon, color });
+    return p ? c.json(p) : c.json({ error: "icon is at most 4 characters; color is c1…c7" }, 400);
   });
   app.delete("/v1/projects/:id", (c) =>
     store.removeProject(c.req.param("id"))

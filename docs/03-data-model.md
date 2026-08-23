@@ -5,7 +5,7 @@ Status: draft
 SQLite, single file, WAL. An **append-only `events` table** is the source of truth; state tables are projections the daemon maintains in the same transaction. Rebuildable by replay.
 
 ```
-projects      id, root, common_dir, name, config_json, discovered, created_at
+projects      id, root, common_dir, name, discovered, sort_order, icon, color, created_at
 sessions      id (CC session id), project_id, kind (interactive|spawned|subagent), parent_id,
               cwd, worktree, model, started_at, ended_at, last_seen_at, tokens_in/out, cost_usd
 claims        id, project_id, task, owner_session_id, owner_label, worktree, branch,
