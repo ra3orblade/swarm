@@ -12,6 +12,10 @@ Claude Code starts the server with the session's working directory as its cwd, a
 
 The owner name on claims and resources made through MCP defaults to `agent`; set `SWARM_OWNER` in the environment Claude Code runs in to change it, or pass `owner` explicitly.
 
+## Other agents
+
+`swarm install` registers the same stdio server with **Codex CLI** (`~/.codex/config.toml`, `[mcp_servers.swarm]`) and **Gemini CLI** (`~/.gemini/settings.json`, `mcpServers.swarm`) when their config directories exist — never created, existing entries untouched, `swarm uninstall` removes exactly the Swarm entry. Those agents then get every `swarm_*` tool too: coordination is two-way for them, not just observation. `swarm doctor` says which CLIs got it.
+
 ## Tools
 
 All tools return a one-line summary followed by the JSON result. Refusals come back as tool errors starting with `REFUSED:`, with the same messages the CLI prints.
@@ -83,6 +87,10 @@ Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claim
 ### `swarm_gate_run`
 
 Inputs: `{ task: string, gates?: string[] }`. Runs the gates the repo defines as commands (`.swarm.toml [gates.<name>] cmd`) inside the task's held worktree and records the verdicts — exit 0 is a pass, the rubric is the command, the evidence is the output tail (the last lines are returned on a fail). Defaults to the required gates that have a command. Use it instead of `swarm_gate_record` whenever a gate has a command: the record then says exactly what ran.
+
+### `swarm_context`
+
+No inputs. What Swarm told you at session start, current as of now — what you hold (task, worktree, lease left), the latest handoff, gate status, held resources, rule modes — plus answers to your questions and questions still open. Call it after a long stretch, when resuming, or when unsure what you hold.
 
 ### `swarm_ask`
 
