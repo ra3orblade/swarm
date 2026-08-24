@@ -2,6 +2,33 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.10.0] — 2026-08-24
+
+The team release: Swarm outgrows one laptop. A self-hosted team daemon gives a group one view — machines, cluster-wide claims, spend by person — while every laptop stays local-first and keeps working offline. Two more agent brands land (six total), and the dashboard starts reading the fleet's behaviour, not just its numbers: outcomes, stalls, collisions.
+
+### Added
+- **Team daemon** — `swarm-teamd` (`packages/team`), a second, self-hosted service your machines *forward* to: audit events, spend rollups and claims — never transcript text unless a machine opts in, and always after your redaction rules. The local daemon queues everything in an outbox (batched, at-least-once, never on the hook path) and drains it when the team daemon is reachable; `swarm doctor` shows the lag. One SQLite file of state, TLS by reverse proxy, [guide](https://getswarm.vercel.app/docs/11-teams) (M8.3). *Licensing: this one package is source-available ([FSL-1.1-ALv2](https://github.com/ra3orblade/swarm/blob/main/packages/team/LICENSE.md), Apache-2.0 after two years); everything else is and stays Apache-2.0 — one machine free, a second person is the product (OQ-15).*
+- **`swarm login`** — OIDC device-code sign-in against the team daemon (which is the OAuth client — your laptop never holds an OIDC credential; a static shared token or open mode for labs). First user becomes admin; roles are viewer / developer / admin. Login registers the machine (its token is bound to you) and pins the org's policy signing key. `swarm install --config-url <url>` is the one-flag fleet onboarding (M8.3c/f).
+- **Cluster-wide claims** — a claim taken on one machine registers upstream; a second machine claiming the same task is refused with the holder's name (`alice@her-laptop`), and if the cluster says someone else holds it, the local claim is revoked — the worktree is never touched. Offline degrades to local-only, fail-closed as ever (M8.3d).
+- **Team dashboard** — served by the team daemon: machines (live / quiet), active cluster claims, spend today / by project / **by user** / by machine / by day, and the forwarded activity feed, live over SSE (M8.3e).
+- **Signed org policy** — an admin posts the org's `policy.toml` once; every machine fetches it, verifies the ed25519 signature against the key pinned at login, and installs it as the org layer — locked rules included. A tampered policy is reported and never installed (M8.3f, closes the OQ-3 signing deferral).
+- **Team budgets + chargeback** — org / user / project ceilings (daily + monthly) set on the team daemon and enforced with the same semantics as the local `[budget]`: warn incident, `ask` on spending tools, or stop spawned runs. Monthly export by user, machine, model or **task — your ticket ids** when the task source is GitHub Issues or Linear: `GET /t1/spend/export?month=…&by=task&format=csv` (M8.4).
+- **Model allow-list** — `[models] allow = ["claude-*"]` (org-lockable): spawned runs and dispatch refuse a disallowed model; an interactive session on one opens a single incident — observed, never interrupted (M8.4).
+- **Aider + opencode adapters** — six agents now show up with sessions, turns, tokens and cost: Claude Code, Codex, Grok, Gemini CLI, **Aider** (its own `.aider.chat.history.md`, one file holding many sessions) and **opencode** (its SQLite database, read-only). Both report their exact spend themselves, so their turns carry it verbatim and repricing never touches them (M5.4; Cline deferred).
+- **Outcomes** — did the agent's work survive? Branches join sessions → PR → merged / reverted, with per-model and per-agent scorecards: merge rate, median session-start→merge, $ per merge. New **Outcomes** view under Insight (M9.2).
+- **Stuck badge** — the daemon watches live sessions' recent tool calls for repeat-and-failing loops and all-failing streaks (conservative: `git status` polling never counts) and marks the session **Stuck** on Fleet with a desktop notification. A heuristic; nothing is interrupted (M9.3).
+- **Collision graph** — a live bipartite graph of running sessions × the files they touch; a file two sessions hold with at least one writer glows red as a merge conflict waiting to happen. New **Graphs** view with a contested-count badge (M9.12).
+- **Sidebar navigation + ⌘K** — the flat header links became a grouped sidebar nav (Observe / Work / Insight / Guard) that collapses to an icon rail, and ⌘K opens a palette over every view, project and session, falling through to Search (M9.1).
+- **Ops** — `swarm backup` (a consistent `VACUUM INTO` snapshot of `~/.swarm`, zero downtime) and `swarm restore`; `swarm doctor --migrate`; Prometheus metrics at the team daemon's `/t1/metrics`; `[notify] webhook` POSTs every incident as Slack-compatible JSON (M8.5).
+
+### Fixed
+- Replay, *Resume where it died* and the dry-run *Re-run* buttons were unreachable — dead click targets on the session page.
+- The user guide caught up: a Teams page, the M8 commands, all six agents, and the `SWARM_GUARD=off` description (org-locked rules stay enforced — true since 0.8, documented wrong until now).
+
+### Notes
+- The privacy posture is unchanged and now stated precisely: with no `[team] url` and no `[notify] webhook` configured, nothing about your sessions leaves the machine — the [privacy page](https://getswarm.vercel.app/docs/10-privacy-and-faq) lists the five opt-in egress paths.
+- The team daemon package is not yet on npm; run it from a clone (`bun packages/team/src/bin.ts`). Pricing for the paid tier is still open.
+
 ## [0.9.0] — 2026-08-24
 
 The crew release: the agents on your machine stop being strangers. They message each other and you, follow a declared workflow instead of a hopeful prompt, and every major CLI brand now shows up — Claude, Codex, Gemini, Grok. Plus the first-run and update experience a launch deserves.
