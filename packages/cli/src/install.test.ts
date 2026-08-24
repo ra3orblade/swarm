@@ -23,7 +23,7 @@ writeFileSync(
   process.env.GEMINI_SETTINGS,
   '{"theme":"dark","mcpServers":{"other":{"command":"y"}}}\n',
 );
-const { install, status, uninstall } = await import("./install");
+const { install, setTeamUrl, status, uninstall } = await import("./install");
 
 afterEach(() => {});
 
@@ -68,5 +68,35 @@ describe("install", () => {
     expect(after.hooks).toBeUndefined();
     expect(JSON.parse(readFileSync(claudeJson, "utf8")).mcpServers?.swarm).toBeUndefined();
     expect(status().mcp).toBe(false);
+  });
+});
+
+describe("setTeamUrl (M8.3f, `swarm install --config-url`)", () => {
+  it("appends a [team] section to a fresh config and replaces the url on re-run", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-cfg-"));
+    setTeamUrl(home, "https://swarm.example.internal");
+    const path = join(home, "config.toml");
+    expect(readFileSync(path, "utf8")).toContain('[team]\nurl = "https://swarm.example.internal"');
+    setTeamUrl(home, "https://other.example.internal");
+    const text = readFileSync(path, "utf8");
+    expect(text).toContain('url = "https://other.example.internal"');
+    expect(text).not.toContain("swarm.example.internal");
+    expect(text.match(/\[team\]/g)?.length).toBe(1);
+  });
+
+  it("leaves other sections byte-for-byte and updates url inside an existing [team]", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-cfg2-"));
+    const path = join(home, "config.toml");
+    writeFileSync(
+      path,
+      `[daemon]\nport = 7878\n\n[team]\nurl = "https://old.internal"\ninterval = 9\n\n[rules]\nshared_tree = "deny"\n`,
+    );
+    setTeamUrl(home, "https://new.internal");
+    const text = readFileSync(path, "utf8");
+    expect(text).toContain("port = 7878");
+    expect(text).toContain('shared_tree = "deny"');
+    expect(text).toContain('url = "https://new.internal"');
+    expect(text).toContain("interval = 9");
+    expect(text).not.toContain("old.internal");
   });
 });

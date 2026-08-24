@@ -29,6 +29,18 @@ describe("clusterProjectKey (M8.3b, OQ-19)", () => {
   });
 });
 
+describe("modelAllowed (M8.4)", () => {
+  it("globs case-insensitively; empty list allows everything", async () => {
+    const { modelAllowed } = await import("./team");
+    expect(modelAllowed("claude-sonnet-4-5", [])).toBe(true);
+    expect(modelAllowed("claude-sonnet-4-5", ["claude-*"])).toBe(true);
+    expect(modelAllowed("Claude-Opus-5", ["claude-*"])).toBe(true);
+    expect(modelAllowed("gpt-5.5", ["claude-*"])).toBe(false);
+    expect(modelAllowed("gpt-5.5", ["claude-*", "gpt-5*"])).toBe(true);
+    expect(modelAllowed("gemini-2.5-pro", ["*-pro"])).toBe(true);
+  });
+});
+
 describe("[team] config (M8.3b)", () => {
   it("defaults to no forwarding", () => {
     const c = loadConfig({ home: mkdtempSync(join(tmpdir(), "swarm-teamcfg-")) });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TeamIngestRequest } from "@swarm/core";
@@ -14,6 +14,7 @@ function stubTeamd() {
     port: 0,
     hostname: "127.0.0.1",
     fetch: async (req) => {
+      if (new URL(req.url).pathname !== "/t1/ingest") return new Response("nope", { status: 404 });
       const body = (await req.json()) as TeamIngestRequest;
       seen.push(body);
       const ack = Math.max(0, ...body.records.map((r) => r.seq));
@@ -142,6 +143,176 @@ describe("TeamForwarder (M8.3b)", () => {
       .get() as { payload: string };
     expect(incident.payload).toContain("claim_conflict");
     expect(incident.payload).toContain("bob@other-laptop");
+  });
+
+  it("installs a signature-verified org policy and refuses a tampered one", async () => {
+    const { generateKeyPairSync, sign, createPrivateKey, createPublicKey } = await import(
+      "node:crypto"
+    );
+    const kp = generateKeyPairSync("ed25519");
+    const pub = createPublicKey(kp.privateKey)
+      .export({ format: "der", type: "spki" })
+      .toString("base64");
+    const POLICY = `locked = ["rules.destructive_git"]\n\n[rules]\ndestructive_git = "deny"\n`;
+    let toml = POLICY;
+    const signature = sign(
+      null,
+      Buffer.from(toml),
+      createPrivateKey(kp.privateKey.export({ format: "pem", type: "pkcs8" }).toString()),
+    ).toString("base64");
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: async (req) => {
+        const path = new URL(req.url).pathname;
+        if (path === "/t1/ingest") return Response.json({ ack: 999999 });
+        if (path === "/t1/policy")
+          return Response.json({ policy: { toml, signature, publicKey: pub } });
+        return new Response("nope", { status: 404 });
+      },
+    });
+    stop = () => server.stop(true);
+    const home = mkdtempSync(join(tmpdir(), "swarm-fw5-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[team]\nurl = "http://127.0.0.1:${server.port}"\ninterval = 1\n`,
+    );
+    const store = new Store(home);
+    store.append({
+      ts: new Date().toISOString(),
+      type: "gate.recorded",
+      projectId: "p1",
+      sessionId: null,
+      payload: { task: "T", gate: "test" },
+    });
+    const fw = new TeamForwarder(store, "test");
+    await fw.tick();
+    expect(existsSync(join(home, "policy.toml"))).toBe(true);
+    expect(readFileSync(join(home, "policy.toml"), "utf8")).toBe(POLICY);
+    expect(store.metaValue("team_policy_pubkey")).toBe(pub); // TOFU pin
+
+    // tampered: same signature, different toml — must not be installed
+    toml = `${POLICY}\n# evil\n`;
+    store.append({
+      ts: new Date().toISOString(),
+      type: "gate.recorded",
+      projectId: "p1",
+      sessionId: null,
+      payload: { task: "T", gate: "test2" },
+    });
+    await fw.tick(Date.now() + 400_000); // past the policy refresh window
+    expect(readFileSync(join(home, "policy.toml"), "utf8")).toBe(POLICY); // unchanged
+    expect(store.metaValue("team_last_error")).toContain("signature");
+  });
+
+  it("applies pulled team ceilings: incident + evaluateTool ask, and checkModels flags disallowed models", async () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-fw6-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[models]\nallow = ["claude-*"]\n\n[team]\nurl = "http://127.0.0.1:1"\ninterval = 1\n`,
+    );
+    const store = new Store(home);
+    const repo = mkdtempSync(join(tmpdir(), "swarm-fw6repo-"));
+    const p = store.resolveProject(repo, true);
+    // as if the forwarder pulled these from /t1/budget
+    store.setMetaValue(
+      "team_budget",
+      JSON.stringify([
+        {
+          scope: "user",
+          key: "alice",
+          level: "exceeded",
+          kind: "daily",
+          spent: 60,
+          limit: 50,
+          on_exceed: "ask",
+        },
+      ]),
+    );
+    store.checkBudgets();
+    const inc = store.db
+      .query(
+        "SELECT payload FROM events WHERE type = 'incident.opened' AND payload LIKE '%team daily budget%'",
+      )
+      .get() as { payload: string } | null;
+    expect(inc?.payload).toContain("user alice");
+    // every spending tool now asks
+    const d = store.evaluateTool("Bash", { command: "echo hi" }, "s1", repo);
+    expect(d.decision.action).toBe("ask");
+    if (d.decision.action === "ask") expect(d.decision.reason).toContain("team daily budget");
+
+    // model allow-list observation: a live session on gpt-* gets one incident, claude-* none
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.started",
+      projectId: p.id,
+      sessionId: "s-bad",
+      payload: { cwd: repo },
+    });
+    store.db
+      .query(
+        "UPDATE sessions SET model = 'gpt-5.5', state = 'active', last_seen_at = ? WHERE id = 's-bad'",
+      )
+      .run(new Date().toISOString());
+    expect(store.checkModels()).toBe(1);
+    expect(store.checkModels()).toBe(0); // flagged once
+    const minc = store.db
+      .query("SELECT payload FROM events WHERE payload LIKE '%model_allowlist%'")
+      .get() as { payload: string };
+    expect(minc.payload).toContain("gpt-5.5");
+  });
+
+  it("M8.5: incident webhook fires with a Slack-compatible payload; backupTo snapshots the db", async () => {
+    const got: Array<Record<string, unknown>> = [];
+    const hook = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: async (req) => {
+        got.push((await req.json()) as Record<string, unknown>);
+        return new Response("ok");
+      },
+    });
+    stop = () => hook.stop(true);
+    const home = mkdtempSync(join(tmpdir(), "swarm-hook-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[notify]\nwebhook = "http://127.0.0.1:${hook.port}/incident"\n`,
+    );
+    const store = new Store(home);
+    store.append({
+      ts: new Date().toISOString(),
+      type: "incident.opened",
+      projectId: "p1",
+      sessionId: "s1",
+      payload: {
+        rule: "shared_tree",
+        command: "git add -A",
+        reason: "another session shares the tree",
+      },
+    });
+    // chatter never notifies
+    store.append({
+      ts: new Date().toISOString(),
+      type: "prompt.submitted",
+      projectId: "p1",
+      sessionId: "s1",
+      payload: {},
+    });
+    await new Promise((r) => setTimeout(r, 150)); // fire-and-forget lands
+    expect(got.length).toBe(1);
+    expect(String(got[0]?.text)).toContain("shared_tree");
+    expect(got[0]?.rule).toBe("shared_tree");
+
+    // backup: VACUUM INTO produces an openable snapshot with the same events
+    const dest = join(mkdtempSync(join(tmpdir(), "swarm-bk-")), "snap");
+    const r = store.backupTo(dest);
+    expect(r.files).toContain("swarm.db");
+    expect(r.files).toContain("config.toml");
+    const { Database } = await import("bun:sqlite");
+    const copy = new Database(join(dest, "swarm.db"), { readonly: true });
+    expect(
+      (copy.query("SELECT COUNT(*) AS n FROM events").get() as { n: number }).n,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("does nothing when [team] is not configured", async () => {
