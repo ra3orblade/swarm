@@ -36,6 +36,7 @@ export type EventType =
   | "permission.requested"
   | "permission.resolved"
   | "session.notification"
+  | "session.stuck"
   | "workflow.started"
   | "workflow.step"
   | "workflow.finished"

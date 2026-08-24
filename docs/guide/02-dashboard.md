@@ -32,7 +32,7 @@ Columns:
 | status dot | green = active, amber = waiting for input, grey = idle or ended |
 | project | hidden when a project is selected |
 | agent | a coloured badge: Claude Code, Codex, Grok |
-| session | the session title (first prompt), an icon for its kind (keyboard = interactive, tree = subagent, play = spawned), and a `N Sub` badge for subagents it has started |
+| session | the session title (first prompt), an icon for its kind (keyboard = interactive, tree = subagent, play = spawned), and a `N Sub` badge for subagents it has started. An `Asking` badge means the agent parked a question for you; a red `Stuck` badge means the loop heuristics flagged it — the same tool call failing over and over, or several failing calls in a row. Stuck is detection only (hover for the reason, and you also get a desktop notification): nothing is interrupted, open the session and judge |
 | branch | git branch of the session's working directory |
 | now | the current tool call, or the last assistant text when waiting |
 | model | model in use; `+N` when the session has used several |
