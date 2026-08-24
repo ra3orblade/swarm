@@ -164,6 +164,22 @@ export class TeamStore {
             JSON.stringify(b.payload ?? null),
           );
           ack = Math.max(ack, r.seq);
+          // M8.3d: releases ride the event stream — a machine's claim.released/orphaned/expired
+          // clears its cluster claim (registration/renewal goes through /t1/claims)
+          if (
+            key &&
+            (b.type === "claim.released" ||
+              b.type === "claim.orphaned" ||
+              b.type === "claim.expired")
+          ) {
+            const task = (b.payload as { task?: unknown } | null)?.task;
+            if (typeof task === "string")
+              this.db
+                .query(
+                  "UPDATE claims SET released_at = ? WHERE project_key = ? AND task = ? AND machine_id = ? AND released_at IS NULL",
+                )
+                .run(typeof b.ts === "string" ? b.ts : now, key, task, machine.id);
+          }
         } else if (r.kind === "spend" && key && typeof b.day === "string") {
           if (typeof b.model !== "string" || typeof b.agent !== "string") continue;
           insProject.run(key, key.split("/").pop() ?? key, now);
@@ -181,6 +197,86 @@ export class TeamStore {
       }
     })();
     return { ack };
+  }
+
+  /**
+   * M8.3d cluster claims: register (or renew — same machine) held claims. A claim held by
+   * another machine that is neither released nor expired is a conflict; the register is atomic
+   * per batch. Releases arrive through the forwarded event stream (see `ingest`).
+   */
+  registerClaims(
+    machineId: string,
+    claims: Array<{
+      projectKey: string;
+      task: string;
+      acquiredAt: string;
+      expiresAt: string;
+      actor?: { kind: string; id: string } | undefined;
+    }>,
+  ): Array<
+    | { projectKey: string; task: string; status: "ok" }
+    | { projectKey: string; task: string; status: "conflict"; holder: string }
+  > {
+    const now = new Date().toISOString();
+    const results: ReturnType<TeamStore["registerClaims"]> = [];
+    this.db.transaction(() => {
+      for (const c of claims) {
+        const existing = this.db
+          .query(
+            "SELECT machine_id, actor_id, expires_at, released_at FROM claims WHERE project_key = ? AND task = ?",
+          )
+          .get(c.projectKey, c.task) as {
+          machine_id: string;
+          actor_id: string | null;
+          expires_at: string;
+          released_at: string | null;
+        } | null;
+        const active = existing && !existing.released_at && existing.expires_at > now;
+        if (active && existing.machine_id !== machineId) {
+          const m = this.db
+            .query("SELECT name FROM machines WHERE id = ?")
+            .get(existing.machine_id) as { name: string | null } | null;
+          results.push({
+            projectKey: c.projectKey,
+            task: c.task,
+            status: "conflict",
+            holder: `${existing.actor_id ?? "?"}@${m?.name ?? existing.machine_id}`,
+          });
+          continue;
+        }
+        this.db
+          .query(
+            `INSERT INTO claims (project_key, task, machine_id, actor_kind, actor_id, acquired_at, expires_at, released_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+             ON CONFLICT(project_key, task) DO UPDATE SET machine_id = excluded.machine_id,
+               actor_kind = excluded.actor_kind, actor_id = excluded.actor_id,
+               acquired_at = CASE WHEN claims.machine_id = excluded.machine_id AND claims.released_at IS NULL THEN claims.acquired_at ELSE excluded.acquired_at END,
+               expires_at = excluded.expires_at, released_at = NULL`,
+          )
+          .run(
+            c.projectKey,
+            c.task,
+            machineId,
+            c.actor?.kind ?? null,
+            c.actor?.id ?? null,
+            c.acquiredAt,
+            c.expiresAt,
+          );
+        results.push({ projectKey: c.projectKey, task: c.task, status: "ok" });
+      }
+    })();
+    return results;
+  }
+
+  /** Active cluster claims (dashboard + conflict messages). */
+  clusterClaims(): Array<Record<string, unknown>> {
+    return this.db
+      .query(
+        `SELECT c.project_key, c.task, c.machine_id, m.name AS machine_name, c.actor_kind, c.actor_id, c.acquired_at, c.expires_at
+         FROM claims c LEFT JOIN machines m ON m.id = c.machine_id
+         WHERE c.released_at IS NULL AND c.expires_at > ? ORDER BY c.acquired_at DESC`,
+      )
+      .all(new Date().toISOString()) as Array<Record<string, unknown>>;
   }
 
   /** Upsert a logged-in user (M8.3c). The deployment's first user becomes admin. */

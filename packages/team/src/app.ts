@@ -99,6 +99,42 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     return c.json({ token: t.token });
   });
 
+  // M8.3d: cluster claim register/renew — machine-authed; a token speaks for its own machine.
+  app.post("/t1/claims", async (c) => {
+    const p = c.get("principal");
+    if (p.kind === "human") return c.json({ error: "claims sync is machine-authed" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      machine?: { id?: unknown };
+      claims?: unknown;
+    };
+    if (typeof b.machine?.id !== "string" || !b.machine.id || !Array.isArray(b.claims))
+      return c.json({ error: "machine.id and claims required" }, 400);
+    if (p.kind === "machine" && p.id !== "shared-token" && p.id !== b.machine.id)
+      return c.json({ error: "token is for a different machine" }, 403);
+    const claims = (b.claims as Array<Record<string, unknown>>)
+      .filter(
+        (x) =>
+          typeof x.projectKey === "string" &&
+          typeof x.task === "string" &&
+          typeof x.acquiredAt === "string" &&
+          typeof x.expiresAt === "string",
+      )
+      .map((x) => ({
+        projectKey: x.projectKey as string,
+        task: x.task as string,
+        acquiredAt: x.acquiredAt as string,
+        expiresAt: x.expiresAt as string,
+        actor:
+          x.actor && typeof (x.actor as { kind?: unknown }).kind === "string"
+            ? (x.actor as { kind: string; id: string })
+            : undefined,
+      }));
+    return c.json({ results: store.registerClaims(b.machine.id, claims) });
+  });
+
+  /** Active cluster claims (any authed principal — the team dashboard's Board). */
+  app.get("/t1/claims", (c) => c.json({ claims: store.clusterClaims() }));
+
   // M8.3b: forwarded records from a machine's local daemon (machine-authed from M8.3c on).
   app.post("/t1/ingest", async (c) => {
     const p = c.get("principal");

@@ -291,6 +291,7 @@ export class Store {
     );
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
+    this.ensureColumn("claims", "team_state", "TEXT"); // M8.3d: null | registered | conflict
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
     this.ensureColumn("projects", "color", "TEXT");
@@ -3078,6 +3079,76 @@ export class Store {
       }
     }
     return n;
+  }
+
+  /** Held claims for cluster registration (M8.3d). */
+  heldClaimsForSync(): Array<{
+    projectId: string;
+    task: string;
+    acquiredAt: string;
+    expiresAt: string;
+    actorKind: string | null;
+    actorId: string | null;
+    teamState: string | null;
+  }> {
+    return (
+      this.db
+        .query(
+          "SELECT project_id, task, acquired_at, expires_at, actor_kind, actor_id, team_state FROM claims WHERE state = 'held'",
+        )
+        .all() as Array<Record<string, unknown>>
+    ).map((r) => ({
+      projectId: r.project_id as string,
+      task: r.task as string,
+      acquiredAt: r.acquired_at as string,
+      expiresAt: r.expires_at as string,
+      actorKind: (r.actor_kind as string) ?? null,
+      actorId: (r.actor_id as string) ?? null,
+      teamState: (r.team_state as string) ?? null,
+    }));
+  }
+
+  markClaimTeamState(projectId: string, task: string, state: string) {
+    this.db
+      .query("UPDATE claims SET team_state = ? WHERE project_id = ? AND task = ?")
+      .run(state, projectId, task);
+  }
+
+  /**
+   * M8.3d: the team daemon reports this task held elsewhere — the local claim is revoked (the
+   * cluster wins), the worktree is deliberately left on disk (never touch work), and an incident
+   * tells the human what happened.
+   */
+  revokeClaimConflict(projectId: string, task: string, holder: string) {
+    const row = this.db
+      .query("SELECT state FROM claims WHERE project_id = ? AND task = ?")
+      .get(projectId, task) as { state: string } | null;
+    if (row?.state !== "held") return;
+    const now = new Date().toISOString();
+    this.db
+      .query(
+        "UPDATE claims SET state = 'released', released_at = ?, team_state = 'conflict' WHERE project_id = ? AND task = ?",
+      )
+      .run(now, projectId, task);
+    this.append({
+      ts: now,
+      type: "claim.released",
+      projectId,
+      sessionId: null,
+      payload: { task, summary: `revoked — the team ledger holds ${task} on ${holder}` },
+    });
+    this.append({
+      ts: now,
+      type: "incident.opened",
+      projectId,
+      sessionId: null,
+      payload: {
+        rule: "claim_conflict",
+        action: "revoked",
+        command: task,
+        reason: `the team daemon holds ${task} for ${holder}; the local claim was revoked — the worktree is untouched`,
+      },
+    });
   }
 
   /** Shared no-hooks ingestion: incrementally read an agent's session log, upsert its session + turns. */

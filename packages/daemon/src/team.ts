@@ -6,6 +6,8 @@
  */
 import {
   clusterProjectKey,
+  type TeamClaimSync,
+  type TeamClaimsReply,
   type TeamIngestReply,
   type TeamIngestRequest,
   type TeamRecord,
@@ -85,34 +87,67 @@ export class TeamForwarder {
         spendRows++;
       }
     }
-    if (!records.length) return 0;
+    // M8.3d: every held claim re-registers each flush — same-machine registration is the renewal,
+    // and a 409-style conflict from the cluster revokes the local claim (worktree untouched).
+    const held = this.store.heldClaimsForSync();
+    if (!records.length && !held.length) return 0;
 
+    const machine = { ...this.store.machineIdentity(), version: this.version };
+    // machine token from `swarm login` (M8.3c); absent on open/lab deployments
+    const token = this.store.metaValue("team_machine_token");
+    const headers = {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    };
+    const base = this.store.policyFor(null).config.team.url;
     try {
-      const req: TeamIngestRequest = {
-        machine: { ...this.store.machineIdentity(), version: this.version },
-        records,
-      };
-      // machine token from `swarm login` (M8.3c); absent on open/lab deployments
-      const token = this.store.metaValue("team_machine_token");
-      const res = await fetch(`${this.store.policyFor(null).config.team.url}/t1/ingest`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(req),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) throw new Error(`ingest ${res.status}`);
-      const reply = (await res.json()) as TeamIngestReply;
-      if (reply.ack > 0) this.store.outboxAck(reply.ack);
-      if (spendRows) this.lastSpend = now;
+      if (records.length) {
+        const req: TeamIngestRequest = { machine, records };
+        const res = await fetch(`${base}/t1/ingest`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(req),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) throw new Error(`ingest ${res.status}`);
+        const reply = (await res.json()) as TeamIngestReply;
+        if (reply.ack > 0) this.store.outboxAck(reply.ack);
+        if (spendRows) this.lastSpend = now;
+      }
+      if (held.length) {
+        const claims: TeamClaimSync[] = held.map((c) => ({
+          projectKey: this.projectKey(c.projectId),
+          task: c.task,
+          acquiredAt: c.acquiredAt,
+          expiresAt: c.expiresAt,
+          actor: c.actorKind && c.actorId ? { kind: c.actorKind, id: c.actorId } : undefined,
+        }));
+        const res = await fetch(`${base}/t1/claims`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ machine, claims }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) throw new Error(`claims ${res.status}`);
+        const reply = (await res.json()) as TeamClaimsReply;
+        for (const r of reply.results) {
+          const local = held.find(
+            (c) => c.task === r.task && this.projectKey(c.projectId) === r.projectKey,
+          );
+          if (!local) continue;
+          if (r.status === "ok") {
+            if (local.teamState !== "registered")
+              this.store.markClaimTeamState(local.projectId, local.task, "registered");
+          } else this.store.revokeClaimConflict(local.projectId, local.task, r.holder);
+        }
+      }
       this.backoffMs = 0;
       this.store.setMetaValue("team_last_ack", new Date(now).toISOString());
       this.store.setMetaValue("team_last_error", "");
-      return records.length;
+      return records.length + held.length;
     } catch (e) {
-      // offline or unreachable: keep everything, back off, report via /v1/team + doctor
+      // offline or unreachable: keep everything, back off, report via /v1/team + doctor.
+      // Cluster claims degrade to advisory — local fail-closed semantics keep working.
       this.backoffMs = Math.min(this.backoffMs ? this.backoffMs * 2 : 5000, MAX_BACKOFF_MS);
       this.store.setMetaValue("team_last_error", (e as Error).message);
       return 0;

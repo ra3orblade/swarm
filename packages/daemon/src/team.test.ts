@@ -82,6 +82,68 @@ describe("TeamForwarder (M8.3b)", () => {
     expect(fw.status().configured).toBe(true);
   });
 
+  it("registers held claims upstream; a cluster conflict revokes the local claim, keeps the worktree", async () => {
+    // stub teamd: first task ok, second held elsewhere
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: async (req) => {
+        const path = new URL(req.url).pathname;
+        if (path === "/t1/ingest") {
+          const b = (await req.json()) as { records: Array<{ seq: number }> };
+          return Response.json({ ack: Math.max(0, ...b.records.map((r) => r.seq)) });
+        }
+        if (path === "/t1/claims") {
+          const b = (await req.json()) as { claims: Array<{ projectKey: string; task: string }> };
+          return Response.json({
+            results: b.claims.map((c) =>
+              c.task === "M-mine"
+                ? { projectKey: c.projectKey, task: c.task, status: "ok" }
+                : {
+                    projectKey: c.projectKey,
+                    task: c.task,
+                    status: "conflict",
+                    holder: "bob@other-laptop",
+                  },
+            ),
+          });
+        }
+        return new Response("nope", { status: 404 });
+      },
+    });
+    stop = () => server.stop(true);
+    const home = mkdtempSync(join(tmpdir(), "swarm-fw4-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[team]\nurl = "http://127.0.0.1:${server.port}"\ninterval = 1\n`,
+    );
+    const store = new Store(home);
+    const later = new Date(Date.now() + 15 * 60_000).toISOString();
+    const ins = store.db.query(
+      "INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, state, actor_kind, actor_id) VALUES (?, ?, 'alice', '/tmp/wt', 'task/x', ?, ?, 'held', 'human', 'alice')",
+    );
+    ins.run("p1", "M-mine", new Date().toISOString(), later);
+    ins.run("p1", "M-contested", new Date().toISOString(), later);
+
+    const fw = new TeamForwarder(store, "test");
+    expect(await fw.tick()).toBeGreaterThanOrEqual(2);
+    const rows = store.db
+      .query("SELECT task, state, team_state, worktree FROM claims ORDER BY task")
+      .all() as Array<Record<string, unknown>>;
+    expect(rows.find((r) => r.task === "M-mine")).toMatchObject({
+      state: "held",
+      team_state: "registered",
+    });
+    const contested = rows.find((r) => r.task === "M-contested");
+    expect(contested).toMatchObject({ state: "released", team_state: "conflict" });
+    expect(contested?.worktree).toBe("/tmp/wt"); // never touched
+    const incident = store.db
+      .query("SELECT payload FROM events WHERE type = 'incident.opened'")
+      .get() as { payload: string };
+    expect(incident.payload).toContain("claim_conflict");
+    expect(incident.payload).toContain("bob@other-laptop");
+  });
+
   it("does nothing when [team] is not configured", async () => {
     const store = new Store(mkdtempSync(join(tmpdir(), "swarm-fw3-")));
     store.append({

@@ -22,6 +22,29 @@ export interface TeamIngestReply {
   ack: number;
 }
 
+/** Cluster claim registration (M8.3d): local-first, then registered upstream; a conflict revokes
+ *  the local claim. Registering again from the same machine is the renewal. */
+export interface TeamClaimSync {
+  projectKey: string;
+  task: string;
+  acquiredAt: string;
+  expiresAt: string;
+  actor?: { kind: string; id: string } | undefined;
+}
+
+export interface TeamClaimsRequest {
+  machine: { id: string; name: string; version: string };
+  claims: TeamClaimSync[];
+}
+
+export type TeamClaimResult =
+  | { projectKey: string; task: string; status: "ok" }
+  | { projectKey: string; task: string; status: "conflict"; holder: string };
+
+export interface TeamClaimsReply {
+  results: TeamClaimResult[];
+}
+
 /**
  * Cluster project identity (OQ-19): the normalized `origin` remote URL — protocol, credentials
  * and `.git` stripped, host lowercased — so the same repo cloned on two machines shares one key.
