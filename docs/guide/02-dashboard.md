@@ -4,7 +4,7 @@ Status: current
 
 The dashboard is served by the daemon at `http://127.0.0.1:7777` (or whatever URL `swarm ui` prints). It updates live over a server-sent event stream; the dot next to the daemon name in the header turns on when the stream is connected. The header also shows **Today** — what every agent on the machine has cost so far today.
 
-The views live at the top of the sidebar, in four groups: **Observe** (Fleet, Timeline), **Work** (Board, PRs), **Insight** (Spend, Stats, Search) and **Guard** (Incidents, with a count of unacknowledged ones). Your last view and the selected project are remembered across reloads.
+The views live at the top of the sidebar, in four groups: **Observe** (Fleet, Timeline, Graphs), **Work** (Board, PRs), **Insight** (Spend, Stats, Search) and **Guard** (Incidents, with a count of unacknowledged ones). Your last view and the selected project are remembered across reloads.
 
 Press **⌘K** (or Ctrl+K, or the magnifier in the header) for the palette: type a few letters to jump to any view, project or live session, or press Enter on *Search Swarm for …* to run a full search over Swarm's memory — handoffs, incidents, gates, what sessions said.
 
@@ -62,6 +62,10 @@ The coordination ledger for the selected project (or all projects). Each section
 ## PRs
 
 One queue of open pull requests across every tracked GitHub and GitLab repo, with checks, review state and a *Merge* action on rows that qualify. Details in [Pull requests](06-pull-requests.md).
+
+## Graphs
+
+The collision graph: every live session on the left, every file those sessions have touched on the right. Solid coloured edges are writes, faint ones are reads. A file turns red when two sessions are on it and at least one is writing — a merge conflict waiting to happen. The count of contested files shows as a badge on the nav entry, so you see it from any view. Scoped by the project sidebar like everything else; hover a node for details.
 
 ## Timeline
 
