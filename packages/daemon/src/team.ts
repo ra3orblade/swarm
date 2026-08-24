@@ -7,7 +7,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  clusterProjectKey,
   type TeamClaimSync,
   type TeamClaimsReply,
   type TeamIngestReply,
@@ -15,7 +14,6 @@ import {
   type TeamRecord,
   verifyPolicySignature,
 } from "@swarm/core";
-import { originUrl } from "./git";
 import type { Store } from "./store";
 
 const SPEND_EVERY_MS = 60_000;
@@ -26,25 +24,15 @@ export class TeamForwarder {
   private lastTry = 0;
   private backoffMs = 0;
   private lastSpend = 0;
-  private keyCache = new Map<string, string>();
 
   constructor(
     private store: Store,
     private version: string,
   ) {}
 
-  /** Cluster project key (OQ-19): normalized origin remote, else `local:<project id>`. */
+  /** Cluster project key (OQ-19) — shared with budget/model checks in the store. */
   private projectKey(projectId: string): string {
-    const hit = this.keyCache.get(projectId);
-    if (hit) return hit;
-    const root = (
-      this.store.db.query("SELECT root FROM projects WHERE id = ?").get(projectId) as {
-        root: string | null;
-      } | null
-    )?.root;
-    const key = (root && clusterProjectKey(originUrl(root))) || `local:${projectId}`;
-    this.keyCache.set(projectId, key);
-    return key;
+    return this.store.clusterKeyFor(projectId);
   }
 
   status() {
@@ -86,6 +74,15 @@ export class TeamForwarder {
         records.push({
           seq: 0,
           kind: "spend",
+          body: { day, ...r, projectKey: this.projectKey(r.projectId) },
+        });
+        spendRows++;
+      }
+      // M8.4 chargeback: per-task daily cost rides the same upsert semantics
+      for (const r of this.store.taskSpendRollup(day)) {
+        records.push({
+          seq: 0,
+          kind: "spend_task",
           body: { day, ...r, projectKey: this.projectKey(r.projectId) },
         });
         spendRows++;
@@ -144,6 +141,19 @@ export class TeamForwarder {
               this.store.markClaimTeamState(local.projectId, local.task, "registered");
           } else this.store.revokeClaimConflict(local.projectId, local.task, r.holder);
         }
+      }
+      // M8.4: pull the cluster ceilings this machine should act on (checkBudgets applies them)
+      try {
+        const res = await fetch(`${base}/t1/budget`, {
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (res.ok) {
+          const { budgets } = (await res.json()) as { budgets: unknown[] };
+          this.store.setMetaValue("team_budget", JSON.stringify(budgets ?? []));
+        }
+      } catch {
+        // stale statuses are fine; the flush's error reporting covers connectivity
       }
       this.backoffMs = 0;
       this.store.setMetaValue("team_last_ack", new Date(now).toISOString());

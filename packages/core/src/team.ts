@@ -9,7 +9,7 @@ import { createPublicKey, verify as nodeVerify } from "node:crypto";
  *  idempotent by (machine id, seq), so at-least-once delivery is safe. */
 export interface TeamRecord {
   seq: number;
-  kind: "event" | "spend";
+  kind: "event" | "spend" | "spend_task";
   body: Record<string, unknown>;
 }
 
@@ -44,6 +44,25 @@ export type TeamClaimResult =
 
 export interface TeamClaimsReply {
   results: TeamClaimResult[];
+}
+
+/**
+ * Model allow-list (M8.4): globs, `*` only. Empty list = everything allowed.
+ * "claude-*" matches "claude-sonnet-4-5"; matching is case-insensitive.
+ */
+export function modelAllowed(model: string, allow: string[]): boolean {
+  if (!allow.length) return true;
+  return allow.some((g) => {
+    const re = new RegExp(
+      `^${g
+        .trim()
+        .split("*")
+        .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join(".*")}$`,
+      "i",
+    );
+    return re.test(model);
+  });
 }
 
 /**

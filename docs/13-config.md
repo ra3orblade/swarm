@@ -74,6 +74,12 @@ store_reasoning = true    # false: assistant text from transcripts is not stored
 redact = []               # regexes replaced by "[redacted]" in every stored string, e.g. ["ACME-[0-9]+"]
                           # long API-key-looking tokens and Bearer credentials are always redacted
 
+[models]
+# Model allow-list (M8.4): globs, empty = every model allowed. An org policy can lock this.
+# Spawned runs / dispatch refuse a disallowed model; an interactive session on one opens an
+# incident (observation only — Swarm never kills a session).
+allow = []                # e.g. ["claude-*"]
+
 [team]
 # Forward to a self-hosted team daemon (M8.3b, packages/team). Global only — a repo cannot
 # repoint a machine. Absent url = no forwarding, nothing changes.

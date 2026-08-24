@@ -205,6 +205,63 @@ describe("TeamForwarder (M8.3b)", () => {
     expect(store.metaValue("team_last_error")).toContain("signature");
   });
 
+  it("applies pulled team ceilings: incident + evaluateTool ask, and checkModels flags disallowed models", async () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-fw6-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[models]\nallow = ["claude-*"]\n\n[team]\nurl = "http://127.0.0.1:1"\ninterval = 1\n`,
+    );
+    const store = new Store(home);
+    const repo = mkdtempSync(join(tmpdir(), "swarm-fw6repo-"));
+    const p = store.resolveProject(repo, true);
+    // as if the forwarder pulled these from /t1/budget
+    store.setMetaValue(
+      "team_budget",
+      JSON.stringify([
+        {
+          scope: "user",
+          key: "alice",
+          level: "exceeded",
+          kind: "daily",
+          spent: 60,
+          limit: 50,
+          on_exceed: "ask",
+        },
+      ]),
+    );
+    store.checkBudgets();
+    const inc = store.db
+      .query(
+        "SELECT payload FROM events WHERE type = 'incident.opened' AND payload LIKE '%team daily budget%'",
+      )
+      .get() as { payload: string } | null;
+    expect(inc?.payload).toContain("user alice");
+    // every spending tool now asks
+    const d = store.evaluateTool("Bash", { command: "echo hi" }, "s1", repo);
+    expect(d.decision.action).toBe("ask");
+    expect(d.decision.reason).toContain("team daily budget");
+
+    // model allow-list observation: a live session on gpt-* gets one incident, claude-* none
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.started",
+      projectId: p.id,
+      sessionId: "s-bad",
+      payload: { cwd: repo },
+    });
+    store.db
+      .query(
+        "UPDATE sessions SET model = 'gpt-5.5', state = 'active', last_seen_at = ? WHERE id = 's-bad'",
+      )
+      .run(new Date().toISOString());
+    expect(store.checkModels()).toBe(1);
+    expect(store.checkModels()).toBe(0); // flagged once
+    const minc = store.db
+      .query("SELECT payload FROM events WHERE payload LIKE '%model_allowlist%'")
+      .get() as { payload: string };
+    expect(minc.payload).toContain("gpt-5.5");
+  });
+
   it("does nothing when [team] is not configured", async () => {
     const store = new Store(mkdtempSync(join(tmpdir(), "swarm-fw3-")));
     store.append({
