@@ -96,8 +96,9 @@ changes behaviour when `[team]` is absent from config.
 - `packages/team`, published as `@ra3orblade/swarm-team`, bin `swarm-teamd`. It imports `core`
   (types, rules, pricing, audit) like any other package; nothing in `core`/`daemon`/`cli` imports
   it back.
-- License: **FSL-1.1-Apache-2.0** (Functional Source License — source-available, competing use
-  restricted, each release converts to Apache-2.0 after two years). A per-package `LICENSE.md`
+- License: **FSL-1.1-ALv2** (Functional Source License 1.1 with Apache-2.0 future license —
+  source-available, competing use restricted, each release converts to Apache-2.0 after two
+  years; this is the current SPDX id of what OQ-15 called "FSL-1.1-Apache-2.0"). A per-package `LICENSE.md`
   overrides the repo's Apache-2.0 for this directory only; the root `LICENSE` is untouched and the
   README gains a licensing section. `tools/build-pkg.ts` **excludes** `packages/team` from the
   free `@ra3orblade/swarm` bundle; the team daemon ships as its own npm package + a

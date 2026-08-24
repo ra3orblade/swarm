@@ -221,4 +221,11 @@ bun run dev      # daemon with hot reload
 bun run test     # the suite CI runs
 ```
 
-Apache-2.0.
+Apache-2.0 — everything that runs on one machine: daemon, dashboard, CLI, MCP server, hooks, all
+agent adapters. No telemetry, no account, and that never changes.
+
+The one exception is [`packages/team`](packages/team) — the self-hosted **team daemon** (multi-machine,
+paid tier), which is source-available under
+[FSL-1.1-ALv2](packages/team/LICENSE.md): free for internal use, education, research and
+professional services, converting to Apache-2.0 two years after each release. The boundary is
+simple ([OQ-15](docs/07-open-questions.md)): one machine free, a second person is the product.

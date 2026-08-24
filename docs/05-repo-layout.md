@@ -20,7 +20,8 @@ swarm/
 │   ├── mcp/                   `swarm-mcp` stdio server.
 │   ├── hook/                  `swarm-hook` shim. Minimal deps, <50 ms.
 │   ├── client/                typed HTTP/SSE client shared by cli, mcp, hook, web.
-│   └── web/                   dashboard: vanilla HTML/JS in public/ (app.js, viz.js, table.js) + one React island for menus (src/menus.tsx → public/menus.js via `bun run build:web`). No Vite.
+│   ├── web/                   dashboard: vanilla HTML/JS in public/ (app.js, viz.js, table.js) + one React island for menus (src/menus.tsx → public/menus.js via `bun run build:web`). No Vite.
+│   └── team/                  swarm-teamd (M8.3): self-hosted team daemon. **FSL-1.1-ALv2**, not Apache — the only non-Apache directory (OQ-15); excluded from the free npm bundle. Design: 14-teams.
 ├── apps/
 │   └── desktop/               Tauri v2 shell: tray, sidecar daemon, updater
 ├── site/                      website (getswarm.vercel.app): landing + rendered docs/changelog, built by tools/build-site.ts
