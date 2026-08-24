@@ -64,6 +64,7 @@ const backfillDays = Number(process.env.SWARM_CODEX_BACKFILL_DAYS ?? 30);
 const backfillMs = backfillDays * 24 * 60 * 60_000;
 store.tailCodex(backfillMs);
 store.tailGrok(backfillMs);
+store.tailGemini(backfillMs);
 let tick = 0;
 const tailer = setInterval(() => {
   tick++;
@@ -72,6 +73,7 @@ const tailer = setInterval(() => {
   if (tick % 3 === 0 || store.hasActiveSessions()) {
     store.tailCodex();
     store.tailGrok();
+    store.tailGemini();
   }
   store.reapResources(); // dead pids / expired leases; the hook path never probes
   store.reapProcesses(); // registered processes that exited on their own

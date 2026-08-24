@@ -92,6 +92,7 @@ import {
   type ProcessKind,
   type Project,
   parseCodexRollout,
+  parseGeminiChat,
   parseGrokUpdates,
   parseMarkdownTasks,
   parseMemoryQuery,
@@ -2896,6 +2897,51 @@ export class Store {
 
   /** Grok: ~/.grok/sessions/<url-encoded-cwd>/<session-id>/updates.jsonl (cwd is in the dir name). */
   private grokSummary = new Map<string, { mtime: number; title: string | undefined }>();
+  /**
+   * M5.4 Gemini CLI: ~/.gemini/tmp/<hash>/chats/session-*.jsonl (+ one nested level for subagent
+   * recordings). The cwd comes from the file's own metadata record, never from the hash.
+   */
+  tailGemini(windowMs = 3 * 24 * 60 * 60_000): number {
+    const root = process.env.SWARM_GEMINI_ROOT ?? join(homedir(), ".gemini", "tmp");
+    if (!existsSync(root)) return 0;
+    const since = Date.now() - windowMs;
+    const ls = (p: string) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [] as string[];
+      }
+    };
+    let n = 0;
+    const ingestDir = (dir: string) => {
+      for (const f of ls(dir)) {
+        const path = join(dir, f);
+        if (!f.endsWith(".jsonl")) {
+          // one nested level: subagent recordings under the parent session id
+          try {
+            if (statSync(path).isDirectory())
+              for (const g of ls(path)) if (g.endsWith(".jsonl")) ingestFile(join(path, g));
+          } catch {}
+          continue;
+        }
+        ingestFile(path);
+      }
+    };
+    const ingestFile = (path: string) => {
+      try {
+        if (statSync(path).mtimeMs < since) return;
+      } catch {
+        return;
+      }
+      n += this.ingestLog(path, "gemini", parseGeminiChat);
+    };
+    for (const hash of ls(root)) {
+      const chats = join(root, hash, "chats");
+      if (existsSync(chats)) ingestDir(chats);
+    }
+    return n;
+  }
+
   tailGrok(windowMs = 3 * 24 * 60 * 60_000): number {
     const root = this.grokRoot();
     if (!existsSync(root)) return 0;
