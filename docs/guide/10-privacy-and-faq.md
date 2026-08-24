@@ -8,7 +8,7 @@ Swarm is local-first and open source (Apache-2.0). There is no account, no telem
 
 - **Claude Code hook events.** Each hook call hands Swarm the event's JSON: session id, working directory, the tool about to run and its input (for `PreToolUse`, the Bash command), the prompt you submitted, notifications, and the path of the session transcript.
 - **Claude Code transcripts.** Swarm tails the transcript file of each live session (the path comes from the hook) to get per-turn token usage, model, thinking tokens, assistant text and subagent turns. That is where tokens, cost and the reasoning stream come from. Transcripts are files Claude Code already writes; Swarm only reads them.
-- **Codex and Grok session logs**, if present: `~/.codex/sessions/` and `~/.grok/sessions/`. No hooks; the daemon tails them on a timer, back-filling the last 30 days each time it starts.
+- **Other agents' session logs**, if present — no hooks; the daemon tails them on a timer, back-filling the last 30 days each time it starts: Codex (`~/.codex/sessions/`), Grok (`~/.grok/sessions/`), Gemini CLI (`~/.gemini/tmp/*/chats/`), Aider (each project's own `.aider.chat.history.md`), and opencode (its database in `~/.local/share/opencode/`, opened read-only).
 - **git**, read-only, in your projects: the common dir (to identify the project), branch, worktree list, dirty/unpushed state, and `origin` URL (to detect the forge). `swarm claim` and `swarm release` are the only commands that write to git, and only to add or remove a worktree and branch under `~/.swarm/worktrees/`.
 - **Config**: `~/.swarm/config.toml` and `<repo>/.swarm.toml`.
 
@@ -31,13 +31,15 @@ Nothing is written inside your repositories. The dashboard is served on `127.0.0
 
 ## What can leave the machine
 
-Three things, each optional and under your control:
+Five things, each optional and under your control:
 
 1. **Model prices.** On start, the daemon fetches LiteLLM's public price list from GitHub so costs stay current (and *Refresh pricing* in settings does it on demand). The request carries nothing about you. Set `SWARM_OFFLINE=1` to never make it; costs then use the built-in table plus `~/.swarm/pricing.json`.
 2. **`gh` and `glab`.** The [PRs view](06-pull-requests.md) runs those CLIs, which talk to GitHub/GitLab with their own credentials. Swarm stores no tokens and makes no forge requests itself. Without the CLIs installed, nothing happens.
 3. **Desktop updater.** The desktop app contacts GitHub Releases only when you click *Check for Updates…*.
+4. **Team forwarding** — only if you set `[team] url` to your own self-hosted [team daemon](11-teams.md). What is sent is the `forward` list: audit events (claims, gates, incidents, with actors) and daily spend rollups by default; transcript titles/text only if you opt in, and always after your `[privacy] redact` rules. Off entirely by default.
+5. **Incident webhook** — only if you set `[notify] webhook`; each incident is POSTed to that URL as `{text}` JSON.
 
-No session content, command, transcript, token count or cost ever leaves your machine.
+With none of those configured, no session content, command, transcript, token count or cost ever leaves your machine.
 
 ## FAQ
 

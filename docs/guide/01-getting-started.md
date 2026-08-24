@@ -13,7 +13,7 @@ Nothing is added to your repositories. State lives in `~/.swarm/`.
 - git
 - Optional: `gh` and/or `glab`, authenticated — only needed for the [PRs view](06-pull-requests.md)
 
-Swarm also picks up OpenAI Codex CLI and Grok CLI sessions from their own session logs, with no extra setup, but Claude Code is the agent it integrates with through hooks and MCP.
+Swarm also picks up **OpenAI Codex CLI, Grok CLI, Gemini CLI, Aider and opencode** sessions from their own session logs and databases, with no extra setup, but Claude Code is the agent it integrates with through hooks and MCP (the MCP server is also registered for Codex and Gemini CLI when they are installed).
 
 ## Install
 

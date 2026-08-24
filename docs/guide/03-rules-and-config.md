@@ -52,6 +52,19 @@ on_exceed = "warn"
 # copy  = [".env.local"]
 # setup = "bun install"
 # open  = "code {path}"    # what `swarm wt open` / the Board's Open runs; default: the file manager
+
+[models]
+# Model allow-list: globs, empty = every model allowed. Spawned runs refuse a
+# disallowed model; an interactive session on one opens an incident (never interrupted).
+allow = []                 # e.g. ["claude-*"]
+
+[notify]
+# Every incident POSTed as Slack-compatible {text} JSON. Off by default. Global only.
+# webhook = "https://hooks.slack.com/services/…"
+
+[team]
+# Forward to a self-hosted team daemon — see the Teams page. Off by default. Global only.
+# url = "https://swarm.example.internal"
 ```
 
 A typical repo config, stricter than the defaults:
@@ -162,7 +175,13 @@ Every `ask` and `deny` is recorded as an incident — rule, decision, the comman
 - **`deny`** — the command is refused outright; the agent sees the reason and has to do something else.
 - **`off`** — the rule is not evaluated.
 
-Both `ask` and `deny` are recorded as incidents. Set `SWARM_GUARD=off` in the daemon's environment to disable all rules at once.
+Both `ask` and `deny` are recorded as incidents. Set `SWARM_GUARD=off` in the daemon's environment to disable the rules at once — with one exception: rules an **org policy locks** stay enforced (and the attempt is recorded as a tamper incident).
+
+## Org policy
+
+A third config layer sits above the two files: `~/.swarm/policy.toml` (or `$SWARM_POLICY`), merged **first** and the only layer that may carry `locked = ["rules.destructive_git", …]` — dotted keys that machine and repo config cannot override. Overrides are reported, not silently applied, and `swarm doctor` shows which file each effective value came from. Locked rules keep working even when the daemon is down (the hook shim evaluates them from an integrity-checked local cache) and even under `SWARM_GUARD=off`.
+
+On a [team](11-teams.md), the policy file is distributed automatically: the team daemon serves a signed policy, every machine verifies the signature against the key pinned at `swarm login`, and a tampered policy is never installed.
 
 ## Incidents
 
@@ -200,7 +219,7 @@ Read by the daemon and the CLI:
 | `SWARM_URL` | from `daemon.json` | Force the daemon URL clients use |
 | `SWARM_STRICT_PORT` | – | `1`: fail instead of falling back to a free port |
 | `SWARM_OFFLINE` | – | `1`: never fetch model prices from the network |
-| `SWARM_GUARD` | – | `off`: disable all rules |
+| `SWARM_GUARD` | – | `off`: disable the rules (org-locked rules stay enforced) |
 | `SWARM_HOOK_TIMEOUT_MS` | `400` | How long the hook waits for the daemon |
 | `SWARM_OWNER` | `agent` | Owner name used by the MCP server for claims and resources |
 
