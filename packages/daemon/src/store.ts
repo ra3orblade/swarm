@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import {
   closeSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -2554,6 +2555,26 @@ export class Store {
         ),
       );
     this.projectSession(stored);
+    // M8.5: incident webhook — fire-and-forget, Slack-compatible {text}, never blocks anything
+    if (stored.type === "incident.opened") {
+      const webhook = this.policyFor(null).config.notify.webhook;
+      if (webhook) {
+        const p = (stored.payload ?? {}) as { rule?: string; command?: string; reason?: string };
+        const project = this.project(stored.projectId)?.name ?? stored.projectId;
+        void fetch(webhook, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            text: `Swarm incident · ${p.rule ?? "?"} · ${project}\n${p.command ?? ""}\n${p.reason ?? ""}`.trim(),
+            rule: p.rule,
+            project,
+            sessionId: stored.sessionId,
+            ts: stored.ts,
+          }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    }
     // team forwarding (M8.3b): audit-type events are enqueued at write time — one local INSERT,
     // the network happens later in the forwarder, never on the hook path
     const team = this.policyFor(null).config.team;
@@ -4166,6 +4187,35 @@ export class Store {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * M8.5 backup: `VACUUM INTO` writes a consistent snapshot of the live database (safe under
+   * WAL, no downtime), then the config/token/policy files are copied alongside. Logs and
+   * daemon.json stay out — they belong to this machine's running daemon.
+   */
+  backupTo(destDir: string): { dest: string; files: string[] } {
+    mkdirSync(destDir, { recursive: true });
+    const files: string[] = [];
+    const dbDest = join(destDir, "swarm.db");
+    if (existsSync(dbDest)) unlinkSync(dbDest); // VACUUM INTO refuses to overwrite
+    this.db.exec(`VACUUM INTO '${dbDest.replaceAll("'", "''")}'`);
+    files.push("swarm.db");
+    for (const f of [
+      "config.toml",
+      "policy.toml",
+      "policy.sig.json",
+      "token",
+      "pricing.json",
+      "pricing.litellm.json",
+      "team-token",
+    ]) {
+      const src = join(this.home, f);
+      if (!existsSync(src)) continue;
+      copyFileSync(src, join(destDir, f));
+      files.push(f);
+    }
+    return { dest: destDir, files };
   }
 
   /** Cluster project key (OQ-19): normalized origin remote, else `local:<project id>`. */

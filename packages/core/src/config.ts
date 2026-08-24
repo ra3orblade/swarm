@@ -110,6 +110,10 @@ export interface SwarmConfig {
   workflows: Record<string, WorkflowDef>;
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
+  /** Incident webhook (M8.5): every `incident.opened` is POSTed as Slack-compatible `{text}`
+   *  JSON — works for Slack incoming webhooks and any generic JSON receiver (Jira/PagerDuty via
+   *  their webhook bridges). Fire-and-forget, never on the hook path. Global only. */
+  notify: { webhook: string | null };
   /** Model allow-list (M8.4): globs like "claude-*"; empty = every model allowed. An org policy
    *  can lock `models.allow`. Spawned runs/dispatch refuse a disallowed model; an interactive
    *  session on one opens an incident (observation — Swarm never kills a session). */
@@ -162,6 +166,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   workflows: {},
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
   models: { allow: [] },
+  notify: { webhook: null },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
   audit: { retain_days: 0 },
@@ -273,6 +278,12 @@ function validate(c: SwarmConfig): SwarmConfig {
       on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
     },
     workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
+    notify: {
+      webhook: (() => {
+        const w = (c.notify as { webhook?: unknown } | undefined)?.webhook;
+        return typeof w === "string" && /^https?:\/\//.test(w.trim()) ? w.trim() : null;
+      })(),
+    },
     models: {
       allow: Array.isArray((c.models as { allow?: unknown } | undefined)?.allow)
         ? ((c.models as { allow: unknown[] }).allow.filter(
