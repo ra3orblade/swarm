@@ -172,6 +172,17 @@ export function currentBranch(cwd: string): string | null {
   return branchCache.get(cwd)?.v ?? null;
 }
 
+/** `origin` remote URL for a repo root, cached — remotes change rarely (team forwarding, M8.3b). */
+const originCache = new Map<string, { v: string | null; t: number }>();
+export function originUrl(root: string): string | null {
+  const hit = originCache.get(root);
+  const now = Date.now();
+  if (hit && now - hit.t < 300_000) return hit.v;
+  const v = git(root, ["config", "--get", "remote.origin.url"])?.trim() || null;
+  originCache.set(root, { v, t: now });
+  return v;
+}
+
 /** Create a worktree at `path` on a new (or existing) branch off `baseRef`. Returns realpath or null. */
 export function worktreeAdd(
   repoRoot: string,

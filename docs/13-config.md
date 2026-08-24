@@ -74,6 +74,14 @@ store_reasoning = true    # false: assistant text from transcripts is not stored
 redact = []               # regexes replaced by "[redacted]" in every stored string, e.g. ["ACME-[0-9]+"]
                           # long API-key-looking tokens and Bearer credentials are always redacted
 
+[team]
+# Forward to a self-hosted team daemon (M8.3b, packages/team). Global only — a repo cannot
+# repoint a machine. Absent url = no forwarding, nothing changes.
+# url = "https://swarm.example.internal"
+forward = ["ledger", "cost"]   # "ledger" = audit events, "cost" = daily spend rollups;
+                               # "transcripts" (titles + last text) is strictly opt-in, still redacted
+interval = 5                   # flush seconds; batched, at-least-once, never on the hook path
+
 [rules]
 # Each rule: "ask" (agent must confirm), "deny" (blocked), or "off".
 shared_tree     = "ask"   # broad `git add -A` / `git commit -a` while another live session shares the checkout

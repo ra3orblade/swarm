@@ -13,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir, userInfo } from "node:os";
+import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS turns (
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, ts);
 CREATE INDEX IF NOT EXISTS turns_ts ON turns(ts);
 CREATE TABLE IF NOT EXISTS tails (path TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, offset INTEGER);
+CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, payload TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS resources (
   name TEXT, project_id TEXT, kind TEXT, owner TEXT, session_id TEXT,
   pid INTEGER, port INTEGER, acquired_at TEXT, expires_at TEXT, released INTEGER DEFAULT 0,
@@ -327,6 +328,13 @@ export class Store {
         "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(key, value);
+  }
+  /** Public meta access for collaborators (TeamForwarder); empty string reads as null. */
+  metaValue(key: string): string | null {
+    return this.meta(key) || null;
+  }
+  setMetaValue(key: string, value: string) {
+    this.setMeta(key, value);
   }
 
   /**
@@ -2524,11 +2532,76 @@ export class Store {
         ),
       );
     this.projectSession(stored);
+    // team forwarding (M8.3b): audit-type events are enqueued at write time — one local INSERT,
+    // the network happens later in the forwarder, never on the hook path
+    const team = this.policyFor(null).config.team;
+    if (team.url && team.forward.includes("ledger") && isAuditType(stored.type)) {
+      this.db.query("INSERT INTO outbox (kind, payload, created_at) VALUES ('event', ?, ?)").run(
+        JSON.stringify({
+          seq: stored.seq,
+          ts: stored.ts,
+          type: stored.type,
+          projectId: stored.projectId,
+          sessionId: stored.sessionId,
+          actor,
+          payload: slim.payload ?? null,
+        }),
+        stored.ts,
+      );
+    }
     this.touch();
     // listeners get the wire shape: no raw hook input, no tool I/O — the dashboard reads hook/summary only
     const wire = toWire(stored);
     for (const l of this.listeners) l(wire);
     return stored;
+  }
+
+  // ---------- team forwarding (M8.3b): outbox + machine identity + spend rollup
+  outboxPending(limit = 200): Array<{ seq: number; kind: string; payload: string }> {
+    return this.db
+      .query("SELECT seq, kind, payload FROM outbox ORDER BY seq LIMIT ?")
+      .all(limit) as Array<{ seq: number; kind: string; payload: string }>;
+  }
+
+  /** At-least-once: rows stay until the team daemon acks their seq. */
+  outboxAck(upTo: number) {
+    this.db.query("DELETE FROM outbox WHERE seq <= ?").run(upTo);
+  }
+
+  outboxStatus(): { pending: number; oldest: string | null } {
+    const r = this.db
+      .query("SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM outbox")
+      .get() as { n: number; oldest: string | null };
+    return { pending: r.n, oldest: r.oldest };
+  }
+
+  /** Stable machine identity for forwarding; created on first use, bound to a user at login (M8.3c). */
+  machineIdentity(): { id: string; name: string } {
+    let id = this.meta("machine_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      this.setMeta("machine_id", id);
+    }
+    return { id, name: hostname() };
+  }
+
+  /** Today's spend rollup per project/model/agent — idempotent upsert rows on the team side. */
+  spendRollup(day = new Date().toISOString().slice(0, 10)) {
+    return this.db
+      .query(
+        `SELECT s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent, t.model AS model,
+                SUM(t.cost_usd) AS cost, SUM(t.input + t.cache_write + t.cache_read) AS tokensIn, SUM(t.output) AS tokensOut
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+         WHERE t.ts >= ? AND t.ts < ? GROUP BY s.project_id, agent, t.model`,
+      )
+      .all(`${day}T00:00:00.000Z`, `${day}T23:59:59.999Z`) as Array<{
+      projectId: string;
+      agent: string;
+      model: string;
+      cost: number | null;
+      tokensIn: number;
+      tokensOut: number;
+    }>;
   }
 
   /**

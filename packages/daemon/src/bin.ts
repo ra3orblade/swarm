@@ -15,7 +15,7 @@ import { Store } from "./store";
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
 const appHooks: { restart?: () => void } = {};
-const { app, store, runner } = createApp(new Store(), appHooks);
+const { app, store, runner, team } = createApp(new Store(), appHooks);
 // `swarm demo`: a dedicated home seeded with a believable afternoon of agent work (never real data)
 if (process.env.SWARM_DEMO === "1" && isEmpty(store)) seedDemo(store);
 
@@ -86,6 +86,7 @@ const tailer = setInterval(() => {
   if (tick % 12 === 0) store.sweepOrphans(); // every minute: expired leases holding work → incident
   if (tick % 6 === 0) store.checkBudgets(); // every 30 s: [budget] ceilings → incident / ask / stop
   if (tick % 2 === 0) store.checkStalls(); // every 10 s: loop/stall heuristics → stuck badge + event
+  void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
 }, 5000);
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path
 void store.refreshAllWorktrees();

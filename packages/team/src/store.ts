@@ -116,6 +116,73 @@ export class TeamStore {
     }
   }
 
+  /**
+   * M8.3b ingest: idempotent by (machine id, record seq) for events; spend rows upsert by their
+   * primary key, so re-delivery is always safe. Returns the high-water `ack` for the machine's
+   * outbox. Malformed records are skipped, never fatal — the sender retries everything unacked.
+   */
+  ingest(
+    machine: { id: string; name?: string | undefined; version?: string | undefined },
+    records: Array<{ seq: number; kind: string; body: Record<string, unknown> }>,
+  ): { ack: number } {
+    const now = new Date().toISOString();
+    let ack = 0;
+    this.db.transaction(() => {
+      this.db
+        .query(
+          `INSERT INTO machines (id, name, version, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET name = excluded.name, version = excluded.version, last_seen = excluded.last_seen`,
+        )
+        .run(machine.id, machine.name ?? null, machine.version ?? null, now, now);
+      const insEvent = this.db.query(
+        `INSERT OR IGNORE INTO events (machine_id, machine_seq, ts, type, project_key, actor_kind, actor_id, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const insProject = this.db.query(
+        "INSERT OR IGNORE INTO projects (key, name, first_seen) VALUES (?, ?, ?)",
+      );
+      const upSpend = this.db.query(
+        `INSERT INTO spend (machine_id, day, project_key, model, agent, cost, tokens_in, tokens_out)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(machine_id, day, project_key, model, agent) DO UPDATE SET
+           cost = excluded.cost, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out`,
+      );
+      for (const r of records) {
+        const b = r.body ?? {};
+        const key = typeof b.projectKey === "string" ? b.projectKey : null;
+        if (r.kind === "event" && Number.isInteger(r.seq) && r.seq > 0) {
+          const actor = (b.actor ?? {}) as { kind?: string; id?: string };
+          if (key) insProject.run(key, key.split("/").pop() ?? key, now);
+          insEvent.run(
+            machine.id,
+            r.seq,
+            typeof b.ts === "string" ? b.ts : now,
+            typeof b.type === "string" ? b.type : "unknown",
+            key,
+            actor.kind ?? null,
+            actor.id ?? null,
+            JSON.stringify(b.payload ?? null),
+          );
+          ack = Math.max(ack, r.seq);
+        } else if (r.kind === "spend" && key && typeof b.day === "string") {
+          if (typeof b.model !== "string" || typeof b.agent !== "string") continue;
+          insProject.run(key, key.split("/").pop() ?? key, now);
+          upSpend.run(
+            machine.id,
+            b.day,
+            key,
+            b.model,
+            b.agent,
+            typeof b.cost === "number" ? b.cost : null,
+            typeof b.tokensIn === "number" ? b.tokensIn : 0,
+            typeof b.tokensOut === "number" ? b.tokensOut : 0,
+          );
+        }
+      }
+    })();
+    return { ack };
+  }
+
   close() {
     this.db.close();
   }

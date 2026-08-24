@@ -110,6 +110,16 @@ export interface SwarmConfig {
   workflows: Record<string, WorkflowDef>;
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
+  /** Team forwarding (M8.3b). Global only — a repo cannot point a machine at another team. */
+  team: {
+    /** The team daemon, e.g. "https://swarm.example.internal"; null = no forwarding. */
+    url: string | null;
+    /** What is forwarded: "ledger" (audit events), "cost" (spend rollups); "transcripts"
+     *  (session titles + last text) is strictly opt-in and still passes redaction. */
+    forward: string[];
+    /** Flush interval in seconds (batched, at-least-once, never on the hook path). */
+    interval: number;
+  };
   /** Retention (M8.2c): chatter events vs the audit subset (`0` = keep forever). Global only. */
   events: { retain_days: number };
   audit: { retain_days: number };
@@ -147,6 +157,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   gates: { required: [], auto: "session-end", defs: {} },
   workflows: {},
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
+  team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
   audit: { retain_days: 0 },
   privacy: DEFAULT_PRIVACY,
@@ -257,6 +268,22 @@ function validate(c: SwarmConfig): SwarmConfig {
       on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
     },
     workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
+    team: (() => {
+      const t = (c.team ?? {}) as Partial<Record<string, unknown>>;
+      const url =
+        typeof t.url === "string" && /^https?:\/\//.test(t.url.trim())
+          ? t.url.trim().replace(/\/+$/, "")
+          : null;
+      const iv = Number(t.interval);
+      const KINDS = ["ledger", "cost", "transcripts"];
+      return {
+        url,
+        forward: Array.isArray(t.forward)
+          ? t.forward.filter((k): k is string => typeof k === "string" && KINDS.includes(k))
+          : ["ledger", "cost"],
+        interval: Number.isFinite(iv) && iv >= 1 && iv <= 300 ? Math.round(iv) : 5,
+      };
+    })(),
     events: {
       retain_days: days((c.events as { retain_days?: unknown } | undefined)?.retain_days, 30),
     },

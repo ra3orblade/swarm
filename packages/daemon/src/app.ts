@@ -23,6 +23,7 @@ import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
+import { TeamForwarder } from "./team";
 import { WorkflowEngine } from "./workflow";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.9.0";
@@ -93,6 +94,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   const runner = new Runner(store, store.home);
   const dispatcher = new Dispatcher(store, runner, forge);
   const workflows = new WorkflowEngine(store, runner, forge);
+  const team = new TeamForwarder(store, VERSION);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
   store.onBudgetStop((projectId) => {
     dispatcher.clear(projectId);
@@ -250,6 +252,9 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   });
   // M4.6: rule dry-run over this project's history; ?shared_tree=deny&pattern_kill=off… override modes.
   // M8.1b: org policy for a project — file, locked keys, who set each value, contested keys.
+  // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
+  app.get("/v1/team", (c) => c.json(team.status()));
+
   app.get("/v1/policy", (c) => {
     const id = c.req.query("project");
     const p = id ? store.project(id) : null;
@@ -985,5 +990,5 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     });
   });
 
-  return { app, store, forge, runner, dispatcher, workflows };
+  return { app, store, forge, runner, dispatcher, workflows, team };
 }
