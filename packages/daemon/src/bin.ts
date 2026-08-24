@@ -70,6 +70,8 @@ if (!DEMO) {
   store.tailCodex(backfillMs);
   store.tailGrok(backfillMs);
   store.tailGemini(backfillMs);
+  store.tailAider(backfillMs);
+  store.tailOpencode(backfillMs);
 }
 let tick = 0;
 const tailer = setInterval(() => {
@@ -80,6 +82,8 @@ const tailer = setInterval(() => {
     store.tailCodex();
     store.tailGrok();
     store.tailGemini();
+    store.tailAider();
+    store.tailOpencode();
   }
   store.reapResources(); // dead pids / expired leases; the hook path never probes
   store.reapProcesses(); // registered processes that exited on their own

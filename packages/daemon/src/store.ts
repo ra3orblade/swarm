@@ -19,6 +19,7 @@ import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
   type Actor,
+  type AiderCarry,
   AUDIT_TYPES_SQL,
   absolutePath,
   acquireRefusalMessage,
@@ -90,12 +91,14 @@ import {
   needsBootstrap,
   nextExpiry,
   normalizeHook,
+  opencodeTurn,
   POLICY_CACHE_FILE,
   type PolicyFinding,
   PRICES,
   type Price,
   type ProcessKind,
   type Project,
+  parseAiderHistory,
   parseCodexRollout,
   parseGeminiChat,
   parseGrokUpdates,
@@ -211,7 +214,7 @@ CREATE INDEX IF NOT EXISTS events_type_seq ON events(type, seq);
 CREATE TABLE IF NOT EXISTS turns (
   id TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT, ts TEXT, model TEXT, effort TEXT, sidechain INTEGER,
   input INTEGER, output INTEGER, cache_write INTEGER, cache_write_1h INTEGER, cache_read INTEGER, thinking INTEGER,
-  cost_usd REAL, text TEXT, tools TEXT
+  cost_usd REAL, cost_fixed INTEGER DEFAULT 0, text TEXT, tools TEXT
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, ts);
 CREATE INDEX IF NOT EXISTS turns_ts ON turns(ts);
@@ -296,6 +299,7 @@ export class Store {
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.ensureColumn("claims", "team_state", "TEXT"); // M8.3d: null | registered | conflict
+    this.ensureColumn("turns", "cost_fixed", "INTEGER DEFAULT 0");
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
     this.ensureColumn("projects", "color", "TEXT");
@@ -2320,8 +2324,11 @@ export class Store {
   }
 
   reprice() {
+    // cost_fixed turns carry the agent's own exact cost (aider, opencode) — never reprice them
     const rows = this.db
-      .query("SELECT id, model, input, output, cache_write, cache_write_1h, cache_read FROM turns")
+      .query(
+        "SELECT id, model, input, output, cache_write, cache_write_1h, cache_read FROM turns WHERE cost_fixed IS NOT 1",
+      )
       .all() as Array<Record<string, number | string>>;
     const up = this.db.query("UPDATE turns SET cost_usd = ? WHERE id = ?");
     const tx = this.db.transaction(() => {
@@ -2845,10 +2852,10 @@ export class Store {
     const privacy = this.policyFor(null).config.privacy;
     const res = this.redactions();
     const up = this.db.query(
-      `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, text, tools)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, cost_fixed, text, tools)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET input=excluded.input, output=excluded.output, cache_write=excluded.cache_write, cache_write_1h=excluded.cache_write_1h,
-         cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools`,
+         cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, cost_fixed=excluded.cost_fixed, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools`,
     );
     const tx = this.db.transaction((ts: Turn[]) => {
       for (const t of ts) {
@@ -2866,7 +2873,8 @@ export class Store {
           t.usage.cacheWrite1h ?? 0,
           t.usage.cacheRead,
           t.usage.thinking,
-          costUsd(t.model, t.usage, this.prices),
+          t.cost ?? costUsd(t.model, t.usage, this.prices),
+          t.cost != null ? 1 : 0,
           privacy.store_reasoning ? redactValue(t.text, res) : "",
           JSON.stringify(t.tools),
         );
@@ -3191,6 +3199,203 @@ export class Store {
         reason: `the team daemon holds ${task} for ${holder}; the local claim was revoked — the worktree is untouched`,
       },
     });
+  }
+
+  /** Aider parser carry state per history file (recovered from tails/sessions after a restart). */
+  private aiderCarries = new Map<string, AiderCarry | null>();
+
+  private recoverAiderCarry(sessionId: string): AiderCarry | null {
+    const s = this.db
+      .query("SELECT started_at, model, title FROM sessions WHERE id = ?")
+      .get(sessionId) as { started_at: string; model: string | null; title: string | null } | null;
+    if (!s) return null;
+    const t = this.db
+      .query("SELECT COUNT(*) AS n FROM turns WHERE session_id = ?")
+      .get(sessionId) as { n: number };
+    return {
+      sessionId,
+      startMs: Date.parse(s.started_at) || 0,
+      model: s.model,
+      title: s.title,
+      turns: t.n,
+      text: "",
+      tools: [],
+      pending: null,
+    };
+  }
+
+  /**
+   * M5.4 Aider: tail `<project root>/.aider.chat.history.md` for every known project (aider's own
+   * default history file — we only read what aider wrote). One file holds many sessions; the core
+   * parser splits them and a carry state keeps a turn that straddles two chunks intact.
+   */
+  tailAider(windowMs = 3 * 24 * 60 * 60_000): number {
+    const roots = this.db
+      .query("SELECT DISTINCT root FROM projects WHERE root IS NOT NULL AND root != ''")
+      .all() as Array<{ root: string }>;
+    let n = 0;
+    for (const { root } of roots) {
+      const path = join(root, ".aider.chat.history.md");
+      let mtime: number;
+      try {
+        mtime = statSync(path).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (mtime < Date.now() - windowMs) continue;
+      const row = this.db
+        .query("SELECT offset, session_id FROM tails WHERE path = ?")
+        .get(path) as {
+        offset: number;
+        session_id: string | null;
+      } | null;
+      const r = this.readFrom(path, row?.offset ?? 0);
+      if (!r) continue;
+      let carry = this.aiderCarries.get(path) ?? null;
+      if (!carry && row?.session_id) carry = this.recoverAiderCarry(row.session_id);
+      const { segments, carry: next } = parseAiderHistory(r.chunk, path, carry);
+      this.aiderCarries.set(path, next);
+      const lastSeg = segments.at(-1);
+      for (const seg of segments) {
+        this.ensureAgentSession(seg.sessionId, "aider", root, seg.startMs || mtime);
+        this.persistTurns(seg.sessionId, null, seg.turns);
+        // only the file's final session can still be live; earlier ones ended when the next began
+        const live = seg === lastSeg && Date.now() - mtime < 90_000;
+        const lastSeen = new Date(
+          seg === lastSeg ? mtime : seg.startMs + seg.turns.length * 1000,
+        ).toISOString();
+        const lastText = [...seg.turns].reverse().find((t) => t.text)?.text ?? null;
+        this.db
+          .query(
+            "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+          )
+          .run(
+            seg.title,
+            seg.model,
+            lastText,
+            lastSeen,
+            live ? "active" : "ended",
+            live ? "active" : "ended",
+            lastSeen,
+            seg.sessionId,
+          );
+        n += seg.turns.length;
+      }
+      this.db
+        .query(
+          "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset, session_id = excluded.session_id",
+        )
+        .run(path, lastSeg?.sessionId ?? row?.session_id ?? null, r.next);
+    }
+    return n;
+  }
+
+  /** Read-only handles to opencode databases, keyed by path. */
+  private ocDbs = new Map<string, Database>();
+
+  /**
+   * M5.4 opencode: read `~/.local/share/opencode/opencode*.db` (XDG data dir; WAL, safe to read
+   * while opencode writes). The message cursor (max time_updated) rides in the tails table with
+   * the db path as key; `core/adapters/opencode` maps each assistant message row to a turn.
+   */
+  tailOpencode(windowMs = 3 * 24 * 60 * 60_000): number {
+    const dir =
+      process.env.SWARM_OPENCODE_DIR ??
+      join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "opencode");
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter((f) => /^opencode[^/]*\.db$/.test(f));
+    } catch {
+      return 0;
+    }
+    let n = 0;
+    for (const f of files) {
+      const path = join(dir, f);
+      let db = this.ocDbs.get(path);
+      if (!db) {
+        try {
+          db = new Database(path, { readonly: true });
+        } catch {
+          continue;
+        }
+        this.ocDbs.set(path, db);
+      }
+      const row = this.db.query("SELECT offset FROM tails WHERE path = ?").get(path) as {
+        offset: number;
+      } | null;
+      const lower = Math.max(row?.offset ?? 0, Date.now() - windowMs);
+      let rows: Array<{
+        id: string;
+        session_id: string;
+        time_created: number | null;
+        time_updated: number | null;
+        data: string;
+        directory: string | null;
+        title: string | null;
+        parent_id: string | null;
+      }>;
+      try {
+        rows = db
+          .query(
+            `SELECT m.id, m.session_id, m.time_created, m.time_updated, m.data,
+                    s.directory, s.title, s.parent_id
+             FROM message m JOIN session s ON s.id = m.session_id
+             WHERE m.time_updated > ? ORDER BY m.time_updated ASC LIMIT 2000`,
+          )
+          .all(lower) as typeof rows;
+      } catch {
+        continue; // schema from a different opencode version — skip rather than guess
+      }
+      if (!rows.length) continue;
+      let cursor = lower;
+      const bySession = new Map<string, { rows: typeof rows; last: number }>();
+      for (const m of rows) {
+        cursor = Math.max(cursor, m.time_updated ?? 0);
+        const g = bySession.get(m.session_id) ?? { rows: [] as typeof rows, last: 0 };
+        g.rows.push(m);
+        g.last = Math.max(g.last, m.time_updated ?? m.time_created ?? 0);
+        bySession.set(m.session_id, g);
+      }
+      for (const [sid, g] of bySession) {
+        const first = g.rows[0];
+        if (!first) continue;
+        this.ensureAgentSession(
+          sid,
+          "opencode",
+          first.directory ?? "",
+          first.time_created ?? g.last,
+        );
+        const turns = g.rows
+          .map((m) => opencodeTurn(sid, m.id, m.data, m.time_created ?? 0, first.parent_id != null))
+          .filter((t): t is NonNullable<typeof t> => t != null);
+        this.persistTurns(sid, null, turns);
+        const live = Date.now() - g.last < 90_000;
+        const lastSeen = new Date(g.last).toISOString();
+        const lastText = [...turns].reverse().find((t) => t.text)?.text ?? null;
+        const model = [...turns].reverse().find((t) => t.model !== "opencode")?.model ?? null;
+        this.db
+          .query(
+            "UPDATE sessions SET title = COALESCE(?, title), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+          )
+          .run(
+            first.title,
+            model,
+            lastText,
+            lastSeen,
+            live ? "active" : "ended",
+            live ? "active" : "ended",
+            lastSeen,
+            sid,
+          );
+        n += turns.length;
+      }
+      this.db
+        .query(
+          "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, NULL, NULL, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+        )
+        .run(path, cursor);
+    }
+    return n;
   }
 
   /** Shared no-hooks ingestion: incrementally read an agent's session log, upsert its session + turns. */
