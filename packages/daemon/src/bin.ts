@@ -1,17 +1,20 @@
 #!/usr/bin/env bun
 import {
   clearDaemonInfo,
+  daemonCommand,
   DEFAULT_PORT as ENV_PORT,
   ensureToken,
   writeDaemonInfo,
 } from "@swarm/client";
 import { loadConfig } from "@swarm/core";
 import { createApp, VERSION } from "./app";
+import { Store } from "./store";
 
 // Port preference: SWARM_PORT env > ~/.swarm/config.toml [daemon].port > 7777.
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
-const { app, store, runner } = createApp();
+const appHooks: { restart?: () => void } = {};
+const { app, store, runner } = createApp(new Store(), appHooks);
 
 // Bind the preferred port; if it's taken, fall back to an OS-assigned free port so the daemon never
 // fails to start because a port is blocked/occupied. Clients discover the real port via
@@ -28,7 +31,30 @@ function serve(): ReturnType<typeof Bun.serve> {
     return bind(0); // 0 = OS assigns a free port
   }
 }
-const server = serve();
+let server: ReturnType<typeof serve>;
+const restart = () => {
+  console.error("swarmd: restarting into the version on disk…");
+  try {
+    clearInterval(tailer);
+    clearInterval(wtRefresh);
+    clearInterval(pruner);
+  } catch {}
+  try {
+    server.stop(true);
+  } catch {}
+  clearDaemonInfo();
+  const [cmd, ...args] = daemonCommand();
+  if (cmd)
+    Bun.spawn([cmd, ...args], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      env: { ...process.env },
+    }).unref();
+  setTimeout(() => process.exit(0), 100);
+};
+appHooks.restart = restart;
+server = serve();
 const port = server.port ?? DEFAULT_PORT;
 
 ensureToken();

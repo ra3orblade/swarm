@@ -519,6 +519,15 @@
   .seg a:hover{color:var(--fg-2)}
   .seg a.on{background:var(--acc-soft);color:var(--acc)}
   .chip b{font-weight:700}
+  /* first-run onboarding card */
+  .onboard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 30px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;max-width:640px;margin:40px auto}
+  .onboard h3{font-size:var(--fs-xl);color:var(--fg)}
+  .onboard .px{margin:0 auto}
+  .ob-steps{display:flex;flex-direction:column;gap:12px}
+  .ob-step{display:flex;gap:12px;align-items:flex-start;color:var(--fg-2);line-height:1.5}
+  .ob-step.done{color:var(--dim)}
+  .ob-n{flex:none;width:22px;height:22px;border-radius:50%;border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font:600 var(--fs-sm) var(--sans);color:var(--dim);margin-top:1px}
+  .ob-step.done .ob-n{background:var(--ok-soft);color:var(--ok);border-color:transparent}
   /* star nudge (once a month, dismissable) */
   .nudge{position:fixed;right:18px;bottom:18px;z-index:40;max-width:400px;background:var(--panel);border:1px solid var(--line);
     border-radius:var(--r);box-shadow:var(--shadow-pop);padding:14px 16px;display:flex;gap:12px;align-items:flex-start;

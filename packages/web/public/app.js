@@ -155,7 +155,7 @@ async function refresh() {
   const txt = await (await fetch("/v1/state")).text();
   const same = txt === lastSnap;
   if (!same) { lastSnap = txt; Object.assign(state, JSON.parse(txt)); }
-  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; maybeWhatsNew(); }).catch(() => {});
+  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; state.hooksInstalled = h.hooksInstalled !== false; maybeUpdateNudge(h); maybeWhatsNew(); }).catch(() => {});
   let prsChanged = false;
   if (state.view === "prs" && !state.session) {
     const prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
@@ -317,6 +317,21 @@ projectsEl.addEventListener("dragend", () => {
   fetch("/v1/projects/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) }).then(refresh);
 });
 
+// First run: no sessions have ever been seen. Say exactly what to do next, and whether hooks are in.
+function onboarding() {
+  const hooksOk = state.hooksInstalled !== false;
+  const step = (n, done, html) => `<div class="ob-step ${done ? "done" : ""}"><span class="ob-n">${done ? "✓" : n}</span><div>${html}</div></div>`;
+  return `<div class="onboard">${PX.idle()}
+    <h3>Swarm is running and watching this machine.</h3>
+    <div class="ob-steps">
+      ${step(1, hooksOk, `<b>Hook into Claude Code</b> — <code>swarm install</code> once${hooksOk ? "" : " <span class='badge warn'>not installed</span>"}. Codex and Grok are picked up automatically, nothing to configure.`)}
+      ${step(2, false, `<b>Open any agent session</b> — run <code>claude</code> in any repository, in any terminal. No changes to the repo, the agent doesn't know Swarm is there.`)}
+      ${step(3, false, `<b>Watch it appear here</b> — live status, branch, tokens and cost per session; Board, Timeline and Spend fill up as you work.`)}
+    </div>
+    <div class="dim">Something off? <code>swarm doctor</code> checks every piece and prints the fix.</div>
+  </div>`;
+}
+
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
 const FLEET_COLS = [
@@ -363,7 +378,7 @@ function renderFleet() {
     : "";
   $("#main").innerHTML = chips +
     `<h2>Live <span>${live.length} sessions · ${usd(sumBy(live, (s) => s.costUsd))}</span></h2>` +
-    (live.length ? table(live, "fleet-live") : `<div class="empty">${PX.idle()}Nothing running.${state.sessions.length ? "" : "<br><br>Run <kbd>swarm install</kbd> once, then start <kbd>claude</kbd> in any folder — it will appear here."}</div>`) +
+    (live.length ? table(live, "fleet-live") : state.sessions.length ? `<div class="empty">${PX.idle()}Nothing running.</div>` : onboarding()) +
     (rest.length ? `<h2 class="mt-sec">Earlier <span>${rest.length}</span></h2>${table(rest.slice(0, 30), "fleet-earlier")}` : "") +
     "";
 }
@@ -1527,6 +1542,33 @@ function whatsNew(version) {
 }
 window.swarmWhatsNew = (v) => whatsNew(v);
 // auto-open once per version, but never on the very first run (nothing to compare against)
+// M-launch: after an update the running daemon is the old build until it restarts. The daemon
+// reports the version on disk; when it differs, offer a one-click restart, then reload.
+let updateNudged = false;
+setInterval(() => { fetch("/v1/health").then((r) => r.json()).then(maybeUpdateNudge).catch(() => {}); }, 300_000);
+function maybeUpdateNudge(h) {
+  if (!h?.disk || !h.version || h.disk === h.version || updateNudged) return;
+  updateNudged = true;
+  const el = document.createElement("div");
+  el.className = "nudge";
+  el.innerHTML = `${ic("arrows-clockwise", 18, "ic")}<div><b>Swarm ${esc(h.disk)} is installed</b>The daemon is still running ${esc(h.version)} — restart it to switch. Sessions and history are unaffected.
+    <div class="row"><button class="pri" id="updRestart">${ic("arrows-clockwise", 13)} Restart daemon</button><button id="updLater">Later</button></div></div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", async (e) => {
+    if (e.target.id === "updLater") return el.remove();
+    if (e.target.id !== "updRestart") return;
+    e.target.textContent = "restarting…";
+    await fetch("/v1/daemon/restart", { method: "POST" }).catch(() => {});
+    const t0 = Date.now();
+    const wait = setInterval(async () => {
+      try {
+        const j = await (await fetch("/v1/health")).json();
+        if (j.version === h.disk) { clearInterval(wait); location.reload(); }
+      } catch {}
+      if (Date.now() - t0 > 30_000) { clearInterval(wait); el.remove(); }
+    }, 800);
+  });
+}
 function maybeWhatsNew() {
   if (!state.version || !window.RELEASE_NOTES) return;
   let seen; try { seen = localStorage.getItem("swarm.seenVersion"); } catch {}

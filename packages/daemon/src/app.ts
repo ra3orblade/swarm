@@ -2,10 +2,11 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readToken } from "@swarm/client";
+import { daemonCommand, readToken } from "@swarm/client";
 import {
   formatAudit,
   formatHandoff,
+  hookCoverage,
   MEMORY_KINDS,
   type MemoryKind,
   RULE_IDS,
@@ -53,7 +54,37 @@ function hookRepoRoot(store: Store, raw: Record<string, unknown>): string | null
   return cwd && existsSync(cwd) ? (store.resolveProject(cwd)?.root ?? null) : null;
 }
 
-export function createApp(store = new Store()) {
+/** Claude Code's user settings, for the hooks-installed pill on /v1/health. */
+function claudeSettings(): unknown {
+  try {
+    const p = process.env.CLAUDE_SETTINGS ?? join(homedir(), ".claude", "settings.json");
+    return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The version of the Swarm code on disk — what a restart would run. Differs from VERSION after an
+ * update (npm upgrade, git pull) while this process is still the old build (M-launch).
+ */
+export function diskVersion(): string | null {
+  try {
+    const entry = daemonCommand().at(-1);
+    if (!entry || !existsSync(entry)) return null;
+    // bundle: the version literal is inlined in the entry; clone: it lives in the sibling app.ts
+    for (const f of [entry, join(dirname(entry), "app.ts")]) {
+      if (!existsSync(f)) continue;
+      const m = /SWARM_VERSION\s*\?\?\s*"(\d+\.\d+\.\d+)"/.exec(readFileSync(f, "utf8"));
+      if (m?.[1]) return m[1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function createApp(store = new Store(), hooks: { restart?: () => void } = {}) {
   const app = new Hono();
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
@@ -84,6 +115,8 @@ export function createApp(store = new Store()) {
   });
   app.get("/v1/health", (c) =>
     c.json({
+      disk: diskVersion(),
+      hooksInstalled: hookCoverage(claudeSettings()).complete,
       ok: true,
       version: VERSION,
       schema: store.schemaVersion(),
@@ -207,6 +240,12 @@ export function createApp(store = new Store()) {
           ? "application/x-ndjson"
           : "application/json";
     return c.body(formatAudit(rows, format), 200, { "content-type": ct });
+  });
+  // M-launch: re-exec the daemon (used by the dashboard's "restart to update" banner).
+  app.post("/v1/daemon/restart", (c) => {
+    if (!hooks.restart) return c.json({ error: "not restartable in this environment" }, 501);
+    setTimeout(() => hooks.restart?.(), 50);
+    return c.json({ ok: true, restarting: true });
   });
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");
