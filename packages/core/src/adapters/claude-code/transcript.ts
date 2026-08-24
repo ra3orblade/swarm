@@ -48,6 +48,8 @@ export interface Turn {
   tools: string[]; // tool_use names in this message
   effort: string | null;
   sidechain: boolean;
+  /** Cost the agent itself reported (aider, opencode). Wins over the pricing table and is never repriced. */
+  cost?: number | null;
 }
 
 export interface TranscriptDelta {
