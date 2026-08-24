@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   daemonCommand,
   ensureDaemon,
@@ -8,6 +8,7 @@ import {
   readToken,
   resolveBaseUrl,
   SwarmClient,
+  swarmHome,
 } from "@swarm/client";
 import { loadConfigDetailed } from "@swarm/core";
 import { install, status, uninstall } from "./install";
@@ -68,6 +69,7 @@ const help = `swarm — control plane for AI-agent development
   workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
   msg send <to> <text…> [-p]    message a session id, a task's holder, or "lead" (M7.6)
   msg ls [-p] [--json]          recent messages
+  demo                    open a seeded demo dashboard (own home + port; your real data is untouched)
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
@@ -1531,6 +1533,38 @@ try {
           }
         }
       }
+      break;
+    }
+    case "demo": {
+      const home = join(swarmHome(), "demo");
+      const port = "7799";
+      const [cmd, ...args] = daemonCommand();
+      if (!cmd) throw new Error("could not resolve the daemon command");
+      const env = { ...process.env, SWARM_HOME: home, SWARM_PORT: port, SWARM_DEMO: "1" };
+      const up = await fetch(`http://127.0.0.1:${port}/v1/health`)
+        .then((r) => r.ok)
+        .catch(() => false);
+      if (!up) {
+        Bun.spawn([cmd, ...args], {
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+          env,
+        }).unref();
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 250));
+          if (
+            await fetch(`http://127.0.0.1:${port}/v1/health`)
+              .then((r) => r.ok)
+              .catch(() => false)
+          )
+            break;
+        }
+      }
+      const tok = readToken(home);
+      const url = `http://127.0.0.1:${port}/${tok ? `?token=${tok}` : ""}`;
+      Bun.spawn(["open", url]).unref?.();
+      console.log(`demo dashboard: http://127.0.0.1:${port} (home ${home} — delete it to reset)`);
       break;
     }
     case "ui": {

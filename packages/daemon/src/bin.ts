@@ -8,6 +8,7 @@ import {
 } from "@swarm/client";
 import { loadConfig } from "@swarm/core";
 import { createApp, VERSION } from "./app";
+import { isEmpty, seedDemo } from "./demo";
 import { Store } from "./store";
 
 // Port preference: SWARM_PORT env > ~/.swarm/config.toml [daemon].port > 7777.
@@ -15,6 +16,8 @@ const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.por
 
 const appHooks: { restart?: () => void } = {};
 const { app, store, runner } = createApp(new Store(), appHooks);
+// `swarm demo`: a dedicated home seeded with a believable afternoon of agent work (never real data)
+if (process.env.SWARM_DEMO === "1" && isEmpty(store)) seedDemo(store);
 
 // Bind the preferred port; if it's taken, fall back to an OS-assigned free port so the daemon never
 // fails to start because a port is blocked/occupied. Clients discover the real port via
@@ -62,15 +65,18 @@ writeDaemonInfo({ port, pid: process.pid, version: VERSION, startedAt: new Date(
 // one-time backfill of recent-ish agent history on boot, then cheap live ticks
 const backfillDays = Number(process.env.SWARM_CODEX_BACKFILL_DAYS ?? 30);
 const backfillMs = backfillDays * 24 * 60 * 60_000;
-store.tailCodex(backfillMs);
-store.tailGrok(backfillMs);
-store.tailGemini(backfillMs);
+const DEMO = process.env.SWARM_DEMO === "1";
+if (!DEMO) {
+  store.tailCodex(backfillMs);
+  store.tailGrok(backfillMs);
+  store.tailGemini(backfillMs);
+}
 let tick = 0;
 const tailer = setInterval(() => {
   tick++;
-  store.tailActive();
+  if (!DEMO) store.tailActive();
   // codex/grok discovery walks directories; every 3rd tick (15 s) is plenty when idle
-  if (tick % 3 === 0 || store.hasActiveSessions()) {
+  if (!DEMO && (tick % 3 === 0 || store.hasActiveSessions())) {
     store.tailCodex();
     store.tailGrok();
     store.tailGemini();
