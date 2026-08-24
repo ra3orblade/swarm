@@ -65,7 +65,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], budget: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], budget: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, outcomes: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -203,7 +203,14 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  let outChanged = false;
+  if (state.view === "outcomes" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const o = await fetch(`/v1/outcomes${q}`).then((r) => r.json()).catch(() => state.outcomes);
+    outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
+    state.outcomes = o;
+  }
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || outChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -212,6 +219,7 @@ const VIEW_DEFS = [
   { id: "timeline", label: "Timeline", icon: "clock-counter-clockwise", group: "Observe", render: () => renderTimeline() },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
+  { id: "outcomes", label: "Outcomes", icon: "check", group: "Insight", render: () => renderOutcomes() },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -1156,6 +1164,54 @@ async function loadTimelineDetail() {
     if (state.view === "timeline" && !state.session) touch();
   } finally { tlDetail.busy = false; }
 }
+// M9.2: Outcomes — did the agent's work survive? Branch → PR → merged / reverted, with
+// scorecards per model and per agent. Data from /v1/outcomes (fetched by the poll while open).
+const outBadge = (o) => ({ merged: '<span class="badge ok">merged</span>', reverted: '<span class="badge bad">reverted</span>', open: '<span class="badge acc">open</span>', "no-pr": '<span class="badge">no PR</span>' })[o] ?? esc(o);
+const ratePct = (x) => (x == null ? "—" : `${Math.round(x * 100)}%`);
+const hrs = (x) => (x == null || x < 0 ? "—" : x < 1 ? `${Math.round(x * 60)}m` : x < 48 ? `${x.toFixed(1)}h` : `${(x / 24).toFixed(1)}d`);
+const scoreCols = (label) => [
+  { key: "key", label, width: 150, get: (r) => r.key, cell: (r) => `<b>${esc(label === "model" ? model(r.key) : viz.agentName(r.key))}</b>` },
+  { key: "branches", label: "branches", width: 80, num: true, get: (r) => r.branches, cell: (r) => String(r.branches) },
+  { key: "merged", label: "merged", width: 72, num: true, get: (r) => r.merged, cell: (r) => String(r.merged) },
+  { key: "reverted", label: "reverted", width: 78, num: true, get: (r) => r.reverted, cell: (r) => (r.reverted ? `<b style="color:var(--bad)">${r.reverted}</b>` : "0") },
+  { key: "open", label: "open", width: 60, num: true, get: (r) => r.open, cell: (r) => String(r.open) },
+  { key: "nopr", label: "no PR", width: 64, num: true, get: (r) => r.noPr, cell: (r) => String(r.noPr) },
+  { key: "rate", label: "merge rate", width: 92, num: true, get: (r) => r.mergeRate ?? -1, cell: (r) => ratePct(r.mergeRate) },
+  { key: "lead", label: "median lead", width: 98, num: true, get: (r) => r.medianLeadHours ?? -1, cell: (r) => hrs(r.medianLeadHours) },
+  { key: "cpm", label: "$ / merge", width: 84, num: true, get: (r) => r.costPerMerge ?? -1, cell: (r) => (r.costPerMerge == null ? "—" : usd(r.costPerMerge)) },
+];
+const BRANCH_COLS = [
+  { key: "branch", label: "branch", width: 190, get: (r) => r.branch, cell: (r) => `<span class="br">${esc(r.branch)}</span>` },
+  { key: "outcome", label: "outcome", width: 92, cls: "td-badge", get: (r) => r.outcome, cell: (r) => outBadge(r.outcome) },
+  { key: "pr", label: "PR", flex: true, get: (r) => r.title ?? "", cell: (r) => (r.prNumber ? `<a href="${esc(r.url ?? "#")}" target="_blank" rel="noreferrer">#${r.prNumber}</a> <span class="dim">${esc(r.title ?? "")}</span>` : '<span class="faint">—</span>') },
+  { key: "model", label: "model", width: 92, get: (r) => model(r.model), cell: (r) => `<span class="br">${esc(model(r.model))}</span>` },
+  { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (r) => agentLabel(r.agent), cell: (r) => agentBadge(r.agent) },
+  { key: "sessions", label: "sessions", width: 76, num: true, get: (r) => r.sessions.length, cell: (r) => String(r.sessions.length) },
+  { key: "cost", label: "cost", width: 64, num: true, get: (r) => r.costUsd, cell: (r) => usd(r.costUsd) },
+  { key: "lead", label: "lead", width: 64, num: true, get: (r) => r.leadHours ?? -1, cell: (r) => hrs(r.leadHours) },
+];
+function renderOutcomes() {
+  const o = state.outcomes;
+  const head = (sub) => `<h2>Outcomes <span>${sub}</span></h2>`;
+  if (!o) {
+    $("#main").innerHTML = head("did the work survive?") + `<div class="empty">${PX.idle()}Loading…</div>`;
+    return;
+  }
+  if (!o.branches?.length) {
+    $("#main").innerHTML = head("did the work survive?") + `<div class="empty">${PX.idle()}No agent branches yet${state.sel ? " in this project" : ""}.<br>Outcomes fill in as sessions work on branches and their PRs merge — or get reverted.</div>`;
+    return;
+  }
+  const n = (k) => o.branches.filter((b) => b.outcome === k).length;
+  const rev = n("reverted");
+  $("#main").innerHTML =
+    head(`${o.branches.length} branch${o.branches.length === 1 ? "" : "es"} · ${n("merged")} merged · ${rev ? `<b style="color:var(--bad)">${rev} reverted</b>` : "0 reverted"} · ${n("open")} open`) +
+    `<h2 class="mt-sec">By model <span>who ships work that survives</span></h2>` +
+    dataTable({ id: "outcomes-model", columns: scoreCols("model"), rows: o.byModel }) +
+    (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent })}` : "") +
+    `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
+    dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100) });
+}
+
 function renderTimeline() {
   loadTimelineDetail();
   const now = Date.now();
