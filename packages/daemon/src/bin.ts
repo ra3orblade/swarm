@@ -85,6 +85,7 @@ const tailer = setInterval(() => {
   store.reapProcesses(); // registered processes that exited on their own
   if (tick % 12 === 0) store.sweepOrphans(); // every minute: expired leases holding work → incident
   if (tick % 6 === 0) store.checkBudgets(); // every 30 s: [budget] ceilings → incident / ask / stop
+  if (tick % 2 === 0) store.checkStalls(); // every 10 s: loop/stall heuristics → stuck badge + event
 }, 5000);
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path
 void store.refreshAllWorktrees();

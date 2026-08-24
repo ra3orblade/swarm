@@ -348,7 +348,7 @@ function onboarding() {
 const FLEET_COLS = [
   { key: "project", label: "project", width: 112, get: (s) => projName(s.projectId), cell: (s) => projCell(s.projectId) },
   { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
-  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}` },
+  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}${s.stuck ? ` <span class="badge bad" title="${esc(s.stuck)} — heuristic, nothing was interrupted; open the session to judge">Stuck</span>` : ""}` },
   { key: "branch", label: "branch", width: 116, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => {
     const line = s.lastText ? s.lastText.split("\n").find((l) => l.trim()) ?? "" : "";
@@ -1586,6 +1586,10 @@ ${p.reason ?? ""}`.slice(0, 180);
   } else if (ev.type === "question.asked") {
     title = "An agent has a question";
     body = `${p.task ? `${p.task}: ` : ""}${p.text ?? ""}`.slice(0, 180);
+    onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
+  } else if (ev.type === "session.stuck") {
+    title = "Session looks stuck";
+    body = (p.reason ?? p.summary ?? "").slice(0, 180);
     onClick = () => { if (ev.sessionId) openSession(ev.sessionId); };
   } else if (ev.type === "claim.orphaned") {
     title = "Claim orphaned";

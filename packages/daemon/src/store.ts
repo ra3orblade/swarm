@@ -40,6 +40,7 @@ import {
   DEFAULT_RESOURCE_LEASE_MINUTES,
   type DryRunReport,
   deriveHandoff,
+  detectStall,
   dryRunRules,
   executedGateInput,
   formatAnswers,
@@ -122,12 +123,15 @@ import {
   shouldAutoRenew,
   suggestFromIncident,
   summarizeBootstrap,
+  type Stall,
   type Task,
   type TaskView,
+  type ToolCallSample,
   type TrackedProcess,
   type Turn,
   taskBoard,
   taskSourceKind,
+  toolResponseErrored,
   validateGateRun,
   validateHandoff,
   validateMessage,
@@ -170,6 +174,8 @@ export interface SessionView {
   lastType: string;
   lastText: string | null;
   state: "active" | "waiting" | "idle" | "ended";
+  /** M9.3: stall reason when the loop heuristics flag this live session, else null. */
+  stuck: string | null;
   toolCalls: number;
   subagents: number;
   turns: number;
@@ -3281,6 +3287,69 @@ export class Store {
    * its worktree still holds uncommitted or unpushed work is marked orphaned and opens an
    * incident. Detection only — removing a worktree stays an explicit `swarm reap` / release.
    */
+  /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */
+  private stalls = new Map<string, Stall>();
+  /**
+   * M9.3 loop & stall detection, for the background tick: judge each live session's recent
+   * `tool.completed` events with the core heuristics. On a fresh stall (or a change of kind)
+   * emit one `session.stuck` event — the Fleet badge and desktop notification hang off it.
+   * Detection only; nothing is interrupted.
+   */
+  checkStalls(): number {
+    const live = this.db
+      .query(
+        "SELECT id, project_id FROM sessions WHERE state IN ('active','waiting') AND ended_at IS NULL AND last_seen_at >= ?",
+      )
+      .all(new Date(Date.now() - IDLE_MS).toISOString()) as Array<{
+      id: string;
+      project_id: string;
+    }>;
+    const liveIds = new Set(live.map((s) => s.id));
+    for (const id of [...this.stalls.keys()]) if (!liveIds.has(id)) this.stalls.delete(id);
+    let flagged = 0;
+    for (const s of live) {
+      const rows = this.db
+        .query(
+          "SELECT payload FROM events WHERE session_id = ? AND type = 'tool.completed' ORDER BY seq DESC LIMIT 12",
+        )
+        .all(s.id) as Array<{ payload: string }>;
+      const calls: ToolCallSample[] = rows.reverse().map((r) => {
+        let p: Record<string, unknown> = {};
+        try {
+          p = JSON.parse(r.payload || "{}") as Record<string, unknown>;
+        } catch {}
+        return {
+          tool: typeof p.tool === "string" ? p.tool : "?",
+          input: JSON.stringify(p.toolInput ?? null),
+          errored: toolResponseErrored(p.toolResponse),
+          ts: "",
+        };
+      });
+      const stall = detectStall(calls);
+      if (!stall) {
+        this.stalls.delete(s.id);
+        continue;
+      }
+      flagged++;
+      const prev = this.stalls.get(s.id);
+      this.stalls.set(s.id, stall); // reason updates in place (×3 → ×4) without re-firing
+      if (prev?.kind === stall.kind) continue;
+      this.append({
+        ts: new Date().toISOString(),
+        type: "session.stuck",
+        projectId: s.project_id,
+        sessionId: s.id,
+        payload: {
+          kind: stall.kind,
+          reason: stall.reason,
+          summary: `session looks stuck — ${stall.reason}`,
+        },
+      });
+      this.touch();
+    }
+    return flagged;
+  }
+
   sweepOrphans(): number {
     const now = Date.now();
     let n = 0;
@@ -3734,6 +3803,10 @@ export class Store {
         lastType: r.last_type as string,
         lastText: (r.last_text as string) ?? null,
         state,
+        stuck:
+          state === "active" || state === "waiting"
+            ? (this.stalls.get(r.id as string)?.reason ?? null)
+            : null,
         toolCalls: r.tool_calls as number,
         subagents: r.subagents as number,
         turns: r.turns as number,
