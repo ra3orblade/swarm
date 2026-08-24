@@ -34,6 +34,7 @@ import {
   canRelease,
   canRemoveWorktree,
   claimRefusalMessage,
+  collisionGraph,
   compileRedactions,
   costUsd,
   DEFAULT_FROM_PORT,
@@ -3287,6 +3288,55 @@ export class Store {
    * its worktree still holds uncommitted or unpushed work is marked orphaned and opens an
    * incident. Detection only — removing a worktree stays an explicit `swarm reap` / release.
    */
+  /**
+   * M9.12: live file-collision graph — which live sessions touch which files right now, and
+   * where they overlap. Reads `tool.requested` events (they carry `toolInput.file_path` for the
+   * file tools); assembly is `collisionGraph` in core. Scoped to a project when given.
+   */
+  collisions(projectId?: string) {
+    const cutoff = new Date(Date.now() - IDLE_MS).toISOString();
+    const live = this.db
+      .query(
+        `SELECT id, project_id, title, agent, kind FROM sessions
+         WHERE state IN ('active','waiting') AND ended_at IS NULL AND last_seen_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [cutoff, projectId] : [cutoff])) as Array<{
+      id: string;
+      project_id: string;
+      title: string | null;
+      agent: string | null;
+      kind: string;
+    }>;
+    if (!live.length) return { sessions: [], files: [], contested: 0 };
+    const rows = this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.tool') AS tool, json_extract(payload,'$.toolInput.file_path') AS path
+         FROM events WHERE type = 'tool.requested' AND session_id IN (${live.map(() => "?").join(",")})
+           AND json_extract(payload,'$.toolInput.file_path') IS NOT NULL`,
+      )
+      .all(...live.map((s) => s.id)) as Array<{
+      session_id: string;
+      tool: string | null;
+      path: string | null;
+    }>;
+    const g = collisionGraph(
+      rows.map((r) => ({ sessionId: r.session_id, tool: r.tool ?? "", path: r.path ?? "" })),
+    );
+    const meta = new Map(live.map((s) => [s.id, s]));
+    return {
+      ...g,
+      sessions: g.sessions.map((s) => {
+        const m = meta.get(s.id);
+        return {
+          ...s,
+          title: m?.title ?? null,
+          agent: m?.agent ?? "claude-code",
+          projectId: m?.project_id ?? null,
+        };
+      }),
+    };
+  }
+
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */
   private stalls = new Map<string, Stall>();
   /**
