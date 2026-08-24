@@ -2,6 +2,27 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.9.0] — 2026-08-24
+
+The crew release: the agents on your machine stop being strangers. They message each other and you, follow a declared workflow instead of a hopeful prompt, and every major CLI brand now shows up — Claude, Codex, Gemini, Grok. Plus the first-run and update experience a launch deserves.
+
+### Added
+- **Agent messaging** — `swarm_send(to, text)` reaches another session (id or unique prefix), whoever holds a task, or `"lead"` (your interactive session in the project). Delivery: on the recipient's next tool call as injected context, immediately over stdin to a spawned run, or pulled with `swarm_inbox` (which now returns answers *and* messages) — exactly once. A **messages** thread with compose box on every session page; `swarm msg send|ls` (M7.6, OQ-12 decided).
+- **Workflows** — `[[workflows]] name = "ship" steps = ["implement", "gate:tests", "gate:review", "pr"]` in `.swarm.toml`; `swarm workflow ship <task>` and the daemon advances it: run steps spawn an agent in the task's worktree (told what the workflow will do itself), gate steps execute — only a pass advances — and `pr` pushes and opens the pull request from the ledger. A failed step stops with a `workflow_failed` incident; a daemon restart marks in-flight workflows stopped, honestly. **Workflows** on the Board with per-step chips (M7.8).
+- **Gemini CLI adapter** — `~/.gemini` chat recordings are discovered and priced like every other agent: sessions, turns, tokens, cost, sparkline, Timeline, Spend. Schema from upstream source; first real-session validation pending (M5.4).
+- **Timeline that shows the work** — bars are now a faint base with a tick per turn: bursts and idle stretches are visible instead of painted over. A thin claims lane per project shows lease spans (held / expired / orphaned). Recent gates carries a per-gate pass/fail history strip; every pinned project gets a 14-day spend sparkline in the sidebar (M5.7).
+- **`swarm demo`** — a seeded demo dashboard on its own home and port: four agent brands, a live lease, an orphaned claim, gate history, incidents, a question, a message, a workflow mid-flight. Tailers are off in demo mode, so it never ingests your real logs — and your real data is never touched (delete `~/.swarm/demo` to reset).
+- **Update that actually updates** — after an upgrade the dashboard notices the newer version on disk and offers a one-click daemon restart (the daemon re-execs into the new build and the page reloads). Long-lived tabs re-check every 5 minutes.
+- **First-run onboarding** — an empty Fleet now explains the three steps (hook in — with a live *not installed* badge —, open any agent session, watch it appear) instead of showing a blank table.
+
+### Fixed
+- External links in the desktop app (PR titles, Documentation, feedback, the just-opened PR) open in the browser — the webview silently swallowed them before.
+- Section-header actions (New worktree, Collect stale, timeline ranges) are proper small buttons instead of shouting uppercase with off-baseline icons.
+- The timeline claims lane no longer collides with the kanban's styles; a test file that broke lint on main is formatted.
+
+### Notes
+- Windows builds are produced by CI as before but this release had no human Windows smoke test — reports welcome.
+
 ## [0.8.0] — 2026-08-23
 
 The trust release: Swarm becomes something a team and a security reviewer can rely on, without giving up local-first. An org can pin the rules that matter and they hold even when the daemon is down; every record says who did it; the daemon has a credential; what is stored is exportable and redactable; a second agent can be the reviewer. And the dashboard stopped looking like a list of tables.

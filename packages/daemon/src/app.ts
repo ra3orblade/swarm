@@ -23,7 +23,7 @@ import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.8.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.9.0";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
