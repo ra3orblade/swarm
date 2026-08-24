@@ -13,7 +13,7 @@
  */
 import { appendFileSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
-import { RUN_PROFILES, runProfile } from "@swarm/core";
+import { modelAllowed, RUN_PROFILES, runProfile } from "@swarm/core";
 import { findBin } from "./forge";
 import type { Store } from "./store";
 
@@ -112,6 +112,15 @@ export class Runner {
     const project = this.store.project(input.projectId);
     if (!project) return { ok: false, reason: "unknown project" };
     if (!input.prompt.trim()) return { ok: false, reason: "prompt is required" };
+    // M8.4 model allow-list: a spawned run never starts on a disallowed model
+    if (input.model) {
+      const allow = this.store.config(input.projectId).models.allow;
+      if (!modelAllowed(input.model, allow))
+        return {
+          ok: false,
+          reason: `model "${input.model}" is not in [models] allow (${allow.join(", ")})`,
+        };
+    }
     if (input.permissionMode && !PERMISSION_MODES.includes(input.permissionMode))
       return { ok: false, reason: `permission mode must be one of ${PERMISSION_MODES.join(", ")}` };
     if (this.get(input.task)?.projectId === input.projectId)

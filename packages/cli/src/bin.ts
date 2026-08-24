@@ -1,5 +1,12 @@
 #!/usr/bin/env bun
-import { writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import {
   daemonCommand,
@@ -34,7 +41,7 @@ const help = `swarm — control plane for AI-agent development
   setup              start the daemon, install hooks, open the dashboard (do this first)
   start | stop | restart   manage the background daemon
   status [-p]        live sessions (whole machine, or one project)
-  doctor             check everything and print the fix for each gap
+  doctor [--migrate] check everything and print the fix for each gap (--migrate: apply pending db migrations)
 
   add <path> [--name n]   register (pin) a project
   ls                 list projects
@@ -73,6 +80,7 @@ const help = `swarm — control plane for AI-agent development
   demo                    open a seeded demo dashboard (own home + port; your real data is untouched)
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
   login [url] [--token t]   log in to the team daemon ([team].url) and register this machine (M8.3c)
+  backup [dest] | restore <src>   snapshot ~/.swarm (VACUUM INTO, zero downtime) / restore it (daemon stopped)
 
   install [--config-url <team url>] | uninstall     add/remove Swarm hooks in ~/.claude/settings.json (--config-url also points this machine at a team daemon)
 
@@ -156,6 +164,9 @@ try {
       console.log(`removed ${uninstall()} hook entries`);
       break;
     case "doctor": {
+      // M8.5: --migrate ensures the daemon is up — opening the store runs any pending
+      // versioned migrations; the schema line below then reports what the database is on.
+      if (rest.includes("--migrate")) await ensureDaemon({ quiet: true });
       const st = status();
       const bun = Bun.which("bun");
       const claude = Bun.which("claude");
@@ -1154,6 +1165,42 @@ try {
         break;
       }
       throw new Error("usage: swarm msg send <to> <text…> | swarm msg ls");
+    }
+    case "backup": {
+      // M8.5: VACUUM INTO via the daemon — a consistent snapshot with zero downtime
+      await ensureDaemon({ quiet: true });
+      const dest = resolve(
+        arg() ?? join(swarmHome(), "backups", new Date().toISOString().slice(0, 10)),
+      );
+      const r = (await api("/v1/backup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dest }),
+      })) as { dest: string; files: string[] };
+      console.log(`backed up ${r.files.join(", ")} → ${r.dest}`);
+      console.log(`restore on any machine with: swarm restore ${r.dest} (daemon stopped)`);
+      break;
+    }
+    case "restore": {
+      const src = arg();
+      if (!src) throw new Error("usage: swarm restore <backup dir>  (with the daemon stopped)");
+      if (await daemonRunning())
+        throw new Error("the daemon is running — stop it first: swarm stop");
+      const home = swarmHome();
+      mkdirSync(home, { recursive: true });
+      let n = 0;
+      for (const f of readdirSync(resolve(src))) {
+        if (f === "daemon.json") continue;
+        copyFileSync(join(resolve(src), f), join(home, f));
+        n++;
+      }
+      // a restored db must not wake up next to a stale WAL from the previous life
+      for (const suffix of ["-wal", "-shm"]) {
+        const p = join(home, `swarm.db${suffix}`);
+        if (existsSync(p)) unlinkSync(p);
+      }
+      console.log(`restored ${n} files into ${home} — run: swarm start`);
+      break;
     }
     case "login": {
       // M8.3c: device-code login against the team daemon; teamd is the OAuth client.

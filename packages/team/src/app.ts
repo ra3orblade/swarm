@@ -19,6 +19,7 @@ import {
   principalFor,
   startDeviceFlow,
 } from "./auth";
+import { budgetStatuses, budgetStatusesFor, exportSpend, toCsv, upsertBudget } from "./budgets";
 import { currentPolicy, policyKeys, setPolicy } from "./policy";
 import type { TeamStore } from "./store";
 
@@ -158,6 +159,91 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
       )
       .run(b.id, typeof b.name === "string" ? b.name : null, t.hash, owner, now, now);
     return c.json({ token: t.token });
+  });
+
+  // ---------- M8.5: Prometheus metrics (authed like everything else; scrapers send Bearer)
+  app.get("/t1/metrics", (c) => {
+    const one = (sql: string, ...args: Array<string | number>) =>
+      Number((store.db.query(sql).get(...args) as Record<string, number | null> | null)?.v ?? 0);
+    const cutoff = new Date(Date.now() - 120_000).toISOString();
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = [
+      "# HELP swarm_team_machines Machines that ever forwarded.",
+      "# TYPE swarm_team_machines gauge",
+      `swarm_team_machines ${one("SELECT COUNT(*) AS v FROM machines")}`,
+      "# HELP swarm_team_machines_active Machines that forwarded in the last 2 minutes.",
+      "# TYPE swarm_team_machines_active gauge",
+      `swarm_team_machines_active ${one("SELECT COUNT(*) AS v FROM machines WHERE last_seen > ?", cutoff)}`,
+      "# HELP swarm_team_users Users who logged in.",
+      "# TYPE swarm_team_users gauge",
+      `swarm_team_users ${one("SELECT COUNT(*) AS v FROM users")}`,
+      "# HELP swarm_team_events_total Forwarded audit events stored.",
+      "# TYPE swarm_team_events_total counter",
+      `swarm_team_events_total ${one("SELECT COUNT(*) AS v FROM events")}`,
+      "# HELP swarm_team_claims_active Cluster claims currently held.",
+      "# TYPE swarm_team_claims_active gauge",
+      `swarm_team_claims_active ${store.clusterClaims().length}`,
+      "# HELP swarm_team_spend_usd_total All-time forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_total counter",
+      `swarm_team_spend_usd_total ${one("SELECT SUM(cost) AS v FROM spend")}`,
+      "# HELP swarm_team_spend_usd_today Today's forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_today gauge",
+      `swarm_team_spend_usd_today ${one("SELECT SUM(cost) AS v FROM spend WHERE day = ?", today)}`,
+    ];
+    return c.text(`${lines.join("\n")}\n`, 200, {
+      "content-type": "text/plain; version=0.0.4; charset=utf-8",
+    });
+  });
+
+  // ---------- M8.4: budgets + chargeback export
+  app.get("/t1/budgets", (c) => c.json({ budgets: budgetStatuses(store) }));
+
+  app.post("/t1/budgets", async (c) => {
+    const p = c.get("principal");
+    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
+      return c.json({ error: "admin role required" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      return c.json({
+        budget: upsertBudget(
+          store,
+          {
+            scope: String(b.scope ?? ""),
+            key: typeof b.key === "string" ? b.key : undefined,
+            daily: typeof b.daily === "number" ? b.daily : null,
+            monthly: typeof b.monthly === "number" ? b.monthly : null,
+            on_exceed: typeof b.on_exceed === "string" ? b.on_exceed : undefined,
+          },
+          p.kind === "human" ? p.subject : "open",
+        ),
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
+  /** The statuses this machine should act on — pulled by the forwarder each flush. */
+  app.get("/t1/budget", (c) => {
+    const p = c.get("principal");
+    const machineId = c.req.query("machine") ?? (p.kind === "machine" ? p.id : null);
+    if (!machineId) return c.json({ error: "machine required" }, 400);
+    return c.json({ budgets: budgetStatusesFor(store, machineId) });
+  });
+
+  /** Monthly chargeback export: ?month=YYYY-MM [&by=detail|task] [&format=json|csv]. */
+  app.get("/t1/spend/export", (c) => {
+    try {
+      const rows = exportSpend(
+        store,
+        c.req.query("month") ?? new Date().toISOString().slice(0, 7),
+        c.req.query("by") === "task" ? "task" : "detail",
+      );
+      if (c.req.query("format") === "csv")
+        return c.body(toCsv(rows), 200, { "content-type": "text/csv" });
+      return c.json({ rows });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   });
 
   // ---------- M8.3f: signed org policy — machines fetch + verify; admins set

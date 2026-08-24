@@ -75,6 +75,39 @@ describe("team dashboard state (M8.3e)", () => {
     expect(n).toBe(2);
   });
 
+  it("exposes Prometheus metrics at /t1/metrics (M8.5)", async () => {
+    const store = new TeamStore(":memory:");
+    store.ingest({ id: "m1", name: "laptop" }, [
+      {
+        seq: 1,
+        kind: "event",
+        body: { ts: new Date().toISOString(), type: "claim.acquired", projectKey: "k/p" },
+      },
+      {
+        seq: 0,
+        kind: "spend",
+        body: {
+          day: new Date().toISOString().slice(0, 10),
+          projectKey: "k/p",
+          model: "m",
+          agent: "a",
+          cost: 2.5,
+          tokensIn: 1,
+          tokensOut: 1,
+        },
+      },
+    ]);
+    const app = createTeamApp(store, {});
+    const res = await app.request("/t1/metrics");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    const body = await res.text();
+    expect(body).toContain("swarm_team_machines 1");
+    expect(body).toContain("swarm_team_machines_active 1");
+    expect(body).toContain("swarm_team_events_total 1");
+    expect(body).toContain("swarm_team_spend_usd_today 2.5");
+  });
+
   it("serves the dashboard shell openly; /t1/state honors ?token= in token mode", async () => {
     const store = new TeamStore(":memory:");
     const app = createTeamApp(store, { staticToken: "s3cret" });

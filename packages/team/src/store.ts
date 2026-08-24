@@ -63,6 +63,21 @@ CREATE TABLE IF NOT EXISTS policies (
 CREATE TABLE IF NOT EXISTS tokens (
   hash TEXT PRIMARY KEY, subject TEXT, created_at TEXT, expires_at TEXT
 );
+-- spend ceilings (M8.4): org-wide, per user (machine owner), or per project
+CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT NOT NULL CHECK (scope IN ('org','user','project')),
+  key TEXT NOT NULL DEFAULT '',
+  daily REAL, monthly REAL,
+  on_exceed TEXT NOT NULL DEFAULT 'warn' CHECK (on_exceed IN ('warn','ask','stop')),
+  created_by TEXT, created_at TEXT,
+  UNIQUE (scope, key)
+);
+-- per-task daily spend (M8.4 chargeback: cost by task / ticket id), forwarded like spend
+CREATE TABLE IF NOT EXISTS spend_tasks (
+  machine_id TEXT, day TEXT, project_key TEXT, task TEXT, cost REAL,
+  PRIMARY KEY (machine_id, day, project_key, task)
+);
 `;
 
 export function defaultDbPath(): string {
@@ -184,6 +199,15 @@ export class TeamStore {
                 )
                 .run(typeof b.ts === "string" ? b.ts : now, key, task, machine.id);
           }
+        } else if (r.kind === "spend_task" && key && typeof b.day === "string") {
+          // M8.4 chargeback: per-task daily cost, upsert by primary key like spend
+          if (typeof b.task !== "string" || !b.task) continue;
+          this.db
+            .query(
+              `INSERT INTO spend_tasks (machine_id, day, project_key, task, cost) VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(machine_id, day, project_key, task) DO UPDATE SET cost = excluded.cost`,
+            )
+            .run(machine.id, b.day, key, b.task, typeof b.cost === "number" ? b.cost : null);
         } else if (r.kind === "spend" && key && typeof b.day === "string") {
           if (typeof b.model !== "string" || typeof b.agent !== "string") continue;
           insProject.run(key, key.split("/").pop() ?? key, now);
