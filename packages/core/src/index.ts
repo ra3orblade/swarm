@@ -14,6 +14,7 @@ export * from "./ledger";
 export * from "./lessons";
 export * from "./memory";
 export * from "./messages";
+export * from "./outcomes";
 export * from "./policy";
 export * from "./pricing";
 export * from "./processes";

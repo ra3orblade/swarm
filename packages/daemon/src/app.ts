@@ -9,6 +9,8 @@ import {
   hookCoverage,
   MEMORY_KINDS,
   type MemoryKind,
+  type OutcomePR,
+  outcomeReport,
   RULE_IDS,
   type RuleId,
   type SwarmEvent,
@@ -196,6 +198,42 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       }),
     ),
   );
+  // M9.2 outcomes: did the work survive? Sessions (ledger) × PRs (forge, open + merged) ×
+  // reverts (git log); the join and scorecards are `outcomeReport` in core.
+  app.get("/v1/outcomes", async (c) => {
+    const project = c.req.query("project") || undefined;
+    const sessions = store
+      .snapshot()
+      .sessions.filter((s) => !project || s.projectId === project)
+      .map((s) => ({
+        id: s.id,
+        branch: s.branch,
+        model: s.model,
+        agent: s.agent,
+        costUsd: s.costUsd,
+        startedAt: s.startedAt,
+      }));
+    const prs: OutcomePR[] = [];
+    const reverted = new Set<string>();
+    for (const p of store.projects().filter((x) => !project || x.id === project)) {
+      const o = await forge.merged(p.id, p.root);
+      for (const m of o.merged) prs.push({ ...m, state: "merged" });
+      for (const sha of o.reverted) reverted.add(sha);
+    }
+    for (const pr of forge.prs())
+      if (!project || pr.projectId === project)
+        prs.push({
+          branch: pr.branch,
+          number: pr.number,
+          state: "open",
+          title: pr.title,
+          url: pr.url,
+          createdAt: pr.createdAt,
+          mergedAt: null,
+          mergeSha: null,
+        });
+    return c.json(outcomeReport(sessions, prs, reverted));
+  });
   // M4.5: memory search over Swarm's own data (handoffs, incidents, gates, session text).
   app.get("/v1/memory", (c) => {
     const q = c.req.query("q") ?? "";

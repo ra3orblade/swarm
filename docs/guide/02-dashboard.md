@@ -4,7 +4,7 @@ Status: current
 
 The dashboard is served by the daemon at `http://127.0.0.1:7777` (or whatever URL `swarm ui` prints). It updates live over a server-sent event stream; the dot next to the daemon name in the header turns on when the stream is connected. The header also shows **Today** — what every agent on the machine has cost so far today.
 
-The views live at the top of the sidebar, in four groups: **Observe** (Fleet, Timeline, Graphs), **Work** (Board, PRs), **Insight** (Spend, Stats, Search) and **Guard** (Incidents, with a count of unacknowledged ones). Your last view and the selected project are remembered across reloads.
+The views live at the top of the sidebar, in four groups: **Observe** (Fleet, Timeline, Graphs), **Work** (Board, PRs), **Insight** (Outcomes, Spend, Stats, Search) and **Guard** (Incidents, with a count of unacknowledged ones). Your last view and the selected project are remembered across reloads.
 
 Press **⌘K** (or Ctrl+K, or the magnifier in the header) for the palette: type a few letters to jump to any view, project or live session, or press Enter on *Search Swarm for …* to run a full search over Swarm's memory — handoffs, incidents, gates, what sessions said.
 
@@ -70,6 +70,10 @@ The collision graph: every live session on the left, every file those sessions h
 ## Timeline
 
 Session lanes per project over the last 3, 6, 12, 24 or 72 hours, coloured by agent, with the cost of the sessions in range. Subagents are folded into their parent.
+
+## Outcomes
+
+Did the work survive? Every branch an agent worked on, joined to the pull request it became: **merged**, **reverted** (someone ran `git revert` on the merge), still **open**, or **no PR**. Scorecards aggregate it per model and per agent — merge rate (of finished work), median lead time from the first session on the branch to the merge, and cost per merged PR. Merged PRs come from `gh` / `glab` with the same gentle caching as the PRs view; reverts come from the local git history, so they work offline.
 
 ## Spend
 

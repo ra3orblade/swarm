@@ -9,7 +9,13 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type ForgePR, normalizeGithub, normalizeGitlab, parseRemote } from "@swarm/core";
+import {
+  type ForgePR,
+  normalizeGithub,
+  normalizeGitlab,
+  parseRemote,
+  parseReverts,
+} from "@swarm/core";
 import type { Store } from "./store";
 
 /** Where package managers put CLIs that a GUI-launched daemon won't have on PATH: the desktop
@@ -36,6 +42,17 @@ export function findBin(name: string | undefined): string | null {
 export interface ProjectPR extends ForgePR {
   projectId: string;
   projectRoot: string;
+}
+
+/** A merged PR/MR as the outcomes join needs it (M9.2). */
+export interface MergedPR {
+  branch: string;
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string | null;
+  mergedAt: string | null;
+  mergeSha: string | null;
 }
 
 const GH_FIELDS =
@@ -72,6 +89,77 @@ export class ForgeService {
         }
       }),
     );
+  }
+
+  /**
+   * M9.2 outcomes: merged PRs/MRs plus reverted merge SHAs for one project, cached 10 min (a
+   * merged PR doesn't unmerge; the cache keeps `gh`/`glab` traffic negligible). Reverts come from
+   * `git log --grep` on the local default branch — forge-independent, works offline.
+   */
+  private outcomeCache = new Map<string, { at: number; merged: MergedPR[]; reverted: string[] }>();
+  async merged(
+    projectId: string,
+    root: string,
+  ): Promise<{ merged: MergedPR[]; reverted: string[] }> {
+    const hit = this.outcomeCache.get(projectId);
+    if (hit && Date.now() - hit.at < 600_000) return hit;
+    let merged: MergedPR[] = [];
+    const remote = this.remote(root);
+    if (remote?.forge === "github") {
+      const out = await this.run(
+        [
+          "gh",
+          "pr",
+          "list",
+          "--state",
+          "merged",
+          "--limit",
+          "200",
+          "--json",
+          "number,title,headRefName,url,createdAt,mergedAt,mergeCommit",
+        ],
+        root,
+      );
+      if (out)
+        merged = (JSON.parse(out) as Array<Record<string, unknown>>).map((r) => ({
+          branch: String(r.headRefName ?? ""),
+          number: Number(r.number ?? 0),
+          title: String(r.title ?? ""),
+          url: String(r.url ?? ""),
+          createdAt: (r.createdAt as string) ?? null,
+          mergedAt: (r.mergedAt as string) ?? null,
+          mergeSha:
+            ((r.mergeCommit as { oid?: string } | null)?.oid ?? null)?.toLowerCase() ?? null,
+        }));
+    } else if (remote?.forge === "gitlab") {
+      const out = await this.run(["glab", "mr", "list", "--merged", "--output", "json"], root);
+      if (out)
+        merged = (JSON.parse(out) as Array<Record<string, unknown>>).map((r) => ({
+          branch: String(r.source_branch ?? ""),
+          number: Number(r.iid ?? 0),
+          title: String(r.title ?? ""),
+          url: String(r.web_url ?? ""),
+          createdAt: (r.created_at as string) ?? null,
+          mergedAt: (r.merged_at as string) ?? null,
+          mergeSha: ((r.merge_commit_sha as string) ?? null)?.toLowerCase() ?? null,
+        }));
+    }
+    const log = Bun.spawnSync([
+      "git",
+      "-C",
+      root,
+      "log",
+      "--grep",
+      "This reverts commit",
+      "--format=%B",
+      "-n",
+      "300",
+    ]);
+    const reverted =
+      log.exitCode === 0 ? [...parseReverts(new TextDecoder().decode(log.stdout))] : [];
+    const entry = { at: Date.now(), merged, reverted };
+    this.outcomeCache.set(projectId, entry);
+    return entry;
   }
 
   private remote(root: string): ReturnType<typeof parseRemote> {
