@@ -161,6 +161,40 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     return c.json({ token: t.token });
   });
 
+  // ---------- M8.5: Prometheus metrics (authed like everything else; scrapers send Bearer)
+  app.get("/t1/metrics", (c) => {
+    const one = (sql: string, ...args: Array<string | number>) =>
+      Number((store.db.query(sql).get(...args) as Record<string, number | null> | null)?.v ?? 0);
+    const cutoff = new Date(Date.now() - 120_000).toISOString();
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = [
+      "# HELP swarm_team_machines Machines that ever forwarded.",
+      "# TYPE swarm_team_machines gauge",
+      `swarm_team_machines ${one("SELECT COUNT(*) AS v FROM machines")}`,
+      "# HELP swarm_team_machines_active Machines that forwarded in the last 2 minutes.",
+      "# TYPE swarm_team_machines_active gauge",
+      `swarm_team_machines_active ${one("SELECT COUNT(*) AS v FROM machines WHERE last_seen > ?", cutoff)}`,
+      "# HELP swarm_team_users Users who logged in.",
+      "# TYPE swarm_team_users gauge",
+      `swarm_team_users ${one("SELECT COUNT(*) AS v FROM users")}`,
+      "# HELP swarm_team_events_total Forwarded audit events stored.",
+      "# TYPE swarm_team_events_total counter",
+      `swarm_team_events_total ${one("SELECT COUNT(*) AS v FROM events")}`,
+      "# HELP swarm_team_claims_active Cluster claims currently held.",
+      "# TYPE swarm_team_claims_active gauge",
+      `swarm_team_claims_active ${store.clusterClaims().length}`,
+      "# HELP swarm_team_spend_usd_total All-time forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_total counter",
+      `swarm_team_spend_usd_total ${one("SELECT SUM(cost) AS v FROM spend")}`,
+      "# HELP swarm_team_spend_usd_today Today's forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_today gauge",
+      `swarm_team_spend_usd_today ${one("SELECT SUM(cost) AS v FROM spend WHERE day = ?", today)}`,
+    ];
+    return c.text(`${lines.join("\n")}\n`, 200, {
+      "content-type": "text/plain; version=0.0.4; charset=utf-8",
+    });
+  });
+
   // ---------- M8.4: budgets + chargeback export
   app.get("/t1/budgets", (c) => c.json({ budgets: budgetStatuses(store) }));
 

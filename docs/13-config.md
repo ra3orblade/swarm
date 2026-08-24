@@ -74,6 +74,12 @@ store_reasoning = true    # false: assistant text from transcripts is not stored
 redact = []               # regexes replaced by "[redacted]" in every stored string, e.g. ["ACME-[0-9]+"]
                           # long API-key-looking tokens and Bearer credentials are always redacted
 
+[notify]
+# Incident webhook (M8.5): every incident.opened is POSTed as Slack-compatible {text} JSON —
+# a Slack incoming-webhook URL works as-is; Jira/PagerDuty via their webhook bridges.
+# Fire-and-forget, never on the hook path. Global only.
+# webhook = "https://hooks.slack.com/services/…"
+
 [models]
 # Model allow-list (M8.4): globs, empty = every model allowed. An org policy can lock this.
 # Spawned runs / dispatch refuse a disallowed model; an interactive session on one opens an
