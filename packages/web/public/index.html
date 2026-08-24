@@ -91,8 +91,7 @@
   /* collapsed sidebar = icon rail (M9.1): views stay one click away; projects via ⌘K */
   body.nosb{grid-template-columns:46px 1fr}
   body.nosb>aside{padding:12px 5px;overflow:hidden}
-  body.nosb #viewnav a.nav{justify-content:center;padding:7px 0}
-  body.nosb #viewnav .nm,body.nosb #viewnav h4,body.nosb #viewnav .navcount,body.nosb #projects{display:none}
+  body.nosb #projects{display:none}
   body>aside{grid-column:1;grid-row:2}
   body>main{grid-column:2;grid-row:2}
   #projects h4{display:flex;align-items:center;gap:5px}
@@ -127,12 +126,18 @@
   /* sidebar */
   body>aside{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto;display:flex;flex-direction:column}
   /* view nav (M9.1): grouped views in the sidebar, generated from VIEW_DEFS; header holds only chrome */
-  #viewnav{display:flex;flex-direction:column;gap:1px;flex:none;margin-bottom:4px}
-  #viewnav a.nav{display:flex;align-items:center;gap:9px;color:var(--dim);padding:5px 8px;border-radius:var(--r-sm);font-weight:500;transition:color var(--t-fast),background var(--t-fast)}
-  #viewnav a.nav:hover{color:var(--fg-2);background:var(--panel-2)}
-  #viewnav a.nav.on{color:var(--fg);background:var(--panel-2)}
-  #viewnav a.nav .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #viewnav .navcount{margin-left:auto}
+  /* View nav lives in the header: one button per group, click opens a fancy-menus dropdown. */
+  #viewnav{display:flex;align-items:center;gap:2px}
+  #viewnav .navgrp{display:flex;align-items:center;gap:6px;color:var(--dim);padding:6px 10px;border:0;background:none;
+    border-radius:var(--r-sm);font:inherit;font-size:var(--fs-md);font-weight:500;cursor:pointer;
+    transition:color var(--t-fast),background var(--t-fast)}
+  #viewnav .navgrp:hover{color:var(--fg-2);background:var(--panel-2)}
+  #viewnav .navgrp.on{color:var(--fg);background:var(--panel-2)}
+  /* while this button's menu is open: held-down state, so the trigger reads as the open one */
+  #viewnav .navgrp.open{color:var(--fg);background:var(--line)}
+  #viewnav .navgrp.open .chev{opacity:.9;transform:rotate(180deg)}
+  #viewnav .navgrp .chev{opacity:.5;flex:none}
+  #viewnav .navcount{background:var(--bad-soft);color:var(--bad);border-radius:99px;padding:0 5px;font-size:var(--fs-2xs);font-weight:600}
   body>aside h4{margin:14px 8px 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.09em}
   body>aside h4:first-child{margin-top:2px}
   .proj{padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:9px;
@@ -263,7 +268,11 @@
   tbody td.td-tools{text-overflow:clip;padding-left:0;padding-right:0;text-align:center}
   /* badge-only cells: the pill has its own margin, so the cell never needs an ellipsis */
   tbody td.td-badge{text-overflow:clip}tbody td.td-badge .badge{margin-right:0}
-  tbody tr{cursor:pointer;transition:background var(--t-fast)}
+  /* Only rows that actually open something get the pointer — a right-click menu (data-ctx alone)
+     is not a click affordance, and promising one on nine grids that ignore left-clicks reads as
+     a dead row. */
+  tbody tr{transition:background var(--t-fast)}
+  tbody tr[data-s]{cursor:pointer}
   tbody tr:hover{background:var(--panel-2)}
   td:first-child{overflow:visible}
   /* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
@@ -361,7 +370,8 @@
     border-radius:var(--r-xs) var(--r-xs) 0 0;min-height:2px;transition:opacity var(--t-fast)}
   .bar:hover>div{opacity:.75}
   .bar span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font:var(--fs-2xs) var(--mono);color:var(--faint)}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-sec)}
+  /* align-items:start — a short card (the heatmap) must not stretch to the taller column beside it */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-sec);align-items:start}
 
   /* charts */
   .chart{display:block;width:100%;overflow:visible}
@@ -414,6 +424,7 @@
   /* timeline */
   .tl{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:8px 16px 12px}
   .tl-row{display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:center;height:24px;cursor:pointer;border-radius:var(--r-xs)}
+  .tl-row.claimlane{cursor:default} /* the claims lane opens nothing — don't promise a click */
   .tl-row:hover{background:var(--panel-2)}
   .tl-row.head{height:22px;cursor:default;margin-bottom:4px;position:sticky;top:-20px;background:var(--panel);z-index:2}
   .tl-row.head:hover{background:var(--panel)}
@@ -593,6 +604,7 @@
 <header>
   <button class="icon-btn" id="sbToggle" title="Toggle sidebar" aria-label="Toggle sidebar"><i data-icon="arrow-bar-left"></i></button>
   <span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 11" shape-rendering="crispEdges"><rect x="2" y="1" width="1" height="1" fill="#a3e635"/><rect x="6" y="1" width="1" height="1" fill="#7cc02f"/><rect x="7" y="1" width="1" height="1" fill="#7cc02f"/><rect x="8" y="1" width="1" height="1" fill="#7cc02f"/><rect x="9" y="1" width="1" height="1" fill="#4f7d24"/><rect x="4" y="3" width="1" height="1" fill="#a3e635"/><rect x="7" y="3" width="1" height="1" fill="#7cc02f"/><rect x="8" y="3" width="1" height="1" fill="#7cc02f"/><rect x="9" y="3" width="1" height="1" fill="#7cc02f"/><rect x="10" y="3" width="1" height="1" fill="#7cc02f"/><rect x="11" y="3" width="1" height="1" fill="#7cc02f"/><rect x="12" y="3" width="1" height="1" fill="#4f7d24"/><rect x="1" y="5" width="1" height="1" fill="#a3e635"/><rect x="5" y="5" width="1" height="1" fill="#a3e635"/><rect x="6" y="5" width="1" height="1" fill="#a3e635"/><rect x="7" y="5" width="1" height="1" fill="#a3e635"/><rect x="8" y="5" width="1" height="1" fill="#a3e635"/><rect x="9" y="5" width="1" height="1" fill="#a3e635"/><rect x="10" y="5" width="1" height="1" fill="#a3e635"/><rect x="11" y="5" width="1" height="1" fill="#a3e635"/><rect x="12" y="5" width="1" height="1" fill="#a3e635"/><rect x="13" y="5" width="1" height="1" fill="#4f7d24"/><rect x="4" y="7" width="1" height="1" fill="#a3e635"/><rect x="7" y="7" width="1" height="1" fill="#7cc02f"/><rect x="8" y="7" width="1" height="1" fill="#7cc02f"/><rect x="9" y="7" width="1" height="1" fill="#7cc02f"/><rect x="10" y="7" width="1" height="1" fill="#7cc02f"/><rect x="11" y="7" width="1" height="1" fill="#4f7d24"/><rect x="2" y="9" width="1" height="1" fill="#a3e635"/><rect x="6" y="9" width="1" height="1" fill="#7cc02f"/><rect x="7" y="9" width="1" height="1" fill="#7cc02f"/><rect x="8" y="9" width="1" height="1" fill="#7cc02f"/><rect x="9" y="9" width="1" height="1" fill="#4f7d24"/></svg>Swarm</span>
+  <nav id="viewnav"></nav>
   <span class="sp"></span>
   <span id="today"></span>
   <span id="daemon"><span class="dot"></span><span class="lbl">Daemon</span></span>
@@ -601,7 +613,6 @@
   <button class="icon-btn" id="settings" title="Settings" aria-label="Settings"><i data-icon="sliders"></i></button>
 </header>
 <aside>
-  <nav id="viewnav"></nav>
   <div id="projects"></div>
 </aside>
 <main id="main"></main>

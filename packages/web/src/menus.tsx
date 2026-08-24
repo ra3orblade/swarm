@@ -11,7 +11,7 @@ import {
   SourceKind,
   SubMenuTrigger,
 } from "@react-fancy-menus/core";
-import { MenuProvider, useMenu } from "@react-fancy-menus/core/runtime";
+import { MenuProvider, useIsAnyMenuOpen, useMenu } from "@react-fancy-menus/core/runtime";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -104,6 +104,13 @@ const configs = [0, 1, 2].map((depth) =>
 
 function Bridge() {
   const menu = useMenu();
+  // The vanilla side needs to know when a menu opens/closes: to light up the trigger that opened it,
+  // and to flush a repaint that `render()` deferred while the menu was up. `useIsAnyMenuOpen` is the
+  // package's own hook for this — re-broadcast it as a DOM event the plain-JS app can listen to.
+  const anyOpen = useIsAnyMenuOpen();
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("menus:openchange", { detail: { open: anyOpen } }));
+  }, [anyOpen]);
   useEffect(() => {
     const open = (anchor: Anchor, spec: MenuSpec) => {
       menu.closeAll("swarm");

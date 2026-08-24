@@ -1,5 +1,20 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+// Open a URL in the user's browser. The desktop app's webview has no new-window handler, so
+// `window.open` and target=_blank silently do nothing there — route through Tauri's shell opener
+// when it is present (capability `shell:allow-open`), and fall back to window.open in a browser.
+const openExternal = (url) => {
+  const shell = window.__TAURI__?.shell;
+  if (shell?.open) shell.open(url).catch(() => window.open(url, "_blank"));
+  else window.open(url, "_blank");
+};
+// Every absolute link (PR titles, docs, search hits, dev-server ports) takes the same path.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest?.('a[href^="http"]');
+  if (!a) return;
+  e.preventDefault();
+  openExternal(a.href);
+});
 // M8.2b daemon token: `swarm ui` (and the desktop app) open the dashboard with ?token=…; it is kept
 // in sessionStorage, stripped from the URL, and sent on every /v1 request. Loopback without a token
 // still works while `[daemon] auth = "loopback-optional"`.
@@ -148,6 +163,18 @@ const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.age
 let raf = 0;
 const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
 const touch = () => { state.dirty = true; schedule(); };
+// `render()` refuses to paint while a menu is open (it would detach the anchor the menu is
+// positioned against) and defers the frame instead. fancy-menus exposes no close callback, so the
+// deferred paint has to wait for the close — armed from that bail, where the menu is known to be
+// open. Without it a menu action (switch view, ack, release…) only lands on the next 5s poll,
+// which reads as a dead click. One boolean check per frame, only while a menu is open.
+// The menus island re-broadcasts the package's `useIsAnyMenuOpen` as `menus:openchange`.
+window.addEventListener("menus:openchange", (e) => {
+  if (e.detail?.open) return;
+  // Menu closed: drop the trigger's open state and paint whatever render() deferred.
+  for (const b of $$("#viewnav .navgrp.open")) b.classList.remove("open");
+  if (state.dirty) schedule();
+});
 // Last snapshot body + last render time: an unchanged snapshot (same seq, same data) skips the render
 // unless the UI changed, or `ago`-style cells are older than 30s.
 let lastSnap = "", lastRenderAt = 0;
@@ -252,7 +279,7 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
 function render() {
   // A row menu is anchored to DOM that a re-render would replace (and the focus jump closes it):
   // hold the frame while one is open; the next poll or interaction paints it.
-  if (window.menus?.isOpen()) { state.dirty = true; return; }
+  if (window.menus?.isOpen()) { state.dirty = true; return; } // the menus:openchange listener paints on close
   // Live refresh re-renders the whole view; keep focus + caret in a grid filter input alive.
   const af = document.activeElement;
   const keep = af?.dataset?.filter ? { key: af.dataset.filter, tid: af.dataset.tid, pos: af.selectionStart } : null;
@@ -274,21 +301,54 @@ function renderHeader() {
   if (html !== todayHtml) { todayHtml = html; $("#today").innerHTML = html; }
   renderNav();
 }
-// M9.1: grouped view nav in the sidebar, generated from VIEW_DEFS. Rebuilt only when the
-// html changes (active view, badges) so the 5s poll doesn't churn the DOM.
-function renderNav() {
+// View nav in the header: one button per group (Observe / Work / Insight / Guard); clicking one
+// opens a fancy-menus dropdown of that group's views. Rebuilt only when the html changes (active
+// view, badges) so the 5s poll doesn't churn the DOM — and never while its menu is open.
+function showView(id) {
+  state.view = id;
+  localStorage.setItem("swarm.view", id);
+  state.session = null;
+  state.dirty = true;
+  refresh();
+}
+function viewGroups() {
   const groups = [];
   for (const v of VIEW_DEFS) {
     const g = groups.find((x) => x.name === v.group) ?? groups[groups.push({ name: v.group, views: [] }) - 1];
     g.views.push(v);
   }
-  const link = (v) => {
-    const n = v.badge?.() ?? 0;
-    return `<a href="#" data-view="${v.id}" class="nav ${!state.session && state.view === v.id ? "on" : ""}" title="${v.label}">${ic(v.icon, 14)}<span class="nm">${v.label}</span>${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}</a>`;
-  };
-  const html = groups.map((g) => `<h4>${g.name}</h4>${g.views.map(link).join("")}`).join("");
+  return groups;
+}
+function renderNav() {
+  const html = viewGroups()
+    .map((g) => {
+      const n = g.views.reduce((a, v) => a + (v.badge?.() ?? 0), 0);
+      const on = !state.session && g.views.some((v) => v.id === state.view);
+      return `<button class="navgrp ${on ? "on" : ""}" data-grp="${g.name}" aria-haspopup="menu">${g.name}${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}${ic("chevron-down", 12, "chev")}</button>`;
+    })
+    .join("");
   if (html !== navHtml) { navHtml = html; $("#viewnav").innerHTML = html; }
 }
+// Delegated: the group buttons are re-rendered, so the listener lives on the container.
+$("#viewnav").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-grp]");
+  if (!btn) return;
+  const g = viewGroups().find((x) => x.name === btn.dataset.grp);
+  if (!g || !window.menus) return;
+  btn.classList.add("open"); // cleared by menus:openchange when the menu closes
+  window.menus.open(btn, {
+    items: g.views.map((v) => {
+      const n = v.badge?.() ?? 0;
+      return {
+        label: v.label,
+        icon: v.icon,
+        caption: n ? String(n) : undefined,
+        pressed: !state.session && state.view === v.id,
+        run: () => showView(v.id),
+      };
+    }),
+  });
+});
 
 const isLive = (s) => s.state === "active" || s.state === "waiting";
 // One pass over sessions → live count per project (+ "" for all), instead of a filter per sidebar row.
@@ -1214,10 +1274,10 @@ function renderOutcomes() {
   $("#main").innerHTML =
     head(`${o.branches.length} branch${o.branches.length === 1 ? "" : "es"} · ${n("merged")} merged · ${rev ? `<b style="color:var(--bad)">${rev} reverted</b>` : "0 reverted"} · ${n("open")} open`) +
     `<h2 class="mt-sec">By model <span>who ships work that survives</span></h2>` +
-    dataTable({ id: "outcomes-model", columns: scoreCols("model"), rows: o.byModel }) +
-    (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent })}` : "") +
+    dataTable({ id: "outcomes-model", columns: scoreCols("model"), rows: o.byModel, rerender: touch }) +
+    (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent, rerender: touch })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
-    dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100) });
+    dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100), rerender: touch });
 }
 
 // M9.12: live file-collision graph — which live sessions touch which files, contested files
@@ -1435,9 +1495,9 @@ function renderSession() {
   const t = s.tokens;
   const ctx = t.input + t.cacheRead + t.cacheWrite;
   const subTurns = state.turns.filter((x) => x.sidechain || x.agentId);
-  const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", context: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
+  const STAT_ICON = { cost: "coin", model: "robot", turns: "arrows-clockwise", "tool calls": "wrench", output: "chart-bar", processed: "rows", started: "clock", "last seen": "eye", "subagent turns": "tree-structure" };
   const stat = (k, v) => `<div class="stat"><span>${ic(STAT_ICON[k] ?? "list-bullets", 13)}${k}</span><b>${v}</b></div>`;
-  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${(state.worktrees[s.projectId] ?? []).some((w) => !w.main && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`))) ? `<a href="#" class="nav" id="sessDiff" title="What this session's worktree changed">${ic("folders", 13)} Diff</a>` : ""}${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("reload", 13)} Resume where it died</a>` : ""}</h2>`;
+  const head = `<h2 class="hrow"><a class="back" href="#" id="back">${ic("arrow-left", 13)}back</a> ${esc(projName(s.projectId))} · <span class="s ${s.state}"></span> ${kindIcon(s)}${agentBadge(s.agent)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b> <span>${esc(short(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ""} · ${s.state}</span><a href="#" class="nav" id="replay" style="margin-left:auto" title="Step through this session's tool calls">${ic("play", 13)} Replay</a>${(state.worktrees[s.projectId] ?? []).some((w) => !w.main && (s.cwd === w.path || s.cwd.startsWith(`${w.path}/`))) ? `<a href="#" class="nav" id="sessDiff" title="What this session's worktree changed">${ic("folders", 13)} Diff</a>` : ""}${s.state === "ended" ? `<a href="#" class="nav" id="resumeDead" title="Spawn a run that picks up this session's task from its handoff + last actions">${ic("arrows-clockwise", 13)} Resume where it died</a>` : ""}</h2>`;
   const side = `<div class="stats">
     ${stat("cost", usd(s.costUsd))}${stat("model", esc(model(s.model)) || "—")}${stat("turns", s.turns)}${stat("tool calls", s.toolCalls)}
     ${stat("output", `${tok(t.output)}${t.thinking ? `<small> · ${tok(t.thinking)} thinking</small>` : ""}`)}${stat("processed", `${tok(ctx)}<small> · ${ctx ? ((100 * t.cacheRead) / ctx).toFixed(0) : 0}% cached</small>`)}
@@ -1454,7 +1514,19 @@ function renderSession() {
     // Same session, rows only appended: patch header + sidebar, append the new rows — #log keeps its
     // scroll position (and its DOM) untouched.
     $("#main > h2").outerHTML = head;
+    // The message compose box lives inside .side, and this fast-path runs on every event while the
+    // agent works — carry the draft (and the caret) across the swap instead of wiping what is
+    // being typed.
+    const msg = $("#msgText");
+    const draft = msg?.value ? { v: msg.value, focused: document.activeElement === msg, pos: msg.selectionStart } : null;
     $("#main .side").innerHTML = side;
+    if (draft) {
+      const el = $("#msgText");
+      if (el) {
+        el.value = draft.v;
+        if (draft.focused) { el.focus(); el.setSelectionRange(draft.pos, draft.pos); }
+      }
+    }
     const sb = stdinBox(s); const cur = $("#main .stdin");
     if (cur && cur.outerHTML !== sb && document.activeElement?.id !== "stdinText") cur.outerHTML = sb;
     else if (!cur && sb) $("#main").insertAdjacentHTML("beforeend", sb);
@@ -1614,7 +1686,7 @@ function menuSpec(kind, d) {
     if (!p) return null;
     const green = p.checks !== "fail" && p.mergeable && !p.draft;
     return { title: `#${p.number}`, items: [
-      { label: "Open on " + (p.forge === "gitlab" ? "GitLab" : "GitHub"), icon: "arrow-square-out", run: () => window.open(p.url, "_blank") },
+      { label: "Open on " + (p.forge === "gitlab" ? "GitLab" : "GitHub"), icon: "arrow-square-out", run: () => openExternal(p.url) },
       { label: "Copy URL", icon: "copy", run: () => copy(p.url) },
       { divider: true },
       { label: "Squash-merge", icon: "git-pull-request", disabled: !green, caption: green ? (p.forge === "gitlab" ? "glab" : "gh") : p.draft ? "draft" : p.checks === "fail" ? "checks failing" : "not mergeable", run: () => act.merge(p.projectId, p.number) },
@@ -1656,8 +1728,8 @@ function menuSpec(kind, d) {
       { divider: true },
       { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "off", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
       { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
-      { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => window.open("https://getswarm.vercel.app/docs/", "_blank") },
-      { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => window.open(feedbackUrl(), "_blank") },
+      { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => openExternal("https://getswarm.vercel.app/docs/") },
+      { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => openExternal(feedbackUrl()) },
     ] };
   }
   return null;
@@ -1741,9 +1813,12 @@ function maybeUpdateNudge(h) {
     <div class="row"><button class="pri" id="updRestart">${ic("arrows-clockwise", 13)} Restart daemon</button><button id="updLater">Later</button></div></div>`;
   document.body.appendChild(el);
   el.addEventListener("click", async (e) => {
-    if (e.target.id === "updLater") return el.remove();
-    if (e.target.id !== "updRestart") return;
-    e.target.textContent = "restarting…";
+    // closest(), not e.target.id: the button holds an <svg> icon, so a click on the glyph itself
+    // targets the svg/path and an id check would miss it.
+    const btn = e.target.closest?.("button");
+    if (btn?.id === "updLater") return el.remove();
+    if (btn?.id !== "updRestart") return;
+    btn.textContent = "restarting…";
     await fetch("/v1/daemon/restart", { method: "POST" }).catch(() => {});
     const t0 = Date.now();
     const wait = setInterval(async () => {
@@ -1785,7 +1860,7 @@ function maybeStarNudge() {
   el.addEventListener("click", (ev) => {
     const t = ev.target.closest("[data-star]"); if (!t) return;
     ev.preventDefault();
-    if (t.dataset.star === "go") { starSave({ done: now }); window.open(REPO_URL, "_blank"); }
+    if (t.dataset.star === "go") { starSave({ done: now }); openExternal(REPO_URL); }
     else if (t.dataset.star === "never") starSave({ never: now });
     el.remove();
   });
@@ -1836,8 +1911,8 @@ document.addEventListener("click", async (ev) => {
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
-  if (t.id === "feedback") { ev.preventDefault(); return window.open(feedbackUrl(), "_blank"); }
-  if (t.dataset.view) { ev.preventDefault(); state.view = t.dataset.view; localStorage.setItem("swarm.view", state.view); state.session = null; state.dirty = true; return refresh(); }
+  if (t.id === "feedback") { ev.preventDefault(); return openExternal(feedbackUrl()); }
+  if (t.dataset.view) { ev.preventDefault(); return showView(t.dataset.view); }
   if (t.dataset.tl) { ev.preventDefault(); state.tlHours = Number(t.dataset.tl); return touch(); }
   if (t.dataset.taskFilter) { state.taskFilter = t.dataset.taskFilter; return touch(); }
   if (t.dataset.emoji !== undefined) { $("#psIcon").value = t.dataset.emoji; $("#psImage").value = ""; setIconPreview(t.dataset.emoji); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === t.dataset.emoji); return; }
@@ -1971,7 +2046,7 @@ sbApply();
 // ---------- ⌘K palette (M9.1): jump to any view, project or session; falls through to Search.
 const pal = { items: [], view: [], q: "", i: 0 };
 function palBuild() {
-  const items = VIEW_DEFS.map((v) => ({ icon: v.icon, label: v.label, grp: v.group.toLowerCase(), run: () => { state.view = v.id; localStorage.setItem("swarm.view", v.id); state.session = null; state.dirty = true; refresh(); } }));
+  const items = VIEW_DEFS.map((v) => ({ icon: v.icon, label: v.label, grp: v.group.toLowerCase(), run: () => showView(v.id) }));
   for (const p of state.projects) items.push({ icon: "folder-simple", label: p.name, grp: "project", run: () => { state.sel = p.id; localStorage.setItem("swarm.sel", p.id); state.session = null; state.dirty = true; refresh(); } });
   const pname = (id) => state.projects.find((p) => p.id === id)?.name ?? "";
   for (const s of state.sessions) items.push({ icon: "terminal-window", label: s.title || s.id.slice(0, 8), sub: pname(s.projectId), live: isLive(s), grp: "session", run: () => openSession(s.id) });
@@ -2235,7 +2310,7 @@ async function submitPr() {
   closePicker();
   state.prs = [];
   await refresh();
-  if (r.url) window.open(r.url, "_blank");
+  if (r.url) openExternal(r.url);
 }
 
 async function openPicker(focusPath = false) {
@@ -2313,7 +2388,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "message.sent", "dispatch.queued", "dispatch.started", "dispatch.finished", "workflow.started", "workflow.step", "workflow.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "message.sent", "dispatch.queued", "dispatch.started", "dispatch.finished", "workflow.started", "workflow.step", "workflow.finished", "permission.requested", "permission.resolved", "session.stuck"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");
