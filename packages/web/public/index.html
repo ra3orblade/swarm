@@ -228,6 +228,12 @@
   h2{font-size:var(--fs-md);margin:0 0 12px;color:var(--dim);font-weight:600;text-transform:uppercase;
     letter-spacing:.07em;display:flex;gap:10px;align-items:baseline}
   h2 span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);font-size:var(--fs-md)}
+  /* section-header actions (New worktree, Collect stale, Dispatch clear, timeline ranges):
+     small buttons, not shouting header text — normal case, centered icon, hover chip */
+  h2 .nav{display:inline-flex;align-items:center;gap:5px;font:500 var(--fs-md) var(--sans);text-transform:none;letter-spacing:0;color:var(--acc);text-decoration:none;padding:2px 8px;border-radius:var(--r-sm);transition:background var(--t-fast)}
+  h2 .nav:hover{background:var(--acc-soft)}
+  h2 .nav.on{background:var(--acc-soft)}
+  h2 .nav .ph{display:block}
   h2 .back{color:var(--fg-2);text-transform:none;letter-spacing:0;font-weight:600;font-size:var(--fs-md);display:inline-flex;align-items:center;gap:5px;padding:5px 11px 5px 8px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--panel);transition:border-color var(--t-fast),color var(--t-fast)}
 
   /* tables */
