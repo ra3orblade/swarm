@@ -205,7 +205,21 @@ async function refresh() {
   }
   if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
-const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats", "search"];
+// M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
+// deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
+const VIEW_DEFS = [
+  { id: "fleet", label: "Fleet", icon: "squares-four", group: "Observe", render: () => renderFleet() },
+  { id: "timeline", label: "Timeline", icon: "clock-counter-clockwise", group: "Observe", render: () => renderTimeline() },
+  { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
+  { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
+  { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
+  { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
+  { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
+  { id: "incidents", label: "Incidents", icon: "warning", group: "Guard", render: () => renderIncidentsView(), badge: () => state.openIncidents ?? 0 },
+];
+const viewDef = (id) => VIEW_DEFS.find((v) => v.id === id);
+const VIEWS = VIEW_DEFS.map((v) => v.id);
+let navHtml = ""; // last-rendered nav html; declared before the restore block below calls renderNav()
 // restore last view + project selection (persisted UI state)
 {
   const v = localStorage.getItem("swarm.view");
@@ -217,7 +231,7 @@ const VIEWS = ["fleet", "board", "incidents", "prs", "timeline", "spend", "stats
   if (VIEWS.includes(q.get("view"))) state.view = q.get("view");
   if (q.has("project")) state.sel = q.get("project") || null;
   // Mark the restored tab before the first snapshot lands, so the nav doesn't flash "Fleet".
-  for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", a.dataset.view === state.view);
+  renderNav();
 }
 function render() {
   // A row menu is anchored to DOM that a re-render would replace (and the focus jump closes it):
@@ -231,14 +245,7 @@ function render() {
   if (!dragPid) renderProjects(); // a re-render mid-drag would yank the row out from under the cursor
   renderHeader();
   if (state.session) renderSession();
-  else if (state.view === "spend") renderSpend();
-  else if (state.view === "stats") { loadStats(); renderStats(); } // loadStats is a no-op while the cache is fresh
-  else if (state.view === "search") renderSearch();
-  else if (state.view === "timeline") renderTimeline();
-  else if (state.view === "board") renderBoard();
-  else if (state.view === "incidents") renderIncidentsView();
-  else if (state.view === "prs") renderPRs();
-  else renderFleet();
+  else (viewDef(state.view)?.render ?? viewDef("fleet").render)();
   if (keep) {
     const el = document.querySelector(`input[data-filter="${keep.key}"][data-tid="${keep.tid}"]`);
     if (el) { el.focus(); el.setSelectionRange(keep.pos, keep.pos); }
@@ -249,9 +256,22 @@ function renderHeader() {
   const today = state.spend ? sumBy(state.spend.byProjectToday, (x) => x.cost) : 0;
   const html = `Today <b>${usd(today)}</b>`;
   if (html !== todayHtml) { todayHtml = html; $("#today").innerHTML = html; }
-  const ic_ = $("#incCount"); const n = state.openIncidents ?? 0;
-  if (ic_) { ic_.hidden = !n; ic_.textContent = n > 99 ? "99+" : String(n); }
-  for (const a of document.querySelectorAll("header a[data-view]")) a.classList.toggle("on", !state.session && a.dataset.view === state.view);
+  renderNav();
+}
+// M9.1: grouped view nav in the sidebar, generated from VIEW_DEFS. Rebuilt only when the
+// html changes (active view, badges) so the 5s poll doesn't churn the DOM.
+function renderNav() {
+  const groups = [];
+  for (const v of VIEW_DEFS) {
+    const g = groups.find((x) => x.name === v.group) ?? groups[groups.push({ name: v.group, views: [] }) - 1];
+    g.views.push(v);
+  }
+  const link = (v) => {
+    const n = v.badge?.() ?? 0;
+    return `<a href="#" data-view="${v.id}" class="nav ${!state.session && state.view === v.id ? "on" : ""}" title="${v.label}">${ic(v.icon, 14)}<span class="nm">${v.label}</span>${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}</a>`;
+  };
+  const html = groups.map((g) => `<h4>${g.name}</h4>${g.views.map(link).join("")}`).join("");
+  if (html !== navHtml) { navHtml = html; $("#viewnav").innerHTML = html; }
 }
 
 const isLive = (s) => s.state === "active" || s.state === "waiting";
@@ -1858,6 +1878,57 @@ $("#sbToggle")?.addEventListener("click", () => {
 });
 sbApply();
 
+// ---------- ⌘K palette (M9.1): jump to any view, project or session; falls through to Search.
+const pal = { items: [], view: [], q: "", i: 0 };
+function palBuild() {
+  const items = VIEW_DEFS.map((v) => ({ icon: v.icon, label: v.label, grp: v.group.toLowerCase(), run: () => { state.view = v.id; localStorage.setItem("swarm.view", v.id); state.session = null; state.dirty = true; refresh(); } }));
+  for (const p of state.projects) items.push({ icon: "folder-simple", label: p.name, grp: "project", run: () => { state.sel = p.id; localStorage.setItem("swarm.sel", p.id); state.session = null; state.dirty = true; refresh(); } });
+  const pname = (id) => state.projects.find((p) => p.id === id)?.name ?? "";
+  for (const s of state.sessions) items.push({ icon: "terminal-window", label: s.title || s.id.slice(0, 8), sub: pname(s.projectId), live: isLive(s), grp: "session", run: () => openSession(s.id) });
+  return items;
+}
+function palFilter() {
+  const q = pal.q.trim().toLowerCase();
+  const rank = (x) => Math.min(...[x.label, x.sub ?? ""].map((t) => { const i = t.toLowerCase().indexOf(q); return i < 0 ? 1e9 : i; }));
+  const out = q
+    ? pal.items.map((x) => ({ x, r: rank(x) })).filter((h) => h.r < 1e9).sort((a, b) => a.r - b.r).map((h) => h.x).slice(0, 12)
+    : pal.items.filter((x) => x.grp !== "session" || x.live).slice(0, 16); // idle: every view + project + live sessions
+  if (q) out.push({ icon: "magnifying-glass", label: `Search Swarm for “${pal.q.trim()}”`, grp: "search", run: () => { srch.q = pal.q.trim(); state.view = "search"; localStorage.setItem("swarm.view", "search"); state.session = null; state.dirty = true; runSearch(); refresh(); } });
+  return out;
+}
+function palRender() {
+  pal.view = palFilter();
+  if (pal.i >= pal.view.length) pal.i = Math.max(0, pal.view.length - 1);
+  const row = (x, i) => `<div class="pk-row pal-row ${i === pal.i ? "on" : ""}" data-pal="${i}">${ic(x.icon, 14)}<span class="nm">${esc(x.label)}${x.sub ? ` <span class="dim">· ${esc(x.sub)}</span>` : ""}</span><span class="grp">${x.grp}</span></div>`;
+  const el = $("#palList");
+  if (el) el.innerHTML = pal.view.map(row).join("") || '<div class="empty" style="padding:16px">No matches.</div>';
+}
+function palRun(i) {
+  const x = pal.view[i];
+  if (!x) return;
+  closePicker();
+  x.run();
+}
+function openPalette() {
+  pal.items = palBuild(); pal.q = ""; pal.i = 0;
+  $("#picker").innerHTML = `<div class="pk pal" role="dialog" aria-modal="true">
+    <div class="pk-h">${ic("magnifying-glass", 15)}<input id="palQ" placeholder="Jump to view, project or session…" spellcheck="false" autocomplete="off"></div>
+    <div class="pk-list" id="palList"></div>
+  </div>`;
+  palRender();
+  const inp = $("#palQ");
+  inp.focus();
+  inp.addEventListener("input", () => { pal.q = inp.value; pal.i = 0; palRender(); });
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); pal.i = Math.max(0, Math.min(pal.view.length - 1, pal.i + (ev.key === "ArrowDown" ? 1 : -1))); palRender(); }
+    else if (ev.key === "Enter") { ev.preventDefault(); palRun(pal.i); }
+  });
+}
+$("#palBtn")?.addEventListener("click", openPalette);
+document.addEventListener("keydown", (ev) => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); if ($("#palQ")) closePicker(); else openPalette(); }
+});
+
 // ---------- folder picker
 const picker = { path: null };
 // Run drawer (M3.3): prompt prefilled from the task row; submit = POST /v1/runs.
@@ -2103,6 +2174,8 @@ async function pickerGo(path) {
 const closePicker = () => { $("#picker").innerHTML = ""; };
 $("#picker").addEventListener("click", (ev) => {
   if (ev.target.id === "picker" || ev.target.closest("#pkCancel")) return closePicker();
+  const pr = ev.target.closest("[data-pal]");
+  if (pr) return palRun(Number(pr.dataset.pal));
   const go = ev.target.closest("[data-go]");
   if (go) return void pickerGo(go.dataset.go);
   const ctoml = ev.target.closest("[data-copy-toml]"), cles = ev.target.closest("[data-copy-lesson]");
