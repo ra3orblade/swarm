@@ -106,6 +106,12 @@
   .card .ic{margin-bottom:10px}
   .card>b{display:block;margin-bottom:4px}
   .card p{margin:0;color:var(--dim);font-size:14px}
+  .card.lead{grid-column:1/-1;display:flex;gap:16px;padding:18px 20px}
+  .card.lead .ic{width:26px;height:26px;flex:none;margin:2px 0 0}
+  .card.lead>div>b{font-size:17px}
+  .card.lead p{font-size:14.5px;line-height:1.6}
+  .card em{font-style:italic;color:var(--fg-2)}
+  @media (max-width:640px){.card.lead{flex-direction:column;gap:10px}}
 
   .dl{padding:0;overflow:hidden}
   .dl .row{display:flex;align-items:center;gap:16px;padding:16px 18px;border-bottom:1px solid var(--line-2)}
@@ -200,15 +206,16 @@
       <button type="button" class="arr l" data-dir="-1" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></svg></button>
       <div class="track">
       <figure data-i="0"><img src="/screens/thumbs/fleet.png" data-full="/screens/fleet.png" width="1512" height="860" alt="Fleet view" loading="eager"><figcaption><b>Fleet.</b> Every agent session on the machine — live tool, model, tokens, context, cost, and a <b>Stuck</b> badge when one starts looping.</figcaption></figure>
-      <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> The reasoning stream next to the numbers: cost, cached context, thinking share, cost per turn, tool mix.</figcaption></figure>
+      <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> The reasoning stream next to the numbers: cost per turn, cached context, thinking share, tool mix — and <b>Replay</b> to step through it.</figcaption></figure>
       <figure data-i="2"><img src="/screens/thumbs/board.png" data-full="/screens/board.png" width="1512" height="860" alt="Board view" loading="lazy"><figcaption><b>Board.</b> One project: a kanban of tasks with a ✓ per gate, dispatch, claims, worktrees and the ports being held.</figcaption></figure>
-      <figure data-i="3"><img src="/screens/thumbs/incidents.png" data-full="/screens/incidents.png" width="1512" height="860" alt="Incidents view" loading="lazy"><figcaption><b>Incidents.</b> Every ask and deny the rules made — acknowledge them once you've seen them.</figcaption></figure>
-      <figure data-i="4"><img src="/screens/thumbs/timeline.png" data-full="/screens/timeline.png" width="1512" height="860" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Session lanes per project, coloured by agent: who worked where, and when.</figcaption></figure>
-      <figure data-i="5"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> Cost by day, agent, model and project, while it's still today.</figcaption></figure>
-      <figure data-i="6"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend and tokens, streaks, a year of activity, record holders.</figcaption></figure>
+      <figure data-i="3"><img src="/screens/thumbs/outcomes.png" data-full="/screens/outcomes.png" width="1512" height="860" alt="Outcomes view" loading="lazy"><figcaption><b>Outcomes.</b> Which model ships work that survives: merge rate, median time to merge, dollars per merge — per model and per agent.</figcaption></figure>
+      <figure data-i="4"><img src="/screens/thumbs/incidents.png" data-full="/screens/incidents.png" width="1512" height="860" alt="Incidents view" loading="lazy"><figcaption><b>Incidents.</b> Every ask and deny the rules made — with the command, the rule and the session. Acknowledge them once you've seen them.</figcaption></figure>
+      <figure data-i="5"><img src="/screens/thumbs/timeline.png" data-full="/screens/timeline.png" width="1512" height="860" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Session lanes per project, coloured by agent, a tick per turn: bursts and idle stretches instead of one flat bar.</figcaption></figure>
+      <figure data-i="6"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> Cost by day, agent, model, project and task, while it's still today.</figcaption></figure>
+      <figure data-i="7"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend and tokens, streaks, a year of activity, record holders.</figcaption></figure>
       </div>
       <button type="button" class="arr r" data-dir="1" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></svg></button>
-      <div class="dots"><i data-i="0" class="on"></i><i data-i="1" class=""></i><i data-i="2" class=""></i><i data-i="3" class=""></i><i data-i="4" class=""></i><i data-i="5" class=""></i><i data-i="6" class=""></i></div>
+      <div class="dots"><i data-i="0" class="on"></i><i data-i="1" class=""></i><i data-i="2" class=""></i><i data-i="3" class=""></i><i data-i="4" class=""></i><i data-i="5" class=""></i><i data-i="6" class=""></i><i data-i="7" class=""></i></div>
     </div>
   </div>
 
@@ -224,72 +231,70 @@
   <section id="features">
     <div class="grp">
       <h2>Observe</h2>
-      <p>Run four agents at once and you lose the thread by lunchtime. Swarm reads the hooks and transcripts they already write — nothing to instrument, nothing added to your repo.</p>
+      <p>Run four agents at once and you lose the thread by lunchtime. Swarm reads the hooks and session logs they already write — nothing to instrument, nothing added to your repo.</p>
     </div>
     <div class="grid">
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M22 22H4v-2h18v2ZM4 20H2V2h2v18Zm4-6H6v-2h2v2Zm8 0h-2v-2h2v2Zm-6-2H8v-2h2v2Zm4 0h-2v-2h2v2Zm4 0h-2v-2h2v2Zm-6-2h-2V8h2v2Zm8 0h-2V8h2v2Zm2-2h-2V6h2v2Z"/></svg><b>Fleet, live</b><p>Every session on the machine, streaming: agent, branch, the tool it is running right now, model, output tokens, context size, cost, age. Across every repo, with zero instrumentation.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h12v2H6zM2 6h2v12H2zm18 0h2v12h-2zm-2-2h2v2h-2zM4 4h2v2H4zm2 18h12v-2H6zm12-2h2v-2h-2zM4 20h2v-2H4zm7-14h2v7h-2zm2 7h2v2h-2zm2 2h2v2h-2z"/></svg><b>Replay, and resume</b><p>Step through an agent's tool calls one at a time with the full input and output of each. A session that died gets <b>Resume where it died</b> — a fresh run from its handoff and last actions.</p></div>
+      <div class="card lead">
+        <svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M22 22H4v-2h18v2ZM4 20H2V2h2v18Zm4-6H6v-2h2v2Zm8 0h-2v-2h2v2Zm-6-2H8v-2h2v2Zm4 0h-2v-2h2v2Zm4 0h-2v-2h2v2Zm-6-2h-2V8h2v2Zm8 0h-2V8h2v2Zm2-2h-2V6h2v2Z"/></svg>
+        <div><b>Fleet, live</b><p>Every agent session on the machine, streaming: agent, branch, the tool it is running <em>right now</em>, model, output tokens, context size, cost, age — across every repository, with zero instrumentation. A session that starts repeating a failing command gets a <b>Stuck</b> badge and a notification; nothing is ever interrupted.</p></div>
+      </div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 20h18v2H4zM2 2h2v18H2zm16 11v3h-2v-3zM8 13v3H6v-3zm8-2v2H8v-2zm0 5v2H8v-2zm4-12v3h-2V4zM8 4v3H6V4zm10-2v2H8V2zm0 5v2H8V7z"/></svg><b>Outcomes</b><p>Did the work survive? Sessions join to a branch, the branch to its PR, the PR to merged or reverted — scored per model and per agent: merge rate, median time to merge, dollars per merge. The one number that says which agent is worth it.</p></div>
       <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 4h2v2H6zm2-2h8v2H8zm10 4h2v4h-2zm2 4h2v6h-2zm-2 6h2v2h-2zM4 16h2v2H4zm-2-6h2v6H2zm4 8h12v2H6zM4 6h2v4H4z"/><path d="M11 18h2v4h-2zm5-14h2v2h-2z"/></svg><b>Collisions, before they happen</b><p>A live graph of running sessions against the files they touch. A file two sessions hold with at least one writer turns red — that's tomorrow's merge conflict, on screen while you can still move someone.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM20 4h2v16h-2zM2 4h2v16H2zm9 2h2v8h-2zm0 10h2v2h-2z"/></svg><b>Stuck detection</b><p>The daemon watches for repeat-and-failing loops and all-failing streaks and marks the session <b>Stuck</b>, with a desktop notification. Deliberately conservative — polling <code>git status</code> never counts — and nothing is ever interrupted.</p></div>
     </div>
     <ul class="more">
-      <li><b>Timeline</b> — session lanes per project, coloured by agent, with a tick per turn and a claims lane underneath.</li>
+      <li><b>Replay &amp; resume</b> — step through an agent's tool calls with full input and output; a session that died gets <b>Resume where it died</b>.</li>
       <li><b>Session detail</b> — the reasoning stream beside the numbers: cost per turn, cache hit rate, thinking share, tool mix.</li>
-      <li><b>⌘K everywhere</b> — a palette over every view, project and session, falling through to full-text search.</li>
-      <li><b>Real data grids</b> — sort, resize, reorder, filter, persisted layouts. Light and dark.</li>
+      <li><b>Timeline</b> — session lanes per project, coloured by agent, a tick per turn, a claims lane underneath.</li>
+      <li><b>Spend</b> — by day, agent, model, project and <b>task</b>, while it is still today.</li>
+      <li><b>Stats &amp; search</b> — all-time totals and streaks; full-text memory over handoffs, incidents, gates and what sessions said.</li>
+      <li><b>⌘K everywhere</b> — a palette over every view, project and session, falling through to search.</li>
     </ul>
   </section>
 
   <section>
     <div class="grp">
-      <h2>Coordinate</h2>
-      <p>A fail-closed ledger so parallel agents can't clobber each other — and so the next session picks up where the last one stopped instead of re-reading the repo.</p>
+      <h2>Coordinate &amp; drive</h2>
+      <p>Swarm doesn't only watch agents — it starts them, in a claimed worktree, under the same rules as your interactive sessions, and tells you what actually came out.</p>
     </div>
     <div class="grid">
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M2 14h8v2H2zm0 6h8v2H2zm0-4h2v4H2zm6 0h2v4H8zm6-14h8v2h-8zm0 6h8v2h-8zm0-4h2v4h-2zm6 0h2v4h-2zm-8 13h7v2h-7zm5-5h2v5h-2zM5 2h2v10H5z"/></svg><b>Claims &amp; worktrees</b><p>A task is claimed into its own isolated git worktree. Leases renew themselves on activity; an expired lease whose worktree still holds uncommitted or unpushed work is flagged <b>orphaned</b> — and nothing is ever removed behind your back.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M9 3H7v14h2zM5 7H3v14h2zm12-6H9v2h8zm4 4h-2v12h2zm-2 12H9v2h10zm-4 4H5v2h10zm2-18h2v2h-2zm-4 0h2v6h-2z"/><path d="M13 7h6v2h-6zM5 5h2v2H5zm10 14h2v2h-2z"/></svg><b>Warm worktrees &amp; handoffs</b><p>New worktrees start with your <code>.env.local</code> copied and <code>bun install</code> already running. Every session that pauses leaves a handoff — files edited, last verification command, what remains — and the next session in that worktree is told at start.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M10 18H8v-2h2v2Zm-2-2H6v-2h2v2Zm4-2v2h-2v-2h2Zm-6 0H4v-2h2v2Zm8 0h-2v-2h2v2Zm2-2h-2v-2h2v2Zm2-2h-2V8h2v2Zm2-2h-2V6h2v2Z"/></svg><b>Gates that actually run</b><p><code>[gates.tests] cmd = "bun test"</code> is executed inside the task's worktree, not vouched for: exit 0 passes, the output tail is the evidence, the latest run decides and failures are never deleted. A built-in <code>review</code> gate spawns a read-only reviewer over the diff.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M5 3h14v2H5zm0 16h14v2H5zM3 5h2v14H3zm16 0h2v14h-2zM9 7h6v2H9zm0 8h6v2H9zM7 9h2v6H7zm8 0h2v6h-2zm-4-8h2v2h-2zm0 20h2v2h-2zM1 11h2v2H1zm20 0h2v2h-2zm0-4h2v2h-2zm0 8h2v2h-2zM1 15h2v2H1zm0-8h2v2H1zm6-6h2v2H7zm8 0h2v2h-2zm0 20h2v2h-2zm-8 0h2v2H7z"/></svg><b>Runtime resources</b><p>Dev servers, databases and ports held as named singletons — fail-closed, pid- and lease-tracked. A held port is protected from every other agent's <code>kill</code> with no config, and nothing is ever killed by command pattern.</p></div>
+      <div class="card lead">
+        <svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></svg>
+        <div><b>Run it, then get a verdict</b><p><code>swarm run --task X</code> claims the task and spawns an agent in its own worktree — steer it by stdin, stop it by pid. <code>swarm dispatch --ready</code> gives every claimable task its own run, N at a time. When a run ends Swarm doesn't take its word for it: the gates are <em>re-run</em> from the config (<code>[gates.tests] cmd = "bun test"</code> — exit 0 passes, the output tail is the evidence), the forge is checked for the PR, and the result is <b>done</b>, <b>gates-failed</b>, <b>no-pr</b> or <b>crashed</b>. Anything short of done keeps the claim for you.</p></div>
+      </div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M2 14h8v2H2zm0 6h8v2H2zm0-4h2v4H2zm6 0h2v4H8zm6-14h8v2h-8zm0 6h8v2h-8zm0-4h2v4h-2zm6 0h2v4h-2zm-8 13h7v2h-7zm5-5h2v5h-2zM5 2h2v10H5z"/></svg><b>Claims &amp; worktrees</b><p>A fail-closed ledger: each task claimed into its own isolated git worktree, leases that renew themselves on activity, and an expired lease still holding uncommitted work flagged <b>orphaned</b> — never cleaned up behind your back.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M7 7h10v2H7zm0 2h2v6H7zm0 6h10v2H7zm8-6h2v6h-2zM0 11h5v2H0zm19 0h5v2h-5z"/></svg><b>Workflows</b><p><code>steps = ["implement", "gate:tests", "gate:review", "pr"]</code> in one config file, and the daemon advances it: run steps spawn an agent, gate steps must pass to continue, <code>pr</code> pushes the branch and opens the pull request. A failed step stops and says which one.</p></div>
     </div>
-  </section>
-
-  <section>
-    <div class="grp">
-      <h2>Drive</h2>
-      <p>Swarm doesn't only watch agents — it starts them, in a claimed worktree, under the same rules as your interactive sessions, and reports what actually came out.</p>
-    </div>
-    <div class="grid">
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></svg><b>Run &amp; dispatch</b><p><code>swarm run --task X</code> claims the task and spawns an agent in its worktree — steer it by stdin, stop it by pid. <code>swarm dispatch --ready</code> gives every claimable task its own run, N at a time, then re-runs the gates and looks for the PR: <b>done</b>, <b>gates-failed</b>, <b>no-pr</b> or <b>crashed</b>.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M7 7h10v2H7zm0 2h2v6H7zm0 6h10v2H7zm8-6h2v6h-2zM0 11h5v2H0zm19 0h5v2h-5z"/></svg><b>Workflows</b><p><code>steps = ["implement", "gate:tests", "gate:review", "pr"]</code> in one config file, and the daemon advances it: run steps spawn an agent, gate steps must pass to continue, <code>pr</code> pushes the branch and opens the pull request. A failed step stops and says so.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 14h14v2H4zm2-6h6v2H6zm0-4h12v2H6zM2 4h2v12H2zm18 0h2v18h-2zm-2 14h2v2h-2z"/></svg><b>Agents that talk — to you and each other</b><p>An agent that hits a decision only a person can make asks for one: the question lands on the session page with its options as buttons, and the answer reaches the agent by itself. Agents message each other by session, by task holder, or by <code>"lead"</code> — delivered exactly once.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M16 18h-3v4h-2v-4H8v-2h8v2Zm-8-2H6v-2h2v2Zm10 0h-2v-2h2v2Zm-8-9h4V2h2v5h5v2h-1v5h-2V9H6v5H4V9H3V7h5V2h2v5Z"/></svg><b>Permission broker</b><p>A spawned agent's permission prompts go through your rules instead of a terminal nobody is watching: a <code>deny</code> auto-denies with the reason, an <code>ask</code> becomes an Allow / Deny card on the session, everything else proceeds. Profiles (<code>no-edits</code>, <code>read-only</code>) narrow what it may do at all.</p></div>
-    </div>
+    <ul class="more">
+      <li><b>Warm worktrees</b> — <code>.env.local</code> copied and <code>bun install</code> already running as the claim is made.</li>
+      <li><b>Handoffs</b> — every session that pauses leaves one; the next session in that worktree is told at start.</li>
+      <li><b>Ask the human</b> — the question lands on the session page with its options as buttons; the answer reaches the agent by itself.</li>
+      <li><b>Agent messaging</b> — reach another session, whoever holds a task, or <code>"lead"</code>, delivered exactly once.</li>
+      <li><b>Runtime resources</b> — ports, dev servers and databases as named singletons; a held port survives every other agent's <code>kill</code>.</li>
+      <li><b>PRs, one queue</b> — GitHub and GitLab through your own <code>gh</code> / <code>glab</code>; merge on green. No tokens stored.</li>
+    </ul>
   </section>
 
   <section>
     <div class="grp">
       <h2>Guard</h2>
-      <p>The “never do X” paragraph in your <code>CLAUDE.md</code> is a wish. Swarm turns it into a permission decision at the hook, and records every one. Guardrails against accidents — not a sandbox.</p>
+      <p>The “never do X” paragraph in your <code>CLAUDE.md</code> is a wish. Swarm turns it into a permission decision at the hook, and records every one.</p>
     </div>
     <div class="grid">
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zM2 4h2v10H2zm18 0h2v10h-2zM4 14h2v2H4zm2 2h2v2H6zm4 4h4v2h-4zm10-6h-2v2h2zm-2 2h-2v2h2zm-2 2h-2v2h2zm-6 0H8v2h2z"/></svg><b>Rules &amp; incidents</b><p>A broad <code>git add -A</code> while another live session shares the checkout, a <code>pkill -f</code>, a write into a worktree someone else holds, freeing a protected port — asked or denied at the hook, each one recorded with the rule, the command and the session.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M8 14H7v6H5v-6H2v-2h6v2Zm5 6h-2V10h2v10Zm9-2h-3v2h-2v-2h-1v-2h6v2Zm-3-4h-2V4h2v10ZM7 10H5V4h2v6Zm6-4h2v2H9V6h2V4h2v2Z"/></svg><b>Codify it, then try it on history</b><p>Turn any incident into a <code>.swarm.toml</code> rule and a <code>CLAUDE.md</code> lesson with one click. <b>Dry-run</b> replays your recorded tool calls under modes you pick and shows exactly what would have been asked or denied — before you switch anything on.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 20h16v2H4zM4 2h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM9 15h6v2H9zM7 9h2v6H7zm8 0h2v6h-2zm-4-2h2v5h-2z"/></svg><b>Policy that holds when the daemon doesn't</b><p>An org can lock the rules that matter in a signed <code>policy.toml</code> the layers below cannot override. While a rule is locked, the hook enforces it from a cached snapshot even if the daemon is unreachable — everything else still fails open, so your work never blocks on Swarm.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M16 20H8v-2h8v2Zm-8-2H4v-2h4v2Zm12 0h-4v-2h4v2ZM4 16H2v-2h2v2Zm10-6h-2v2h2v-2h2v4h-2v2h-4v-2H8v-4h2V8h4v2Zm8 6h-2v-2h2v2ZM2 14H0v-4h2v4Zm22 0h-2v-4h2v4ZM4 10H2V8h2v2Zm18 0h-2V8h2v2ZM8 8H4V6h4v2Zm12 0h-4V6h4v2Zm-4-2H8V4h8v2Z"/></svg><b>Audit &amp; privacy, on your terms</b><p>Every ledger record carries who did it; export the whole audit log as JSONL, CSV or JSON. Choose not to store prompts or assistant text at all, redact by regex, and know that API keys and bearer tokens are always scrubbed.</p></div>
+      <div class="card lead">
+        <svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zM2 4h2v10H2zm18 0h2v10h-2zM4 14h2v2H4zm2 2h2v2H6zm4 4h4v2h-4zm10-6h-2v2h2zm-2 2h-2v2h2zm-2 2h-2v2h2zm-6 0H8v2h2z"/></svg>
+        <div><b>Rules instead of prose</b><p>A broad <code>git add -A</code> while another live session shares the checkout, a <code>pkill -f</code>, a write into a worktree someone else holds, freeing a protected port — asked or denied at the hook, each one recorded with the rule, the command and the session. Guardrails against accidents, not a sandbox: if the daemon is unreachable the hook fails <em>open</em>, so your work never blocks on Swarm.</p></div>
+      </div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M8 14H7v6H5v-6H2v-2h6v2Zm5 6h-2V10h2v10Zm9-2h-3v2h-2v-2h-1v-2h6v2Zm-3-4h-2V4h2v10ZM7 10H5V4h2v6Zm6-4h2v2H9V6h2V4h2v2Z"/></svg><b>Codify it, then try it on history</b><p>Turn any incident into a <code>.swarm.toml</code> rule and a <code>CLAUDE.md</code> lesson with one click. <b>Dry-run</b> replays your recorded tool calls under modes you pick and shows exactly what would have fired — before you switch anything on.</p></div>
+      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 20h16v2H4zM4 2h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM9 15h6v2H9zM7 9h2v6H7zm8 0h2v6h-2zm-4-2h2v5h-2z"/></svg><b>Policy that holds when the daemon doesn't</b><p>An org can lock the rules that matter in a signed <code>policy.toml</code> the layers below cannot override — and while a rule is locked the hook enforces it from a cached snapshot even if the daemon is down.</p></div>
     </div>
-  </section>
-
-  <section>
-    <div class="grp">
-      <h2>Measure</h2>
-      <p>What today cost, while it is still today — and whether the code an agent wrote survived contact with <code>main</code>.</p>
-    </div>
-    <div class="grid">
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M6 2h6v2H6zM4 4h2v2H4zm8 0h2v2h-2zm-8 8h2v2H4zm8 0h2v2h-2zm-6 2h6v2H6zM2 6h2v6H2zm12 0h2v6h-2z"/><path d="M14 8h4v2h-4zm-4 10h2v2h-2zm8-8h2v2h-2zm-6 10h2v2h-2zm6-2h2v2h-2z"/><path d="M12 20h6v2h-6zm-4-6h2v4H8zm12-2h2v6h-2zM7 6h4v2H7z"/><path d="M9 6h2v6H9zm6 8h2v4h-2zm-1-2h3v2h-3z"/></svg><b>Spend, by task</b><p>Cost and tokens by day, agent, model, project — and by <b>task</b>, matched through the claim. Plus a context-budget table that ranks sessions by how much context they re-read, and per-repo ceilings that warn, ask before every spending tool, or stop the runs outright.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 20h18v2H4zM2 2h2v18H2zm16 11v3h-2v-3zM8 13v3H6v-3zm8-2v2H8v-2zm0 5v2H8v-2zm4-12v3h-2V4zM8 4v3H6V4zm10-2v2H8V2zm0 5v2H8V7z"/></svg><b>Outcomes</b><p>Did the work survive? Sessions join to a branch, the branch to its PR, the PR to merged or reverted — scored per model and per agent: merge rate, median time from session start to merge, and dollars per merge. The one number that says which agent is worth it.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M2 10h8V8H2zm0-6h8V2H2zm0 4h2V4H2zm6 0h2V4H8zm6 14h8v-2h-8zm0-6h8v-2h-8zm0 4h2v-4h-2zm6 0h2v-4h-2zM12 7h5V5h-5zM5 22h2V12H5z"/></svg><b>PRs, one queue</b><p>GitHub and GitLab in a single list, read through the <code>gh</code> / <code>glab</code> you are already logged into — checks, review state, mergeable — and merge on green from the dashboard. Swarm stores no forge tokens.</p></div>
-      <div class="card"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M22 22h-2v-2h2v2Zm-2-2h-2v-2h2v2Zm-6-2H6v-2h8v2Zm4 0h-2v-2h2v2ZM6 16H4v-2h2v2Zm10 0h-2v-2h2v2ZM4 14H2V6h2v8Zm14 0h-2V6h2v8ZM6 6H4V4h2v2Zm10 0h-2V4h2v2Zm-2-2H6V2h8v2Z"/></svg><b>Memory &amp; stats</b><p>Full-text search over everything Swarm remembers — handoffs, incidents, gate runs, what sessions actually said. And the long view: all-time spend and tokens, streaks, a year of activity, record holders.</p></div>
-    </div>
+    <ul class="more">
+      <li><b>Permission broker</b> — a spawned agent's prompts go through your rules, not a terminal nobody is watching.</li>
+      <li><b>Run profiles</b> — <code>no-edits</code> and <code>read-only</code> narrow what a spawned agent may do at all.</li>
+      <li><b>Audit log</b> — every record carries who did it; export as JSONL, CSV or JSON.</li>
+      <li><b>Privacy</b> — don't store prompts or reasoning at all, redact by regex; keys and bearer tokens always scrubbed.</li>
+      <li><b>Budgets</b> — <code>daily</code> / <code>weekly</code> ceilings that warn, ask before every spending tool, or stop the runs.</li>
+      <li><b>Model allow-list</b> — <code>allow = ["claude-*"]</code>, org-lockable; dispatch refuses anything else.</li>
+    </ul>
   </section>
 
   <section id="config">
@@ -345,7 +350,7 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
   <section id="agents">
     <div class="grp">
       <h2>Six agents, one ledger</h2>
-      <p>Claude Code through its hooks and transcripts — the full picture, including rules and MCP. The other five are observed by reading the session logs they already write, so they show up on Fleet, Timeline and Spend with real tokens and real cost.</p>
+      <p>Claude Code through its hooks and transcripts — the full picture, rules and MCP included. The other five are read from the session logs they already write, so they land on Fleet, Timeline, Spend and Outcomes with real tokens and real cost.</p>
     </div>
     <ul class="more">
       <li><b>Claude Code</b> — hooks, transcripts, MCP tools, rules, spawned runs.</li>

@@ -23,10 +23,12 @@ const shots: Array<[string, string]> = [
   ["fleet", "view=fleet"],
   ["session", `session=${sess.id}`],
   ["board", `view=board&project=${swarm.id}`],
+  ["outcomes", `view=outcomes&project=${swarm.id}`],
   ["incidents", "view=incidents"],
   ["timeline", "view=timeline"],
   ["spend", "view=spend"],
   ["stats", "view=stats"],
+  ["graphs", `view=graphs&project=${swarm.id}`],
 ];
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
