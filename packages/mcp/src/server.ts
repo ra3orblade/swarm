@@ -314,21 +314,62 @@ export function buildServer(): McpServer {
   server.registerTool(
     "swarm_inbox",
     {
-      title: "Answers waiting for you",
+      title: "What's waiting for you",
       description:
-        "Answers a human has given to your swarm_ask questions that you haven't received yet.",
+        "Answers to your swarm_ask questions and messages other agents or the human sent you (swarm_send) that you haven't received yet.",
       inputSchema: {},
     },
     async () => {
       const qs = await api<
         Array<{ id: number; text: string; answer: string; answeredBy: string | null }>
       >(`/v1/inbox?session=${encodeURIComponent(SESSION ?? "")}`);
-      if (!qs.length) return ok("no new answers", []);
+      const ms = await api<
+        Array<{ id: number; from: string | null; task: string | null; text: string }>
+      >(`/v1/messages/inbox?session=${encodeURIComponent(SESSION ?? "")}`);
+      if (!qs.length && !ms.length) return ok("nothing new", []);
+      const lines = [
+        ...qs.map((q) => `answer #${q.id} "${q.text}" → ${q.answeredBy ?? "a human"}: ${q.answer}`),
+        ...ms.map(
+          (m) =>
+            `message #${m.id} from ${m.from ?? "unknown"}${m.task ? ` (re ${m.task})` : ""}: ${m.text}`,
+        ),
+      ];
+      return ok(lines.join("\n"), { answers: qs, messages: ms });
+    },
+  );
+
+  server.registerTool(
+    "swarm_send",
+    {
+      title: "Message another agent (or the human)",
+      description:
+        'Send a short message to another session (session id), to whoever holds a task (task id), or to "lead" — the human\'s interactive session in this project. Delivery is on their next tool call (or immediately to a spawned run); replies come back via swarm_inbox.',
+      inputSchema: {
+        to: z.string().describe('session id, task id, or "lead"'),
+        text: z.string().max(4000),
+      },
+    },
+    async ({ to, text }) => {
+      const pid = await projectId();
+      const r = await api<{
+        ok: boolean;
+        error?: string;
+        message?: { id: number; sessionId: string | null };
+      }>("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: pid,
+          to,
+          text,
+          sessionId: SESSION,
+          from: OWNER === "agent" && SESSION ? `agent ${SESSION.slice(0, 8)}` : OWNER,
+        }),
+      });
+      if (!r.ok) return fail(r.error ?? "send failed");
       return ok(
-        qs
-          .map((q) => `#${q.id} "${q.text}" → ${q.answeredBy ?? "a human"}: ${q.answer}`)
-          .join("\n"),
-        qs,
+        `sent #${r.message?.id}${r.message?.sessionId ? "" : " (queued until the target appears)"}`,
+        r.message,
       );
     },
   );

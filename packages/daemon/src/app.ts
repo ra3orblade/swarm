@@ -433,6 +433,47 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   app.get("/v1/inbox", (c) =>
     c.json(store.inbox(c.req.query("session") || null, { peek: c.req.query("peek") === "1" })),
   );
+  // ---- messages (M7.6)
+  app.get("/v1/messages", (c) =>
+    c.json(
+      store.messages({
+        ...(c.req.query("project") ? { projectId: c.req.query("project") as string } : {}),
+        ...(c.req.query("session") ? { sessionId: c.req.query("session") as string } : {}),
+        ...(c.req.query("task") ? { task: c.req.query("task") as string } : {}),
+        limit: Number(c.req.query("limit")) || 100,
+      }),
+    ),
+  );
+  app.get("/v1/messages/inbox", (c) =>
+    c.json(
+      store.messageInbox(c.req.query("session") || null, { peek: c.req.query("peek") === "1" }),
+    ),
+  );
+  app.post("/v1/messages", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      to?: unknown;
+      text?: unknown;
+      from?: string | null;
+      sessionId?: string | null;
+    };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId required" }, 400);
+    const r = store.send(b.projectId, {
+      to: b.to,
+      text: b.text,
+      from: b.from ?? null,
+      fromSession: b.sessionId ?? null,
+    });
+    if (!r.ok) return c.json(r, 400);
+    // a spawned run on the target task hears it immediately over stdin
+    const m = r.message;
+    const run = m.task ? runner.get(m.task) : m.sessionId ? runner.get(m.sessionId) : null;
+    if (run && !run.endedAt) {
+      const sent = runner.send(run.id, `[swarm] message from ${m.from ?? "unknown"}: ${m.text}`);
+      if (sent.ok) store.markMessageDelivered(m.id, run.sessionId);
+    }
+    return c.json({ ok: true, message: store.message(m.id) }, 201);
+  });
   // ---- dispatch (M7.5): claim + run ready tasks up to a per-project cap; outcome derived on exit
   app.get("/v1/dispatch", (c) => {
     const project = c.req.query("project");

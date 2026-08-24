@@ -175,6 +175,10 @@ async function refresh() {
     state.attribution = null;
   }
   let runsChanged = false;
+  if (state.session) {
+    const ms = await fetch(`/v1/messages?session=${encodeURIComponent(state.session)}&limit=50`).then((r) => r.json()).catch(() => state.msgs ?? []);
+    if (JSON.stringify(ms) !== JSON.stringify(state.msgs)) { state.msgs = ms; state.dirty = true; }
+  }
   const openSpawned = state.session && state.sessions.find((x) => x.id === state.session)?.kind === "spawned";
   if (openSpawned || (state.view === "board" && !state.session) || (state.view === "fleet" && !state.session)) {
     const runs = await fetch("/v1/runs").then((r) => r.json()).catch(() => state.runs ?? []);
@@ -1200,6 +1204,18 @@ function replayGo(delta) {
 }
 
 // Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
+// M7.6: the session's message thread (sent + received) and a compose box.
+function messageThread(s) {
+  const ms = (state.msgs ?? []).filter((m) => m.sessionId === s.id || m.fromSession === s.id).slice().reverse();
+  const row = (m) => {
+    const out = m.fromSession === s.id;
+    return `<div class="msg ${out ? "out" : "in"}" title="${esc(m.createdAt)}${m.deliveredAt ? "" : " · not delivered yet"}">
+      <span class="msg-f">${out ? `→ ${esc(m.task ?? m.toKind)}` : esc(m.from ?? "?")}${m.deliveredAt ? "" : ' <i class="dim">·queued</i>'}</span>${esc(m.text)}</div>`;
+  };
+  return `<h4>messages</h4>${ms.length ? `<div class="msgs">${ms.map(row).join("")}</div>` : '<span class="dim">None yet.</span>'}
+    <div class="msg-compose"><input id="msgText" placeholder="Message this agent… (delivered on its next tool call)" autocomplete="off"><button id="msgSend" data-sid="${s.id}" data-pid="${s.projectId}">${ic("arrow-right", 13)}</button></div>`;
+}
+
 // M7.7: questions this session is waiting on a human for
 function questionCards(s) {
   const qs = (state.questions ?? []).filter((q) => q.sessionId === s.id);
@@ -1266,6 +1282,7 @@ function renderSession() {
     <h4>tokens</h4>${viz.compositionBar([{ label: "cache read", v: t.cacheRead }, { label: "cache write", v: t.cacheWrite }, { label: "input", v: t.input }, { label: "thinking", v: t.thinking }, { label: "output", v: t.output }])}
     ${state.turns.length > 1 ? `<h4>cost per turn</h4>${viz.turnStrip(state.turns, { height: 54 })}` : ""}
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
+    ${messageThread(s)}
     ${questionCards(s)}
     ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}`;
   if (logEl && isAppend(rows)) {
@@ -1623,6 +1640,9 @@ function openMenu(kind, anchor, d) {
   if (!window.menus) { console.warn("menus.js not built — run: bun run build:web"); return; }
   window.menus.open(anchor, spec);
 }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "msgText") { e.preventDefault(); $("#msgSend")?.click(); }
+});
 // Enter / Space on a focused card, tile or kebab opens its menu like a click.
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter" && ev.key !== " ") return;
@@ -1640,7 +1660,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1651,6 +1671,16 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.emoji !== undefined) { $("#psIcon").value = t.dataset.emoji; $("#psImage").value = ""; setIconPreview(t.dataset.emoji); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === t.dataset.emoji); return; }
   if (t.id === "psAllEmoji") { const all = $("#psEmojiAll"); if (all.hidden) { all.innerHTML = buildEmojiGrid(); all.hidden = false; } else all.hidden = true; return; }
   if (t.dataset.color !== undefined && t.classList.contains("swatch")) { for (const e of $$(".swatch")) e.classList.toggle("on", e === t); return; }
+  if (t.id === "msgSend") {
+    ev.preventDefault();
+    const text = $("#msgText")?.value.trim();
+    if (!text) return;
+    const r = await post("/v1/messages", { projectId: t.dataset.pid, to: t.dataset.sid, text, from: "dashboard" });
+    if (!r.ok) return alert(r.error);
+    $("#msgText").value = "";
+    state.msgs = null;
+    return refresh();
+  }
   if (t.id === "psSave") { ev.preventDefault(); return saveProjectSettings(t.dataset.pid); }
   if (t.dataset.bmode) { ev.preventDefault(); const [k, v] = t.dataset.bmode.split(":"); localStorage.setItem(`swarm.board.${k}`, v); return touch(); }
   if (t.dataset.run) { ev.preventDefault(); return openRunDrawer(t.dataset.run); }
@@ -2050,7 +2080,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "message.sent", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");

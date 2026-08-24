@@ -36,6 +36,7 @@ export type EventType =
   | "permission.requested"
   | "permission.resolved"
   | "session.notification"
+  | "message.sent"
   | "incident.opened"
   | "incident.acked"
   | "run.result";
