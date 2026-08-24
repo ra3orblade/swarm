@@ -18,7 +18,7 @@ Release ritual: write the `CHANGELOG.md` entry first, then `bun tools/version.ts
 
 ## Stack (see docs/05)
 
-Bun workspaces · TypeScript · Biome · `bun test` · Hono (daemon) · `bun:sqlite` · vanilla HTML/JS dashboard with one React island for menus (no Vite). Packages: `core` (pure domain, no I/O beyond sqlite), `daemon` (only DB writer), `cli`, `mcp`, `hook`, `client`, `web`.
+Bun workspaces · TypeScript · Biome · `bun test` · Hono (daemon) · `bun:sqlite` · vanilla HTML/JS dashboard with one React island for menus (no Vite). Packages: `core` (pure domain, no I/O beyond sqlite), `daemon` (only DB writer), `cli`, `mcp`, `hook`, `client`, `web`, `team` (swarm-teamd, **FSL-1.1-ALv2 not Apache**, excluded from the free bundle — docs/14).
 
 ## Commands
 

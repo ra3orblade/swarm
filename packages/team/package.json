@@ -1,0 +1,22 @@
+{
+  "name": "@ra3orblade/swarm-team",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "FSL-1.1-ALv2",
+  "description": "Swarm team daemon — self-hosted control plane for a team of Swarm machines. Source-available (FSL-1.1-ALv2), not part of the Apache-2.0 free tier.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "bun --watch src/bin.ts"
+  },
+  "dependencies": {
+    "@swarm/core": "workspace:*",
+    "hono": "^4.9.0"
+  },
+  "bin": {
+    "swarm-teamd": "./src/bin.ts"
+  }
+}

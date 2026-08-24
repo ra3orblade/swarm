@@ -1,6 +1,6 @@
 # 14 · Teams (M8) — design
 
-Status: draft. Design for M8.1–M8.3 (policy precedence, actor + auth + audit, team daemon forwarding); nothing here is built. Roadmap rows live in [06-roadmap](06-roadmap.md#m8--teams-enterprise--direction-set-2026-08-23); the commercial boundary is [OQ-15](07-open-questions.md).
+Status: living. M8.1–M8.2 are built (2026-08-23); the M8.3 team-daemon section below is the full design (decided 2026-08-24), being built next. Roadmap rows live in [06-roadmap](06-roadmap.md#m8--teams-enterprise--direction-set-2026-08-23); the commercial boundary is [OQ-15](07-open-questions.md).
 
 ## Why a design doc first
 
@@ -84,14 +84,105 @@ How the daemon *learns* the actor instead of trusting the string: every request 
 
 > **Decision (2026-08-23):** `Actor = {kind, id, session?}` on every ledger record and every event; bearer token in `daemon.json`, loopback-optional by default in 0.x; audit is a retained view over `events`, exported as JSONL; schema versioning starts with M8.2.
 
-## M8.3 — Team daemon (paid, separate package, self-hosted)
+## M8.3 — Team daemon (paid, `packages/team`, self-hosted)
 
-Sketch only; designed in full when M8.1/M8.2 have shipped.
+Full design, decided 2026-08-24. One deployment = one org. The local daemon stays the only hook
+target and the only writer of `~/.swarm/swarm.db`; the team daemon (`swarm-teamd`) is a second,
+separate service that machines *forward* to and humans *log in* to. Nothing in the free tier
+changes behaviour when `[team]` is absent from config.
 
-- `[team] url = "https://swarm.example.internal"` + `[team] forward = ["ledger", "cost"]` (never `"transcripts"` unless opted in). The local daemon keeps an outbox table and pushes `audit` events + spend rollups with at-least-once delivery; it never blocks the hook path.
-- Cluster-wide claims: a claim is first taken locally (fail-closed as today), then registered upstream; a conflict upstream revokes the local claim and opens an incident. Leases renew upstream on the same cadence as today's `auto-renew`.
-- Identity: OIDC login via `swarm login` (device-code flow) issues a token the local daemon stores next to its own; `actor.kind = "human"` ids become OIDC subjects. Roles: viewer / developer / admin.
-- The team daemon is the same Hono + `store` code with a Postgres driver behind the same interface — the reason M8.2 pushes schema versioning and the actor model into `core`/`daemon` now.
+### Package & license
+
+- `packages/team`, published as `@ra3orblade/swarm-team`, bin `swarm-teamd`. It imports `core`
+  (types, rules, pricing, audit) like any other package; nothing in `core`/`daemon`/`cli` imports
+  it back.
+- License: **FSL-1.1-ALv2** (Functional Source License 1.1 with Apache-2.0 future license —
+  source-available, competing use restricted, each release converts to Apache-2.0 after two
+  years; this is the current SPDX id of what OQ-15 called "FSL-1.1-Apache-2.0"). A per-package `LICENSE.md`
+  overrides the repo's Apache-2.0 for this directory only; the root `LICENSE` is untouched and the
+  README gains a licensing section. `tools/build-pkg.ts` **excludes** `packages/team` from the
+  free `@ra3orblade/swarm` bundle; the team daemon ships as its own npm package + a
+  `bun build --compile` binary on GitHub Releases.
+- Pricing stays open (OQ-15); the code being source-available means evaluation needs no purchase.
+
+### Storage
+
+Its own SQLite database (`~/.swarm/team.db` by default, `--db` to relocate), `bun:sqlite`, WAL,
+the same versioned `migrate()` pattern M8.2a introduced. Postgres is deliberately **not** in v1:
+the store lives behind the `TeamStore` class boundary so a Postgres driver can land later without
+protocol changes (OQ-18). Tables (prefix `t_` omitted here): `machines` (id, name, token_hash,
+owner_subject, first_seen, last_seen, version), `users` (subject, email, name, role), `teams` +
+`team_members` + `team_projects` (org → team → project; one implicit org per deployment),
+`projects` (cluster key → name), `events` (machine_id, machine_seq, the forwarded audit event;
+UNIQUE(machine_id, machine_seq)), `spend` (machine_id, project, day, model, agent, cost, tokens),
+`claims` (cluster ledger: project key, task, machine_id, actor, lease), `policies` (the served
+org policy + history), `tokens` (opaque session tokens, hashed).
+
+### Wire protocol (`/t1/*`, bearer-authed)
+
+- `POST /t1/ingest` — batched forwarded records `{machine, seq, kind: "event"|"spend", body}`;
+  idempotent by `(machine_id, seq)`; returns the high-water mark so the sender can prune.
+- `POST /t1/claims` / `DELETE /t1/claims/:key` / `POST /t1/claims/:key/renew` — cluster claim
+  register/release/renew. Register returns `409 {holder}` on conflict.
+- `GET /t1/policy` — the org `policy.toml` + its ed25519 signature; `POST /t1/policy` (admin).
+- `POST /t1/auth/device` / `POST /t1/auth/token` — device-code login (below); `GET /t1/me`.
+- `GET /t1/state`, `GET /t1/events` (SSE) — the team dashboard's snapshot + live stream.
+- Versioned by path (`/t1/`); `GET /t1/health` reports schema + protocol versions.
+
+### Identity & roles
+
+- **Humans**: `swarm login` runs an OIDC device-code flow. The *team daemon* is the OAuth client
+  (issuer + client id configured in teamd, discovered by the CLI via `/t1/auth/config`) — the
+  local machine never handles refresh tokens. On success teamd verifies the ID token, upserts the
+  user, and issues its own opaque token; the CLI stores it in `~/.swarm/team-token` (0600).
+  `actor.kind = "human"` ids become the OIDC subject (OQ-17's "record both" holds: the OS username
+  stays in the local ledger, the subject rides on forwarded records).
+- **Machines**: on first `swarm login` the local daemon generates a machine id + token, registered
+  with teamd and bound to the logged-in user (OQ-19: shared machines re-bind on re-login).
+  Forwarding authenticates with the machine token; humans with their own.
+- **Roles**: `viewer` (dashboards, exports), `developer` (own machine's forwarding, cluster
+  claims, gate/handoff writes), `admin` (org policy, members/roles, retention, machine revocation).
+  Stored in `users.role`, settable only by admins; the first user becomes admin.
+
+### Forwarding (local daemon side, free — the seam ships in `daemon`)
+
+- Config: `[team] url = "https://swarm.example.internal"`, `forward = ["ledger", "cost"]`
+  (default; `"transcripts"` — session titles + last-text — strictly opt-in and still passes the
+  M8.2c redaction), `interval = 5` seconds.
+- An `outbox` table in `swarm.db` (seq, kind, payload, attempts, sent_at NULL). Audit-type events
+  (the M8.2c list) and daily spend rollups are enqueued at write time when `[team].url` is set;
+  a background flush batches to `/t1/ingest` with exponential backoff, at-least-once, pruning on
+  ack. The hook path never waits on the network — enqueue is one local INSERT.
+- Cluster claims: `store.claim` keeps its local fail-closed semantics, then registers upstream
+  *asynchronously*. An upstream `409` revokes the local claim (worktree untouched), opens a
+  `claim_conflict` incident, and notifies. Renew forwards on the existing auto-renew cadence;
+  offline machines keep working — cluster claims degrade to advisory when unreachable, recorded
+  as `team.offline` events.
+- Policy: when `[team].url` is set the daemon fetches `/t1/policy` (signed) into
+  `~/.swarm/policy.toml` + verifies the signature with the pinned public key from login; the
+  M8.1c `policy.cache.json` finally gets its cryptographic signature (closes the OQ-3 deferral).
+
+### Team dashboard
+
+`packages/web` is reused as-is by teamd (`SWARM_WEB_DIR` already decouples it): the same
+snapshot/SSE contract with two added dimensions — machine and user. Fleet gains a machine column
+and filter chips; Spend gains by-user and by-team rollups (the chargeback surface M8.4 exports).
+Views that are meaningless upstream (local processes, worktree open-in-editor) hide when the
+snapshot says `team: true`.
+
+### Order of work (one PR each, gates green, roadmap flipped on the last)
+
+1. **M8.3a** scaffold: `packages/team` + FSL LICENSE.md + README licensing note, config, db +
+   migrations, `/t1/health`, build-pkg exclusion, `swarm-teamd` bin + compile script.
+2. **M8.3b** forwarding: outbox + `[team]` config + flush loop in `daemon`; `/t1/ingest`
+   (idempotent) + machines table in `team`; `swarm doctor` shows forward lag.
+3. **M8.3c** auth: device-code flow end-to-end (`swarm login`, `/t1/auth/*`, opaque tokens,
+   roles middleware, first-user-admin), machine registration.
+4. **M8.3d** cluster claims: register/renew/release/conflict-revoke + `claim_conflict` incident;
+   offline degradation.
+5. **M8.3e** team dashboard: `/t1/state` + `/t1/events` SSE, machine/user dimensions in `web`.
+6. **M8.3f** policy serving + signing (ed25519), `swarm install --config-url` handshake (the
+   M8.5 fleet-install hook); flip M8.3 ✅.
 
 ## Order of work
 
@@ -108,3 +199,5 @@ Each step passes the full gate (`test`, `typecheck`, `lint`, `smoke`, `docs:chec
 
 - **OQ-16** Should `daemon.auth = "required"` become the default once 1.0 ships, and what is the migration story for the Tauri app (which talks to the daemon over HTTP)?
 - **OQ-17** Human identity before OIDC: OS username is spoofable on a shared box; is `git config user.email` a better local principal, or is "the laptop owner" good enough for the free tier?
+- **OQ-18** Team daemon storage: SQLite v1, Postgres only when a real deployment outgrows one node — the `/t1/*` protocol must survive the swap.
+- **OQ-19** Cluster project identity (normalized `origin` remote URL as the key) and machine tokens on shared boxes (bound to the last `swarm login`).
