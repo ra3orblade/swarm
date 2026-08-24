@@ -239,7 +239,7 @@ describe("TeamForwarder (M8.3b)", () => {
     // every spending tool now asks
     const d = store.evaluateTool("Bash", { command: "echo hi" }, "s1", repo);
     expect(d.decision.action).toBe("ask");
-    expect(d.decision.reason).toContain("team daily budget");
+    if (d.decision.action === "ask") expect(d.decision.reason).toContain("team daily budget");
 
     // model allow-list observation: a live session on gpt-* gets one incident, claude-* none
     store.append({
