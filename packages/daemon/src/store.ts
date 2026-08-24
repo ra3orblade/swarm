@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import {
   closeSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -35,6 +36,7 @@ import {
   canRelease,
   canRemoveWorktree,
   claimRefusalMessage,
+  clusterProjectKey,
   collisionGraph,
   compileRedactions,
   costUsd,
@@ -85,6 +87,7 @@ import {
   type MemoryDoc,
   type MemoryKind,
   type Message,
+  modelAllowed,
   needsBootstrap,
   nextExpiry,
   normalizeHook,
@@ -150,6 +153,7 @@ import {
   gitToplevel,
   heldWork,
   listWorktreesAsync,
+  originUrl,
   type Worktree,
   worktreeAdd,
   worktreeDiff,
@@ -294,6 +298,7 @@ export class Store {
     );
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
+    this.ensureColumn("claims", "team_state", "TEXT"); // M8.3d: null | registered | conflict
     this.ensureColumn("turns", "cost_fixed", "INTEGER DEFAULT 0");
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
@@ -2061,6 +2066,24 @@ export class Store {
         // one incident per day per project is plenty (checkBudgets opened it); don't spam
         return { decision: d, display: input.command ?? input.file_path ?? tool };
       }
+      // M8.4: a cluster ceiling (org / user / this project) the team daemon marked exceeded
+      const tb = this.teamBudgets().find(
+        (x) =>
+          x.level === "exceeded" &&
+          x.on_exceed === "ask" &&
+          (x.scope !== "project" || x.key === this.clusterKeyFor(project.id)),
+      );
+      if (tb) {
+        const label = tb.scope === "org" ? "the org" : `${tb.scope} ${tb.key}`;
+        return {
+          decision: {
+            action: "ask" as const,
+            rule: "budget" as unknown as RuleId,
+            reason: `team ${tb.kind} budget for ${label} is exceeded ($${tb.spent.toFixed(2)} of $${tb.limit}) — the team's on_exceed = "ask": confirm each change, or have an admin raise it (POST /t1/budgets)`,
+          },
+          display: input.command ?? input.file_path ?? tool,
+        };
+      }
     }
     const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
     const cmd = tool === "Bash" ? input.command : undefined;
@@ -2539,6 +2562,26 @@ export class Store {
         ),
       );
     this.projectSession(stored);
+    // M8.5: incident webhook — fire-and-forget, Slack-compatible {text}, never blocks anything
+    if (stored.type === "incident.opened") {
+      const webhook = this.policyFor(null).config.notify.webhook;
+      if (webhook) {
+        const p = (stored.payload ?? {}) as { rule?: string; command?: string; reason?: string };
+        const project = this.project(stored.projectId)?.name ?? stored.projectId;
+        void fetch(webhook, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            text: `Swarm incident · ${p.rule ?? "?"} · ${project}\n${p.command ?? ""}\n${p.reason ?? ""}`.trim(),
+            rule: p.rule,
+            project,
+            sessionId: stored.sessionId,
+            ts: stored.ts,
+          }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    }
     // team forwarding (M8.3b): audit-type events are enqueued at write time — one local INSERT,
     // the network happens later in the forwarder, never on the hook path
     const team = this.policyFor(null).config.team;
@@ -3086,6 +3129,76 @@ export class Store {
       }
     }
     return n;
+  }
+
+  /** Held claims for cluster registration (M8.3d). */
+  heldClaimsForSync(): Array<{
+    projectId: string;
+    task: string;
+    acquiredAt: string;
+    expiresAt: string;
+    actorKind: string | null;
+    actorId: string | null;
+    teamState: string | null;
+  }> {
+    return (
+      this.db
+        .query(
+          "SELECT project_id, task, acquired_at, expires_at, actor_kind, actor_id, team_state FROM claims WHERE state = 'held'",
+        )
+        .all() as Array<Record<string, unknown>>
+    ).map((r) => ({
+      projectId: r.project_id as string,
+      task: r.task as string,
+      acquiredAt: r.acquired_at as string,
+      expiresAt: r.expires_at as string,
+      actorKind: (r.actor_kind as string) ?? null,
+      actorId: (r.actor_id as string) ?? null,
+      teamState: (r.team_state as string) ?? null,
+    }));
+  }
+
+  markClaimTeamState(projectId: string, task: string, state: string) {
+    this.db
+      .query("UPDATE claims SET team_state = ? WHERE project_id = ? AND task = ?")
+      .run(state, projectId, task);
+  }
+
+  /**
+   * M8.3d: the team daemon reports this task held elsewhere — the local claim is revoked (the
+   * cluster wins), the worktree is deliberately left on disk (never touch work), and an incident
+   * tells the human what happened.
+   */
+  revokeClaimConflict(projectId: string, task: string, holder: string) {
+    const row = this.db
+      .query("SELECT state FROM claims WHERE project_id = ? AND task = ?")
+      .get(projectId, task) as { state: string } | null;
+    if (row?.state !== "held") return;
+    const now = new Date().toISOString();
+    this.db
+      .query(
+        "UPDATE claims SET state = 'released', released_at = ?, team_state = 'conflict' WHERE project_id = ? AND task = ?",
+      )
+      .run(now, projectId, task);
+    this.append({
+      ts: now,
+      type: "claim.released",
+      projectId,
+      sessionId: null,
+      payload: { task, summary: `revoked — the team ledger holds ${task} on ${holder}` },
+    });
+    this.append({
+      ts: now,
+      type: "incident.opened",
+      projectId,
+      sessionId: null,
+      payload: {
+        rule: "claim_conflict",
+        action: "revoked",
+        command: task,
+        reason: `the team daemon holds ${task} for ${holder}; the local claim was revoked — the worktree is untouched`,
+      },
+    });
   }
 
   /** Aider parser carry state per history file (recovered from tails/sessions after a restart). */
@@ -4218,7 +4331,159 @@ export class Store {
         for (const fn of this.budgetListeners) fn(p.id, b.status);
       this.touch();
     }
+    // M8.4: cluster ceilings the team daemon computed across every machine (pulled by the
+    // forwarder into meta). Same warn / ask / stop semantics; `ask` is applied in evaluateTool.
+    for (const b of this.teamBudgets()) {
+      if (b.level === "ok") continue;
+      const mapKey = `team:${b.scope}:${b.key}`;
+      const seen = `${day}:${b.level}`;
+      const affected =
+        b.scope === "project"
+          ? this.projects().filter((p) => this.clusterKeyFor(p.id) === b.key)
+          : this.projects();
+      if (this.budgetNotified.get(mapKey) !== seen) {
+        this.budgetNotified.set(mapKey, seen);
+        const label = b.scope === "org" ? "the org" : `${b.scope} ${b.key}`;
+        this.append({
+          ts: new Date().toISOString(),
+          type: "incident.opened",
+          projectId: affected[0]?.id ?? "p_unknown",
+          sessionId: null,
+          payload: {
+            rule: "budget",
+            action: b.level === "exceeded" ? b.on_exceed : "warn",
+            command: `team ${b.kind ?? ""} budget · ${label}`,
+            reason:
+              b.level === "exceeded"
+                ? `${label} spent $${b.spent.toFixed(2)} of the $${b.limit} ${b.kind} ceiling set on the team daemon. ${b.on_exceed === "stop" ? "Spawned runs were stopped." : b.on_exceed === "ask" ? "Every Bash/Edit/Write now asks first." : "An admin can raise it via POST /t1/budgets."}`
+                : `${label} is at $${b.spent.toFixed(2)} of the $${b.limit} ${b.kind} ceiling — approaching the team's limit`,
+          },
+        });
+        this.touch();
+      }
+      if (b.level === "exceeded" && b.on_exceed === "stop")
+        for (const p of affected)
+          for (const fn of this.budgetListeners)
+            fn(p.id, {
+              level: "exceeded",
+              kind: b.kind === "daily" ? "daily" : "weekly",
+              spent: b.spent,
+              limit: b.limit,
+              pct: b.limit ? b.spent / b.limit : 1,
+              daily: { spent: b.spent, limit: b.limit, pct: 1 },
+              weekly: { spent: 0, limit: null, pct: 0 },
+            });
+    }
     return out;
+  }
+
+  /** Team ceilings pulled from the team daemon (M8.4), stored by the forwarder. */
+  teamBudgets(): Array<{
+    scope: "org" | "user" | "project";
+    key: string;
+    level: "ok" | "warn" | "exceeded";
+    kind: "daily" | "monthly" | null;
+    spent: number;
+    limit: number | null;
+    on_exceed: "warn" | "ask" | "stop";
+  }> {
+    try {
+      return JSON.parse(this.metaValue("team_budget") ?? "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * M8.5 backup: `VACUUM INTO` writes a consistent snapshot of the live database (safe under
+   * WAL, no downtime), then the config/token/policy files are copied alongside. Logs and
+   * daemon.json stay out — they belong to this machine's running daemon.
+   */
+  backupTo(destDir: string): { dest: string; files: string[] } {
+    mkdirSync(destDir, { recursive: true });
+    const files: string[] = [];
+    const dbDest = join(destDir, "swarm.db");
+    if (existsSync(dbDest)) unlinkSync(dbDest); // VACUUM INTO refuses to overwrite
+    this.db.exec(`VACUUM INTO '${dbDest.replaceAll("'", "''")}'`);
+    files.push("swarm.db");
+    for (const f of [
+      "config.toml",
+      "policy.toml",
+      "policy.sig.json",
+      "token",
+      "pricing.json",
+      "pricing.litellm.json",
+      "team-token",
+    ]) {
+      const src = join(this.home, f);
+      if (!existsSync(src)) continue;
+      copyFileSync(src, join(destDir, f));
+      files.push(f);
+    }
+    return { dest: destDir, files };
+  }
+
+  /** Cluster project key (OQ-19): normalized origin remote, else `local:<project id>`. */
+  private clusterKeyCache = new Map<string, string>();
+  clusterKeyFor(projectId: string): string {
+    const hit = this.clusterKeyCache.get(projectId);
+    if (hit) return hit;
+    const root = (
+      this.db.query("SELECT root FROM projects WHERE id = ?").get(projectId) as {
+        root: string | null;
+      } | null
+    )?.root;
+    const key = (root && clusterProjectKey(originUrl(root))) || `local:${projectId}`;
+    this.clusterKeyCache.set(projectId, key);
+    return key;
+  }
+
+  /** Per-task daily cost (M8.4 chargeback): sessions matched to a claim by cwd in its worktree. */
+  taskSpendRollup(day = new Date().toISOString().slice(0, 10)) {
+    return this.db
+      .query(
+        `SELECT s.project_id AS projectId, c.task AS task, SUM(t.cost_usd) AS cost
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+         JOIN claims c ON c.project_id = s.project_id AND c.worktree != '' AND (s.cwd = c.worktree OR s.cwd LIKE c.worktree || '/%')
+         WHERE t.ts >= ? AND t.ts < ? GROUP BY s.project_id, c.task`,
+      )
+      .all(`${day}T00:00:00.000Z`, `${day}T23:59:59.999Z`) as Array<{
+      projectId: string;
+      task: string;
+      cost: number | null;
+    }>;
+  }
+
+  /** M8.4 model allow-list observation: a live session on a disallowed model opens one incident. */
+  private modelFlagged = new Set<string>();
+  checkModels(): number {
+    const since = new Date(Date.now() - IDLE_MS).toISOString();
+    const rows = this.db
+      .query(
+        "SELECT id, project_id, model FROM sessions WHERE model IS NOT NULL AND model != '' AND state != 'ended' AND last_seen_at > ?",
+      )
+      .all(since) as Array<{ id: string; project_id: string; model: string }>;
+    let n = 0;
+    for (const s of rows) {
+      if (this.modelFlagged.has(s.id)) continue;
+      const allow = this.config(s.project_id).models.allow;
+      if (!allow.length || modelAllowed(s.model, allow)) continue;
+      this.modelFlagged.add(s.id);
+      n++;
+      this.append({
+        ts: new Date().toISOString(),
+        type: "incident.opened",
+        projectId: s.project_id,
+        sessionId: s.id,
+        payload: {
+          rule: "model_allowlist",
+          action: "observed",
+          command: s.model,
+          reason: `session runs on "${s.model}", outside [models] allow (${allow.join(", ")}) — nothing was interrupted; spawned runs on this model are refused`,
+        },
+      });
+    }
+    return n;
   }
 
   /** Spend rollups: per project and per model, today (local) and all-time. */

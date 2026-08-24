@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swarm Team</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Design tokens: the same values as packages/web/public/index.html (docs/12-design-tokens).
+     The team page reuses the web package's table.js / viz.js / icons.js served by swarm-teamd. -->
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#f0f2f5; --line:#e4e7ec; --line-2:#eef0f3;
+    --fg:#1a1d21; --fg-2:#3d4650; --dim:#8b929c; --faint:#aab1bb;
+    --acc:#4d7c0f; --acc-soft:rgba(132,204,22,.15);
+    --ok:#1f9d55; --ok-soft:rgba(31,157,85,.12);
+    --warn:#c77800; --warn-soft:rgba(199,120,0,.12);
+    --bad:#d1352b; --bad-soft:rgba(209,53,43,.12);
+    --violet:#7857c9;
+    --c0:#8b929c; --c1:#4d9e2a; --c2:#1b9e77; --c3:#9ab828; --c4:#2f7d4f; --c5:#7fb069; --c6:#0f5c3a; --c7:#c3d84a;
+    --acc-1:#e7f3d5; --acc-2:#c2e29a; --acc-3:#92c94f; --acc-4:#5a9e2a; --acc-5:#2f6613;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --fs-2xs:11px; --fs-xs:11.5px; --fs-sm:12px; --fs-mono:12.5px; --fs-md:13px;
+    --fs-lg:14px; --fs-xl:15px; --fs-2xl:24px;
+    --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
+    --r:8px;
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme: dark){
+      --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932; --line-2:#1e222a;
+      --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
+      --acc:#a3e635; --acc-soft:rgba(163,230,53,.14);
+      --ok:#3fb571; --ok-soft:rgba(63,181,113,.14);
+      --warn:#d9a441; --warn-soft:rgba(217,164,65,.14);
+      --bad:#f0655a; --bad-soft:rgba(240,101,90,.14);
+      --violet:#a68bec;
+      --c0:#7c8592; --c1:#6bbf3a; --c2:#2bb78f; --c3:#b0cf3a; --c4:#3f9d63; --c5:#93c47d; --c6:#2f8f5a; --c7:#d3e88a;
+      --acc-1:#1c3311; --acc-2:#2f5a18; --acc-3:#4d8a24; --acc-4:#7cc02f; --acc-5:#bfef7a;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs-md)/1.45 var(--sans)}
+  header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:var(--fs-xl);margin:0}
+  header .dim{color:var(--dim);font-size:var(--fs-sm)}
+  header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+  main{max-width:1200px;margin:0 auto;padding:20px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+  .kpi b{display:block;font-size:var(--fs-2xl);font-weight:600}
+  .kpi span{color:var(--dim);font-size:var(--fs-sm)}
+  h2{font-size:var(--fs-lg);margin:22px 0 8px}
+  h2 span{color:var(--dim);font-weight:400;font-size:var(--fs-sm)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow);overflow-x:auto}
+  table.plain{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
+  table.plain th{color:var(--dim);text-align:left;font-weight:500;padding:4px 10px 4px 0;border-bottom:1px solid var(--line)}
+  table.plain td{padding:5px 10px 5px 0;border-bottom:1px solid var(--line-2)}
+  table.plain td.num,table.plain th.num{text-align:right;font-family:var(--mono);font-size:var(--fs-mono)}
+  .badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:var(--fs-2xs);background:var(--panel-2);color:var(--fg-2)}
+  .badge.ok{background:var(--ok-soft);color:var(--ok)}
+  .badge.warn{background:var(--warn-soft);color:var(--warn)}
+  .badge.bad{background:var(--bad-soft);color:var(--bad)}
+  .mono{font-family:var(--mono);font-size:var(--fs-mono)}
+  .dim{color:var(--dim)}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+  #gate{max-width:420px;margin:80px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px;box-shadow:var(--shadow)}
+  #gate input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;margin:10px 0}
+  #gate button{padding:8px 16px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+  .feed{list-style:none;margin:0;padding:0;font-size:var(--fs-sm)}
+  .feed li{padding:5px 0;border-bottom:1px solid var(--line-2);display:flex;gap:10px}
+  .feed .t{color:var(--faint);font-family:var(--mono);font-size:var(--fs-2xs);white-space:nowrap}
+  /* chart classes emitted by the shared viz.js (same rules as web/public/index.html) */
+  svg.chart{width:100%;display:block}
+  .chart .grid{stroke:var(--line-2);stroke-width:1;vector-effect:non-scaling-stroke}
+  .chart .base{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+  .chart .ax{fill:var(--faint);font:var(--fs-2xs) var(--mono);text-anchor:start}
+  .chart .ax.mid{text-anchor:middle}
+</style>
+</head>
+<body>
+<header>
+  <h1>Swarm <span class="dim">team</span></h1>
+  <span class="dim" id="meta"></span>
+  <div class="right"><span class="badge" id="live">connecting…</span></div>
+</header>
+<main id="main"></main>
+<script src="/viz.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

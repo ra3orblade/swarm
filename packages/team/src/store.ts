@@ -63,6 +63,21 @@ CREATE TABLE IF NOT EXISTS policies (
 CREATE TABLE IF NOT EXISTS tokens (
   hash TEXT PRIMARY KEY, subject TEXT, created_at TEXT, expires_at TEXT
 );
+-- spend ceilings (M8.4): org-wide, per user (machine owner), or per project
+CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT NOT NULL CHECK (scope IN ('org','user','project')),
+  key TEXT NOT NULL DEFAULT '',
+  daily REAL, monthly REAL,
+  on_exceed TEXT NOT NULL DEFAULT 'warn' CHECK (on_exceed IN ('warn','ask','stop')),
+  created_by TEXT, created_at TEXT,
+  UNIQUE (scope, key)
+);
+-- per-task daily spend (M8.4 chargeback: cost by task / ticket id), forwarded like spend
+CREATE TABLE IF NOT EXISTS spend_tasks (
+  machine_id TEXT, day TEXT, project_key TEXT, task TEXT, cost REAL,
+  PRIMARY KEY (machine_id, day, project_key, task)
+);
 `;
 
 export function defaultDbPath(): string {
@@ -93,6 +108,10 @@ export class TeamStore {
         "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(key, value);
+  }
+  /** Public meta write for collaborators (policy keys, M8.3f). */
+  setMetaValue(key: string, value: string) {
+    this.setMeta(key, value);
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
@@ -164,6 +183,31 @@ export class TeamStore {
             JSON.stringify(b.payload ?? null),
           );
           ack = Math.max(ack, r.seq);
+          // M8.3d: releases ride the event stream — a machine's claim.released/orphaned/expired
+          // clears its cluster claim (registration/renewal goes through /t1/claims)
+          if (
+            key &&
+            (b.type === "claim.released" ||
+              b.type === "claim.orphaned" ||
+              b.type === "claim.expired")
+          ) {
+            const task = (b.payload as { task?: unknown } | null)?.task;
+            if (typeof task === "string")
+              this.db
+                .query(
+                  "UPDATE claims SET released_at = ? WHERE project_key = ? AND task = ? AND machine_id = ? AND released_at IS NULL",
+                )
+                .run(typeof b.ts === "string" ? b.ts : now, key, task, machine.id);
+          }
+        } else if (r.kind === "spend_task" && key && typeof b.day === "string") {
+          // M8.4 chargeback: per-task daily cost, upsert by primary key like spend
+          if (typeof b.task !== "string" || !b.task) continue;
+          this.db
+            .query(
+              `INSERT INTO spend_tasks (machine_id, day, project_key, task, cost) VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(machine_id, day, project_key, task) DO UPDATE SET cost = excluded.cost`,
+            )
+            .run(machine.id, b.day, key, b.task, typeof b.cost === "number" ? b.cost : null);
         } else if (r.kind === "spend" && key && typeof b.day === "string") {
           if (typeof b.model !== "string" || typeof b.agent !== "string") continue;
           insProject.run(key, key.split("/").pop() ?? key, now);
@@ -180,7 +224,89 @@ export class TeamStore {
         }
       }
     })();
+    if (records.length) this.notify();
     return { ack };
+  }
+
+  /**
+   * M8.3d cluster claims: register (or renew — same machine) held claims. A claim held by
+   * another machine that is neither released nor expired is a conflict; the register is atomic
+   * per batch. Releases arrive through the forwarded event stream (see `ingest`).
+   */
+  registerClaims(
+    machineId: string,
+    claims: Array<{
+      projectKey: string;
+      task: string;
+      acquiredAt: string;
+      expiresAt: string;
+      actor?: { kind: string; id: string } | undefined;
+    }>,
+  ): Array<
+    | { projectKey: string; task: string; status: "ok" }
+    | { projectKey: string; task: string; status: "conflict"; holder: string }
+  > {
+    const now = new Date().toISOString();
+    const results: ReturnType<TeamStore["registerClaims"]> = [];
+    this.db.transaction(() => {
+      for (const c of claims) {
+        const existing = this.db
+          .query(
+            "SELECT machine_id, actor_id, expires_at, released_at FROM claims WHERE project_key = ? AND task = ?",
+          )
+          .get(c.projectKey, c.task) as {
+          machine_id: string;
+          actor_id: string | null;
+          expires_at: string;
+          released_at: string | null;
+        } | null;
+        const active = existing && !existing.released_at && existing.expires_at > now;
+        if (active && existing.machine_id !== machineId) {
+          const m = this.db
+            .query("SELECT name FROM machines WHERE id = ?")
+            .get(existing.machine_id) as { name: string | null } | null;
+          results.push({
+            projectKey: c.projectKey,
+            task: c.task,
+            status: "conflict",
+            holder: `${existing.actor_id ?? "?"}@${m?.name ?? existing.machine_id}`,
+          });
+          continue;
+        }
+        this.db
+          .query(
+            `INSERT INTO claims (project_key, task, machine_id, actor_kind, actor_id, acquired_at, expires_at, released_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+             ON CONFLICT(project_key, task) DO UPDATE SET machine_id = excluded.machine_id,
+               actor_kind = excluded.actor_kind, actor_id = excluded.actor_id,
+               acquired_at = CASE WHEN claims.machine_id = excluded.machine_id AND claims.released_at IS NULL THEN claims.acquired_at ELSE excluded.acquired_at END,
+               expires_at = excluded.expires_at, released_at = NULL`,
+          )
+          .run(
+            c.projectKey,
+            c.task,
+            machineId,
+            c.actor?.kind ?? null,
+            c.actor?.id ?? null,
+            c.acquiredAt,
+            c.expiresAt,
+          );
+        results.push({ projectKey: c.projectKey, task: c.task, status: "ok" });
+      }
+    })();
+    if (claims.length) this.notify();
+    return results;
+  }
+
+  /** Active cluster claims (dashboard + conflict messages). */
+  clusterClaims(): Array<Record<string, unknown>> {
+    return this.db
+      .query(
+        `SELECT c.project_key, c.task, c.machine_id, m.name AS machine_name, c.actor_kind, c.actor_id, c.acquired_at, c.expires_at
+         FROM claims c LEFT JOIN machines m ON m.id = c.machine_id
+         WHERE c.released_at IS NULL AND c.expires_at > ? ORDER BY c.acquired_at DESC`,
+      )
+      .all(new Date().toISOString()) as Array<Record<string, unknown>>;
   }
 
   /** Upsert a logged-in user (M8.3c). The deployment's first user becomes admin. */
@@ -216,6 +342,70 @@ export class TeamStore {
     this.db
       .query("INSERT INTO tokens (hash, subject, created_at, expires_at) VALUES (?, ?, ?, ?)")
       .run(hash, subject, new Date(now).toISOString(), new Date(now + ttlMs).toISOString());
+  }
+
+  // ---------- M8.3e: the team dashboard's snapshot + change notification
+  private listeners = new Set<() => void>();
+  onChange(l: () => void): () => void {
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
+  }
+  notify() {
+    for (const l of this.listeners) l();
+  }
+
+  /** One snapshot for the team dashboard: machines, users, cluster claims, spend, recent events. */
+  state() {
+    const q = <T>(sql: string, ...args: Array<string | number>) =>
+      this.db.query(sql).all(...args) as T[];
+    const today = new Date().toISOString().slice(0, 10);
+    const spendToday =
+      (
+        this.db.query("SELECT SUM(cost) AS c FROM spend WHERE day = ?").get(today) as {
+          c: number | null;
+        }
+      ).c ?? 0;
+    const events = q<Record<string, unknown>>(
+      "SELECT id, machine_id, ts, type, project_key, actor_kind, actor_id, payload FROM events ORDER BY id DESC LIMIT 100",
+    ).map((e) => ({
+      ...e,
+      payload: (() => {
+        try {
+          return JSON.parse((e.payload as string) ?? "null");
+        } catch {
+          return null;
+        }
+      })(),
+    }));
+    return {
+      team: true,
+      schema: this.schemaVersion(),
+      machines: q<Record<string, unknown>>(
+        "SELECT id, name, owner_subject, version, first_seen, last_seen FROM machines ORDER BY last_seen DESC",
+      ),
+      users: q<Record<string, unknown>>(
+        "SELECT subject, email, name, role, last_login FROM users ORDER BY last_login DESC",
+      ),
+      claims: this.clusterClaims(),
+      spend: {
+        today: spendToday,
+        byProject: q<Record<string, unknown>>(
+          "SELECT project_key, SUM(cost) AS cost, SUM(tokens_in) AS tokensIn, SUM(tokens_out) AS tokensOut FROM spend GROUP BY project_key ORDER BY cost DESC",
+        ),
+        byMachine: q<Record<string, unknown>>(
+          `SELECT s.machine_id, m.name, m.owner_subject, SUM(s.cost) AS cost FROM spend s
+           LEFT JOIN machines m ON m.id = s.machine_id GROUP BY s.machine_id ORDER BY cost DESC`,
+        ),
+        byUser: q<Record<string, unknown>>(
+          `SELECT COALESCE(m.owner_subject, 'unassigned') AS subject, SUM(s.cost) AS cost FROM spend s
+           LEFT JOIN machines m ON m.id = s.machine_id GROUP BY subject ORDER BY cost DESC`,
+        ),
+        byDay: q<Record<string, unknown>>(
+          "SELECT day, SUM(cost) AS cost FROM spend GROUP BY day ORDER BY day DESC LIMIT 30",
+        ),
+      },
+      events,
+    };
   }
 
   close() {

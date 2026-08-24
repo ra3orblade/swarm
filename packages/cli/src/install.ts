@@ -243,3 +243,24 @@ export function status(): {
     otherAgents,
   };
 }
+
+/**
+ * M8.3f / fleet install: write `[team] url = …` into `<home>/config.toml`, replacing an existing
+ * `[team]` url line or appending the section. Everything else in the file is left byte-for-byte.
+ */
+export function setTeamUrl(home: string, url: string): void {
+  const path = join(home, "config.toml");
+  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  let out: string;
+  const section = text.match(/(^|\n)\[team\]([\s\S]*?)(?=\n\[|$)/);
+  if (section) {
+    const body = section[2] ?? "";
+    const newBody = /^\s*url\s*=/m.test(body)
+      ? body.replace(/^\s*url\s*=.*$/m, `url = "${url}"`)
+      : `\nurl = "${url}"${body}`;
+    out = text.replace(section[0], `${section[1]}[team]${newBody}`);
+  } else {
+    out = `${text}${text && !text.endsWith("\n") ? "\n" : ""}\n[team]\nurl = "${url}"\n`;
+  }
+  writeFileSync(path, out);
+}

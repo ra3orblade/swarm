@@ -1,9 +1,14 @@
 /**
  * The team daemon's HTTP surface: `/t1/*` (versioned by path; see docs/14-teams.md).
  * M8.3a health; M8.3b ingest; M8.3c auth (device-code login, opaque tokens, roles, machine
- * registration). Claims (d), state/SSE (e) and policy (f) follow.
+ * registration); M8.3d cluster claims; M8.3e dashboard (static page + /t1/state + /t1/events
+ * SSE — reusing the web package's table.js/viz.js/fm.css/icons.js). Policy (f) follows.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
   type AuthEnv,
   authEnv,
@@ -14,6 +19,8 @@ import {
   principalFor,
   startDeviceFlow,
 } from "./auth";
+import { budgetStatuses, budgetStatusesFor, exportSpend, toCsv, upsertBudget } from "./budgets";
+import { currentPolicy, policyKeys, setPolicy } from "./policy";
 import type { TeamStore } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.9.0";
@@ -22,8 +29,31 @@ export const PROTOCOL = 1;
 
 type Vars = { Variables: { principal: Principal } };
 
+/** The team page's own assets, and the shared grid/viz/css reused from the web package. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TEAM_WEB = process.env.SWARM_TEAM_WEB_DIR ?? join(HERE, "../public");
+const SHARED_WEB = (() => {
+  if (process.env.SWARM_WEB_DIR) return process.env.SWARM_WEB_DIR;
+  const dev = join(HERE, "../../web/public");
+  return existsSync(join(dev, "table.js")) ? dev : join(HERE, "../web");
+})();
+
 export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   const app = new Hono<Vars>();
+
+  // ---------- dashboard shell (static, holds no data — everything comes from authed /t1/state)
+  app.get("/", (c) => c.html(readFileSync(join(TEAM_WEB, "index.html"), "utf8")));
+  const MIME: Record<string, string> = { js: "text/javascript", css: "text/css" };
+  app.get("/:file{[a-z0-9-]+\\.(js|css)}", (c) => {
+    const f = c.req.param("file");
+    const own = join(TEAM_WEB, f);
+    const shared = join(SHARED_WEB, f);
+    const p = existsSync(own) ? own : shared;
+    if (!existsSync(p)) return c.text("not found", 404);
+    return c.body(readFileSync(p, "utf8"), 200, {
+      "content-type": MIME[f.split(".").pop() ?? ""] ?? "text/plain",
+    });
+  });
 
   app.get("/t1/health", (c) =>
     c.json({
@@ -35,8 +65,15 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     }),
   );
 
-  // ---------- auth (M8.3c) — these routes are reachable without a token by design
-  app.get("/t1/auth/config", (c) => c.json({ mode: authMode(env), issuer: env.issuer ?? null }));
+  // ---------- auth (M8.3c) — these routes are reachable without a token by design.
+  // policyPublicKey rides here so `swarm login` pins it before the first policy fetch (M8.3f).
+  app.get("/t1/auth/config", (c) =>
+    c.json({
+      mode: authMode(env),
+      issuer: env.issuer ?? null,
+      policyPublicKey: policyKeys(store).publicKeyB64,
+    }),
+  );
 
   app.post("/t1/auth/device", async (c) => {
     if (authMode(env) !== "oidc") return c.json({ error: "OIDC not configured" }, 400);
@@ -61,10 +98,11 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     return c.json({ status: "ok", token: t.token, subject: user.subject, role: user.role });
   });
 
-  // ---------- everything else requires a principal (unless the deployment runs open)
+  // ---------- everything else requires a principal (unless the deployment runs open).
+  // `?token=` is accepted for the browser (SSE cannot send headers), like the local daemon.
   app.use("/t1/*", async (c, next) => {
     const auth = c.req.header("authorization");
-    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : (c.req.query("token") ?? null);
     const p = principalFor(store, env, bearer);
     if (!p) return c.json({ error: "unauthorized" }, 401);
     c.set("principal", p);
@@ -72,6 +110,30 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   });
 
   app.get("/t1/me", (c) => c.json(c.get("principal")));
+
+  // ---------- M8.3e: the team dashboard's snapshot + live change stream
+  app.get("/t1/state", (c) => c.json({ ...store.state(), version: VERSION, auth: authMode(env) }));
+
+  app.get("/t1/events", (c) =>
+    streamSSE(c, async (stream) => {
+      let alive = true;
+      stream.onAbort(() => {
+        alive = false;
+      });
+      await stream.writeSSE({ event: "hello", data: "{}" });
+      const off = store.onChange(() => {
+        if (alive) void stream.writeSSE({ event: "changed", data: "{}" });
+      });
+      try {
+        while (alive) {
+          await stream.sleep(15_000);
+          if (alive) await stream.writeSSE({ event: "ping", data: "{}" });
+        }
+      } finally {
+        off();
+      }
+    }),
+  );
 
   /** A human (developer or admin) registers a machine and receives its token (M8.3c). */
   app.post("/t1/machines/register", async (c) => {
@@ -98,6 +160,144 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
       .run(b.id, typeof b.name === "string" ? b.name : null, t.hash, owner, now, now);
     return c.json({ token: t.token });
   });
+
+  // ---------- M8.5: Prometheus metrics (authed like everything else; scrapers send Bearer)
+  app.get("/t1/metrics", (c) => {
+    const one = (sql: string, ...args: Array<string | number>) =>
+      Number((store.db.query(sql).get(...args) as Record<string, number | null> | null)?.v ?? 0);
+    const cutoff = new Date(Date.now() - 120_000).toISOString();
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = [
+      "# HELP swarm_team_machines Machines that ever forwarded.",
+      "# TYPE swarm_team_machines gauge",
+      `swarm_team_machines ${one("SELECT COUNT(*) AS v FROM machines")}`,
+      "# HELP swarm_team_machines_active Machines that forwarded in the last 2 minutes.",
+      "# TYPE swarm_team_machines_active gauge",
+      `swarm_team_machines_active ${one("SELECT COUNT(*) AS v FROM machines WHERE last_seen > ?", cutoff)}`,
+      "# HELP swarm_team_users Users who logged in.",
+      "# TYPE swarm_team_users gauge",
+      `swarm_team_users ${one("SELECT COUNT(*) AS v FROM users")}`,
+      "# HELP swarm_team_events_total Forwarded audit events stored.",
+      "# TYPE swarm_team_events_total counter",
+      `swarm_team_events_total ${one("SELECT COUNT(*) AS v FROM events")}`,
+      "# HELP swarm_team_claims_active Cluster claims currently held.",
+      "# TYPE swarm_team_claims_active gauge",
+      `swarm_team_claims_active ${store.clusterClaims().length}`,
+      "# HELP swarm_team_spend_usd_total All-time forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_total counter",
+      `swarm_team_spend_usd_total ${one("SELECT SUM(cost) AS v FROM spend")}`,
+      "# HELP swarm_team_spend_usd_today Today's forwarded spend in USD.",
+      "# TYPE swarm_team_spend_usd_today gauge",
+      `swarm_team_spend_usd_today ${one("SELECT SUM(cost) AS v FROM spend WHERE day = ?", today)}`,
+    ];
+    return c.text(`${lines.join("\n")}\n`, 200, {
+      "content-type": "text/plain; version=0.0.4; charset=utf-8",
+    });
+  });
+
+  // ---------- M8.4: budgets + chargeback export
+  app.get("/t1/budgets", (c) => c.json({ budgets: budgetStatuses(store) }));
+
+  app.post("/t1/budgets", async (c) => {
+    const p = c.get("principal");
+    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
+      return c.json({ error: "admin role required" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      return c.json({
+        budget: upsertBudget(
+          store,
+          {
+            scope: String(b.scope ?? ""),
+            key: typeof b.key === "string" ? b.key : undefined,
+            daily: typeof b.daily === "number" ? b.daily : null,
+            monthly: typeof b.monthly === "number" ? b.monthly : null,
+            on_exceed: typeof b.on_exceed === "string" ? b.on_exceed : undefined,
+          },
+          p.kind === "human" ? p.subject : "open",
+        ),
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
+  /** The statuses this machine should act on — pulled by the forwarder each flush. */
+  app.get("/t1/budget", (c) => {
+    const p = c.get("principal");
+    const machineId = c.req.query("machine") ?? (p.kind === "machine" ? p.id : null);
+    if (!machineId) return c.json({ error: "machine required" }, 400);
+    return c.json({ budgets: budgetStatusesFor(store, machineId) });
+  });
+
+  /** Monthly chargeback export: ?month=YYYY-MM [&by=detail|task] [&format=json|csv]. */
+  app.get("/t1/spend/export", (c) => {
+    try {
+      const rows = exportSpend(
+        store,
+        c.req.query("month") ?? new Date().toISOString().slice(0, 7),
+        c.req.query("by") === "task" ? "task" : "detail",
+      );
+      if (c.req.query("format") === "csv")
+        return c.body(toCsv(rows), 200, { "content-type": "text/csv" });
+      return c.json({ rows });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
+  // ---------- M8.3f: signed org policy — machines fetch + verify; admins set
+  app.get("/t1/policy", (c) => c.json({ policy: currentPolicy(store) }));
+
+  app.post("/t1/policy", async (c) => {
+    const p = c.get("principal");
+    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
+      return c.json({ error: "admin role required" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { toml?: unknown };
+    if (typeof b.toml !== "string" || !b.toml.trim())
+      return c.json({ error: "toml required" }, 400);
+    try {
+      return c.json({ policy: setPolicy(store, b.toml, p.kind === "human" ? p.subject : "open") });
+    } catch (e) {
+      return c.json({ error: `invalid TOML: ${(e as Error).message}` }, 400);
+    }
+  });
+
+  // M8.3d: cluster claim register/renew — machine-authed; a token speaks for its own machine.
+  app.post("/t1/claims", async (c) => {
+    const p = c.get("principal");
+    if (p.kind === "human") return c.json({ error: "claims sync is machine-authed" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      machine?: { id?: unknown };
+      claims?: unknown;
+    };
+    if (typeof b.machine?.id !== "string" || !b.machine.id || !Array.isArray(b.claims))
+      return c.json({ error: "machine.id and claims required" }, 400);
+    if (p.kind === "machine" && p.id !== "shared-token" && p.id !== b.machine.id)
+      return c.json({ error: "token is for a different machine" }, 403);
+    const claims = (b.claims as Array<Record<string, unknown>>)
+      .filter(
+        (x) =>
+          typeof x.projectKey === "string" &&
+          typeof x.task === "string" &&
+          typeof x.acquiredAt === "string" &&
+          typeof x.expiresAt === "string",
+      )
+      .map((x) => ({
+        projectKey: x.projectKey as string,
+        task: x.task as string,
+        acquiredAt: x.acquiredAt as string,
+        expiresAt: x.expiresAt as string,
+        actor:
+          x.actor && typeof (x.actor as { kind?: unknown }).kind === "string"
+            ? (x.actor as { kind: string; id: string })
+            : undefined,
+      }));
+    return c.json({ results: store.registerClaims(b.machine.id, claims) });
+  });
+
+  /** Active cluster claims (any authed principal — the team dashboard's Board). */
+  app.get("/t1/claims", (c) => c.json({ claims: store.clusterClaims() }));
 
   // M8.3b: forwarded records from a machine's local daemon (machine-authed from M8.3c on).
   app.post("/t1/ingest", async (c) => {

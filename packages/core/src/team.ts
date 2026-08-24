@@ -3,12 +3,13 @@
  * `/t1/ingest`, and the cluster project identity (OQ-19). The forwarding *seam* is free and lives
  * here in `core`; the receiving team daemon is `packages/team`. See docs/14-teams.md.
  */
+import { createPublicKey, verify as nodeVerify } from "node:crypto";
 
 /** One outbox record on the wire. `seq` is the machine-local outbox sequence — the team side is
  *  idempotent by (machine id, seq), so at-least-once delivery is safe. */
 export interface TeamRecord {
   seq: number;
-  kind: "event" | "spend";
+  kind: "event" | "spend" | "spend_task";
   body: Record<string, unknown>;
 }
 
@@ -20,6 +21,71 @@ export interface TeamIngestRequest {
 export interface TeamIngestReply {
   /** Highest `seq` the team daemon has durably stored for this machine. */
   ack: number;
+}
+
+/** Cluster claim registration (M8.3d): local-first, then registered upstream; a conflict revokes
+ *  the local claim. Registering again from the same machine is the renewal. */
+export interface TeamClaimSync {
+  projectKey: string;
+  task: string;
+  acquiredAt: string;
+  expiresAt: string;
+  actor?: { kind: string; id: string } | undefined;
+}
+
+export interface TeamClaimsRequest {
+  machine: { id: string; name: string; version: string };
+  claims: TeamClaimSync[];
+}
+
+export type TeamClaimResult =
+  | { projectKey: string; task: string; status: "ok" }
+  | { projectKey: string; task: string; status: "conflict"; holder: string };
+
+export interface TeamClaimsReply {
+  results: TeamClaimResult[];
+}
+
+/**
+ * Model allow-list (M8.4): globs, `*` only. Empty list = everything allowed.
+ * "claude-*" matches "claude-sonnet-4-5"; matching is case-insensitive.
+ */
+export function modelAllowed(model: string, allow: string[]): boolean {
+  if (!allow.length) return true;
+  return allow.some((g) => {
+    const re = new RegExp(
+      `^${g
+        .trim()
+        .split("*")
+        .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join(".*")}$`,
+      "i",
+    );
+    return re.test(model);
+  });
+}
+
+/**
+ * Verify an org policy's ed25519 signature (M8.3f). Free-side: the local daemon proves the
+ * `policy.toml` it enforces came from the team daemon whose key was pinned at `swarm login`
+ * (TOFU on first fetch otherwise). Signing lives in `packages/team`; verification is free.
+ * `publicKeyB64` is a base64 DER (spki) key.
+ */
+export function verifyPolicySignature(
+  toml: string,
+  signatureB64: string,
+  publicKeyB64: string,
+): boolean {
+  try {
+    return nodeVerify(
+      null,
+      Buffer.from(toml),
+      createPublicKey({ key: Buffer.from(publicKeyB64, "base64"), format: "der", type: "spki" }),
+      Buffer.from(signatureB64, "base64"),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

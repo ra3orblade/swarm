@@ -4,41 +4,35 @@
  * and never on the hook path — `store.append` only ever does a local INSERT.
  * See docs/14-teams.md; the receiving end is `packages/team`.
  */
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  clusterProjectKey,
+  type TeamClaimSync,
+  type TeamClaimsReply,
   type TeamIngestReply,
   type TeamIngestRequest,
   type TeamRecord,
+  verifyPolicySignature,
 } from "@swarm/core";
-import { originUrl } from "./git";
 import type { Store } from "./store";
 
 const SPEND_EVERY_MS = 60_000;
 const MAX_BACKOFF_MS = 300_000;
+const POLICY_EVERY_MS = 300_000;
 
 export class TeamForwarder {
   private lastTry = 0;
   private backoffMs = 0;
   private lastSpend = 0;
-  private keyCache = new Map<string, string>();
 
   constructor(
     private store: Store,
     private version: string,
   ) {}
 
-  /** Cluster project key (OQ-19): normalized origin remote, else `local:<project id>`. */
+  /** Cluster project key (OQ-19) — shared with budget/model checks in the store. */
   private projectKey(projectId: string): string {
-    const hit = this.keyCache.get(projectId);
-    if (hit) return hit;
-    const root = (
-      this.store.db.query("SELECT root FROM projects WHERE id = ?").get(projectId) as {
-        root: string | null;
-      } | null
-    )?.root;
-    const key = (root && clusterProjectKey(originUrl(root))) || `local:${projectId}`;
-    this.keyCache.set(projectId, key);
-    return key;
+    return this.store.clusterKeyFor(projectId);
   }
 
   status() {
@@ -84,38 +78,144 @@ export class TeamForwarder {
         });
         spendRows++;
       }
+      // M8.4 chargeback: per-task daily cost rides the same upsert semantics
+      for (const r of this.store.taskSpendRollup(day)) {
+        records.push({
+          seq: 0,
+          kind: "spend_task",
+          body: { day, ...r, projectKey: this.projectKey(r.projectId) },
+        });
+        spendRows++;
+      }
     }
-    if (!records.length) return 0;
+    // M8.3d: every held claim re-registers each flush — same-machine registration is the renewal,
+    // and a 409-style conflict from the cluster revokes the local claim (worktree untouched).
+    const held = this.store.heldClaimsForSync();
+    if (!records.length && !held.length) return 0;
 
+    const machine = { ...this.store.machineIdentity(), version: this.version };
+    // machine token from `swarm login` (M8.3c); absent on open/lab deployments
+    const token = this.store.metaValue("team_machine_token");
+    const headers = {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    };
+    const base = this.store.policyFor(null).config.team.url;
     try {
-      const req: TeamIngestRequest = {
-        machine: { ...this.store.machineIdentity(), version: this.version },
-        records,
-      };
-      // machine token from `swarm login` (M8.3c); absent on open/lab deployments
-      const token = this.store.metaValue("team_machine_token");
-      const res = await fetch(`${this.store.policyFor(null).config.team.url}/t1/ingest`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(req),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) throw new Error(`ingest ${res.status}`);
-      const reply = (await res.json()) as TeamIngestReply;
-      if (reply.ack > 0) this.store.outboxAck(reply.ack);
-      if (spendRows) this.lastSpend = now;
+      if (records.length) {
+        const req: TeamIngestRequest = { machine, records };
+        const res = await fetch(`${base}/t1/ingest`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(req),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) throw new Error(`ingest ${res.status}`);
+        const reply = (await res.json()) as TeamIngestReply;
+        if (reply.ack > 0) this.store.outboxAck(reply.ack);
+        if (spendRows) this.lastSpend = now;
+      }
+      if (held.length) {
+        const claims: TeamClaimSync[] = held.map((c) => ({
+          projectKey: this.projectKey(c.projectId),
+          task: c.task,
+          acquiredAt: c.acquiredAt,
+          expiresAt: c.expiresAt,
+          actor: c.actorKind && c.actorId ? { kind: c.actorKind, id: c.actorId } : undefined,
+        }));
+        const res = await fetch(`${base}/t1/claims`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ machine, claims }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) throw new Error(`claims ${res.status}`);
+        const reply = (await res.json()) as TeamClaimsReply;
+        for (const r of reply.results) {
+          const local = held.find(
+            (c) => c.task === r.task && this.projectKey(c.projectId) === r.projectKey,
+          );
+          if (!local) continue;
+          if (r.status === "ok") {
+            if (local.teamState !== "registered")
+              this.store.markClaimTeamState(local.projectId, local.task, "registered");
+          } else this.store.revokeClaimConflict(local.projectId, local.task, r.holder);
+        }
+      }
+      // M8.4: pull the cluster ceilings this machine should act on (checkBudgets applies them)
+      try {
+        const res = await fetch(`${base}/t1/budget`, {
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (res.ok) {
+          const { budgets } = (await res.json()) as { budgets: unknown[] };
+          this.store.setMetaValue("team_budget", JSON.stringify(budgets ?? []));
+        }
+      } catch {
+        // stale statuses are fine; the flush's error reporting covers connectivity
+      }
       this.backoffMs = 0;
       this.store.setMetaValue("team_last_ack", new Date(now).toISOString());
       this.store.setMetaValue("team_last_error", "");
-      return records.length;
+      // after the flush's own status is recorded — a policy problem must stay visible
+      await this.syncPolicy(base as string, headers, now);
+      return records.length + held.length;
     } catch (e) {
-      // offline or unreachable: keep everything, back off, report via /v1/team + doctor
+      // offline or unreachable: keep everything, back off, report via /v1/team + doctor.
+      // Cluster claims degrade to advisory — local fail-closed semantics keep working.
       this.backoffMs = Math.min(this.backoffMs ? this.backoffMs * 2 : 5000, MAX_BACKOFF_MS);
       this.store.setMetaValue("team_last_error", (e as Error).message);
       return 0;
+    }
+  }
+
+  private lastPolicy = 0;
+  /**
+   * M8.3f: fetch the org policy, verify its ed25519 signature against the key pinned at
+   * `swarm login` (TOFU on the very first fetch otherwise), and install it as
+   * `~/.swarm/policy.toml` — the M8.1 org layer, now with provenance. A bad signature is
+   * reported and never installed. Errors here don't fail the flush (policy is best-effort).
+   */
+  private async syncPolicy(base: string, headers: Record<string, string>, now: number) {
+    if (now - this.lastPolicy < POLICY_EVERY_MS) return;
+    this.lastPolicy = now;
+    try {
+      const res = await fetch(`${base}/t1/policy`, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) return;
+      const { policy } = (await res.json()) as {
+        policy: { toml: string; signature: string; publicKey: string } | null;
+      };
+      if (!policy) return;
+      let pinned = this.store.metaValue("team_policy_pubkey");
+      if (!pinned) {
+        pinned = policy.publicKey; // TOFU; `swarm login` pins explicitly and wins over this
+        this.store.setMetaValue("team_policy_pubkey", pinned);
+      }
+      if (!verifyPolicySignature(policy.toml, policy.signature, pinned)) {
+        this.store.setMetaValue("team_last_error", "org policy signature invalid — not installed");
+        return;
+      }
+      const file = join(this.store.home, "policy.toml");
+      const prev = this.store.metaValue("team_policy_sig");
+      if (prev === policy.signature) return; // unchanged
+      writeFileSync(file, policy.toml, { mode: 0o600 });
+      writeFileSync(
+        join(this.store.home, "policy.sig.json"),
+        JSON.stringify({
+          signature: policy.signature,
+          publicKey: pinned,
+          fetchedAt: new Date(now).toISOString(),
+          url: base,
+        }),
+        { mode: 0o600 },
+      );
+      this.store.setMetaValue("team_policy_sig", policy.signature);
+    } catch {
+      // best-effort; the flush's own error reporting covers connectivity
     }
   }
 }
