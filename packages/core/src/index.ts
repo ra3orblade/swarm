@@ -25,6 +25,7 @@ export * from "./review";
 export * from "./rules";
 export * from "./stall";
 export * from "./tasks";
+export * from "./team";
 export * from "./types";
 export * from "./workflows";
 export * from "./worktree";

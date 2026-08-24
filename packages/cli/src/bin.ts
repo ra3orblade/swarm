@@ -208,6 +208,26 @@ try {
       };
       forge("gh", ["auth", "status", "--active", "-h", "github.com"]);
       forge("glab", ["auth", "status"]);
+      // M8.3b: team forwarding lag, only when [team] is configured
+      if (running) {
+        const t = (await api("/v1/team").catch(() => null)) as {
+          configured?: boolean;
+          url?: string;
+          pending?: number;
+          oldest?: string | null;
+          lastError?: string | null;
+        } | null;
+        if (t?.configured) {
+          const lag = t.pending
+            ? `${t.pending} pending${t.oldest ? ` since ${t.oldest}` : ""}`
+            : "in sync";
+          line(
+            !t.lastError,
+            `team forwarding → ${t.url} (${lag})`,
+            `last error: ${t.lastError} — check the team daemon and [team].url`,
+          );
+        }
+      }
       if (process.env.GITLAB_TOKEN)
         console.log(
           "· glab uses GITLAB_TOKEN from this shell — a daemon started by the desktop app won't see it; run `glab auth login` to store it instead",
