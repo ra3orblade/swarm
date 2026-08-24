@@ -146,5 +146,32 @@ Goal: one view for a team, not a laptop — without giving up local-first. The l
 | M8.4 | **Budgets + chargeback**: per-project / team / user $ ceilings → warn / `ask` rule / stop spawned runs; cost by team, task and ticket ID (M4.8 sources) exportable monthly; model allow-lists in policy | M8.1, M8.3 | ⚪ |
 | M8.5 | **Fleet operations**: non-interactive `swarm install --config-url`, pinned versions, signed single-file binaries with SBOM/provenance, Windows; offline mode with vendored pricing table; versioned SQLite migrations + `swarm doctor --migrate`, backup/restore of `~/.swarm`; `/metrics` on the team daemon; incident → Slack / Jira / PagerDuty webhooks | M8.3 | ⚪ |
 
+## M9 — Observatory (deep observability + graphs) ← direction set 2026-08-24
+
+Goal: the data already in `~/.swarm/swarm.db` (hooks, transcripts, ledger, gates, PRs) pays off a second time. Close the loop past the PR (did the agent's work survive?), watch behaviour live (is it stuck? colliding?), and render the fleet's relationships as graphs, not only tables. The first task is the interface itself: the flat header nav and if/else view dispatch don't scale to this many views — restructure once, then every feature lands as a registry entry.
+
+Ordering: M9.1 (interface at scale) unblocks everything else. Observability (M9.2–M9.10) and graphs (M9.11–M9.17) then proceed independently; M9.11 (graph engine) gates the other graph views; A/B compare (M9.18) comes last — it composes dispatch (M7.5) with outcomes (M9.2). Everything reads existing state — no new collection surface in the monitored repo, ever.
+
+| ID | Task | Depends | Status |
+|---|---|---|---|
+| M9.1 | Interface at scale: view registry in `app.js` (one entry per view: id, label, icon, group, render, badge), grouped sidebar nav (Observe / Work / Insight / Guard) replacing the flat header links, collapsed sidebar becomes an icon rail, ⌘K palette (jump to any view / project / session; falls through to Search) | M0.6 | ✅ 2026-08-24 `VIEW_DEFS` drives nav, render dispatch, deep links and palette; `#viewnav` in the sidebar (groups + badges, rebuilt only on html change); `body.nosb` = 46px icon rail; ⌘K/Ctrl-K palette reuses the `#picker` overlay (`.pk.pal`), substring-ranked over views/projects/sessions with a Search fall-through row |
+| M9.2 | Outcome tracking: join session → commits → PR → merged / reverted / CI in the ledger; **Outcomes** view with per-model/per-agent scorecard (merge rate, revert rate, time-to-merge) | M4.2, M1.8 | ⚪ |
+| M9.3 | Loop & stall detection: same failing command N×, edit–revert oscillation, test-fail cycles, long idle — "stuck" badge on Fleet + desktop notification; heuristics in `core` with unit tests | M0.8 | ⚪ |
+| M9.4 | Waiting-on-human: blocked-time per session (permission prompts, `swarm_ask`), notification→response latency; surfaced on Fleet and Stats | M3.2, M7.7 | ⚪ |
+| M9.5 | Context composition: per-session window breakdown (file reads, tool results, MCP schemas, thinking, system) + waste metric; generalises the repeated-read detector | M4.2 | ⚪ |
+| M9.6 | MCP server health: per-server tool-call latency distribution, error rate, schema token overhead across all sessions | M0.8 | ⚪ |
+| M9.7 | Gate flakiness: executed-gate duration + pass/fail history; flaky-gate and slowest-gate views | M7.4 | ⚪ |
+| M9.8 | Machine hygiene: CPU/RAM per tracked process, orphan detection, stale-worktree/disk usage, one-click reap | M1.7, M7.2 | ⚪ |
+| M9.9 | Security audit: per-session egress domains, package installs, secret-read detection over transcripts; observation first, `ask` rule second | M2.1, M0.8 | ⚪ |
+| M9.10 | Rule effectiveness: incidents/week before vs after each rule or lesson landed; recurring-incident clustering | M4.3 | ⚪ |
+| M9.11 | Graph engine in `viz.js`: deterministic layered DAG layout + small static force pass, stable positions across SSE updates, shared node/edge styling — no chart lib | M0.6 | ⚪ |
+| M9.12 | Live file-collision graph: running sessions × touched files (bipartite); shared file nodes highlighted as predicted conflicts + notification; optional `ask` rule on contested paths | M9.11, M2.1 | ⚪ |
+| M9.13 | Session lineage DAG: dispatch / handoff / subagent / message edges; nodes coloured by outcome once M9.2 lands | M9.11, M7.5 | ⚪ |
+| M9.14 | Provenance chain: issue → task → session → worktree → commits → PR as a traversable graph (audit-friendly) | M9.11, M9.2 | ⚪ |
+| M9.15 | Tool-transition digraph per session: weighted edges over tool sequences; high-weight cycles feed the stuck detector (M9.3) | M9.11 | ⚪ |
+| M9.16 | Agent-traversal map: file-touch heat across sessions — hot zones (context-hungry, CLAUDE.md candidates), cold zones, incident correlation | M9.11 | ⚪ |
+| M9.17 | Resource-holding graph: sessions ↔ claims / ports / processes; orphaned-resource and wait-cycle detection | M9.11, M1.7 | ⚪ |
+| M9.18 | A/B dispatch: same task to N models/agents in parallel worktrees; compare cost, wall time, gates, diff size, outcome | M7.5, M9.2 | ⚪ |
+
 ## Later (not scheduled)
 Hosted (SaaS) team daemon wrapping the M8.3 binary · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule.
