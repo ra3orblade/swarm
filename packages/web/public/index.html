@@ -525,6 +525,19 @@
   .wfs.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
   .wfs.run{color:var(--acc);background:var(--acc-soft);border-color:transparent}
   .wfs.bad{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+  /* M5.7: timeline ticks, idle-gap thin bars, claim lane; sidebar spend sparks; gate history */
+  .tl-track u{position:absolute;top:4px;bottom:4px;width:2px;border-radius:1px;opacity:.95}
+  .tl-track i.thin{opacity:.25}
+  .tl-row.lane .tl-name{font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.06em}
+  .tl-track i.claim{top:7px;height:4px;border-radius:2px;background:var(--violet);opacity:.6}
+  .tl-track i.claim.orphaned{background:var(--warn);opacity:.9}
+  .tl-track i.claim.expired{background:var(--faint)}
+  .proj-spark{flex:none;width:44px;display:inline-flex;opacity:.7}
+  .proj-spark .spark{width:44px;height:14px}
+  .gh-strip{display:inline-flex;gap:12px;font-weight:400}
+  .gh{font-size:var(--fs-sm);color:var(--dim);display:inline-flex;align-items:center;gap:3px}
+  .gh i{width:7px;height:7px;border-radius:2px;display:inline-block}
+  .gh i.ok{background:var(--ok)} .gh i.bad{background:var(--warn)}
   /* session message thread (M7.6) */
   .msgs{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;margin-bottom:8px}
   .msg{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 9px;font-size:var(--fs-md);color:var(--fg-2);word-break:break-word}
