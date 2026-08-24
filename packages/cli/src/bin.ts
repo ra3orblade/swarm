@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   daemonCommand,
@@ -71,6 +72,7 @@ const help = `swarm — control plane for AI-agent development
   msg ls [-p] [--json]          recent messages
   demo                    open a seeded demo dashboard (own home + port; your real data is untouched)
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
+  login [url] [--token t]   log in to the team daemon ([team].url) and register this machine (M8.3c)
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
 
@@ -1142,6 +1144,100 @@ try {
         break;
       }
       throw new Error("usage: swarm msg send <to> <text…> | swarm msg ls");
+    }
+    case "login": {
+      // M8.3c: device-code login against the team daemon; teamd is the OAuth client.
+      await ensureDaemon({ quiet: true });
+      const t = (await api("/v1/team")) as {
+        url: string | null;
+        machine: { id: string; name: string };
+      };
+      const teamUrl = (arg() ?? t.url)?.replace(/\/+$/, "");
+      if (!teamUrl)
+        throw new Error("no team daemon configured — set [team] url or run: swarm login <url>");
+      const cfg = (await (await fetch(`${teamUrl}/t1/auth/config`)).json()) as {
+        mode: "oidc" | "token" | "open";
+      };
+      const tokIdx = rest.indexOf("--token");
+      let human: string | null = null;
+      if (cfg.mode === "oidc") {
+        const flow = (await (
+          await fetch(`${teamUrl}/t1/auth/device`, { method: "POST" })
+        ).json()) as {
+          handle?: string;
+          userCode?: string;
+          verificationUri?: string;
+          verificationUriComplete?: string;
+          interval?: number;
+          error?: string;
+        };
+        if (!flow.handle) throw new Error(`login failed: ${flow.error ?? "no device flow"}`);
+        console.log(
+          `visit ${flow.verificationUriComplete ?? flow.verificationUri} and enter code: ${flow.userCode}`,
+        );
+        for (;;) {
+          await new Promise((r) => setTimeout(r, (flow.interval ?? 5) * 1000));
+          const poll = (await (
+            await fetch(`${teamUrl}/t1/auth/token`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ handle: flow.handle }),
+            })
+          ).json()) as {
+            status: string;
+            token?: string;
+            subject?: string;
+            role?: string;
+            error?: string;
+          };
+          if (poll.status === "pending") continue;
+          if (poll.status !== "ok" || !poll.token)
+            throw new Error(`login failed: ${poll.error ?? "denied"}`);
+          human = poll.token;
+          writeFileSync(
+            join(swarmHome(), "team-token"),
+            JSON.stringify({
+              url: teamUrl,
+              token: poll.token,
+              subject: poll.subject,
+              role: poll.role,
+            }),
+            { mode: 0o600 },
+          );
+          console.log(`logged in as ${poll.subject} (${poll.role})`);
+          break;
+        }
+      } else if (cfg.mode === "token") {
+        human = tokIdx >= 0 ? (rest[tokIdx + 1] ?? null) : null;
+        if (!human)
+          throw new Error(
+            "this team daemon uses a shared token — run: swarm login --token <secret>",
+          );
+      } else {
+        console.log("team daemon runs open (no auth configured) — registering machine directly");
+      }
+      const reg = (await (
+        await fetch(`${teamUrl}/t1/machines/register`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(human ? { authorization: `Bearer ${human}` } : {}),
+          },
+          body: JSON.stringify({ id: t.machine.id, name: t.machine.name }),
+        })
+      ).json()) as { token?: string; error?: string };
+      // shared-token deployments: the machine forwards with the shared secret itself
+      const machineToken = reg.token ?? (cfg.mode === "token" ? human : null);
+      if (!machineToken) throw new Error(`machine registration failed: ${reg.error ?? "unknown"}`);
+      await api("/v1/team/credentials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: machineToken }),
+      });
+      console.log(
+        `machine ${t.machine.name} (${t.machine.id.slice(0, 8)}) registered — forwarding is authed`,
+      );
+      break;
     }
     case "audit": {
       if (rest[0] !== "export")

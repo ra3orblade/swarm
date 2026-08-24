@@ -1,27 +1,108 @@
 /**
  * The team daemon's HTTP surface: `/t1/*` (versioned by path; see docs/14-teams.md).
- * M8.3a ships health only; ingest (b), auth (c), claims (d), state/SSE (e) and policy (f) follow.
+ * M8.3a health; M8.3b ingest; M8.3c auth (device-code login, opaque tokens, roles, machine
+ * registration). Claims (d), state/SSE (e) and policy (f) follow.
  */
 import { Hono } from "hono";
+import {
+  type AuthEnv,
+  authEnv,
+  authMode,
+  mintToken,
+  type Principal,
+  pollDeviceFlow,
+  principalFor,
+  startDeviceFlow,
+} from "./auth";
 import type { TeamStore } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.9.0";
 /** Wire-protocol version; bumped only on breaking `/t1/*` changes. */
 export const PROTOCOL = 1;
 
-export function createTeamApp(store: TeamStore) {
-  const app = new Hono();
+type Vars = { Variables: { principal: Principal } };
+
+export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
+  const app = new Hono<Vars>();
+
   app.get("/t1/health", (c) =>
     c.json({
       ok: true,
       version: VERSION,
       protocol: PROTOCOL,
       schema: store.schemaVersion(),
+      auth: authMode(env),
     }),
   );
-  // M8.3b: forwarded records from a machine's local daemon. Auth arrives with M8.3c — until then
-  // a deployment is expected to sit on a trusted network / behind a proxy (the scaffold default).
+
+  // ---------- auth (M8.3c) — these routes are reachable without a token by design
+  app.get("/t1/auth/config", (c) => c.json({ mode: authMode(env), issuer: env.issuer ?? null }));
+
+  app.post("/t1/auth/device", async (c) => {
+    if (authMode(env) !== "oidc") return c.json({ error: "OIDC not configured" }, 400);
+    try {
+      const flow = await startDeviceFlow(env);
+      return c.json(flow);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502);
+    }
+  });
+
+  app.post("/t1/auth/token", async (c) => {
+    if (authMode(env) !== "oidc") return c.json({ error: "OIDC not configured" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { handle?: unknown };
+    if (typeof b.handle !== "string") return c.json({ error: "handle required" }, 400);
+    const r = await pollDeviceFlow(env, b.handle);
+    if (r.status === "pending") return c.json({ status: "pending" });
+    if (r.status === "error") return c.json({ status: "error", error: r.error }, 400);
+    const user = store.upsertUser(r.claims);
+    const t = mintToken();
+    store.storeToken(t.hash, user.subject);
+    return c.json({ status: "ok", token: t.token, subject: user.subject, role: user.role });
+  });
+
+  // ---------- everything else requires a principal (unless the deployment runs open)
+  app.use("/t1/*", async (c, next) => {
+    const auth = c.req.header("authorization");
+    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    const p = principalFor(store, env, bearer);
+    if (!p) return c.json({ error: "unauthorized" }, 401);
+    c.set("principal", p);
+    await next();
+  });
+
+  app.get("/t1/me", (c) => c.json(c.get("principal")));
+
+  /** A human (developer or admin) registers a machine and receives its token (M8.3c). */
+  app.post("/t1/machines/register", async (c) => {
+    const p = c.get("principal");
+    if (p.kind === "machine") return c.json({ error: "humans register machines" }, 403);
+    const isAdmin = p.kind === "human" && p.role === "admin";
+    if (p.kind === "human" && p.role === "viewer")
+      return c.json({ error: "viewer role cannot register machines" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { id?: unknown; name?: unknown };
+    if (typeof b.id !== "string" || !b.id) return c.json({ error: "machine id required" }, 400);
+    const owner = p.kind === "human" ? p.subject : "open";
+    const existing = store.db
+      .query("SELECT owner_subject FROM machines WHERE id = ?")
+      .get(b.id) as { owner_subject: string | null } | null;
+    if (existing?.owner_subject && existing.owner_subject !== owner && !isAdmin)
+      return c.json({ error: "machine is bound to another user" }, 403);
+    const t = mintToken();
+    const now = new Date().toISOString();
+    store.db
+      .query(
+        `INSERT INTO machines (id, name, token_hash, owner_subject, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = COALESCE(excluded.name, machines.name), token_hash = excluded.token_hash, owner_subject = excluded.owner_subject, last_seen = excluded.last_seen`,
+      )
+      .run(b.id, typeof b.name === "string" ? b.name : null, t.hash, owner, now, now);
+    return c.json({ token: t.token });
+  });
+
+  // M8.3b: forwarded records from a machine's local daemon (machine-authed from M8.3c on).
   app.post("/t1/ingest", async (c) => {
+    const p = c.get("principal");
+    if (p.kind === "human") return c.json({ error: "ingest is machine-authed" }, 403);
     let body: unknown;
     try {
       body = await c.req.json();
@@ -34,6 +115,9 @@ export function createTeamApp(store: TeamStore) {
     };
     if (typeof b.machine?.id !== "string" || !b.machine.id || !Array.isArray(b.records))
       return c.json({ error: "machine.id and records required" }, 400);
+    // a machine token only speaks for its own machine id
+    if (p.kind === "machine" && p.id !== "shared-token" && p.id !== b.machine.id)
+      return c.json({ error: "token is for a different machine" }, 403);
     const records = (b.records as Array<Record<string, unknown>>)
       .filter((r) => r && typeof r.kind === "string" && typeof r.seq === "number")
       .map((r) => ({
@@ -51,5 +135,6 @@ export function createTeamApp(store: TeamStore) {
     );
     return c.json({ ack });
   });
+
   return app;
 }

@@ -52,6 +52,8 @@ export class TeamForwarder {
       oldest: box.oldest,
       lastAckAt: this.store.metaValue("team_last_ack") ?? null,
       lastError: this.store.metaValue("team_last_error") ?? null,
+      machine: this.store.machineIdentity(),
+      authed: this.store.metaValue("team_machine_token") != null,
     };
   }
 
@@ -90,9 +92,14 @@ export class TeamForwarder {
         machine: { ...this.store.machineIdentity(), version: this.version },
         records,
       };
+      // machine token from `swarm login` (M8.3c); absent on open/lab deployments
+      const token = this.store.metaValue("team_machine_token");
       const res = await fetch(`${this.store.policyFor(null).config.team.url}/t1/ingest`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(req),
         signal: AbortSignal.timeout(10_000),
       });

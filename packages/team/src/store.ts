@@ -183,6 +183,41 @@ export class TeamStore {
     return { ack };
   }
 
+  /** Upsert a logged-in user (M8.3c). The deployment's first user becomes admin. */
+  upsertUser(claims: { sub: string; email?: string | undefined; name?: string | undefined }): {
+    subject: string;
+    role: string;
+  } {
+    const now = new Date().toISOString();
+    const existing = this.db.query("SELECT role FROM users WHERE subject = ?").get(claims.sub) as {
+      role: string;
+    } | null;
+    if (existing) {
+      this.db
+        .query(
+          "UPDATE users SET email = COALESCE(?, email), name = COALESCE(?, name), last_login = ? WHERE subject = ?",
+        )
+        .run(claims.email ?? null, claims.name ?? null, now, claims.sub);
+      return { subject: claims.sub, role: existing.role };
+    }
+    const any = this.db.query("SELECT 1 AS x FROM users LIMIT 1").get();
+    const role = any ? "viewer" : "admin";
+    this.db
+      .query(
+        "INSERT INTO users (subject, email, name, role, created_at, last_login) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(claims.sub, claims.email ?? null, claims.name ?? null, role, now, now);
+    return { subject: claims.sub, role };
+  }
+
+  /** Store an opaque token (hashed) for a subject; default expiry 30 days. */
+  storeToken(hash: string, subject: string, ttlMs = 30 * 24 * 60 * 60_000) {
+    const now = Date.now();
+    this.db
+      .query("INSERT INTO tokens (hash, subject, created_at, expires_at) VALUES (?, ?, ?, ?)")
+      .run(hash, subject, new Date(now).toISOString(), new Date(now + ttlMs).toISOString());
+  }
+
   close() {
     this.db.close();
   }
