@@ -256,9 +256,15 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   app.get("/v1/team", (c) => c.json(team.status()));
   // M8.3c: `swarm login` hands the daemon its machine token after registering with the team daemon
   app.post("/v1/team/credentials", async (c) => {
-    const b = (await c.req.json().catch(() => ({}))) as { token?: unknown };
+    const b = (await c.req.json().catch(() => ({}))) as {
+      token?: unknown;
+      policyPublicKey?: unknown;
+    };
     if (typeof b.token !== "string" || !b.token) return c.json({ error: "token required" }, 400);
     store.setMetaValue("team_machine_token", b.token);
+    // explicit pin from login beats any earlier TOFU pin (M8.3f)
+    if (typeof b.policyPublicKey === "string" && b.policyPublicKey)
+      store.setMetaValue("team_policy_pubkey", b.policyPublicKey);
     return c.json({ ok: true, machine: store.machineIdentity() });
   });
 

@@ -94,6 +94,10 @@ export class TeamStore {
       )
       .run(key, value);
   }
+  /** Public meta write for collaborators (policy keys, M8.3f). */
+  setMetaValue(key: string, value: string) {
+    this.setMeta(key, value);
+  }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
   static readonly SCHEMA_VERSION = 1;

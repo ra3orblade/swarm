@@ -19,6 +19,7 @@ import {
   principalFor,
   startDeviceFlow,
 } from "./auth";
+import { currentPolicy, policyKeys, setPolicy } from "./policy";
 import type { TeamStore } from "./store";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.9.0";
@@ -63,8 +64,15 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     }),
   );
 
-  // ---------- auth (M8.3c) — these routes are reachable without a token by design
-  app.get("/t1/auth/config", (c) => c.json({ mode: authMode(env), issuer: env.issuer ?? null }));
+  // ---------- auth (M8.3c) — these routes are reachable without a token by design.
+  // policyPublicKey rides here so `swarm login` pins it before the first policy fetch (M8.3f).
+  app.get("/t1/auth/config", (c) =>
+    c.json({
+      mode: authMode(env),
+      issuer: env.issuer ?? null,
+      policyPublicKey: policyKeys(store).publicKeyB64,
+    }),
+  );
 
   app.post("/t1/auth/device", async (c) => {
     if (authMode(env) !== "oidc") return c.json({ error: "OIDC not configured" }, 400);
@@ -150,6 +158,23 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
       )
       .run(b.id, typeof b.name === "string" ? b.name : null, t.hash, owner, now, now);
     return c.json({ token: t.token });
+  });
+
+  // ---------- M8.3f: signed org policy — machines fetch + verify; admins set
+  app.get("/t1/policy", (c) => c.json({ policy: currentPolicy(store) }));
+
+  app.post("/t1/policy", async (c) => {
+    const p = c.get("principal");
+    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
+      return c.json({ error: "admin role required" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { toml?: unknown };
+    if (typeof b.toml !== "string" || !b.toml.trim())
+      return c.json({ error: "toml required" }, 400);
+    try {
+      return c.json({ policy: setPolicy(store, b.toml, p.kind === "human" ? p.subject : "open") });
+    } catch (e) {
+      return c.json({ error: `invalid TOML: ${(e as Error).message}` }, 400);
+    }
   });
 
   // M8.3d: cluster claim register/renew — machine-authed; a token speaks for its own machine.

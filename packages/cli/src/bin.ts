@@ -12,7 +12,7 @@ import {
   swarmHome,
 } from "@swarm/client";
 import { loadConfigDetailed } from "@swarm/core";
-import { install, status, uninstall } from "./install";
+import { install, setTeamUrl, status, uninstall } from "./install";
 import * as procs from "./procs";
 
 /** Root of the git checkout we were run in, or null outside a repo. */
@@ -74,7 +74,7 @@ const help = `swarm — control plane for AI-agent development
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
   login [url] [--token t]   log in to the team daemon ([team].url) and register this machine (M8.3c)
 
-  install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
+  install [--config-url <team url>] | uninstall     add/remove Swarm hooks in ~/.claude/settings.json (--config-url also points this machine at a team daemon)
 
 Env: SWARM_URL, SWARM_PORT (default 7777), SWARM_HOME (~/.swarm)`;
 
@@ -139,6 +139,16 @@ try {
     case "install": {
       const evs = install();
       console.log(`installed hooks for ${evs.length} events in ${status().path}`);
+      // M8.3f / M8.5 fleet install: point this machine at the team daemon in one flag
+      const cuIdx = rest.indexOf("--config-url");
+      const configUrl = cuIdx >= 0 ? rest[cuIdx + 1] : null;
+      if (configUrl) {
+        if (!/^https?:\/\//.test(configUrl))
+          throw new Error("--config-url must be an http(s) URL to the team daemon");
+        setTeamUrl(swarmHome(), configUrl.replace(/\/+$/, ""));
+        console.log(`[team] url = "${configUrl}" written to ${join(swarmHome(), "config.toml")}`);
+        console.log("next: swarm login — to register this machine and pin the org policy key");
+      }
       console.log("restart any running claude session for it to report in.");
       break;
     }
@@ -1157,6 +1167,7 @@ try {
         throw new Error("no team daemon configured — set [team] url or run: swarm login <url>");
       const cfg = (await (await fetch(`${teamUrl}/t1/auth/config`)).json()) as {
         mode: "oidc" | "token" | "open";
+        policyPublicKey?: string;
       };
       const tokIdx = rest.indexOf("--token");
       let human: string | null = null;
@@ -1232,7 +1243,8 @@ try {
       await api("/v1/team/credentials", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: machineToken }),
+        // the policy public key is pinned here, at login — the trusted moment (M8.3f)
+        body: JSON.stringify({ token: machineToken, policyPublicKey: cfg.policyPublicKey }),
       });
       console.log(
         `machine ${t.machine.name} (${t.machine.id.slice(0, 8)}) registered — forwarding is authed`,

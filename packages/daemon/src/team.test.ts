@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TeamIngestRequest } from "@swarm/core";
@@ -14,6 +14,7 @@ function stubTeamd() {
     port: 0,
     hostname: "127.0.0.1",
     fetch: async (req) => {
+      if (new URL(req.url).pathname !== "/t1/ingest") return new Response("nope", { status: 404 });
       const body = (await req.json()) as TeamIngestRequest;
       seen.push(body);
       const ack = Math.max(0, ...body.records.map((r) => r.seq));
@@ -142,6 +143,66 @@ describe("TeamForwarder (M8.3b)", () => {
       .get() as { payload: string };
     expect(incident.payload).toContain("claim_conflict");
     expect(incident.payload).toContain("bob@other-laptop");
+  });
+
+  it("installs a signature-verified org policy and refuses a tampered one", async () => {
+    const { generateKeyPairSync, sign, createPrivateKey, createPublicKey } = await import(
+      "node:crypto"
+    );
+    const kp = generateKeyPairSync("ed25519");
+    const pub = createPublicKey(kp.privateKey)
+      .export({ format: "der", type: "spki" })
+      .toString("base64");
+    const POLICY = `locked = ["rules.destructive_git"]\n\n[rules]\ndestructive_git = "deny"\n`;
+    let toml = POLICY;
+    const signature = sign(
+      null,
+      Buffer.from(toml),
+      createPrivateKey(kp.privateKey.export({ format: "pem", type: "pkcs8" }).toString()),
+    ).toString("base64");
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: async (req) => {
+        const path = new URL(req.url).pathname;
+        if (path === "/t1/ingest") return Response.json({ ack: 999999 });
+        if (path === "/t1/policy")
+          return Response.json({ policy: { toml, signature, publicKey: pub } });
+        return new Response("nope", { status: 404 });
+      },
+    });
+    stop = () => server.stop(true);
+    const home = mkdtempSync(join(tmpdir(), "swarm-fw5-"));
+    writeFileSync(
+      join(home, "config.toml"),
+      `[team]\nurl = "http://127.0.0.1:${server.port}"\ninterval = 1\n`,
+    );
+    const store = new Store(home);
+    store.append({
+      ts: new Date().toISOString(),
+      type: "gate.recorded",
+      projectId: "p1",
+      sessionId: null,
+      payload: { task: "T", gate: "test" },
+    });
+    const fw = new TeamForwarder(store, "test");
+    await fw.tick();
+    expect(existsSync(join(home, "policy.toml"))).toBe(true);
+    expect(readFileSync(join(home, "policy.toml"), "utf8")).toBe(POLICY);
+    expect(store.metaValue("team_policy_pubkey")).toBe(pub); // TOFU pin
+
+    // tampered: same signature, different toml — must not be installed
+    toml = `${POLICY}\n# evil\n`;
+    store.append({
+      ts: new Date().toISOString(),
+      type: "gate.recorded",
+      projectId: "p1",
+      sessionId: null,
+      payload: { task: "T", gate: "test2" },
+    });
+    await fw.tick(Date.now() + 400_000); // past the policy refresh window
+    expect(readFileSync(join(home, "policy.toml"), "utf8")).toBe(POLICY); // unchanged
+    expect(store.metaValue("team_last_error")).toContain("signature");
   });
 
   it("does nothing when [team] is not configured", async () => {

@@ -3,6 +3,7 @@
  * `/t1/ingest`, and the cluster project identity (OQ-19). The forwarding *seam* is free and lives
  * here in `core`; the receiving team daemon is `packages/team`. See docs/14-teams.md.
  */
+import { createPublicKey, verify as nodeVerify } from "node:crypto";
 
 /** One outbox record on the wire. `seq` is the machine-local outbox sequence — the team side is
  *  idempotent by (machine id, seq), so at-least-once delivery is safe. */
@@ -43,6 +44,29 @@ export type TeamClaimResult =
 
 export interface TeamClaimsReply {
   results: TeamClaimResult[];
+}
+
+/**
+ * Verify an org policy's ed25519 signature (M8.3f). Free-side: the local daemon proves the
+ * `policy.toml` it enforces came from the team daemon whose key was pinned at `swarm login`
+ * (TOFU on first fetch otherwise). Signing lives in `packages/team`; verification is free.
+ * `publicKeyB64` is a base64 DER (spki) key.
+ */
+export function verifyPolicySignature(
+  toml: string,
+  signatureB64: string,
+  publicKeyB64: string,
+): boolean {
+  try {
+    return nodeVerify(
+      null,
+      Buffer.from(toml),
+      createPublicKey({ key: Buffer.from(publicKeyB64, "base64"), format: "der", type: "spki" }),
+      Buffer.from(signatureB64, "base64"),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

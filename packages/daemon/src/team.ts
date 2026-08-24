@@ -4,6 +4,8 @@
  * and never on the hook path — `store.append` only ever does a local INSERT.
  * See docs/14-teams.md; the receiving end is `packages/team`.
  */
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   clusterProjectKey,
   type TeamClaimSync,
@@ -11,12 +13,14 @@ import {
   type TeamIngestReply,
   type TeamIngestRequest,
   type TeamRecord,
+  verifyPolicySignature,
 } from "@swarm/core";
 import { originUrl } from "./git";
 import type { Store } from "./store";
 
 const SPEND_EVERY_MS = 60_000;
 const MAX_BACKOFF_MS = 300_000;
+const POLICY_EVERY_MS = 300_000;
 
 export class TeamForwarder {
   private lastTry = 0;
@@ -144,6 +148,8 @@ export class TeamForwarder {
       this.backoffMs = 0;
       this.store.setMetaValue("team_last_ack", new Date(now).toISOString());
       this.store.setMetaValue("team_last_error", "");
+      // after the flush's own status is recorded — a policy problem must stay visible
+      await this.syncPolicy(base as string, headers, now);
       return records.length + held.length;
     } catch (e) {
       // offline or unreachable: keep everything, back off, report via /v1/team + doctor.
@@ -151,6 +157,55 @@ export class TeamForwarder {
       this.backoffMs = Math.min(this.backoffMs ? this.backoffMs * 2 : 5000, MAX_BACKOFF_MS);
       this.store.setMetaValue("team_last_error", (e as Error).message);
       return 0;
+    }
+  }
+
+  private lastPolicy = 0;
+  /**
+   * M8.3f: fetch the org policy, verify its ed25519 signature against the key pinned at
+   * `swarm login` (TOFU on the very first fetch otherwise), and install it as
+   * `~/.swarm/policy.toml` — the M8.1 org layer, now with provenance. A bad signature is
+   * reported and never installed. Errors here don't fail the flush (policy is best-effort).
+   */
+  private async syncPolicy(base: string, headers: Record<string, string>, now: number) {
+    if (now - this.lastPolicy < POLICY_EVERY_MS) return;
+    this.lastPolicy = now;
+    try {
+      const res = await fetch(`${base}/t1/policy`, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) return;
+      const { policy } = (await res.json()) as {
+        policy: { toml: string; signature: string; publicKey: string } | null;
+      };
+      if (!policy) return;
+      let pinned = this.store.metaValue("team_policy_pubkey");
+      if (!pinned) {
+        pinned = policy.publicKey; // TOFU; `swarm login` pins explicitly and wins over this
+        this.store.setMetaValue("team_policy_pubkey", pinned);
+      }
+      if (!verifyPolicySignature(policy.toml, policy.signature, pinned)) {
+        this.store.setMetaValue("team_last_error", "org policy signature invalid — not installed");
+        return;
+      }
+      const file = join(this.store.home, "policy.toml");
+      const prev = this.store.metaValue("team_policy_sig");
+      if (prev === policy.signature) return; // unchanged
+      writeFileSync(file, policy.toml, { mode: 0o600 });
+      writeFileSync(
+        join(this.store.home, "policy.sig.json"),
+        JSON.stringify({
+          signature: policy.signature,
+          publicKey: pinned,
+          fetchedAt: new Date(now).toISOString(),
+          url: base,
+        }),
+        { mode: 0o600 },
+      );
+      this.store.setMetaValue("team_policy_sig", policy.signature);
+    } catch {
+      // best-effort; the flush's own error reporting covers connectivity
     }
   }
 }
