@@ -75,6 +75,7 @@ export const ICONS = [
   "shield",
   "bell",
   "arrow-right",
+  "chevron-down",
 ];
 // app-facing key -> pixelarticons filename (closest pixel-art equivalent)
 const NAME_MAP: Record<string, string> = {
