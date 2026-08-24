@@ -74,6 +74,8 @@ bunx @ra3orblade/swarm setup
 
 **Graphs** — a live bipartite graph of running sessions against the files they touch. A file two sessions hold with at least one writer turns red: a merge conflict you can still prevent.
 
+<p align="center"><img src="docs/art/screens/outcomes.png" alt="Outcomes view — merge rate, median time to merge and dollars per merge, per model and per agent" width="100%"></p>
+
 <p align="center"><img src="docs/art/screens/stats.png" alt="Stats view" width="100%"></p>
 
 **Multi-agent** — six brands, one ledger: Claude Code via its hooks and transcripts (the full picture — rules, MCP, spawned runs), and Codex CLI (`~/.codex`), Gemini CLI (`~/.gemini`), Grok (ACP `updates.jsonl`), Aider (`.aider.chat.history.md`) and opencode (its SQLite database, read-only) by reading the session logs they already write. Every session is tagged with its agent; Spend, Timeline and Outcomes break down per agent.
