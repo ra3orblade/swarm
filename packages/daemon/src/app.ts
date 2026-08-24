@@ -254,6 +254,13 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // M8.1b: org policy for a project — file, locked keys, who set each value, contested keys.
   // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
   app.get("/v1/team", (c) => c.json(team.status()));
+  // M8.3c: `swarm login` hands the daemon its machine token after registering with the team daemon
+  app.post("/v1/team/credentials", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { token?: unknown };
+    if (typeof b.token !== "string" || !b.token) return c.json({ error: "token required" }, 400);
+    store.setMetaValue("team_machine_token", b.token);
+    return c.json({ ok: true, machine: store.machineIdentity() });
+  });
 
   app.get("/v1/policy", (c) => {
     const id = c.req.query("project");
