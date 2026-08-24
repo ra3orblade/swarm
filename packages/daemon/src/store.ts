@@ -4546,7 +4546,10 @@ export class Store {
       )
       .all(...args) as Array<{ sid: string; ts: string }>;
     const turns: Record<string, number[]> = {};
-    for (const r of rows) (turns[r.sid] ??= []).push(new Date(r.ts).getTime());
+    for (const r of rows) {
+      turns[r.sid] ??= [];
+      turns[r.sid]?.push(new Date(r.ts).getTime());
+    }
     const claims = this.claims()
       .filter((c) => (!projectId || c.projectId === projectId) && c.state !== "released")
       .map((c) => ({
@@ -4573,7 +4576,8 @@ export class Store {
     for (let i = 13; i >= 0; i--) days.push(localDayIso(-i).slice(0, 10));
     const out: Record<string, number[]> = {};
     for (const r of rows) {
-      const arr = (out[r.pid] ??= new Array(14).fill(0));
+      out[r.pid] ??= new Array(14).fill(0);
+      const arr = out[r.pid] as number[];
       const i = days.indexOf(r.day);
       if (i >= 0) arr[i] = (arr[i] ?? 0) + (r.usd ?? 0);
     }
