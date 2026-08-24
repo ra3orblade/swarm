@@ -565,9 +565,28 @@
   .msg.out{background:var(--acc-soft);border-color:transparent}
   .msg-f{display:block;font-size:var(--fs-2xs);color:var(--dim);margin-bottom:2px}
   .msg-compose{display:flex;gap:6px}
-  .msg-compose input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:6px 9px;font:400 var(--fs-md) var(--sans)}
+  .msg-compose input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:7px 10px;font:400 var(--fs-md) var(--sans)}
   .msg-compose input:focus{border-color:var(--acc);outline:none}
-  .msg-compose button{background:var(--acc-soft);border:1px solid transparent;color:var(--acc);border-radius:var(--r-sm);padding:6px 10px;cursor:pointer}
+  .msg-compose button{flex:none;display:inline-flex;align-items:center;gap:5px;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--fg-2);border-radius:var(--r-sm);padding:7px 11px;cursor:pointer;font:500 var(--fs-sm) var(--sans)}
+  .msg-compose button:hover{color:var(--acc);border-color:var(--acc)}
+  .msg-compose input:disabled,.msg-compose button:disabled{opacity:.45;cursor:not-allowed}
+  .msg-compose button:disabled:hover{color:var(--fg-2);border-color:var(--line)}
+  /* how a message actually reaches the agent — the block is useless without this line */
+  .msg-hint{display:flex;align-items:center;gap:5px;margin:7px 0 0;color:var(--dim);font-size:var(--fs-sm);line-height:1.4}
+  .msg-hint .ph{flex:none;color:var(--faint)}
+  .msg-hint b{color:var(--fg-2);font-weight:600}
+  /* a file path as one copyable row: directory truncates, file name stays */
+  .pathrow{display:flex;align-items:center;gap:6px;width:100%;text-align:left;cursor:pointer;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 9px;
+    color:var(--fg-2);font:400 var(--fs-sm) var(--mono)}
+  .pathrow:hover{border-color:var(--acc);color:var(--fg)}
+  .pathrow .dir{flex:0 9999 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
+  .pathrow b{flex:0 1 auto;min-width:0;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pathrow .cp{flex:none;margin-left:auto;color:var(--faint)}
+  .pathrow:hover .cp{color:var(--acc)}
+  .pathrow.copied{border-color:var(--ok);color:var(--ok)}
+  .pathrow.copied .dir,.pathrow.copied .cp{color:var(--ok)}
   /* first-run onboarding card */
   .onboard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 30px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;max-width:640px;margin:40px auto}
   .onboard h3{font-size:var(--fs-xl);color:var(--fg)}

@@ -1369,16 +1369,37 @@ function replayGo(delta) {
 }
 
 // Spawned sessions get a stdin box while their run is live (M3.3); interactive ones are told where to type.
-// M7.6: the session's message thread (sent + received) and a compose box.
+// M7.6: the session's message thread (sent + received) and a compose box. Messages are never an
+// interrupt: they ride along as context on the agent's next tool call, so the block says so.
 function messageThread(s) {
   const ms = (state.msgs ?? []).filter((m) => m.sessionId === s.id || m.fromSession === s.id).slice().reverse();
+  const queued = ms.filter((m) => m.fromSession !== s.id && !m.deliveredAt).length;
+  const ended = s.state === "ended";
   const row = (m) => {
     const out = m.fromSession === s.id;
     return `<div class="msg ${out ? "out" : "in"}" title="${esc(m.createdAt)}${m.deliveredAt ? "" : " · not delivered yet"}">
       <span class="msg-f">${out ? `→ ${esc(m.task ?? m.toKind)}` : esc(m.from ?? "?")}${m.deliveredAt ? "" : ' <i class="dim">·queued</i>'}</span>${esc(m.text)}</div>`;
   };
-  return `<h4>messages</h4>${ms.length ? `<div class="msgs">${ms.map(row).join("")}</div>` : '<span class="dim">None yet.</span>'}
-    <div class="msg-compose"><input id="msgText" placeholder="Message this agent… (delivered on its next tool call)" autocomplete="off"><button id="msgSend" data-sid="${s.id}" data-pid="${s.projectId}">${ic("arrow-right", 13)}</button></div>`;
+  const hint = ended
+    ? `${ic("warning", 12)} Session ended — there is nothing left to deliver to.`
+    : queued
+      ? `${ic("clock", 12)} <b>${queued} queued</b> · delivered the next time this agent calls a tool.`
+      : `${ic("comment-text", 12)} Delivered as context on this agent's next tool call — never an interrupt.`;
+  return `<h4>messages${ms.length ? ` <span class="badge">${ms.length}</span>` : ""}</h4>
+    ${ms.length ? `<div class="msgs">${ms.map(row).join("")}</div>` : ""}
+    <div class="msg-compose">
+      <input id="msgText" placeholder="Message this agent…" aria-label="Message this agent" autocomplete="off"${ended ? " disabled" : ""}>
+      <button id="msgSend" data-sid="${s.id}" data-pid="${s.projectId}" title="Send (Enter)"${ended ? " disabled" : ""}>${ic("arrow-right", 12)}Send</button>
+    </div>
+    <p class="msg-hint">${hint}</p>`;
+}
+
+// The transcript file, as one copyable row: the directory truncates, the file name always shows.
+function transcriptRow(s) {
+  if (!s.transcriptPath) return "";
+  const p = short(s.transcriptPath);
+  const cut = p.lastIndexOf("/");
+  return `<h4>transcript</h4><button class="pathrow" data-copy="${esc(s.transcriptPath)}" title="Copy path · ${esc(p)}">${ic("file-text", 12)}<span class="dir">${esc(cut < 0 ? "" : p.slice(0, cut + 1))}</span><b>${esc(cut < 0 ? p : p.slice(cut + 1))}</b>${ic("copy", 12, "cp")}</button>`;
 }
 
 // M7.7: questions this session is waiting on a human for
@@ -1413,6 +1434,8 @@ async function sendStdin() {
 }
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("#stdinSend")) return sendStdin();
+  const cp = ev.target.closest("[data-copy]");
+  if (cp) { ev.preventDefault(); copy(cp.dataset.copy); cp.classList.add("copied"); setTimeout(() => cp.classList.remove("copied"), 1000); return; }
   const qa = ev.target.closest("[data-qanswer]");
   if (qa) { ev.preventDefault(); return answerQuestion(Number(qa.dataset.qanswer), qa.dataset.text); }
   const a = ev.target.closest("[data-perm-allow]"), d = ev.target.closest("[data-perm-deny]");
@@ -1449,7 +1472,7 @@ function renderSession() {
     <h4>tools</h4>${tools.length ? viz.hbars(tools.slice(0, 8).map(([k, v]) => [k.replace(/^mcp__[a-z0-9-]+__/i, ""), v])) : '<span class="dim">None yet</span>'}
     ${messageThread(s)}
     ${questionCards(s)}
-    ${s.transcriptPath ? `<h4>transcript</h4><div class="dim mono" style="word-break:break-all">${ic("file-text", 12)} ${esc(short(s.transcriptPath))}</div>` : ""}`;
+    ${transcriptRow(s)}`;
   if (logEl && isAppend(rows)) {
     // Same session, rows only appended: patch header + sidebar, append the new rows — #log keeps its
     // scroll position (and its DOM) untouched.
