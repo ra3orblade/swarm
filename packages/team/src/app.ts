@@ -1,9 +1,14 @@
 /**
  * The team daemon's HTTP surface: `/t1/*` (versioned by path; see docs/14-teams.md).
  * M8.3a health; M8.3b ingest; M8.3c auth (device-code login, opaque tokens, roles, machine
- * registration). Claims (d), state/SSE (e) and policy (f) follow.
+ * registration); M8.3d cluster claims; M8.3e dashboard (static page + /t1/state + /t1/events
+ * SSE — reusing the web package's table.js/viz.js/fm.css/icons.js). Policy (f) follows.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
   type AuthEnv,
   authEnv,
@@ -22,8 +27,31 @@ export const PROTOCOL = 1;
 
 type Vars = { Variables: { principal: Principal } };
 
+/** The team page's own assets, and the shared grid/viz/css reused from the web package. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TEAM_WEB = process.env.SWARM_TEAM_WEB_DIR ?? join(HERE, "../public");
+const SHARED_WEB = (() => {
+  if (process.env.SWARM_WEB_DIR) return process.env.SWARM_WEB_DIR;
+  const dev = join(HERE, "../../web/public");
+  return existsSync(join(dev, "table.js")) ? dev : join(HERE, "../web");
+})();
+
 export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   const app = new Hono<Vars>();
+
+  // ---------- dashboard shell (static, holds no data — everything comes from authed /t1/state)
+  app.get("/", (c) => c.html(readFileSync(join(TEAM_WEB, "index.html"), "utf8")));
+  const MIME: Record<string, string> = { js: "text/javascript", css: "text/css" };
+  app.get("/:file{[a-z0-9-]+\\.(js|css)}", (c) => {
+    const f = c.req.param("file");
+    const own = join(TEAM_WEB, f);
+    const shared = join(SHARED_WEB, f);
+    const p = existsSync(own) ? own : shared;
+    if (!existsSync(p)) return c.text("not found", 404);
+    return c.body(readFileSync(p, "utf8"), 200, {
+      "content-type": MIME[f.split(".").pop() ?? ""] ?? "text/plain",
+    });
+  });
 
   app.get("/t1/health", (c) =>
     c.json({
@@ -61,10 +89,11 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
     return c.json({ status: "ok", token: t.token, subject: user.subject, role: user.role });
   });
 
-  // ---------- everything else requires a principal (unless the deployment runs open)
+  // ---------- everything else requires a principal (unless the deployment runs open).
+  // `?token=` is accepted for the browser (SSE cannot send headers), like the local daemon.
   app.use("/t1/*", async (c, next) => {
     const auth = c.req.header("authorization");
-    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : (c.req.query("token") ?? null);
     const p = principalFor(store, env, bearer);
     if (!p) return c.json({ error: "unauthorized" }, 401);
     c.set("principal", p);
@@ -72,6 +101,30 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   });
 
   app.get("/t1/me", (c) => c.json(c.get("principal")));
+
+  // ---------- M8.3e: the team dashboard's snapshot + live change stream
+  app.get("/t1/state", (c) => c.json({ ...store.state(), version: VERSION, auth: authMode(env) }));
+
+  app.get("/t1/events", (c) =>
+    streamSSE(c, async (stream) => {
+      let alive = true;
+      stream.onAbort(() => {
+        alive = false;
+      });
+      await stream.writeSSE({ event: "hello", data: "{}" });
+      const off = store.onChange(() => {
+        if (alive) void stream.writeSSE({ event: "changed", data: "{}" });
+      });
+      try {
+        while (alive) {
+          await stream.sleep(15_000);
+          if (alive) await stream.writeSSE({ event: "ping", data: "{}" });
+        }
+      } finally {
+        off();
+      }
+    }),
+  );
 
   /** A human (developer or admin) registers a machine and receives its token (M8.3c). */
   app.post("/t1/machines/register", async (c) => {

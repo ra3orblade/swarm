@@ -164,11 +164,17 @@ org policy + history), `tokens` (opaque session tokens, hashed).
 
 ### Team dashboard
 
-`packages/web` is reused as-is by teamd (`SWARM_WEB_DIR` already decouples it): the same
-snapshot/SSE contract with two added dimensions — machine and user. Fleet gains a machine column
-and filter chips; Spend gains by-user and by-team rollups (the chargeback surface M8.4 exports).
-Views that are meaningless upstream (local processes, worktree open-in-editor) hide when the
-snapshot says `team: true`.
+> **Decision (2026-08-24, M8.3e):** reuse the web package's *components*, not its app: teamd
+> serves its own page (`packages/team/public`) that loads the shared `viz.js` (and the docs/12
+> design tokens) from `packages/web/public`. The local app.js is built around sessions and
+> transcripts the team daemon deliberately never has — forking it would have meant hiding most
+> views; a dedicated page over `/t1/state` is smaller and honest about what a team sees.
+
+The page shows machines (live/quiet by last forward), cluster claims (holder, machine, lease),
+spend — today, by project, **by user** (the chargeback surface M8.4 exports), by machine, by day —
+and the forwarded audit-event feed. `GET /t1/state` is the snapshot; `GET /t1/events` (SSE) pings
+on ingest/claim changes and the page refetches, debounced. Auth: paste the token from
+`~/.swarm/team-token` once (`?token=` → localStorage); the shell itself is static and data-free.
 
 ### Order of work (one PR each, gates green, roadmap flipped on the last)
 

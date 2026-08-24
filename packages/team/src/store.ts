@@ -196,6 +196,7 @@ export class TeamStore {
         }
       }
     })();
+    if (records.length) this.notify();
     return { ack };
   }
 
@@ -265,6 +266,7 @@ export class TeamStore {
         results.push({ projectKey: c.projectKey, task: c.task, status: "ok" });
       }
     })();
+    if (claims.length) this.notify();
     return results;
   }
 
@@ -312,6 +314,70 @@ export class TeamStore {
     this.db
       .query("INSERT INTO tokens (hash, subject, created_at, expires_at) VALUES (?, ?, ?, ?)")
       .run(hash, subject, new Date(now).toISOString(), new Date(now + ttlMs).toISOString());
+  }
+
+  // ---------- M8.3e: the team dashboard's snapshot + change notification
+  private listeners = new Set<() => void>();
+  onChange(l: () => void): () => void {
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
+  }
+  notify() {
+    for (const l of this.listeners) l();
+  }
+
+  /** One snapshot for the team dashboard: machines, users, cluster claims, spend, recent events. */
+  state() {
+    const q = <T>(sql: string, ...args: Array<string | number>) =>
+      this.db.query(sql).all(...args) as T[];
+    const today = new Date().toISOString().slice(0, 10);
+    const spendToday =
+      (
+        this.db.query("SELECT SUM(cost) AS c FROM spend WHERE day = ?").get(today) as {
+          c: number | null;
+        }
+      ).c ?? 0;
+    const events = q<Record<string, unknown>>(
+      "SELECT id, machine_id, ts, type, project_key, actor_kind, actor_id, payload FROM events ORDER BY id DESC LIMIT 100",
+    ).map((e) => ({
+      ...e,
+      payload: (() => {
+        try {
+          return JSON.parse((e.payload as string) ?? "null");
+        } catch {
+          return null;
+        }
+      })(),
+    }));
+    return {
+      team: true,
+      schema: this.schemaVersion(),
+      machines: q<Record<string, unknown>>(
+        "SELECT id, name, owner_subject, version, first_seen, last_seen FROM machines ORDER BY last_seen DESC",
+      ),
+      users: q<Record<string, unknown>>(
+        "SELECT subject, email, name, role, last_login FROM users ORDER BY last_login DESC",
+      ),
+      claims: this.clusterClaims(),
+      spend: {
+        today: spendToday,
+        byProject: q<Record<string, unknown>>(
+          "SELECT project_key, SUM(cost) AS cost, SUM(tokens_in) AS tokensIn, SUM(tokens_out) AS tokensOut FROM spend GROUP BY project_key ORDER BY cost DESC",
+        ),
+        byMachine: q<Record<string, unknown>>(
+          `SELECT s.machine_id, m.name, m.owner_subject, SUM(s.cost) AS cost FROM spend s
+           LEFT JOIN machines m ON m.id = s.machine_id GROUP BY s.machine_id ORDER BY cost DESC`,
+        ),
+        byUser: q<Record<string, unknown>>(
+          `SELECT COALESCE(m.owner_subject, 'unassigned') AS subject, SUM(s.cost) AS cost FROM spend s
+           LEFT JOIN machines m ON m.id = s.machine_id GROUP BY subject ORDER BY cost DESC`,
+        ),
+        byDay: q<Record<string, unknown>>(
+          "SELECT day, SUM(cost) AS cost FROM spend GROUP BY day ORDER BY day DESC LIMIT 30",
+        ),
+      },
+      events,
+    };
   }
 
   close() {
