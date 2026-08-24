@@ -14,7 +14,9 @@ swarm start                 # start the background daemon (no-op if running)
 swarm stop                  # SIGTERM the daemon recorded in ~/.swarm/daemon.json
 swarm restart
 swarm doctor                # check bun, claude, daemon, hooks, MCP; exit 1 if daemon is down
+swarm doctor --migrate      # also apply pending database migrations, then report the schema version
 swarm install               # add hooks + MCP server to ~/.claude/settings.json
+swarm install --config-url https://swarm.example.internal   # also point this machine at a team daemon
 swarm uninstall             # remove them again (prints how many entries were removed)
 swarm ui                    # open the dashboard; prints its URL
 ```
@@ -156,6 +158,24 @@ swarm rules dryrun --set pattern_kill=deny,shared_tree=off --limit 10000
 
 What would have been asked or denied, per rule, plus flaky signals — see [rules](03-rules-and-config.md#trying-a-rule-before-turning-it-on). Nothing is recorded.
 
+## Team
+
+```sh
+swarm login [url] [--token t]    # device-code login to the team daemon; registers this machine
+```
+
+With `[team] url` set (or `--config-url` at install time), the daemon forwards ledger events and spend to your self-hosted team daemon and `swarm doctor` shows the forwarding lag. See [Teams](11-teams.md).
+
+## Backups and audit
+
+```sh
+swarm backup [dest]              # consistent snapshot of ~/.swarm (VACUUM INTO — zero downtime)
+swarm restore <dir>              # put a snapshot back (refuses while the daemon runs)
+swarm audit export [--since 30d] [-p] [--type claim.acquired] [--format jsonl|csv|json]
+```
+
+`audit export` streams the ledger-changing events — claims, gates, permission answers, incidents, PRs — each with who did it (human, agent session, or spawned run). Audit records are kept forever by default (`[audit] retain_days = 0`); everything else follows `[events] retain_days`.
+
 ## Stats
 
 ```sh
@@ -182,7 +202,7 @@ busiest day: 2026-08-14 (412 turns, $38.20)
 | `SWARM_HOME` | `~/.swarm` | State directory |
 | `SWARM_OFFLINE` | – | `1` disables the pricing fetch |
 | `SWARM_STRICT_PORT` | – | `1` makes the daemon fail when its port is taken |
-| `SWARM_GUARD` | – | `off` disables all rules |
+| `SWARM_GUARD` | – | `off` disables the rules — except rules an org policy locks, which stay enforced |
 
 The full list, including the hook and MCP variables, is in [Rules and configuration](03-rules-and-config.md).
 

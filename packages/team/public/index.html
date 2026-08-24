@@ -40,6 +40,11 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs-md)/1.45 var(--sans)}
+  /* generic rules first — the more specific header/.kpi variants below refine them */
+  h2{font-size:var(--fs-lg);margin:22px 0 8px}
+  h2 span{color:var(--dim);font-weight:400;font-size:var(--fs-sm)}
+  .mono{font-family:var(--mono);font-size:var(--fs-mono)}
+  .dim{color:var(--dim)}
   header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
   header h1{font-size:var(--fs-xl);margin:0}
   header .dim{color:var(--dim);font-size:var(--fs-sm)}
@@ -49,8 +54,6 @@
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
   .kpi b{display:block;font-size:var(--fs-2xl);font-weight:600}
   .kpi span{color:var(--dim);font-size:var(--fs-sm)}
-  h2{font-size:var(--fs-lg);margin:22px 0 8px}
-  h2 span{color:var(--dim);font-weight:400;font-size:var(--fs-sm)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow);overflow-x:auto}
   table.plain{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
   table.plain th{color:var(--dim);text-align:left;font-weight:500;padding:4px 10px 4px 0;border-bottom:1px solid var(--line)}
@@ -60,8 +63,6 @@
   .badge.ok{background:var(--ok-soft);color:var(--ok)}
   .badge.warn{background:var(--warn-soft);color:var(--warn)}
   .badge.bad{background:var(--bad-soft);color:var(--bad)}
-  .mono{font-family:var(--mono);font-size:var(--fs-mono)}
-  .dim{color:var(--dim)}
   .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
   #gate{max-width:420px;margin:80px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px;box-shadow:var(--shadow)}
   #gate input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;margin:10px 0}

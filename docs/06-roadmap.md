@@ -81,7 +81,7 @@ Goal: a stranger clones or `npx`-installs Swarm and it works in under two minute
 | M4.7 | Desktop notifications with Allow/Deny actions | M3.2 | ✅ 2026-08-22 web Notification API (browser + desktop webview): permission prompts on spawned runs and orphaned claims fire a native notification, click opens the Allow/Deny card / Board; enabled from the settings menu, quiet while focused. Native Tauri notification-action buttons not used (M4.2 permission broker card covers the action)
 | M4.8 | Task-source adapters: GitHub Issues, Linear | M1.6 | ✅ 2026-08-22 `[tasks] source = "github"` (via the authenticated `gh issue list`; `labels` filter; ids `GH-<n>`, closed=done, in-progress label=active, `depends on #n` in the body) or `"linear"` (GraphQL with `LINEAR_API_KEY` from the daemon env, never stored; `team` key; blocked-by relations → depends). `core/tasks.ts` normalizers; `daemon/task-sources.ts` cached + background-refreshed so the Board never blocks; a source error shows on the Board/`swarm tasks` instead of an empty list |
 
-## M5 — Beyond Claude (multi-agent) ← direction set 2026-08-20
+## M5 — Beyond Claude (multi-agent) ✅ 2026-08-24 ← direction set 2026-08-20
 Goal: Swarm observes and coordinates AI coding agents generally, not only Claude Code. The event model already carries `raw` + normalized fields, and adapters live under `core/adapters/<name>`.
 
 | ID | Task | Status |
@@ -96,7 +96,7 @@ Goal: Swarm observes and coordinates AI coding agents generally, not only Claude
 | M5.9 | **Stats** view (engagement / "funny numbers"): all-time spend + tokens + turns + streak KPIs, playful equivalents (words written ≈ novels, context re-read ≈ War and Peace, thinking share, cost in coffee), 52-week activity calendar with current/longest streak, tokens-per-day by class (30/90/365d), output-per-day, cumulative spend line, turns by hour of day, model mix, token composition, tool leaderboard, record holders (costliest / longest / biggest turn / busiest day) | ✅ 2026-08-22 `GET /v1/stats?project=` (`store.stats()`), `viz.line/calendar/streaks`; fetched per view-open, not in the 5s snapshot |
 | M5.8 | Dashboard chrome: **Phosphor** icon system (one family, inline SVG subset generated at build), **fancy-menus** (`@react-fancy-menus/core`) as a React island — project ⋯/right-click menu, session ⋯/right-click menu, settings menu with theme (system/light/dark), pricing refresh, docs; `bun run build:web` + generic static route in the daemon | ✅ 2026-08-20 `web/tools/build.ts`, `web/src/menus.tsx`; first React in the web package (on-plan: Vite+React is the web stack) |
 
-## M6 — Desktop app (Tauri) + autoupdate ← direction set 2026-08-20
+## M6 — Desktop app (Tauri) + autoupdate ✅ 2026-08-22 ← direction set 2026-08-20
 Goal: ship Swarm as a real desktop app with automatic updates, not just a CLI + browser tab.
 
 Approach: a **Tauri v2** shell hosting the dashboard, with the daemon shipped as a **sidecar** (the daemon compiled to a single binary via `bun build --compile`) that the app starts on launch; the webview points at the local daemon. A tray icon shows live-session count and opens the window. Autoupdate via Tauri's built-in updater against signed artifacts + an update manifest on GitHub Releases.
@@ -109,7 +109,7 @@ Approach: a **Tauri v2** shell hosting the dashboard, with the daemon shipped as
 | M6.4 | Signing/notarization (macOS); CI release pipeline (macOS + Windows + Linux) | M6.3 | ✅ 2026-08-21 signed+notarized macOS shipped (v0.0.4); release.yml now a 3-OS matrix building .dmg / .msi+.exe / .deb+.rpm, native sidecar per runner; Windows/Linux unsigned (no Windows cert yet). v0.2.2 (2026-08-21): mac + Windows + updater artifacts green; **Linux AppImage disabled** — `linuxdeploy` fails on GH runners even with `libfuse2` + `NO_STRIP`, Tauri hides its stderr; suspect patchelf on the bun-compiled sidecar. Next: a `workflow_dispatch` diagnostic job running `tauri build --verbose --bundles appimage` on a branch. Linux has no auto-update until then |
 | M6.5 | Desktop "Check for Updates…": tray item that queries GitHub Releases, native dialogs (up to date / new version), install-and-restart | M6.3 | ✅ 2026-08-22 `apps/desktop/src-tauri/src/lib.rs` |
 
-## M7 — Orchestrate (agents drive Swarm) ← direction set 2026-08-23
+## M7 — Orchestrate (agents drive Swarm) ✅ 2026-08-24 ← direction set 2026-08-23
 Goal: close the loop. Today agents *report* to Swarm (claim, hand off, gate, search); in M7 one session can dispatch work into worktrees, agents talk to each other and to the human through the daemon, and gates are executed rather than self-reported — so autonomous dispatch is safe. Worktrees become first-class so every spawned run starts warm.
 
 **v0.7.0 cut (decided 2026-08-23):** M7.1–M7.5, M7.7, M7.10 plus budgets and run permission profiles; M7.6 (full messaging), M7.8 (workflows) and M7.9 (review gate) move to 0.8 — `swarm_ask` ships with a minimal `messages` table that M7.6 extends.
@@ -131,7 +131,7 @@ Ordering: worktree lifecycle (M7.1–M7.3) and executed gates (M7.4) first — t
 
 Follow-ups likely to fold into earlier milestones once M7 lands: **budgets** ✅ 2026-08-23 (`[budget] daily/weekly/warn_at/on_exceed`; `core/budget.ts` `budgetStatus`; `store.checkBudgets` on the tick opens one `budget` incident per level per day; `on_exceed = "ask"` makes `evaluateTool` ask on Bash/Edit/Write, `"stop"` halts spawned runs + dispatch queue; `GET /v1/budget`; Spend tile) and **run permission profiles** ✅ 2026-08-23 (`RUN_PROFILES` full / no-edits / read-only → `--disallowedTools`/`--allowedTools`; `swarm run --profile`, `swarm dispatch --profile`, `[dispatch] profile`, Run + Dispatch drawers), **custom rule DSL** in `.swarm.toml` (`[[rules.custom]] match = … mode = …`, path globs for writes; makes Codify M4.3 write a format the daemon reads; M2.x), **secrets guard** (`ask` on writes to `.env*` / `*.pem` and on Bash that prints them; M2.x), **"while you were away" digest** (M4.1 leftover), (profiles: `tests-only` became `no-edits` — Claude Code deny rules beat allow rules, so Bash can't be narrowed to test commands).
 
-## M8 — Teams (enterprise) ← direction set 2026-08-23
+## M8 — Teams (enterprise) ✅ 2026-08-24 ← direction set 2026-08-23
 
 **v0.9.0 cut (decided 2026-08-24):** the crew release — M7.6 agent messaging, M7.8 workflows, M5.4 Gemini CLI adapter, M5.7 visualisation follow-ups, plus launch polish (update-restart banner, onboarding, external links — shipped; demo mode shipped (`swarm demo` — an isolated seeded home, tailers off); Windows smoke remains. M8.3+ stays after 0.9.
 
