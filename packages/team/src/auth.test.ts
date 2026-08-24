@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { authMode, principalFor } from "./auth";
 import { createTeamApp } from "./app";
+import { authMode, principalFor } from "./auth";
 import { TeamStore } from "./store";
 
 const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");

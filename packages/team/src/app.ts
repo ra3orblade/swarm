@@ -9,8 +9,8 @@ import {
   authEnv,
   authMode,
   mintToken,
-  pollDeviceFlow,
   type Principal,
+  pollDeviceFlow,
   principalFor,
   startDeviceFlow,
 } from "./auth";
