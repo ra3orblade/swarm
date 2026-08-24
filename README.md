@@ -24,7 +24,7 @@ A local-first control plane for AI-agent development on any repository.</p>
 
 <p align="center"><a href="https://getswarm.vercel.app"><img src="docs/art/screens/fleet.png" alt="Swarm Fleet view — every agent session on the machine, live" width="100%"></a></p>
 
-Run more than one [Claude Code](https://claude.com/claude-code) session at a time — or a [Codex CLI](https://github.com/openai/codex) or Grok run on the side — and you lose the thread fast: which session is on which branch, what it's costing, which worktree has uncommitted work nobody owns, why that edit got blocked. Swarm is one daemon that watches every session on your machine — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree and runtime resource, turns the "never do X" prose in `CLAUDE.md` into real permission decisions, and streams all of it to one dashboard.
+Run more than one [Claude Code](https://claude.com/claude-code) session at a time — or a [Codex CLI](https://github.com/openai/codex), Gemini, Grok, Aider or opencode run on the side — and you lose the thread fast: which session is on which branch, what it's costing, which worktree has uncommitted work nobody owns, why that edit got blocked. Swarm is one daemon that watches every session on your machine — live tool calls, reasoning, token spend, cost — keeps a ledger of who holds which task, worktree and runtime resource, turns the "never do X" prose in `CLAUDE.md` into real permission decisions, and streams all of it to one dashboard.
 
 It runs entirely on your machine. No account, no telemetry, works offline. Nothing is added to your repositories.
 
@@ -32,13 +32,13 @@ It runs entirely on your machine. No account, no telemetry, works offline. Nothi
 bunx @ra3orblade/swarm setup
 ```
 
-> Status: early, but real — observability, task claims in isolated worktrees, runtime resources, configurable rules, incidents, a cross-forge merge queue, spawned agents (`swarm run` / `swarm dispatch`), executed verification gates, handoffs, session replay, search and spend budgets are built and dogfooded daily — Swarm dispatches its own tasks. Agent-to-agent messaging, declarative workflows and a built-in review gate are next on the [roadmap](ROADMAP.md).
+> Status: early, but real, and shipping fast — eleven releases so far. Observability across six agent CLIs, task claims in isolated worktrees, runtime resources, rules and incidents, a cross-forge merge queue, spawned agents (`swarm run` / `swarm dispatch`), declarative workflows, executed verification gates (including a built-in reviewer), handoffs, agent-to-agent messaging, session replay, outcome tracking, the collision graph, search, budgets, signed org policy and a self-hosted team daemon are all built and dogfooded daily — Swarm dispatches its own tasks. What's next is on the [roadmap](ROADMAP.md).
 
 ---
 
 ## What you get
 
-**Fleet** — every session across every project, live: agent, title, branch, what it's doing right now, model, a trend sparkline, output tokens, context size, cost, age. Filter by agent (Claude Code, Codex, Grok).
+**Fleet** — every session across every project, live: agent, title, branch, what it's doing right now, model, a trend sparkline, output tokens, context size, cost, age. Filter by agent (all six). A session that starts repeating a failing command gets a **Stuck** badge and a desktop notification — a heuristic, and nothing is ever interrupted.
 
 **Session** — an agent's reasoning and tool calls as a live stream, with cost per turn, cache hit rate, thinking share, tool histogram and the transcript path. **Replay** steps through its tool calls one at a time with full input and output; an ended session gets **Resume where it died**, which spawns a run from what it left behind; a session inside a worktree shows its **Diff**.
 
@@ -56,6 +56,10 @@ bunx @ra3orblade/swarm setup
 
 **Ask the human** — an agent that hits a decision only you can make calls `swarm_ask`; the question shows on the session page with the options as buttons, Fleet shows an **Asking** badge, a desktop notification fires, and the answer reaches the agent on its own.
 
+**Workflows** — `[[workflows]] name = "ship" steps = ["implement", "gate:tests", "gate:review", "pr"]` in `.swarm.toml`, and the daemon advances it: run steps spawn an agent in the task's worktree, gate steps must pass to continue, `pr` pushes the branch and opens the pull request. A failed step stops with an incident that says which one.
+
+**Messaging** — `swarm_send(to, text)` reaches another session by id, whoever holds a task, or `"lead"` (your interactive session in the project). It arrives as injected context on the recipient's next tool call, over stdin to a spawned run, or via `swarm_inbox` — exactly once.
+
 **PRs** — one merge queue across GitHub and GitLab, read through your already-authenticated `gh` / `glab`. Merge from the dashboard when checks and review are clear. No tokens stored.
 
 **Timeline** — session lanes per project, coloured by agent, 3–72 h.
@@ -66,15 +70,19 @@ bunx @ra3orblade/swarm setup
 
 **Search** — full-text memory over everything Swarm remembers: handoffs, incidents, gate runs and what sessions said. **Dry-run rules** replays a project's history under rule modes you pick before switching anything on.
 
+**Outcomes** — did the work survive? Sessions join to a branch, the branch to its PR, the PR to merged or reverted, scored per model and per agent: merge rate, median time from session start to merge, dollars per merge.
+
+**Graphs** — a live bipartite graph of running sessions against the files they touch. A file two sessions hold with at least one writer turns red: a merge conflict you can still prevent.
+
 <p align="center"><img src="docs/art/screens/stats.png" alt="Stats view" width="100%"></p>
 
-**Multi-agent** — Claude Code via its hooks and transcripts; Codex CLI and Grok by tailing the session logs they already write (`~/.codex`, ACP `updates.jsonl`). Every session is tagged with its agent; Spend breaks down per agent.
+**Multi-agent** — six brands, one ledger: Claude Code via its hooks and transcripts (the full picture — rules, MCP, spawned runs), and Codex CLI (`~/.codex`), Gemini CLI (`~/.gemini`), Grok (ACP `updates.jsonl`), Aider (`.aider.chat.history.md`) and opencode (its SQLite database, read-only) by reading the session logs they already write. Every session is tagged with its agent; Spend, Timeline and Outcomes break down per agent.
 
 **Zero instrumentation** — it reads the hooks and transcripts the agents already write. Every table is a real data grid: sort, resize, reorder, filter, persisted layouts. Light and dark themes.
 
 ## Install
 
-Requires [Bun](https://bun.sh) ≥ 1.3, git, and at least one agent: [Claude Code](https://claude.com/claude-code) (`claude` on your PATH — hooks, rules and MCP need it), [Codex CLI](https://github.com/openai/codex) and/or Grok (observed by tailing their logs; no hooks, so no rules). Optional: `gh` and/or `glab` (authenticated) for the PRs view.
+Requires [Bun](https://bun.sh) ≥ 1.3, git, and at least one agent: [Claude Code](https://claude.com/claude-code) (`claude` on your PATH — hooks, rules and MCP need it), plus [Codex CLI](https://github.com/openai/codex), Gemini CLI, Grok, Aider and opencode (observed by reading their logs; no hooks, so no rules). Optional: `gh` and/or `glab` (authenticated) for the PRs view.
 
 ```sh
 bunx @ra3orblade/swarm setup        # daemon + hooks + MCP, opens the dashboard
@@ -176,16 +184,15 @@ swarm install | uninstall      # add/remove Swarm hooks in ~/.claude/settings.js
 ## How it works
 
 ```
- Claude Code sessions ──hooks──▶ swarm-hook ──┐
- (any folder, any repo)                          │
-                        transcripts (JSONL) ──────┼──▶ swarmd ──▶ SQLite (~/.swarm)
- Codex CLI  ─── ~/.codex rollout logs ────────────┤      │
- Grok       ─── ACP updates.jsonl ────────────────┘      └──▶ SSE ──▶ dashboard · CLI · MCP
-                                                  ▼               ▲
-                                       rules engine (ask / deny → incidents)
-                                       ledger: claims · worktrees · gates · handoffs · resources · budgets
-                                                  │
-                                       swarm run / dispatch ──▶ claude -p in a claimed worktree ──┘
+Claude Code · Codex · Gemini · Grok · Aider · opencode
+              │   hooks · transcripts · session logs
+              ▼
+           swarmd ──▶ SQLite (~/.swarm) — the only place state lives
+              │
+              ├──▶ rules engine ──▶ ask · deny · incident
+              ├──▶ ledger ──▶ claims · worktrees · gates · handoffs · ports · budgets
+              ├──▶ SSE ──▶ dashboard · CLI · MCP · desktop app
+              └──▶ swarm run / dispatch ──▶ an agent in a claimed worktree
 ```
 
 - **Identity** is the git common dir, so every worktree of a repo maps to one project.
@@ -195,9 +202,15 @@ swarm install | uninstall      # add/remove Swarm hooks in ~/.claude/settings.js
 
 Design docs (architecture, data model, protocol, interface, roadmap) are rendered at [getswarm.vercel.app/docs/design](https://getswarm.vercel.app/docs/design/) and live in [`docs/`](docs/00-index.md).
 
+## Teams
+
+One machine is free and always will be. When it outgrows one laptop, `swarm-teamd` is a second, self-hosted service your machines *forward* to — audit events, spend rollups and claims, never transcript text unless a machine opts in, and always after your redaction rules. You get one view of the fleet (machines, cluster-wide claims, spend by person, project, machine and day), a claim taken on one laptop is refused on another with the holder's name, org `policy.toml` is ed25519-signed and verified against a key pinned at `swarm login`, team budgets enforce warn / ask / stop, and monthly chargeback exports come out by user, machine, model or **ticket id**. Every laptop stays local-first and keeps working offline. [Teams guide](https://getswarm.vercel.app/docs/11-teams).
+
+*Licensing: `packages/team` is the single source-available package ([FSL-1.1-ALv2](packages/team/LICENSE.md), Apache-2.0 after two years). Everything else is and stays Apache-2.0.*
+
 ## Privacy
 
-Everything is local. Swarm reads the hook payloads and transcript files (Claude Code, Codex, Grok) that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
+Everything is local. Swarm reads the hook payloads and session logs (all six agents) that already exist on your disk, stores derived state in `~/.swarm/swarm.db`, and serves a dashboard on `127.0.0.1`. Optional outbound paths, all under your control: fetching model prices from the public LiteLLM list (`SWARM_OFFLINE=1` skips it); the PRs view shelling out to your already-authenticated `gh` / `glab` (Swarm stores no forge tokens); and the desktop app asking GitHub Releases for updates when you click *Check for Updates…*. No data about your sessions leaves your machine.
 
 ## Configuration
 
