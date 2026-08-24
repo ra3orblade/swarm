@@ -65,6 +65,8 @@ const help = `swarm — control plane for AI-agent development
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
+  msg send <to> <text…> [-p]    message a session id, a task's holder, or "lead" (M7.6)
+  msg ls [-p] [--json]          recent messages
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
 
   install | uninstall     add/remove Swarm hooks in ~/.claude/settings.json
@@ -1003,6 +1005,59 @@ try {
             `${h.kind.padEnd(8)} ${h.ts.slice(0, 16).replace("T", " ")}  ${h.title}${h.task ? `  [${h.task}]` : ""}\n         ${h.snippet.split("\u0001").join("").split("\u0002").join("").replace(/\s+/g, " ")}${h.sessionId ? `\n         session ${h.sessionId}` : ""}`,
           );
       break;
+    }
+    case "msg": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      if (rest[0] === "send") {
+        const [to, ...words] = rest.slice(1).filter((a) => a !== "-p");
+        if (!to || !words.length)
+          throw new Error('usage: swarm msg send <session|task|"lead"> <text…>');
+        const r = (await api("/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: proj.id,
+            to,
+            text: words.join(" "),
+            from: process.env.USER ?? "me",
+          }),
+        })) as { ok: boolean; error?: string; message?: { id: number; sessionId: string | null } };
+        if (!r.ok) throw new Error(r.error ?? "send failed");
+        console.log(
+          `sent #${r.message?.id}${r.message?.sessionId ? "" : " (queued until the target appears)"}`,
+        );
+        break;
+      }
+      if (rest[0] === "ls" || !rest[0]) {
+        const ms = (await api(`/v1/messages?project=${proj.id}&limit=50`)) as Array<{
+          id: number;
+          from: string | null;
+          task: string | null;
+          toKind: string;
+          text: string;
+          createdAt: string;
+          deliveredAt: string | null;
+        }>;
+        if (rest.includes("--json")) {
+          console.log(JSON.stringify(ms, null, 2));
+          break;
+        }
+        if (!ms.length) {
+          console.log("no messages");
+          break;
+        }
+        for (const m of ms)
+          console.log(
+            `#${m.id} ${m.deliveredAt ? "✓" : "·"} ${m.from ?? "?"} → ${m.task ?? m.toKind}: ${m.text.slice(0, 100)}`,
+          );
+        break;
+      }
+      throw new Error("usage: swarm msg send <to> <text…> | swarm msg ls");
     }
     case "audit": {
       if (rest[0] !== "export")

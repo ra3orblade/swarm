@@ -519,6 +519,15 @@
   .seg a:hover{color:var(--fg-2)}
   .seg a.on{background:var(--acc-soft);color:var(--acc)}
   .chip b{font-weight:700}
+  /* session message thread (M7.6) */
+  .msgs{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;margin-bottom:8px}
+  .msg{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 9px;font-size:var(--fs-md);color:var(--fg-2);word-break:break-word}
+  .msg.out{background:var(--acc-soft);border-color:transparent}
+  .msg-f{display:block;font-size:var(--fs-2xs);color:var(--dim);margin-bottom:2px}
+  .msg-compose{display:flex;gap:6px}
+  .msg-compose input{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:var(--r-sm);padding:6px 9px;font:400 var(--fs-md) var(--sans)}
+  .msg-compose input:focus{border-color:var(--acc);outline:none}
+  .msg-compose button{background:var(--acc-soft);border:1px solid transparent;color:var(--acc);border-radius:var(--r-sm);padding:6px 10px;cursor:pointer}
   /* first-run onboarding card */
   .onboard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 30px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;max-width:640px;margin:40px auto}
   .onboard h3{font-size:var(--fs-xl);color:var(--fg)}

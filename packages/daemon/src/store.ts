@@ -44,6 +44,7 @@ import {
   executedGateInput,
   formatAnswers,
   formatHandoff,
+  formatMessages,
   formatOpenQuestions,
   formatResumePrompt,
   fromLiteLLM,
@@ -80,6 +81,7 @@ import {
   loadConfigDetailed,
   type MemoryDoc,
   type MemoryKind,
+  type Message,
   needsBootstrap,
   nextExpiry,
   normalizeHook,
@@ -94,6 +96,7 @@ import {
   parseMarkdownTasks,
   parseMemoryQuery,
   parseReviewVerdict,
+  parseTo,
   parseTranscriptChunk,
   pickPort,
   planBootstrap,
@@ -126,6 +129,7 @@ import {
   taskSourceKind,
   validateGateRun,
   validateHandoff,
+  validateMessage,
   validateQuestion,
   WRITE_TOOLS,
 } from "@swarm/core";
@@ -275,6 +279,8 @@ export class Store {
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
     this.ensureColumn("projects", "color", "TEXT");
+    this.ensureColumn("messages", "to_kind", "TEXT");
+    this.ensureColumn("messages", "from_session", "TEXT");
     this.migrate();
     this.migrateProjectsJson(join(home, "projects.json"));
     this.reconcileMovedProjects();
@@ -1094,9 +1100,164 @@ export class Store {
     return qs;
   }
 
-  /** Context to inject on a hook: undelivered answers (delivered now) for this session. */
+  /** Context to inject on a hook: undelivered answers + messages (delivered now) for this session. */
   answerContext(sessionId: string | null): string | null {
-    return formatAnswers(this.inbox(sessionId));
+    const parts = [
+      formatAnswers(this.inbox(sessionId)),
+      formatMessages(this.messageInbox(sessionId)),
+    ];
+    const out = parts.filter(Boolean);
+    return out.length ? out.join("\n") : null;
+  }
+
+  // ---------- M7.6 agent messaging (kind = 'message' rows in the same table as questions)
+
+  /** Send a message to a session, a task's holder, or the project's lead (latest interactive session). */
+  send(
+    projectId: string,
+    input: { to: unknown; text: unknown; from?: string | null; fromSession?: string | null },
+  ): { ok: true; message: Message } | { ok: false; error: string } {
+    if (!this.project(projectId)) return { ok: false, error: "unknown project" };
+    const v = validateMessage(input.text);
+    if (!v.ok) return { ok: false, error: v.reason };
+    const to = parseTo(input.to);
+    if (!to) return { ok: false, error: 'to must be a session id, a task, or "lead"' };
+    let sessionId: string | null = null;
+    let task: string | null = null;
+    if (to.kind === "session") {
+      sessionId = this.knownSession(to.id) ?? this.sessionByPrefix(to.id);
+      if (!sessionId) return { ok: false, error: `unknown session ${to.id}` };
+    } else if (to.kind === "task") {
+      task = to.task;
+      sessionId = this.sessionForTask(projectId, to.task); // may be null: delivered when one appears
+    } else {
+      sessionId = this.leadSession(projectId); // null is fine; any interactive session may pull it
+    }
+    const createdAt = new Date().toISOString();
+    const from =
+      input.from ?? (input.fromSession ? `agent ${input.fromSession.slice(0, 8)}` : null);
+    const r = this.db
+      .query(
+        `INSERT INTO messages (project_id, session_id, task, kind, text, asked_by, created_at, to_kind, from_session)
+         VALUES (?, ?, ?, 'message', ?, ?, ?, ?, ?)`,
+      )
+      .run(projectId, sessionId, task, v.text, from, createdAt, to.kind, input.fromSession ?? null);
+    const message = this.message(Number(r.lastInsertRowid)) as Message;
+    this.append({
+      ts: createdAt,
+      type: "message.sent",
+      projectId,
+      sessionId: input.fromSession ?? null,
+      actor: this.actorFor(input.from ?? null, input.fromSession ?? null),
+      payload: {
+        id: message.id,
+        to: input.to,
+        task,
+        recipient: sessionId,
+        text: v.text.slice(0, 400),
+        summary: `message to ${String(input.to)}: ${v.text.slice(0, 120)}`,
+      },
+    });
+    return { ok: true, message };
+  }
+
+  message(id: number): Message | null {
+    const r = this.db
+      .query("SELECT * FROM messages WHERE id = ? AND kind = 'message'")
+      .get(id) as Record<string, unknown> | null;
+    return r ? rowToMessage(r) : null;
+  }
+
+  /** Messages for a session or thread view; newest first. */
+  messages(
+    opts: { projectId?: string; sessionId?: string; task?: string; limit?: number } = {},
+  ): Message[] {
+    const where = ["kind = 'message'"];
+    const args: (string | number)[] = [];
+    if (opts.projectId) {
+      where.push("project_id = ?");
+      args.push(opts.projectId);
+    }
+    if (opts.sessionId) {
+      where.push("(session_id = ? OR from_session = ?)");
+      args.push(opts.sessionId, opts.sessionId);
+    }
+    if (opts.task) {
+      where.push("task = ?");
+      args.push(opts.task);
+    }
+    args.push(opts.limit ?? 100);
+    return (
+      this.db
+        .query(`SELECT * FROM messages WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+        .all(...args) as Record<string, unknown>[]
+    ).map(rowToMessage);
+  }
+
+  /** Undelivered messages this session should see; marks them delivered unless peeking. */
+  messageInbox(sessionId: string | null, opts: { peek?: boolean } = {}): Message[] {
+    if (!sessionId) return [];
+    const s = this.db
+      .query("SELECT project_id, kind, cwd FROM sessions WHERE id = ?")
+      .get(sessionId) as { project_id: string; kind: string; cwd: string } | null;
+    if (!s) return [];
+    const task =
+      this.heldClaimsWithWorktree().find((c) => isInside(s.cwd, c.worktree))?.task ?? null;
+    const rows = this.db
+      .query(
+        `SELECT * FROM messages WHERE kind = 'message' AND delivered_at IS NULL AND from_session IS NOT ?
+           AND (session_id = ?
+             OR (to_kind = 'task' AND project_id = ? AND task IS ?)
+             OR (to_kind = 'lead' AND project_id = ? AND ? = 'interactive'))
+         ORDER BY id`,
+      )
+      .all(sessionId, sessionId, s.project_id, task, s.project_id, s.kind) as Record<
+      string,
+      unknown
+    >[];
+    const ms = rows.map(rowToMessage);
+    if (ms.length && !opts.peek)
+      this.db
+        .query(
+          `UPDATE messages SET delivered_at = ?, session_id = ? WHERE id IN (${ms.map(() => "?").join(",")})`,
+        )
+        .run(new Date().toISOString(), sessionId, ...ms.map((m) => m.id));
+    return ms;
+  }
+
+  markMessageDelivered(id: number, sessionId: string | null) {
+    this.db
+      .query(
+        "UPDATE messages SET delivered_at = ?, session_id = COALESCE(?, session_id) WHERE id = ? AND delivered_at IS NULL",
+      )
+      .run(new Date().toISOString(), sessionId, id);
+  }
+
+  /** Latest live interactive session in a project — the "lead". */
+  private leadSession(projectId: string): string | null {
+    const r = this.db
+      .query(
+        "SELECT id FROM sessions WHERE project_id = ? AND kind = 'interactive' AND state != 'ended' ORDER BY last_seen_at DESC LIMIT 1",
+      )
+      .get(projectId) as { id: string } | null;
+    return r?.id ?? null;
+  }
+  private sessionByPrefix(prefix: string): string | null {
+    const rows = this.db
+      .query("SELECT id FROM sessions WHERE id LIKE ? ORDER BY last_seen_at DESC LIMIT 2")
+      .all(`${prefix}%`) as Array<{ id: string }>;
+    return rows.length === 1 ? (rows[0]?.id ?? null) : null;
+  }
+  /** The live session working the task: its held worktree's occupant, or the run on it. */
+  private sessionForTask(projectId: string, task: string): string | null {
+    const claim = this.claims(projectId).find((c) => c.task === task && c.state === "held");
+    if (!claim?.worktree) return null;
+    const rows = this.db
+      .query(
+        "SELECT id, cwd FROM sessions WHERE project_id = ? AND state != 'ended' ORDER BY last_seen_at DESC",
+      )
+      .all(projectId) as Array<{ id: string; cwd: string }>;
+    return rows.find((r) => isInside(r.cwd, claim.worktree))?.id ?? null;
   }
 
   /** For SessionStart in a held worktree: open questions of that task + answers never delivered. */
@@ -4383,4 +4544,19 @@ const actorCols = (a: Actor): [string, string] => [a.kind, a.id];
 function isScratchRoot(root: string): boolean {
   const tmp = [tmpdir(), "/tmp", "/private/tmp", "/private/var/folders", "/var/folders"];
   return tmp.some((t) => root === t || root.startsWith(`${t}/`));
+}
+
+function rowToMessage(r: Record<string, unknown>): Message {
+  return {
+    id: r.id as number,
+    projectId: r.project_id as string,
+    task: (r.task as string) ?? null,
+    sessionId: (r.session_id as string) ?? null,
+    toKind: ((r.to_kind as string) ?? "session") as Message["toKind"],
+    from: (r.asked_by as string) ?? null,
+    fromSession: (r.from_session as string) ?? null,
+    text: r.text as string,
+    createdAt: r.created_at as string,
+    deliveredAt: (r.delivered_at as string) ?? null,
+  };
 }

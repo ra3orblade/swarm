@@ -12,6 +12,7 @@ export * from "./gates";
 export * from "./ledger";
 export * from "./lessons";
 export * from "./memory";
+export * from "./messages";
 export * from "./policy";
 export * from "./pricing";
 export * from "./processes";
