@@ -78,6 +78,7 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
 
 import { DEFAULT_PRIVACY, type PrivacyConfig } from "./audit";
 import type { BudgetConfig } from "./budget";
+import { parseWorkflows, type WorkflowDef } from "./workflows";
 
 export interface SwarmConfig {
   daemon: {
@@ -105,6 +106,8 @@ export interface SwarmConfig {
     /** Executable gates: `[gates.<name>] cmd = "bun test"` (M7.4). */
     defs: Record<string, GateDef>;
   };
+  /** Declared step sequences the daemon can advance per task (M7.8). */
+  workflows: Record<string, WorkflowDef>;
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
   /** Retention (M8.2c): chatter events vs the audit subset (`0` = keep forever). Global only. */
@@ -142,6 +145,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777, auth: "loopback-optional" },
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
+  workflows: {},
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
   events: { retain_days: 30 },
   audit: { retain_days: 0 },
@@ -252,6 +256,7 @@ function validate(c: SwarmConfig): SwarmConfig {
       warn_at: Number.isFinite(warnAt) && warnAt > 0 && warnAt < 1 ? warnAt : 0.8,
       on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
     },
+    workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
     events: {
       retain_days: days((c.events as { retain_days?: unknown } | undefined)?.retain_days, 30),
     },

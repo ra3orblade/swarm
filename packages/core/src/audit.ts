@@ -35,6 +35,8 @@ export const AUDIT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   "incident.opened",
   "incident.acked",
   "run.result",
+  "workflow.started",
+  "workflow.finished",
 ]);
 export const isAuditType = (t: string) => AUDIT_TYPES.has(t as EventType);
 /** SQL fragment listing the audit types (quoted), for WHERE type IN (...). */

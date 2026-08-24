@@ -23,4 +23,5 @@ export * from "./review";
 export * from "./rules";
 export * from "./tasks";
 export * from "./types";
+export * from "./workflows";
 export * from "./worktree";
