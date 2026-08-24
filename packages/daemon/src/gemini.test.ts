@@ -37,7 +37,7 @@ describe("gemini tailer (M5.4)", () => {
           tokens: { input: 2000, output: 100, cached: 1500, thoughts: 50 },
           toolCalls: [{ name: "replace" }],
         }),
-      ].join("\n") + "\n",
+      ].join("\n").concat("\n"),
     );
     // a nested subagent recording
     const nested = join(chats, "g-42");
@@ -59,7 +59,7 @@ describe("gemini tailer (M5.4)", () => {
           content: "sub",
           tokens: { input: 10, output: 5 },
         }),
-      ].join("\n") + "\n",
+      ].join("\n").concat("\n"),
     );
     process.env.SWARM_GEMINI_ROOT = root;
     const store = new Store(mkdtempSync(join(tmpdir(), "swarm-home-")));
