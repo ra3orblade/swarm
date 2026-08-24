@@ -187,6 +187,9 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // ---- state for the dashboard
   app.get("/v1/state", (c) => c.json(store.snapshot()));
   app.get("/v1/stats", (c) => c.json(store.stats(c.req.query("project") || undefined)));
+  app.get("/v1/graphs/collisions", (c) =>
+    c.json(store.collisions(c.req.query("project") || undefined)),
+  );
   app.get("/v1/incidents", (c) =>
     c.json(
       store.incidents(Number(c.req.query("limit") ?? 50), {

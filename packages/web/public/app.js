@@ -65,7 +65,7 @@ document.addEventListener("keydown", (ev) => {
   window.swarmZoom(dir);
 });
 // `dirty`: a UI-side change (selection, view, filter) needs a render even when the daemon snapshot is unchanged.
-const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], budget: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, outcomes: null, dirty: true };
+const state = { projects: [], sessions: [], worktrees: {}, processes: [], spend: null, incidents: [], allIncidents: null, incFilter: "open", tasks: null, gates: null, dispatch: null, questions: [], budget: null, runs: [], attribution: null, taskFilter: "ready", resources: [], prs: [], seq: 0, sel: null, session: null, log: [], turns: [], view: "fleet", agentFilter: null, collisions: null, outcomes: null, dirty: true };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const ago = (iso) => { const d = (Date.now() - new Date(iso)) / 1000; return d < 60 ? `${d | 0}s` : d < 3600 ? `${(d / 60) | 0}m` : d < 86400 ? `${(d / 3600) | 0}h` : `${(d / 86400) | 0}d`; };
@@ -203,6 +203,13 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
+  let colChanged = false;
+  if (state.view === "graphs" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const col = await fetch(`/v1/graphs/collisions${q}`).then((r) => r.json()).catch(() => state.collisions);
+    colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
+    state.collisions = col;
+  }
   let outChanged = false;
   if (state.view === "outcomes" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -210,13 +217,14 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || outChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
 const VIEW_DEFS = [
   { id: "fleet", label: "Fleet", icon: "squares-four", group: "Observe", render: () => renderFleet() },
   { id: "timeline", label: "Timeline", icon: "clock-counter-clockwise", group: "Observe", render: () => renderTimeline() },
+  { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
   { id: "outcomes", label: "Outcomes", icon: "check", group: "Insight", render: () => renderOutcomes() },
@@ -1210,6 +1218,28 @@ function renderOutcomes() {
     (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
     dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100) });
+}
+
+// M9.12: live file-collision graph — which live sessions touch which files, contested files
+// highlighted. Data from /v1/graphs/collisions (fetched by the poll while the view is open).
+function renderGraphs() {
+  const g = state.collisions;
+  const title = (s) => s.title ?? s.id.slice(0, 8);
+  const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>`;
+  if (!g || !g.sessions.length) {
+    $("#main").innerHTML = head("live file collisions") + `<div class="empty">${PX.idle()}No live sessions${state.sel ? " in this project" : ""}.<br>The collision graph shows who is touching what, the moment two agents run at once.</div>`;
+    return;
+  }
+  if (!g.files.length) {
+    $("#main").innerHTML = head(`${g.sessions.length} live session${g.sessions.length === 1 ? "" : "s"}`) + `<div class="empty">${PX.idle()}No file touches recorded yet — the graph fills in as agents read and edit.</div>`;
+    return;
+  }
+  const sessions = g.sessions.map((s) => ({ ...s, label: title(s) }));
+  const agents = [...new Set(sessions.map((s) => s.agent))].sort(viz.agentSort);
+  const sub = `${sessions.length} live session${sessions.length === 1 ? "" : "s"} · ${g.files.length} file${g.files.length === 1 ? "" : "s"} · ${g.contested ? `<b class="navcount">${g.contested} contested</b>` : "no collisions"}`;
+  $("#main").innerHTML = head(sub) +
+    `<div class="card" style="padding:14px">${viz.bipartite(sessions, g.files)}</div>
+     <div style="margin-top:10px;display:flex;gap:16px;align-items:center">${viz.legend(agents)}<span class="dim" style="font-size:var(--fs-sm)">solid edge = writing · faint edge = reading · <span style="color:var(--bad)">red file</span> = two sessions on it, at least one writing</span></div>`;
 }
 
 function renderTimeline() {

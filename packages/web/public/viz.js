@@ -286,4 +286,50 @@ function niceTicks(max, n) {
   });
 })();
 
-window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort };
+/**
+ * Bipartite graph (M9.11/M9.12): sessions in the left column, files in the right, bezier edges
+ * between them. Deterministic — rows render in the order given, so positions stay stable across
+ * live refreshes. Writer edges are solid in the session's agent colour; reader edges are thin and
+ * dim. Contested files (≥2 sessions, ≥1 writer) get the danger colour.
+ * sessions: [{id, label, agent, files, writes}]; files: [{path, readers[], writers[], contested}].
+ */
+function bipartite(sessions, files, { rowH = 30, maxFiles = 40 } = {}) {
+  const fs = files.slice(0, maxFiles);
+  const W = 1000;
+  const sx = 250, fx = 640; // where session labels end / file dots sit
+  const rows = Math.max(sessions.length, fs.length, 1);
+  const H = rows * rowH + 16;
+  const mid = (n) => (H - n * rowH) / 2 + rowH / 2 + 4; // centre a column of n rows
+  const sy = new Map(sessions.map((s, i) => [s.id, mid(sessions.length) + i * rowH]));
+  const fy = new Map(fs.map((f, i) => [f.path, mid(fs.length) + i * rowH]));
+  const tailPath = (p, n = 46) => (p.length <= n ? p : `…${p.slice(-n)}`);
+  const trunc = (t, n = 30) => (t.length <= n ? t : `${t.slice(0, n - 1)}…`);
+  const edge = (s, f, writer) => {
+    const y1 = sy.get(s), y2 = fy.get(f.path);
+    if (y1 == null || y2 == null) return "";
+    const sess = sessions.find((x) => x.id === s);
+    const stroke = writer ? agentColor(sess?.agent) : "var(--faint)";
+    return `<path d="M ${sx + 14} ${y1} C ${sx + 170} ${y1}, ${fx - 170} ${y2}, ${fx - 10} ${y2}" fill="none" stroke="${stroke}" stroke-width="${writer ? 2 : 1}" opacity="${writer ? 0.85 : 0.35}"/>`;
+  };
+  const edges = fs.flatMap((f) => [
+    ...f.writers.map((s) => edge(s, f, true)),
+    ...f.readers.map((s) => edge(s, f, false)),
+  ]);
+  const sessNodes = sessions.map((s) => {
+    const y = sy.get(s.id);
+    return `<g data-tip="${attr(s.label)}<br><span class='dim'>${attr(agentName(s.agent))} · ${s.files} file${s.files === 1 ? "" : "s"} · ${s.writes} write${s.writes === 1 ? "" : "s"}</span>">
+      <circle cx="${sx + 8}" cy="${y}" r="5" fill="${agentColor(s.agent)}"/>
+      <text x="${sx - 4}" y="${y + 4}" text-anchor="end" font-size="12" fill="var(--fg-2)">${attr(trunc(s.label))}</text></g>`;
+  });
+  const fileNodes = fs.map((f) => {
+    const n = f.writers.length + f.readers.length;
+    const tip = `${attr(f.path)}<br><span class='dim'>${f.writers.length} writing · ${f.readers.length} reading</span>${f.contested ? "<br><b>contested — a merge conflict waiting to happen</b>" : ""}`;
+    return `<g data-tip="${tip}">
+      <circle cx="${fx}" cy="${fy.get(f.path)}" r="${f.contested ? 6 : 4}" fill="${f.contested ? "var(--bad)" : n > 1 ? "var(--warn)" : "var(--faint)"}"/>
+      <text x="${fx + 12}" y="${fy.get(f.path) + 4}" font-size="11" font-family="var(--mono)" fill="${f.contested ? "var(--bad)" : "var(--dim)"}"${f.contested ? ' font-weight="600"' : ""}>${attr(tailPath(f.path))}</text></g>`;
+  });
+  const more = files.length > fs.length ? `<text x="${fx + 12}" y="${H - 2}" font-size="11" fill="var(--faint)">… ${files.length - fs.length} more file${files.length - fs.length === 1 ? "" : "s"}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:1100px" role="img" aria-label="File collision graph">${edges.join("")}${sessNodes.join("")}${fileNodes.join("")}${more}</svg>`;
+}
+
+window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort, bipartite };

@@ -9,6 +9,7 @@ export * from "./dispatch";
 export * from "./dryrun";
 export * from "./forge";
 export * from "./gates";
+export * from "./graphs";
 export * from "./ledger";
 export * from "./lessons";
 export * from "./memory";

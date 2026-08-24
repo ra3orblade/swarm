@@ -8,7 +8,7 @@ Three doors into the same state: the **dashboard** (for the human watching), the
 
 This document is the spec; the wireframes below describe where the product is going. What exists now:
 
-- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline · Work: Board / PRs · Insight: Outcomes / Spend / Stats / Search · Guard: Incidents — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
+- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs · Insight: Outcomes / Spend / Stats / Search · Guard: Incidents — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
 - **Board** = a KPI strip (live / held / worktrees / ready or projects / incidents) + Tasks as a kanban (Ready · In progress · Blocked · Done) + Dispatch + Gates + Processes + Resources + Claims + a Worktree map (one tile per worktree, grouped by project, colored by live / dirty / unpushed / merged) + Incidents. Tasks and Worktrees carry a Cards/Table toggle (persisted). Every row, card and tile has one menu — the hover kebab, right-click, or Enter when focused — instead of inline action links; the menu carries the row's actions (open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy …) with destructive ones last and confirmed. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.
 - **Not yet**: the full keyboard map (`g f`, `j/k`, `?`), the permission-broker Allow/Deny on Fleet rows, the Settings page. The ⌘K palette shipped with M9.1. The Session input box exists for spawned runs (M3.3).
 - **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves.
@@ -42,7 +42,7 @@ Local web app served by the daemon at `http://localhost:<port>` (opened by `swar
 └───────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **View nav lives in the sidebar, grouped** (M9.1): Observe (Fleet, Timeline) · Work (Board, PRs) · Insight (Outcomes, Spend, Stats, Search) · Guard (Incidents, with unacked count). Views are declared once in a registry (`VIEW_DEFS` in `app.js`: id, label, icon, group, render, badge) — the nav, render dispatch, deep links and the palette all derive from it, so adding a view is one entry plus its render function. The header holds only chrome: logo, today's spend, daemon health, palette, feedback, settings.
+- **View nav lives in the sidebar, grouped** (M9.1): Observe (Fleet, Timeline, Graphs) · Work (Board, PRs) · Insight (Outcomes, Spend, Stats, Search) · Guard (Incidents, with unacked count). Views are declared once in a registry (`VIEW_DEFS` in `app.js`: id, label, icon, group, render, badge) — the nav, render dispatch, deep links and the palette all derive from it, so adding a view is one entry plus its render function. The header holds only chrome: logo, today's spend, daemon health, palette, feedback, settings.
 - Below the nav: registered projects with live-session count and a coloured dot (● live, ○ idle). "Unpinned" groups sessions seen in unregistered folders; one click promotes to registered.
 - Collapsing the sidebar leaves an **icon rail** — every view stays one click away; projects are reached through the palette.
 - **⌘K palette**: jump to any view, project or live session; anything else falls through to a full Search of Swarm's memory (handoffs, incidents, gates, prompts).
@@ -304,6 +304,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/health` | liveness + version |
 | `GET /v1/state` | the dashboard snapshot: projects, sessions, claims, worktrees, resources, incidents, spend rollups |
 | `GET /v1/stats?project=` | Stats view numbers (`swarm stats`) |
+| `GET /v1/graphs/collisions?project=` | Live file-collision graph (M9.12): live sessions × touched files, contested flags |
 | `GET /v1/outcomes?project=` | Outcomes (M9.2): branch → PR → merged/reverted join + per-model/agent scorecards |
 | `GET /v1/projects` · `POST /v1/projects` · `PATCH /v1/projects/:id` · `DELETE /v1/projects/:id` | register (pin) / unpin a project; `PATCH` takes `{name?, pinned?, icon?, color?}` — **project settings** (sidebar menu → Settings…): `icon` is an emoji / ≤ 4-char glyph, or a small image as a `data:image/png` URL (the drawer downsizes any image file to 64 px; ≤ 24 KB), shown instead of the folder icon, `color` a categorical slot `c1`…`c7` (a design token) tinting the project glyph everywhere; `POST` with `{path}` is idempotent and returns the project id |
 | `PUT /v1/projects/order` | `{ids}` in sidebar order — persists the manual order of pinned projects (`order`; unordered ones follow alphabetically) |
