@@ -1718,8 +1718,11 @@ document.addEventListener("contextmenu", (ev) => {
 });
 
 // ---------- events
+// Every id / data-attr a branch below matches on MUST be in this selector, or the branch is
+// unreachable (closest() returns null and the click dies silently) — that is how Replay,
+// Resume-where-it-died and the dry-run Re-run button all shipped dead.
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
