@@ -161,7 +161,7 @@ function timeline(sessions, { from, to, projName, now = Date.now(), detail = nul
     // M5.7: claim & lease overlay — one thin lane per project when any claim overlaps the window
     const spans = (detail?.claims ?? []).filter((c) => c.projectId === pid && new Date(c.expiresAt).getTime() >= from && new Date(c.acquiredAt).getTime() <= to);
     const lane = spans.length
-      ? `<div class="tl-row lane"><span class="tl-name dim">claims</span><span class="tl-track">${gridLines}${spans
+      ? `<div class="tl-row claimlane"><span class="tl-name dim">claims</span><span class="tl-track">${gridLines}${spans
           .map((c) => {
             const a = Math.max(from, new Date(c.acquiredAt).getTime());
             const b = Math.min(to, new Date(c.expiresAt).getTime());
