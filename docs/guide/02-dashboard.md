@@ -4,7 +4,9 @@ Status: current
 
 The dashboard is served by the daemon at `http://127.0.0.1:7777` (or whatever URL `swarm ui` prints). It updates live over a server-sent event stream; the dot next to the daemon name in the header turns on when the stream is connected. The header also shows **Today** — what every agent on the machine has cost so far today.
 
-Six views sit in the header: **Fleet**, **Board**, **PRs**, **Timeline**, **Spend**, **Stats**. Your last view and the selected project are remembered across reloads.
+The views live at the top of the sidebar, in four groups: **Observe** (Fleet, Timeline), **Work** (Board, PRs), **Insight** (Spend, Stats, Search) and **Guard** (Incidents, with a count of unacknowledged ones). Your last view and the selected project are remembered across reloads.
+
+Press **⌘K** (or Ctrl+K, or the magnifier in the header) for the palette: type a few letters to jump to any view, project or live session, or press Enter on *Search Swarm for …* to run a full search over Swarm's memory — handoffs, incidents, gates, what sessions said.
 
 ## Project sidebar
 
@@ -17,7 +19,7 @@ The `+` in the header offers *Browse folders…* (a folder picker that marks git
 
 A project is identified by its git repository, so every worktree of the same repo counts as one project. Two different repos with the same folder name are disambiguated with their parent folder.
 
-The sidebar collapses with the arrow button at its bottom; that, the theme and every grid layout are remembered in the browser.
+The sidebar collapses to an icon rail with the arrow button in the header — the views stay one click away, and projects are a ⌘K away. That, the theme and every grid layout are remembered in the browser.
 
 ## Fleet
 
