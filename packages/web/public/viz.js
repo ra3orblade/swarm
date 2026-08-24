@@ -131,7 +131,7 @@ function turnStripRender(turns, height) {
  * Session lanes over a time window. sessions: [{id,title,agent,projectId,startedAt,lastSeenAt,state,costUsd}]
  * One row per session, grouped by project; bar from start to last-seen, coloured by agent.
  */
-function timeline(sessions, { from, to, projName, now = Date.now() } = {}) {
+function timeline(sessions, { from, to, projName, now = Date.now(), detail = null } = {}) {
   const span = Math.max(1, to - from);
   const x = (t) => Math.min(100, Math.max(0, (100 * (t - from)) / span));
   const byProj = new Map();
@@ -150,10 +150,27 @@ function timeline(sessions, { from, to, projName, now = Date.now() } = {}) {
         const b = Math.min(to, new Date(s.lastSeenAt).getTime());
         const live = s.state === "active" || s.state === "waiting";
         const tip = `<b>${attr(s.title ?? s.id.slice(0, 8))}</b><br><i style="background:${agentColor(s.agent)}"></i>${agentName(s.agent)} · ${s.state}<br>${hm(s.startedAt)} → ${hm(s.lastSeenAt)} · ${fmtUsd(s.costUsd)} · ${s.turns} turns`;
-        return `<div class="tl-row" data-s="${s.id}"><span class="tl-name">${attr(s.title ?? s.id.slice(0, 8))}</span><span class="tl-track">${gridLines}<i data-tip="${attr(tip)}" class="${live ? "live" : ""}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%;background:${agentColor(s.agent)};color:${agentColor(s.agent)}"></i></span></div>`;
+        // M5.7: with per-turn timestamps the bar is a faint base + a tick per turn — the blank
+        // stretches between ticks are the idle gaps, visible instead of painted over.
+        const ts = (detail?.turns?.[s.id] ?? []).filter((t) => t >= a && t <= b);
+        const ticks = ts.map((t) => `<u style="left:${x(t)}%;background:${agentColor(s.agent)}"></u>`).join("");
+        const barCls = `${live ? "live" : ""}${ts.length ? " thin" : ""}`;
+        return `<div class="tl-row" data-s="${s.id}"><span class="tl-name">${attr(s.title ?? s.id.slice(0, 8))}</span><span class="tl-track">${gridLines}<i data-tip="${attr(tip)}" class="${barCls}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%;background:${agentColor(s.agent)};color:${agentColor(s.agent)}"></i>${ticks}</span></div>`;
       })
       .join("");
-    return `<div class="tl-group"><div class="tl-proj">${attr(projName(pid))}<small>${list.length}</small></div>${rows}</div>`;
+    // M5.7: claim & lease overlay — one thin lane per project when any claim overlaps the window
+    const spans = (detail?.claims ?? []).filter((c) => c.projectId === pid && new Date(c.expiresAt).getTime() >= from && new Date(c.acquiredAt).getTime() <= to);
+    const lane = spans.length
+      ? `<div class="tl-row lane"><span class="tl-name dim">claims</span><span class="tl-track">${gridLines}${spans
+          .map((c) => {
+            const a = Math.max(from, new Date(c.acquiredAt).getTime());
+            const b = Math.min(to, new Date(c.expiresAt).getTime());
+            const tip = `<b>${attr(c.task)}</b><br>${c.state} · ${attr(c.owner || "?")}<br>lease ${hm(c.acquiredAt)} → ${hm(c.expiresAt)}`;
+            return `<i data-tip="${attr(tip)}" class="claim ${c.state}" style="left:${x(a)}%;width:${Math.max(0.4, x(b) - x(a))}%"></i>`;
+          })
+          .join("")}</span></div>`
+      : "";
+    return `<div class="tl-group"><div class="tl-proj">${attr(projName(pid))}<small>${list.length}</small></div>${lane}${rows}</div>`;
   });
   return `<div class="tl"><div class="tl-row head"><span class="tl-name"></span><span class="tl-track">${axis}${nowLine}</span></div>${groups.join("")}</div>`;
 }

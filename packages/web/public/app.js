@@ -261,6 +261,12 @@ function liveCounts() {
   for (const s of state.sessions) if (isLive(s)) { m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); m.set("", (m.get("") ?? 0) + 1); }
   return m;
 }
+// M5.7: 14-day spend sparkline per pinned project; hidden when the fortnight cost is ~zero.
+function spendSpark(pid) {
+  const pts = state.spendSparks?.[pid];
+  if (!pts || pts.reduce((a, b) => a + b, 0) < 0.5) return "";
+  return `<span class="proj-spark" title="last 14 days · $${pts.reduce((a, b) => a + b, 0).toFixed(0)}">${viz.sparkline(pts, "var(--c1)")}</span>`;
+}
 function renderProjects() {
   const lc = liveCounts();
   const live = (pid) => lc.get(pid) ?? 0;
@@ -277,7 +283,7 @@ function renderProjects() {
   const row = (p) => {
     const act = `<span class="act more" data-menu="project" data-pid="${p.id}" title="Project actions">${ic("dots-three", 15)}</span>`;
     return `<div class="proj ${state.sel === p.id ? "sel" : ""}" data-id="${p.id}" data-ctx="project" data-pid="${p.id}" title="${esc(p.root)}"${p.discovered ? "" : ' draggable="true"'}>
-      <span class="st ${live(p.id) ? "live" : ""}"></span>${projGlyph(p)}<span class="nm">${disamb(p)}${esc(p.name)}</span><small>${live(p.id) || ""}</small>${act}</div>`;
+      <span class="st ${live(p.id) ? "live" : ""}"></span>${projGlyph(p)}<span class="nm">${disamb(p)}${esc(p.name)}</span>${spendSpark(p.id)}<small>${live(p.id) || ""}</small>${act}</div>`;
   };
   const liveAll = live("");
   $("#projects").innerHTML =
@@ -647,7 +653,13 @@ function renderGates() {
     { key: "evidence", label: "evidence", width: 220, get: (r) => r.evidence ?? "", cell: (r) => (r.evidence ? `<span class="dim now" title="${esc(r.evidence)}">${esc(r.evidence)}</span>` : '<span class="dim">—</span>') },
     { key: "session", label: "session", width: 140, get: (r) => sess(r.sessionId)?.title ?? "", cell: (r) => (r.sessionId ? `<a href="#" data-s="${r.sessionId}">${esc(sess(r.sessionId)?.title ?? r.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
   ];
-  return `<h2 class="mt-sec">Recent gates <span>${runs.length} run${runs.length === 1 ? "" : "s"}${required.length ? ` · required: ${required.map(esc).join(", ")}` : ""} · latest run per gate decides</span></h2>` +
+  const history = (gate) => {
+    const rs = runs.filter((r) => r.gate === gate).slice(0, 12).reverse();
+    if (!rs.length) return "";
+    return `<span class="gh" title="${esc(gate)} — last ${rs.length} run${rs.length === 1 ? "" : "s"}, oldest first">${esc(gate)} ${rs.map((r) => `<i class="${r.verdict === "pass" ? "ok" : "bad"}" title="${esc(r.rubric)}"></i>`).join("")}</span>`;
+  };
+  const gateNames = [...new Set(runs.map((r) => r.gate))];
+  return `<h2 class="mt-sec">Recent gates <span>${runs.length} run${runs.length === 1 ? "" : "s"}${required.length ? ` · required: ${required.map(esc).join(", ")}` : ""} · latest run per gate decides</span>${gateNames.length ? `<span class="grow"></span><span class="gh-strip">${gateNames.map(history).join("")}</span>` : ""}</h2>` +
     (runs.length
       ? dataTable({
           id: "gates",
@@ -1110,7 +1122,22 @@ function renderStats() {
 }
 
 // ---------- timeline
+let tlDetail = { key: "", data: null, busy: false };
+async function loadTimelineDetail() {
+  const hours = state.tlHours ?? 12;
+  const key = `${hours}:${state.sel ?? ""}`;
+  if (tlDetail.busy || (tlDetail.key === key && tlDetail.at && Date.now() - tlDetail.at < 15_000)) return;
+  tlDetail.busy = true;
+  try {
+    const q = new URLSearchParams({ hours: String(hours) });
+    if (state.sel) q.set("project", state.sel);
+    const data = await (await fetch(`/v1/timeline?${q}`)).json();
+    tlDetail = { key, at: Date.now(), data, busy: false };
+    if (state.view === "timeline" && !state.session) touch();
+  } finally { tlDetail.busy = false; }
+}
 function renderTimeline() {
+  loadTimelineDetail();
   const now = Date.now();
   const hours = state.tlHours ?? 12;
   const from = now - hours * 3.6e6, to = now + 0.25 * 3.6e6;
@@ -1119,7 +1146,7 @@ function renderTimeline() {
   const chip = (h) => `<a href="#" class="nav ${hours === h ? "on" : ""}" data-tl="${h}">${h}h</a>`;
   $("#main").innerHTML =
     `<h2>Timeline <span>${rows.length} sessions · last ${hours}h · ${usd(sumBy(rows, (s) => s.costUsd))}</span><span style="margin-left:auto;display:flex;gap:2px">${[3, 6, 12, 24, 72].map(chip).join("")}</span></h2>
-     ${rows.length ? viz.timeline(rows, { from, to, projName, now }) : `<div class="empty">${PX.clock()}No sessions in the last ${hours}h.</div>`}
+     ${rows.length ? viz.timeline(rows, { from, to, projName, now, detail: tlDetail.key === `${hours}:${state.sel ?? ""}` ? tlDetail.data : null }) : `<div class="empty">${PX.clock()}No sessions in the last ${hours}h.</div>`}
      ${agents.length ? `<div style="margin-top:10px">${viz.legend(agents)}</div>` : ""}`;
 }
 

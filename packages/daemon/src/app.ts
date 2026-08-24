@@ -464,6 +464,12 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     const r = workflows.stop(b.projectId, b.task);
     return c.json(r, r.ok ? 200 : 404);
   });
+  // M5.7: timeline detail — activity ticks + claim spans
+  app.get("/v1/timeline", (c) =>
+    c.json(
+      store.timelineDetail(Number(c.req.query("hours")) || 12, c.req.query("project") || null),
+    ),
+  );
   // ---- messages (M7.6)
   app.get("/v1/messages", (c) =>
     c.json(

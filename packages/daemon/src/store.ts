@@ -4527,6 +4527,59 @@ export class Store {
     ).seq;
   }
 
+  /**
+   * M5.7 Timeline detail: per-session turn timestamps (activity ticks; the gaps between them are
+   * the idle stretches) and claim spans in the window. Sized for drawing, not analysis.
+   */
+  timelineDetail(hours: number, projectId?: string | null) {
+    const from = new Date(Date.now() - Math.min(Math.max(hours, 1), 168) * 3.6e6).toISOString();
+    const args: string[] = [from];
+    let filter = "";
+    if (projectId) {
+      filter = " AND s.project_id = ?";
+      args.push(projectId);
+    }
+    const rows = this.db
+      .query(
+        `SELECT t.session_id AS sid, t.ts FROM turns t JOIN sessions s ON s.id = t.session_id
+         WHERE t.ts >= ? AND t.sidechain = 0${filter} ORDER BY t.ts LIMIT 20000`,
+      )
+      .all(...args) as Array<{ sid: string; ts: string }>;
+    const turns: Record<string, number[]> = {};
+    for (const r of rows) (turns[r.sid] ??= []).push(new Date(r.ts).getTime());
+    const claims = this.claims()
+      .filter((c) => (!projectId || c.projectId === projectId) && c.state !== "released")
+      .map((c) => ({
+        projectId: c.projectId,
+        task: c.task,
+        owner: c.owner,
+        state: c.state,
+        acquiredAt: c.acquiredAt,
+        expiresAt: c.expiresAt,
+      }));
+    return { turns, claims };
+  }
+
+  /** 14-day daily cost per project for the sidebar sparklines; memoised with the snapshot. */
+  private spendSparks(): Record<string, number[]> {
+    const from = localDayIso(-13);
+    const rows = this.db
+      .query(
+        `SELECT s.project_id AS pid, substr(t.ts, 1, 10) AS day, SUM(t.cost_usd) AS usd
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts >= ? GROUP BY pid, day`,
+      )
+      .all(from) as Array<{ pid: string; day: string; usd: number }>;
+    const days: string[] = [];
+    for (let i = 13; i >= 0; i--) days.push(localDayIso(-i).slice(0, 10));
+    const out: Record<string, number[]> = {};
+    for (const r of rows) {
+      const arr = (out[r.pid] ??= new Array(14).fill(0));
+      const i = days.indexOf(r.day);
+      if (i >= 0) arr[i] = (arr[i] ?? 0) + (r.usd ?? 0);
+    }
+    return out;
+  }
+
   snapshot() {
     const worktrees: Record<string, Worktree[]> = {};
     // Auto-discovered repos under the OS temp dir are test fixtures and scratch clones (spawned
@@ -4539,6 +4592,7 @@ export class Store {
       // sessions/spend/incidents only change on writes; `ago`-style fields are computed client-side
       sessions: this.memoised("sessions", 2000, () => this.sessions()),
       spend: this.memoised("spend", 30_000, () => this.spend()),
+      spendSparks: this.memoised("spendSparks", 60_000, () => this.spendSparks()),
       claims: this.claims(),
       processes: this.memoised("processes", 5000, () => this.processes()),
       incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),
@@ -4695,4 +4749,12 @@ function rowToWorkflowRun(r: Record<string, unknown>): WorkflowRunRow {
     updatedAt: r.updated_at as string,
     endedAt: (r.ended_at as string) ?? null,
   };
+}
+
+/** ISO timestamp for local midnight `offsetDays` from today (negative = past). */
+function localDayIso(offsetDays: number): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString();
 }
