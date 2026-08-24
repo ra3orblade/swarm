@@ -236,6 +236,12 @@ CREATE TABLE IF NOT EXISTS messages (
   answer TEXT, answered_by TEXT, answered_at TEXT, delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_open ON messages(project_id, answered_at, delivered_at);
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, workflow TEXT,
+  step INTEGER, step_label TEXT, steps TEXT, state TEXT, detail TEXT, run_id TEXT,
+  started_at TEXT, updated_at TEXT, ended_at TEXT, actor_kind TEXT, actor_id TEXT
+);
+CREATE INDEX IF NOT EXISTS workflow_runs_proj ON workflow_runs(project_id, id);
 CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
@@ -1108,6 +1114,103 @@ export class Store {
     ];
     const out = parts.filter(Boolean);
     return out.length ? out.join("\n") : null;
+  }
+
+  // ---------- M7.8 workflow runs (state rows the engine advances; OQ-13)
+
+  wfInsert(
+    projectId: string,
+    task: string,
+    workflow: string,
+    steps: string[],
+    actor: Actor,
+  ): number {
+    const now = new Date().toISOString();
+    const r = this.db
+      .query(
+        `INSERT INTO workflow_runs (project_id, task, workflow, step, step_label, steps, state, started_at, updated_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, 0, ?, ?, 'running', ?, ?, ?, ?)`,
+      )
+      .run(
+        projectId,
+        task,
+        workflow,
+        steps[0] ?? "",
+        JSON.stringify(steps),
+        now,
+        now,
+        actor.kind,
+        actor.id,
+      );
+    this.touch();
+    return Number(r.lastInsertRowid);
+  }
+
+  wfUpdate(
+    id: number,
+    patch: {
+      step?: number;
+      stepLabel?: string;
+      state?: string;
+      detail?: string | null;
+      runId?: string | null;
+      ended?: boolean;
+    },
+  ) {
+    const sets = ["updated_at = ?"];
+    const args: (string | number | null)[] = [new Date().toISOString()];
+    if (patch.step !== undefined) {
+      sets.push("step = ?");
+      args.push(patch.step);
+    }
+    if (patch.stepLabel !== undefined) {
+      sets.push("step_label = ?");
+      args.push(patch.stepLabel);
+    }
+    if (patch.state !== undefined) {
+      sets.push("state = ?");
+      args.push(patch.state);
+    }
+    if (patch.detail !== undefined) {
+      sets.push("detail = ?");
+      args.push(patch.detail);
+    }
+    if (patch.runId !== undefined) {
+      sets.push("run_id = ?");
+      args.push(patch.runId);
+    }
+    if (patch.ended) {
+      sets.push("ended_at = ?");
+      args.push(new Date().toISOString());
+    }
+    this.db.query(`UPDATE workflow_runs SET ${sets.join(", ")} WHERE id = ?`).run(...args, id);
+    this.touch();
+  }
+
+  wfRuns(projectId: string, limit = 50): WorkflowRunRow[] {
+    return (
+      this.db
+        .query("SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?")
+        .all(projectId, limit) as Record<string, unknown>[]
+    ).map(rowToWorkflowRun);
+  }
+
+  wfActive(projectId: string, task: string): WorkflowRunRow | null {
+    const r = this.db
+      .query(
+        "SELECT * FROM workflow_runs WHERE project_id = ? AND task = ? AND state = 'running' ORDER BY id DESC LIMIT 1",
+      )
+      .get(projectId, task) as Record<string, unknown> | null;
+    return r ? rowToWorkflowRun(r) : null;
+  }
+
+  /** Boot sweep: a daemon restart orphans in-flight workflows — say so instead of showing them live. */
+  wfSweepOrphans() {
+    this.db
+      .query(
+        "UPDATE workflow_runs SET state = 'stopped', detail = COALESCE(detail, 'daemon restarted mid-workflow'), ended_at = ? WHERE state = 'running'",
+      )
+      .run(new Date().toISOString());
   }
 
   // ---------- M7.6 agent messaging (kind = 'message' rows in the same table as questions)
@@ -4558,5 +4661,38 @@ function rowToMessage(r: Record<string, unknown>): Message {
     text: r.text as string,
     createdAt: r.created_at as string,
     deliveredAt: (r.delivered_at as string) ?? null,
+  };
+}
+
+export interface WorkflowRunRow {
+  id: number;
+  projectId: string;
+  task: string;
+  workflow: string;
+  step: number;
+  stepLabel: string;
+  steps: string[];
+  state: "running" | "done" | "failed" | "stopped";
+  detail: string | null;
+  runId: string | null;
+  startedAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+}
+function rowToWorkflowRun(r: Record<string, unknown>): WorkflowRunRow {
+  return {
+    id: r.id as number,
+    projectId: r.project_id as string,
+    task: r.task as string,
+    workflow: r.workflow as string,
+    step: r.step as number,
+    stepLabel: (r.step_label as string) ?? "",
+    steps: JSON.parse((r.steps as string) ?? "[]") as string[],
+    state: r.state as WorkflowRunRow["state"],
+    detail: (r.detail as string) ?? null,
+    runId: (r.run_id as string) ?? null,
+    startedAt: r.started_at as string,
+    updatedAt: r.updated_at as string,
+    endedAt: (r.ended_at as string) ?? null,
   };
 }

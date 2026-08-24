@@ -21,6 +21,7 @@ import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
+import { WorkflowEngine } from "./workflow";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.8.0";
 export { Store };
@@ -89,6 +90,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
   const dispatcher = new Dispatcher(store, runner, forge);
+  const workflows = new WorkflowEngine(store, runner, forge);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
   store.onBudgetStop((projectId) => {
     dispatcher.clear(projectId);
@@ -433,6 +435,35 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   app.get("/v1/inbox", (c) =>
     c.json(store.inbox(c.req.query("session") || null, { peek: c.req.query("peek") === "1" })),
   );
+  // ---- workflows (M7.8)
+  app.get("/v1/workflows", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project required" }, 400);
+    return c.json({ defs: store.config(project).workflows, runs: workflows.status(project) });
+  });
+  app.post("/v1/workflows", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      task?: string;
+      workflow?: string;
+      owner?: string;
+      sessionId?: string | null;
+    };
+    if (!b.projectId || !b.task || !b.workflow)
+      return c.json({ ok: false, error: "projectId, task, workflow required" }, 400);
+    const r = workflows.start(b.projectId, b.task, b.workflow, {
+      ...(b.owner ? { owner: b.owner } : {}),
+      sessionId: b.sessionId ?? null,
+    });
+    return c.json(r, r.ok ? 201 : 409);
+  });
+  app.post("/v1/workflows/stop", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; task?: string };
+    if (!b.projectId || !b.task)
+      return c.json({ ok: false, error: "projectId and task required" }, 400);
+    const r = workflows.stop(b.projectId, b.task);
+    return c.json(r, r.ok ? 200 : 404);
+  });
   // ---- messages (M7.6)
   app.get("/v1/messages", (c) =>
     c.json(
@@ -907,5 +938,5 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     });
   });
 
-  return { app, store, forge, runner, dispatcher };
+  return { app, store, forge, runner, dispatcher, workflows };
 }

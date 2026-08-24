@@ -111,6 +111,16 @@ ports = []                # e.g. [3000, 5432, 7777]
 # model = "sonnet"      # optional
 # timeout = 600         # default for builtins
 
+# Workflows (M7.8): a declared step sequence the daemon advances per task. Each step is a spawned
+# run (its name may have a prompt template — {task}/{title} substituted; otherwise a default that
+# tells the agent which steps the workflow itself runs), an executed gate (`gate:<name>`), or the
+# built-in `pr` (push + open the PR prefilled from the ledger). A failed step stops the workflow
+# with a workflow_failed incident. Start: `swarm workflow ship <task>`; watch: Board → Workflows.
+# [[workflows]]
+# name = "ship"
+# steps = ["implement", "gate:tests", "gate:review", "pr"]
+# prompts = { implement = "Task {task}: {title}. Work only in this worktree; commit as you go." }
+
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
 # tables are the task list. Feeds the Board's Tasks section, `swarm tasks` and `swarm_next_task`.

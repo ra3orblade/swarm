@@ -65,6 +65,7 @@ const help = `swarm — control plane for AI-agent development
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
+  workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
   msg send <to> <text…> [-p]    message a session id, a task's holder, or "lead" (M7.6)
   msg ls [-p] [--json]          recent messages
   audit export [--since 30d|ISO] [-p] [--type claim.acquired] [--format jsonl|csv|json] [--limit n]   the audit log (ledger changes + decisions, with actor) to stdout
@@ -1004,6 +1005,67 @@ try {
           console.log(
             `${h.kind.padEnd(8)} ${h.ts.slice(0, 16).replace("T", " ")}  ${h.title}${h.task ? `  [${h.task}]` : ""}\n         ${h.snippet.split("\u0001").join("").split("\u0002").join("").replace(/\s+/g, " ")}${h.sessionId ? `\n         session ${h.sessionId}` : ""}`,
           );
+      break;
+    }
+    case "workflow": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      if (rest[0] === "ls" || !rest[0]) {
+        const w = (await api(`/v1/workflows?project=${proj.id}`)) as {
+          defs: Record<string, { steps: unknown[] }>;
+          runs: Array<{
+            id: number;
+            task: string;
+            workflow: string;
+            step: number;
+            stepLabel: string;
+            steps: string[];
+            state: string;
+            detail: string | null;
+          }>;
+        };
+        const names = Object.keys(w.defs);
+        console.log(
+          names.length
+            ? `declared: ${names.join(", ")}`
+            : "no [[workflows]] declared in .swarm.toml",
+        );
+        for (const r of w.runs.slice(0, 20))
+          console.log(
+            `#${r.id} ${r.task} · ${r.workflow} · ${r.state === "running" ? `${r.stepLabel} (${r.step + 1}/${r.steps.length})` : r.state}${r.detail ? ` — ${r.detail.slice(0, 80)}` : ""}`,
+          );
+        break;
+      }
+      if (rest[0] === "stop") {
+        const task = rest[1];
+        if (!task) throw new Error("usage: swarm workflow stop <task>");
+        const r = (await api("/v1/workflows/stop", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: proj.id, task }),
+        })) as { ok: boolean; error?: string };
+        if (!r.ok) throw new Error(r.error ?? "stop failed");
+        console.log(`stopped the workflow on ${task}`);
+        break;
+      }
+      const [name, task] = rest;
+      if (!name || !task) throw new Error("usage: swarm workflow <name> <task>");
+      const r = (await api("/v1/workflows", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: proj.id,
+          task,
+          workflow: name,
+          owner: process.env.USER ?? "cli",
+        }),
+      })) as { ok: boolean; id?: number; error?: string };
+      if (!r.ok) throw new Error(r.error ?? "workflow failed to start");
+      console.log(`workflow ${name} started on ${task} (#${r.id}) — watch the Board`);
       break;
     }
     case "msg": {

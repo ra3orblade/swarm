@@ -519,6 +519,12 @@
   .seg a:hover{color:var(--fg-2)}
   .seg a.on{background:var(--acc-soft);color:var(--acc)}
   .chip b{font-weight:700}
+  /* workflow step chips (M7.8) */
+  .wf-steps{display:inline-flex;gap:6px;flex-wrap:wrap}
+  .wfs{font:500 var(--fs-sm) var(--sans);color:var(--dim);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px;white-space:nowrap}
+  .wfs.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+  .wfs.run{color:var(--acc);background:var(--acc-soft);border-color:transparent}
+  .wfs.bad{color:var(--warn);background:var(--warn-soft);border-color:transparent}
   /* session message thread (M7.6) */
   .msgs{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;margin-bottom:8px}
   .msg{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 9px;font-size:var(--fs-md);color:var(--fg-2);word-break:break-word}

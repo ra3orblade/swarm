@@ -187,13 +187,14 @@ async function refresh() {
   }
   let tasksChanged = false;
   if (state.view === "board" && state.sel && !state.session) {
-    const [t, g, d] = await Promise.all([
+    const [t, g, d, wf] = await Promise.all([
       fetch(`/v1/tasks?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.tasks),
       fetch(`/v1/gates?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.gates),
       fetch(`/v1/dispatch?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.dispatch),
+      fetch(`/v1/workflows?project=${encodeURIComponent(state.sel)}`).then((r) => r.json()).catch(() => state.workflows),
     ]);
-    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks) || JSON.stringify(g) !== JSON.stringify(state.gates) || JSON.stringify(d) !== JSON.stringify(state.dispatch);
-    state.tasks = t; state.gates = g; state.dispatch = d;
+    tasksChanged = JSON.stringify(t) !== JSON.stringify(state.tasks) || JSON.stringify(g) !== JSON.stringify(state.gates) || JSON.stringify(d) !== JSON.stringify(state.dispatch) || JSON.stringify(wf) !== JSON.stringify(state.workflows);
+    state.tasks = t; state.gates = g; state.dispatch = d; state.workflows = wf;
   }
   let incChanged = false;
   if (state.view === "incidents" && !state.session) {
@@ -449,7 +450,7 @@ function renderBoardKpis() {
 }
 
 function renderBoard() {
-  const parts = [renderBoardKpis(), renderTasks(), renderDispatch(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
+  const parts = [renderBoardKpis(), renderTasks(), renderDispatch(), renderWorkflowRuns(), renderGates(), renderProcesses(), renderResources(), renderClaims(), renderWorktrees(), renderIncidents()].filter(Boolean);
   $("#main").innerHTML = parts.length
     ? parts.join("").replace(/^(<div class="kpis[^>]*>[\s\S]*?<\/div><\/div>|)(<h2) class="mt-sec"/, "$1$2") // first section needs no top gap
     : `<div class="empty">${PX.idle()}Nothing on the board.<br>Tasks, processes, claims, worktrees, and incidents appear here.</div>`;
@@ -789,6 +790,37 @@ function renderWorktrees() {
       rowAttrs: (w) => `data-ctx="worktree" data-pid="${esc(w.projectId)}" data-path="${esc(w.path)}"`,
       rerender: touch,
     }));
+}
+
+// ---------- workflows (M7.8)
+function renderWorkflowRuns() {
+  const w = state.workflows;
+  if (!state.sel || !w?.runs?.length) return "";
+  const chip = (r, i) => {
+    const label = esc(r.steps[i]);
+    if (i < r.step || (r.state === "done" && i <= r.step)) return `<span class="wfs ok" title="${label}">✓ ${label}</span>`;
+    if (i === r.step) return r.state === "running" ? `<span class="wfs run" title="${label}">● ${label}</span>` : r.state === "failed" ? `<span class="wfs bad" title="${label}">✗ ${label}</span>` : `<span class="wfs" title="${label}">◦ ${label}</span>`;
+    return `<span class="wfs" title="${label}">○ ${label}</span>`;
+  };
+  const badge = (r) => r.state === "running" ? '<span class="badge acc">Running</span>' : r.state === "done" ? '<span class="badge ok">Done</span>' : r.state === "failed" ? '<span class="badge warn">Failed</span>' : '<span class="badge">Stopped</span>';
+  const cols = [
+    { key: "task", label: "task", width: 90, get: (r) => r.task, cell: (r) => `<b>${esc(r.task)}</b>` },
+    { key: "workflow", label: "workflow", width: 100, get: (r) => r.workflow, cell: (r) => `<span class="br">${esc(r.workflow)}</span>` },
+    { key: "steps", label: "steps", flex: true, sortable: false, get: (r) => r.step, cell: (r) => `<span class="wf-steps">${r.steps.map((_, i) => chip(r, i)).join("")}</span>` },
+    { key: "state", label: "state", width: 90, get: (r) => r.state, cell: badge },
+    { key: "detail", label: "detail", width: 260, get: (r) => r.detail ?? "", cell: (r) => `<span class="dim now" title="${esc(r.detail ?? "")}">${esc(r.detail ?? "")}</span>` },
+    { key: "when", label: "updated", width: 76, get: (r) => r.updatedAt, cell: (r) => `<span class="dim">${ago(r.updatedAt)}</span>` },
+  ];
+  const running = w.runs.filter((r) => r.state === "running").length;
+  return `<h2 class="mt-sec">Workflows <span>${running ? `${running} running · ` : ""}${Object.keys(w.defs ?? {}).map(esc).join(", ") || "none declared"}</span></h2>` +
+    dataTable({
+      id: "workflows",
+      columns: cols,
+      rows: w.runs.slice(0, 20),
+      leading: { width: 24, cell: (r) => `<span class="s ${r.state === "running" ? "active" : r.state === "failed" ? "waiting" : "ended"}"></span>` },
+      trailing: { width: 60, cell: (r) => (r.state === "running" ? `<a href="#" data-wfstop="${esc(r.task)}">Stop</a>` : "") },
+      rerender: touch,
+    });
 }
 
 // ---------- dispatch (M7.5)
@@ -1660,7 +1692,7 @@ document.addEventListener("contextmenu", (ev) => {
 
 // ---------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -1682,6 +1714,14 @@ document.addEventListener("click", async (ev) => {
     return refresh();
   }
   if (t.id === "psSave") { ev.preventDefault(); return saveProjectSettings(t.dataset.pid); }
+  if (t.dataset.wfstop !== undefined) {
+    ev.preventDefault();
+    if (!confirm(`Stop the workflow on ${t.dataset.wfstop}? A live step's run is stopped too.`)) return;
+    const r = await post("/v1/workflows/stop", { projectId: state.sel, task: t.dataset.wfstop });
+    if (!r.ok) alert(r.error);
+    state.workflows = null;
+    return refresh();
+  }
   if (t.dataset.bmode) { ev.preventDefault(); const [k, v] = t.dataset.bmode.split(":"); localStorage.setItem(`swarm.board.${k}`, v); return touch(); }
   if (t.dataset.run) { ev.preventDefault(); return openRunDrawer(t.dataset.run); }
   if (t.dataset.runstop) {
@@ -2080,7 +2120,7 @@ function connect() {
     if (fresh) notifyForEvent(ev);
     pollSoon();
   };
-  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "message.sent", "dispatch.queued", "dispatch.started", "dispatch.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
+  for (const t of ["session.started", "session.ended", "prompt.submitted", "tool.requested", "tool.completed", "subagent.started", "subagent.stopped", "agent.text", "session.notification", "incident.opened", "claim.acquired", "claim.released", "resource.acquired", "resource.released", "resource.reaped", "process.started", "process.exited", "gate.recorded", "claim.orphaned", "claim.renewed", "worktree.bootstrapped", "worktree.created", "worktree.removed", "pr.opened", "question.asked", "question.answered", "message.sent", "dispatch.queued", "dispatch.started", "dispatch.finished", "workflow.started", "workflow.step", "workflow.finished", "permission.requested", "permission.resolved"]) es.addEventListener(t, onAny);
 }
 refresh().then(() => {
   const sid = new URLSearchParams(location.search).get("session");
