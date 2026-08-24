@@ -57,15 +57,15 @@ export function detectStall(
 ): Stall | null {
   const o = { ...STALL_DEFAULTS, ...opts };
   const tail = calls.slice(-o.window);
-  if (tail.length === 0) return null;
+  const last = tail.at(-1);
+  if (!last) return null;
 
   // Repeat loop: the run of identical (tool, input) calls at the very end, mostly failing.
-  const last = tail[tail.length - 1];
   let run = 0;
   let runErrors = 0;
   for (let i = tail.length - 1; i >= 0; i--) {
     const c = tail[i];
-    if (c.tool !== last.tool || c.input !== last.input) break;
+    if (!c || c.tool !== last.tool || c.input !== last.input) break;
     run++;
     if (c.errored) runErrors++;
   }
@@ -74,7 +74,7 @@ export function detectStall(
 
   // Error streak: everything at the tail failing, regardless of what was tried.
   let streak = 0;
-  for (let i = tail.length - 1; i >= 0 && tail[i].errored; i--) streak++;
+  for (let i = tail.length - 1; i >= 0 && tail[i]?.errored; i--) streak++;
   if (streak >= o.errors)
     return { kind: "errors", reason: `${streak} tool calls failing in a row` };
 

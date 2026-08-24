@@ -19,7 +19,9 @@ function toolCompleted(
   errored: boolean,
 ) {
   store.db
-    .query("INSERT INTO events (ts, type, project_id, session_id, payload) VALUES (?, 'tool.completed', ?, ?, ?)")
+    .query(
+      "INSERT INTO events (ts, type, project_id, session_id, payload) VALUES (?, 'tool.completed', ?, ?, ?)",
+    )
     .run(
       new Date().toISOString(),
       projectId,
@@ -37,7 +39,9 @@ describe("loop & stall detection (M9.3)", () => {
     const store = new Store(mkdtempSync(join(tmpdir(), "swarm-home-")));
     const p = { id: "p_test" };
     store.db
-      .query("INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES (?, '/r', '/r/.git', 'test', 0, ?)")
+      .query(
+        "INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES (?, '/r', '/r/.git', 'test', 0, ?)",
+      )
       .run(p.id, new Date().toISOString());
     liveSession(store, p.id, "s1");
 
@@ -52,7 +56,11 @@ describe("loop & stall detection (M9.3)", () => {
     const view = store.sessions().find((s) => s.id === "s1");
     expect(view?.stuck).toContain("Bash");
     const stuckEvents = () =>
-      (store.db.query("SELECT COUNT(*) AS n FROM events WHERE type = 'session.stuck'").get() as { n: number }).n;
+      (
+        store.db.query("SELECT COUNT(*) AS n FROM events WHERE type = 'session.stuck'").get() as {
+          n: number;
+        }
+      ).n;
     expect(stuckEvents()).toBe(1);
 
     // Still stuck on the next tick (deeper into the same loop) → no second event.
@@ -74,7 +82,9 @@ describe("loop & stall detection (M9.3)", () => {
   it("ignores ended sessions and repeated successes", () => {
     const store = new Store(mkdtempSync(join(tmpdir(), "swarm-home-")));
     store.db
-      .query("INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES ('p2', '/r', '/r/.git', 'test', 0, ?)")
+      .query(
+        "INSERT INTO projects (id, root, common_dir, name, discovered, created_at) VALUES ('p2', '/r', '/r/.git', 'test', 0, ?)",
+      )
       .run(new Date().toISOString());
     liveSession(store, "p2", "s2");
     // Polling git status forever is not a loop.
@@ -83,7 +93,9 @@ describe("loop & stall detection (M9.3)", () => {
 
     // An ended session is never judged, whatever its history says.
     for (let i = 0; i < 4; i++) toolCompleted(store, "p2", "s2", "bun x", true);
-    store.db.query("UPDATE sessions SET state = 'ended', ended_at = ? WHERE id = 's2'").run(new Date().toISOString());
+    store.db
+      .query("UPDATE sessions SET state = 'ended', ended_at = ? WHERE id = 's2'")
+      .run(new Date().toISOString());
     expect(store.checkStalls()).toBe(0);
   });
 });

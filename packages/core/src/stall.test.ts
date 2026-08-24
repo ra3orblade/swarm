@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { detectStall, toolResponseErrored } from "./stall";
 import type { ToolCallSample } from "./stall";
+import { detectStall, toolResponseErrored } from "./stall";
 
 const call = (tool: string, input: string, errored = false): ToolCallSample => ({
   tool,
