@@ -108,7 +108,14 @@ const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size,
 const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
 // pixel-art illustrations for empty states (crispEdges, theme-green; won't clash with icon packs)
 function pixmap(rows, cell = 6) {
-  const C = { X: "var(--acc)", g: "var(--c5,#7fb069)", d: "var(--c4,#2f7d4f)" };
+  // All three tones are derived from the accent, so they are guaranteed to separate in either
+  // theme. The old palette used --c4 for the shade, whose luminance in light mode (0.158) is
+  // indistinguishable from --acc's (0.160) — the outline simply vanished into the face.
+  const C = {
+    X: "var(--acc)",
+    g: "color-mix(in srgb, var(--acc) 45%, white)",
+    d: "color-mix(in srgb, var(--acc) 58%, black)",
+  };
   const w = Math.max(...rows.map((r) => r.length)) * cell;
   const h = rows.length * cell;
   let r = "";
@@ -121,16 +128,28 @@ function pixmap(rows, cell = 6) {
   return `<svg class="px" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${r}</svg>`;
 }
 const PX = {
+  // The palette carries three tones (accent / light / dark) and this used one, which is why it
+  // read as a flat blob. Outline, ear modules and features in `d`; face and body in `X`; antenna
+  // tips and the chest light in `g`. The body tapers rather than sitting under the head as a slab.
   idle: () => pixmap([
-    "   X  X   ",
-    "   X  X   ",
-    " XXXXXXXX ",
-    " XXXXXXXX ",
-    " X  XX  X ",
-    " XXXXXXXX ",
-    " XX    XX ",
-    " XXXXXXXX ",
-    "  X    X  ",
+    "    g     g    ",
+    "    X     X    ",
+    "    X     X    ",
+    "  ddddddddddd  ",
+    "  dXXXXXXXXXd  ",
+    "dddXXXXXXXXXddd",
+    "dddXddXXXddXddd",
+    "dddXddXXXddXddd",
+    "dddXXXXXXXXXddd",
+    "  dXdddddddXd  ",
+    "  dXXXXXXXXXd  ",
+    "  ddddddddddd  ",
+    "      XXX      ",
+    "  ddddddddddd  ",
+    " dddXXXXXXXddd ",
+    "dXXXXXgggXXXXXd",
+    "dXXXXXXXXXXXXXd",
+    "ddddddddddddddd",
   ]),
   folder: () => pixmap([
     " XXXX     ",
