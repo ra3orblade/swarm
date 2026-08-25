@@ -121,16 +121,22 @@ function pixmap(rows, cell = 6) {
   return `<svg class="px" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${r}</svg>`;
 }
 const PX = {
+  // The palette carries three tones (accent / light / dark) and this used one, which is why it
+  // read as a flat blob. Outline and features in `d`, face in `X`, antenna bulbs in `g`.
   idle: () => pixmap([
-    "   X  X   ",
-    "   X  X   ",
-    " XXXXXXXX ",
-    " XXXXXXXX ",
-    " X  XX  X ",
-    " XXXXXXXX ",
-    " XX    XX ",
-    " XXXXXXXX ",
-    "  X    X  ",
+    "  g     g  ",
+    "  X     X  ",
+    "  X     X  ",
+    " ddddddddd ",
+    " dXXXXXXXd ",
+    "ddXddXddXdd",
+    "ddXddXddXdd",
+    "ddXXXXXXXdd",
+    " dXdddddXd ",
+    " dXXXXXXXd ",
+    " ddddddddd ",
+    "    XXX    ",
+    "  XXXXXXX  ",
   ]),
   folder: () => pixmap([
     " XXXX     ",
