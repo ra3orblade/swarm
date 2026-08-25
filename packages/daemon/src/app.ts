@@ -11,6 +11,9 @@ import {
   type MemoryKind,
   type OutcomePR,
   outcomeReport,
+  type ProvenanceClaim,
+  type ProvenanceTask,
+  provenance,
   RULE_IDS,
   type RuleId,
   type SwarmEvent,
@@ -244,8 +247,8 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   );
   // M9.2 outcomes: did the work survive? Sessions (ledger) × PRs (forge, open + merged) ×
   // reverts (git log); the join and scorecards are `outcomeReport` in core.
-  app.get("/v1/outcomes", async (c) => {
-    const project = c.req.query("project") || undefined;
+  // Shared by /v1/outcomes and /v1/provenance so both read one join, not two that can drift.
+  const outcomesFor = async (project?: string) => {
     const sessions = store
       .snapshot()
       .sessions.filter((s) => !project || s.projectId === project)
@@ -276,7 +279,45 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
           mergedAt: null,
           mergeSha: null,
         });
-    return c.json(outcomeReport(sessions, prs, reverted));
+    return outcomeReport(sessions, prs, reverted);
+  };
+  app.get("/v1/outcomes", async (c) =>
+    c.json(await outcomesFor(c.req.query("project") || undefined)),
+  );
+
+  // M9.14 provenance: issue → task → claim → session → worktree → branch → PR → outcome. The
+  // branch→PR half is `outcomesFor` above; this adds the task board and the claim ledger in front
+  // of it. The useful output is the chains that stop early.
+  app.get("/v1/provenance", async (c) => {
+    const project = c.req.query("project") || undefined;
+    const { branches } = await outcomesFor(project);
+    const projects = store.projects().filter((p) => !project || p.id === project);
+    const tasks: ProvenanceTask[] = [];
+    // `Task` carries no issue URL today — the task source parses ids and titles, not links —
+    // so the chain starts at the task rather than pretending to a URL we do not have.
+    for (const p of projects)
+      for (const t of store.tasks(p.id)?.tasks ?? [])
+        tasks.push({ id: t.id, title: t.title, status: t.statusText, url: null });
+    const claims: ProvenanceClaim[] = store.claims(project).map((cl) => ({
+      task: cl.task,
+      sessionId: cl.sessionId,
+      owner: cl.owner || null,
+      worktree: cl.worktree || null,
+      branch: cl.branch || null,
+      acquiredAt: cl.acquiredAt,
+      state: cl.state,
+    }));
+    const sessions = store
+      .snapshot()
+      .sessions.filter((s) => !project || s.projectId === project)
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        agent: s.agent,
+        branch: s.branch,
+        costUsd: s.costUsd,
+      }));
+    return c.json(provenance(tasks, claims, sessions, branches));
   });
   // M4.5: memory search over Swarm's own data (handoffs, incidents, gates, session text).
   app.get("/v1/memory", (c) => {

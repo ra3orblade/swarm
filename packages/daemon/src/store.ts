@@ -3534,6 +3534,9 @@ export class Store {
       expiresAt: r.expires_at as string,
       releasedAt: (r.released_at as string) ?? null,
       state: r.state as string,
+      // The actor on a claim is the session when an agent took it (M8.2a); provenance (M9.14)
+      // needs that link to get from a task to the work that was done under it.
+      sessionId: r.actor_kind === "agent" ? ((r.actor_id as string) ?? null) : null,
     }));
     const now = Date.now();
     for (const c of rows)

@@ -291,6 +291,13 @@ async function refresh() {
     ctxChanged = JSON.stringify(cx) !== JSON.stringify(state.context);
     state.context = cx;
   }
+  let provChanged = false;
+  if (state.view === "provenance" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const pv = await fetch(`/v1/provenance${q}`).then((r) => r.json()).catch(() => state.provenance);
+    provChanged = JSON.stringify(pv) !== JSON.stringify(state.provenance);
+    state.provenance = pv;
+  }
   let mcpChanged = false;
   if (state.view === "mcp" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -312,7 +319,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -331,6 +338,7 @@ const VIEW_DEFS = [
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
+  { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard", render: () => renderProvenance(), badge: () => state.provenance?.totals?.untracked ?? 0 },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard", render: () => renderIncidentsView(), badge: () => state.openIncidents ?? 0 },
 ];
 const viewDef = (id) => VIEW_DEFS.find((v) => v.id === id);
@@ -1445,6 +1453,59 @@ function renderContext() {
          ${worst.length ? `<table class="mini"><thead><tr><th>session</th><th class="num">returned</th><th class="num">wasted</th><th class="num">share</th><th>worst files</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="dim">Nothing was read twice — no waste to report.</div>'}</div>
      </div>
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Character counts are exact — every tool response is stored. Token figures are a flat 4:1 estimate. <b>MCP tool schemas and the system prompt are not included</b>: Swarm sees tool calls, never the schemas or the prompt preamble, so they are left out rather than guessed at.</p>`;
+}
+
+// M9.14: issue → task → claim → session → branch → PR → merged, as one row per piece of work.
+// The six link dots are the graph: a filled run that stops is exactly where the trail goes cold.
+const LINK_ORDER = ["task", "claim", "session", "branch", "pr", "merged"];
+const BREAK_LABEL = {
+  "no-task": ["bad", "No task", "landed with no task behind it"],
+  unclaimed: ["warn", "Unclaimed", "no claim was ever taken for this task"],
+  "no-session": ["warn", "No session", "claimed, but no session did the work"],
+  "no-branch": ["warn", "No branch", "worked on, but never reached a branch"],
+  "no-pr": ["warn", "No PR", "a branch exists but no pull request"],
+  "open-pr": ["acc", "Open PR", "the pull request has not merged yet"],
+};
+// Lead time spans minutes to months, and "889.4h" both overflows a numeric column and means
+// nothing to a reader. Never wider than 5 characters.
+function leadTime(h) {
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h`;
+  const d = h / 24;
+  return d < 100 ? `${d.toFixed(d < 10 ? 1 : 0)}d` : `${Math.round(d / 7)}w`;
+}
+function renderProvenance() {
+  const p = state.provenance;
+  const head = (sub) => `<h2>Provenance <span>${sub}</span></h2>`;
+  if (!p) { $("#main").innerHTML = head("follow the work back") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!p.chains.length) {
+    $("#main").innerHTML = head("follow the work back") + `<div class="empty">${PX.idle()}Nothing to trace${state.sel ? " in this project" : ""}.<br>Chains appear once a task source is configured or a branch reaches a pull request.</div>`;
+    return;
+  }
+  const t = p.totals;
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const kpis = `<div class="kpis">${
+    kpi("Traced", `${t.complete}/${t.tasks}`, "reach a merged PR", t.complete ? "" : "warm")
+  }${kpi("Untracked", t.untracked, t.untracked ? "landed with no task" : "all work has a task", t.untracked ? "hot" : "")
+  }${kpi("Unclaimed", t.unclaimed, "tasks nobody claimed", t.unclaimed ? "warm" : "")
+  }${kpi("Traced spend", usd(t.costUsd), "across every chain")}</div>`;
+
+  const track = (c) => `<span class="track" title="${LINK_ORDER.map((k) => `${k}: ${c.links[k] ? "yes" : "no"}`).join(" · ")}">${
+    LINK_ORDER.map((k) => `<i class="${c.links[k] ? "on" : ""}"></i>`).join("")}</span>`;
+  const cols = [
+    { key: "what", label: "task / branch", width: 190, get: (c) => c.task, cell: (c) => `<b title="${esc(c.task)}${c.fromTask ? "" : " — a branch with no task behind it"}">${esc(c.task)}</b>${c.fromTask ? "" : ' <span class="badge">branch</span>'}` },
+    { key: "track", label: "chain", width: 92, sortable: false, filterable: false, get: (c) => c.depth, cell: track },
+    { key: "gap", label: "trail ends at", width: 118, get: (c) => c.brokenAt ?? "", cell: (c) => { const b = BREAK_LABEL[c.brokenAt]; return b ? `<span class="badge ${b[0]}" title="${esc(b[2])}">${b[1]}</span>` : '<span class="badge ok">Merged</span>'; } },
+    { key: "title", label: "what it was", flex: true, get: (c) => c.title, cell: (c) => `<span class="now" title="${esc(c.title)}">${esc(c.title)}</span>` },
+    { key: "who", label: "held by", width: 120, get: (c) => c.holders.join(","), cell: (c) => (c.holders.length ? esc(c.holders.join(", ")) : '<span class="dim">—</span>') },
+    { key: "sess", label: "sessions", width: 78, num: true, get: (c) => c.sessions.length, cell: (c) => (c.sessions.length ? `<a href="#" data-s="${esc(c.sessions[0].id)}" title="${esc(c.sessions.map((s) => s.title ?? s.id).join(" · "))}">${c.sessions.length}</a>` : '<span class="dim">0</span>') },
+    { key: "pr", label: "PR", width: 74, num: true, get: (c) => c.prNumber ?? 0, cell: (c) => (c.prNumber ? `<a href="${esc(c.prUrl ?? "#")}" target="_blank" rel="noopener">#${c.prNumber}</a>` : '<span class="dim">—</span>') },
+    { key: "cost", label: "cost", width: 74, num: true, get: (c) => c.costUsd, cell: (c) => usd(c.costUsd) },
+    { key: "lead", label: "lead", width: 68, num: true, get: (c) => c.leadHours ?? -1, cell: (c) => (c.leadHours === null ? '<span class="dim">—</span>' : leadTime(c.leadHours)) },
+  ];
+  $("#main").innerHTML = head(`${t.tasks} chain${t.tasks === 1 ? "" : "s"} · ${t.untracked ? `<b class="navcount">${t.untracked} untracked</b>` : "every branch has a task"}`) + kpis +
+    dataTable({ id: "provenance", columns: cols, rows: p.chains, rerender: touch }) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">The six dots are task · claim · session · branch · PR · merged — a filled run that stops is where the trail goes cold. Chains are walked from both ends: from tasks forward, and from branches back, so <b>work that landed with no task behind it</b> shows up too. Task rows carry no issue link because the task source records ids and titles, not URLs.</p>`;
 }
 
 // M9.6: which MCP servers the fleet waits on. Latency is hook-to-hook — the wall-clock between

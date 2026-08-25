@@ -492,6 +492,10 @@
     padding:2px 9px;font-size:var(--fs-sm);font-weight:500;text-decoration:none;transition:color var(--t-fast),border-color var(--t-fast)}
   .mini-act:hover{color:var(--acc);border-color:var(--acc)}
   .mini-act.bad:hover{color:var(--bad);border-color:var(--bad)}
+  /* provenance link track: six dots, filled to where the trail goes cold */
+  .track{display:inline-flex;gap:3px;align-items:center}
+  .track i{width:7px;height:7px;border-radius:50%;background:var(--line);border:1px solid var(--line-2)}
+  .track i.on{background:var(--acc);border-color:var(--acc)}
   .stat .ph{color:var(--faint);margin-right:7px}
   .empty .ph{display:block;margin:0 auto 10px;color:var(--faint)}
   .empty .px{display:block;margin:0 auto 14px;image-rendering:pixelated}
