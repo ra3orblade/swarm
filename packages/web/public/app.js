@@ -178,6 +178,7 @@ window.addEventListener("menus:openchange", (e) => {
   if (e.detail?.open) return;
   // Menu closed: drop the trigger's open state and paint whatever render() deferred.
   for (const b of $$("#viewnav .navgrp.open")) b.classList.remove("open");
+  for (const el of $$(".menu-open")) el.classList.remove("menu-open");
   if (state.dirty) schedule();
 });
 // Last snapshot body + last render time: an unchanged snapshot (same seq, same data) skips the render
@@ -1918,6 +1919,11 @@ function openMenu(kind, anchor, d) {
   const spec = menuSpec(kind, d);
   if (!spec) return;
   if (!window.menus) { console.warn("menus.js not built — run: bun run build:web"); return; }
+  // Once the menu is up the pointer is over *it*, not the row, so a :hover-only kebab vanishes
+  // under its own menu. Mark the row (and the kebab) until menus:openchange reports the close.
+  if (anchor?.closest) {
+    for (const el of [anchor.closest(".proj"), anchor.closest("tr"), anchor.closest(".more")]) el?.classList.add("menu-open");
+  }
   window.menus.open(anchor, spec);
 }
 document.addEventListener("keydown", (e) => {
@@ -2178,21 +2184,49 @@ const PROJECT_EMOJI = ["🐝", "🚀", "🧪", "📦", "🛠️", "🌐", "📊"
 // (⌃⌘Space on macOS, Win+. on Windows) covers search. Filtered by the font once, lazily.
 const EMOJI_BLOCKS = [["Smileys & people", 0x1f600, 0x1f64f], ["Gestures & body", 0x1f440, 0x1f4ff], ["Animals & nature", 0x1f400, 0x1f43f], ["Food", 0x1f32d, 0x1f37f], ["Activity & travel", 0x1f680, 0x1f6ff], ["Objects", 0x1f4a0, 0x1f4ff], ["Symbols", 0x1f300, 0x1f32c], ["More", 0x1f900, 0x1f9ff], ["Extended", 0x1fa70, 0x1faff], ["Misc", 0x2600, 0x26ff], ["Dingbats", 0x2700, 0x27bf]];
 let emojiGrid = null;
-function buildEmojiGrid() {
-  if (emojiGrid) return emojiGrid;
-  // A code point counts as an emoji the platform can draw if it paints colored pixels.
-  const S = 20, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+// Which code points the platform font actually draws in colour is a per-machine answer, so it is
+// probed once and remembered. Two things made that probe cost ~150ms of blocked main thread:
+// it called getImageData once per code point (1536 GPU->CPU readbacks), and the blocks overlap,
+// so 96 code points were probed — and rendered — twice. Now it is one readback per block over a
+// grid of glyphs, deduped, and the answer is cached across reloads.
+const EMOJI_CACHE_KEY = "swarm.emoji.v1";
+function detectEmoji(a, b) {
+  const S = 20, COLS = 32, n = b - a + 1, rows = Math.ceil(n / COLS);
+  const cv = document.createElement("canvas");
+  cv.width = COLS * S; cv.height = rows * S;
   const c = cv.getContext("2d", { willReadFrequently: true });
   c.font = `${S - 4}px system-ui`; c.textBaseline = "top";
-  const colored = (ch) => {
-    c.clearRect(0, 0, S, S); c.fillText(ch, 0, 0);
-    const d = c.getImageData(0, 0, S, S).data;
-    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40 && (Math.abs(d[i] - d[i + 1]) > 24 || Math.abs(d[i + 1] - d[i + 2]) > 24)) return true;
-    return false;
-  };
-  emojiGrid = EMOJI_BLOCKS.map(([name, a, b]) => {
-    const list = [];
-    for (let cp = a; cp <= b; cp++) { const ch = String.fromCodePoint(cp); if (colored(ch)) list.push(ch); }
+  for (let i = 0; i < n; i++) c.fillText(String.fromCodePoint(a + i), (i % COLS) * S, ((i / COLS) | 0) * S);
+  const d = c.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, out = [];
+  // A code point counts as an emoji the platform can draw if its cell paints coloured pixels.
+  for (let i = 0; i < n; i++) {
+    const x0 = (i % COLS) * S, y0 = ((i / COLS) | 0) * S;
+    let ok = false;
+    for (let y = y0; y < y0 + S && !ok; y++)
+      for (let x = x0; x < x0 + S; x++) {
+        const p = (y * W + x) * 4;
+        if (d[p + 3] > 40 && (Math.abs(d[p] - d[p + 1]) > 24 || Math.abs(d[p + 1] - d[p + 2]) > 24)) { ok = true; break; }
+      }
+    if (ok) out.push(String.fromCodePoint(a + i));
+  }
+  return out;
+}
+function buildEmojiGrid() {
+  if (emojiGrid) return emojiGrid;
+  // The cache is keyed by the UA (a font change is what would invalidate it) plus the block list.
+  const sig = `${navigator.userAgent}|${EMOJI_BLOCKS.map((x) => x.join(":")).join(",")}`;
+  let blocks = null;
+  try {
+    const hit = JSON.parse(localStorage.getItem(EMOJI_CACHE_KEY) ?? "null");
+    if (hit?.sig === sig) blocks = hit.blocks;
+  } catch { /* corrupt or unavailable cache: probe again */ }
+  if (!blocks) {
+    const seen = new Set();
+    blocks = EMOJI_BLOCKS.map(([, a, b]) => detectEmoji(a, b).filter((e) => !seen.has(e) && seen.add(e)));
+    try { localStorage.setItem(EMOJI_CACHE_KEY, JSON.stringify({ sig, blocks })); } catch { /* private mode / quota */ }
+  }
+  emojiGrid = EMOJI_BLOCKS.map(([name], i) => {
+    const list = blocks[i] ?? [];
     return list.length ? `<div class="emoji-sec">${esc(name)}</div><div class="emoji-row">${list.map((e) => `<span class="emoji" data-emoji="${e}">${e}</span>`).join("")}</div>` : "";
   }).join("");
   return emojiGrid;

@@ -143,7 +143,7 @@
   #viewnav .navcount{background:var(--bad-soft);color:var(--bad);border-radius:99px;padding:0 5px;font-size:var(--fs-2xs);font-weight:600}
   body>aside h4{margin:14px 8px 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.09em}
   body>aside h4:first-child{margin-top:2px}
-  .proj{padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:9px;
+  .proj{position:relative;padding:var(--pad-row);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:9px;
     color:var(--fg-2);transition:background var(--t-fast);user-select:none}
   .proj:hover{background:var(--panel-2)}
   .proj.sel{background:var(--acc-soft);color:var(--fg)}
@@ -151,11 +151,16 @@
   .proj .st{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none;transition:background var(--t-med)}
   .proj .st.live{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
   .proj .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-  .proj small{color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-sm)}
-  /* The ⋯ takes no space: it swaps in for the live-count on hover instead of reserving a slot. */
-  .proj .act{display:none;color:var(--faint);flex:none;font-size:var(--fs-lg);line-height:1;padding:2px;border-radius:var(--r-xs);transition:color var(--t-fast),background var(--t-fast)}
-  .proj:hover .act{display:inline-flex}
-  .proj:hover small{display:none}
+  .proj small{color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-sm);flex:none;min-width:15px;text-align:right}
+  /* The ⋯ still takes no space in the row, but it is lifted out of flow rather than display:none'd:
+     toggling a flex item on hover reflowed everything before it, so the sparkline visibly jumped.
+     `small` only loses visibility, keeping its box. `.menu-open` holds the ⋯ while its menu is
+     open — the pointer is over the menu by then, so :hover alone made the trigger vanish. */
+  .proj .act{position:absolute;right:var(--pad-row-x,7px);top:50%;transform:translateY(-50%);
+    display:inline-flex;opacity:0;pointer-events:none;color:var(--faint);font-size:var(--fs-lg);line-height:1;
+    padding:2px;border-radius:var(--r-xs);transition:color var(--t-fast),background var(--t-fast),opacity var(--t-fast)}
+  .proj:hover .act,.proj.menu-open .act,.proj .act:focus-visible{opacity:1;pointer-events:auto}
+  .proj:hover small,.proj.menu-open small{visibility:hidden}
   .proj .act:hover{color:var(--fg);background:var(--line)}
   .proj .act.rm:hover{color:var(--bad)}
   .srch{display:flex;gap:8px;margin-bottom:14px}
@@ -471,7 +476,7 @@
   .proj.sel .ph{color:var(--acc)}
   .kind{color:var(--faint);margin-right:6px;vertical-align:middle}
   td .more{opacity:0;color:var(--faint);padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),background var(--t-fast);line-height:0;display:inline-flex;vertical-align:middle}
-  tr:hover td .more,.proj:hover .more{opacity:1}
+  tr:hover td .more,.proj:hover .more,tr.menu-open td .more,.menu-open>.more,.more.menu-open{opacity:1}
   td .more:hover{background:var(--line);color:var(--fg)}
   .stat .ph{color:var(--faint);margin-right:7px}
   .empty .ph{display:block;margin:0 auto 10px;color:var(--faint)}
@@ -485,6 +490,9 @@
     --fm-font-size-row:var(--fs-menu);--fm-font-size-caption:var(--fs-sm);--fm-font-size-section:var(--fs-xs);--fm-row-min-h:30px;--fm-row-radius:var(--r-sm)}
   
   .fm-row--danger{color:var(--bad)}
+  /* fm.css gives .fm-row__icon its own `color: var(--fm-muted-fg)`, which beats the row colour it
+     would otherwise inherit — so a destructive row's glyph stayed grey next to red text. */
+  .fm-row--danger .fm-row__icon{color:var(--bad)}
   .fm-row--danger:hover{background:var(--bad-soft)}
   /* pressed/active rows: soft accent tint, not the solid accent block */
   .fm-row[data-pressed="true"]{background:var(--acc-soft);color:var(--fg)}
