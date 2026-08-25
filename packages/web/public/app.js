@@ -94,7 +94,12 @@ const projGlyph = (p, size = 14) => p?.icon
 const projCell = (id) => { const p = state.projects.find((x) => x.id === id); return p ? `${projGlyph(p, 12)} ${esc(p.name)}` : esc(projName(id)); };
 const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : "(removed)");
 const short = (p) => String(p ?? "").replace(/^\/Users\/[^/]+/, "~");
-const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
+// Never wider than 5 characters, so a numeric column never has to ellipsize a number: without a
+// billions step a 2.8B context read "2820.0M", and the tenth is noise once the mantissa is 3 digits.
+// At most 3 significant digits, so a numeric column never has to ellipsize a number: without a
+// billions step a 2.8B context read "2820.0M", and the tenth is noise once the mantissa is 3 digits.
+const unit = (n, div, suffix) => `${(n / div).toFixed((n /= div) >= 100 ? 0 : n >= 10 ? 1 : 2)}${suffix}`;
+const tok = (n) => (n >= 1e9 ? unit(n, 1e9, "B") : n >= 1e6 ? unit(n, 1e6, "M") : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
