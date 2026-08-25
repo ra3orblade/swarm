@@ -486,7 +486,9 @@
   :root{--fm-surface-bg:var(--panel);--fm-surface-fg:var(--fg);--fm-surface-border:var(--line);--fm-surface-radius:var(--r);
     --fm-surface-shadow:var(--shadow-pop);
     --fm-accent:var(--acc);--fm-accent-fg:var(--acc-contrast);--fm-destructive:var(--bad);--fm-muted-fg:var(--dim);--fm-divider-color:var(--line-2);
-    --fm-row-hover-bg:var(--panel-2);--fm-row-active-bg:var(--acc-soft);--fm-row-active-fg:var(--fg);
+    /* The row under the cursor must not look like the row you are already on: the highlight is a
+       neutral raised background, and the accent is reserved for the pressed/current item below. */
+    --fm-row-hover-bg:var(--panel-2);--fm-row-active-bg:var(--panel-2);--fm-row-active-fg:var(--fg);
     --fm-font-size-row:var(--fs-menu);--fm-font-size-caption:var(--fs-sm);--fm-font-size-section:var(--fs-xs);--fm-row-min-h:30px;--fm-row-radius:var(--r-sm)}
   
   .fm-row--danger{color:var(--bad)}
@@ -495,7 +497,10 @@
   .fm-row--danger .fm-row__icon{color:var(--bad)}
   .fm-row--danger:hover{background:var(--bad-soft)}
   /* pressed/active rows: soft accent tint, not the solid accent block */
-  .fm-row[data-pressed="true"]{background:var(--acc-soft);color:var(--fg)}
+  .fm-row[data-pressed="true"]{background:var(--acc-soft);color:var(--acc);font-weight:600;position:relative}
+  /* the marker is what still says "current" while the highlight is sitting on top of it */
+  .fm-row[data-pressed="true"]::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+    width:3px;height:58%;border-radius:0 var(--r-xs) var(--r-xs) 0;background:var(--acc)}
   .fm-row[data-pressed="true"] .fm-ico{color:var(--acc)}
   /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
   .fm-row__icon,.fm-ico{display:inline-flex;align-items:center;justify-content:center}
