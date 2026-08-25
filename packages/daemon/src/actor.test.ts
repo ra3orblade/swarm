@@ -67,7 +67,7 @@ describe("actor on ledger records (M8.2a)", () => {
              INSERT INTO events (ts, type, project_id, session_id, payload) VALUES ('t', 'tool.pre', 'p', 's9', '{}');`);
     db.close();
     const store = new Store(home);
-    expect(store.schemaVersion()).toBe(1);
+    expect(store.schemaVersion()).toBe(Store.SCHEMA_VERSION);
     expect(
       store.db.query("SELECT task, actor_kind, actor_id FROM claims ORDER BY task").all(),
     ).toEqual([
@@ -85,6 +85,23 @@ describe("actor on ledger records (M8.2a)", () => {
       { type: "tool.pre", actor_kind: "agent", actor_id: "s9" },
     ]);
     // idempotent: reopening does not rerun
-    expect(new Store(home).schemaVersion()).toBe(1);
+    expect(new Store(home).schemaVersion()).toBe(Store.SCHEMA_VERSION);
+  });
+  it("migration v2 back-fills gate duration from the rubric it used to hide in (M9.7)", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-home-"));
+    // a pre-M9.7 database: gates recorded their wall-clock only inside the rubric prose
+    const db = new Database(join(home, "swarm.db"));
+    db.exec(`CREATE TABLE gates (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, gate TEXT, verdict TEXT, rubric TEXT, evidence TEXT, session_id TEXT, created_at TEXT);
+             INSERT INTO gates (project_id, task, gate, verdict, rubric, created_at) VALUES ('p','t1','tests','pass','ran the test command — exit 0 in 12.5s','t');
+             INSERT INTO gates (project_id, task, gate, verdict, rubric, created_at) VALUES ('p','t2','tests','fail','ran the test command — timed out in 300.0s','t');
+             INSERT INTO gates (project_id, task, gate, verdict, rubric, created_at) VALUES ('p','t3','review','pass','read the diff','t');`);
+    db.close();
+    const store = new Store(home);
+    expect(store.schemaVersion()).toBe(Store.SCHEMA_VERSION);
+    expect(store.db.query("SELECT task, duration_ms FROM gates ORDER BY task").all()).toEqual([
+      { task: "t1", duration_ms: 12_500 },
+      { task: "t2", duration_ms: 300_000 },
+      { task: "t3", duration_ms: null }, // no duration in the prose: stays null, never 0
+    ]);
   });
 });

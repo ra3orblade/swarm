@@ -1369,6 +1369,56 @@ describe("event storage and wire shape (perf)", () => {
     expect(((await r.json()) as { totals: { episodes: number } }).totals.episodes).toBe(3);
   });
 
+  it("gate health flags only same-task flips, and ranks flaky gates first (M9.7)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-gate-repo-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    const pid = (store.resolveProject(dir, true) as { id: string }).id;
+    // The same gate returning both verdicts on ONE task is flakiness...
+    store.recordGate(pid, {
+      task: "t1",
+      gate: "tests",
+      verdict: "pass",
+      rubric: "ran `bun test`",
+      durationMs: 12_500,
+    });
+    store.recordGate(pid, {
+      task: "t1",
+      gate: "tests",
+      verdict: "fail",
+      rubric: "ran `bun test`",
+      durationMs: 9000,
+    });
+    // ...whereas failing on a different task is the gate doing its job.
+    store.recordGate(pid, {
+      task: "t2",
+      gate: "lint",
+      verdict: "fail",
+      rubric: "ran `biome`",
+      durationMs: 2000,
+    });
+    // An agent-recorded gate carries no duration and must not drag the percentiles to zero.
+    store.recordGate(pid, { task: "t3", gate: "review", verdict: "pass", rubric: "read the diff" });
+
+    const h = store.gateHealth();
+    const tests = h.gates.find((g) => g.gate === "tests");
+    const lint = h.gates.find((g) => g.gate === "lint");
+    const review = h.gates.find((g) => g.gate === "review");
+    expect(tests?.flaky).toBe(true);
+    expect(tests?.flips).toBe(1);
+    expect(tests?.maxMs).toBe(12_500);
+    expect(lint?.flaky).toBe(false);
+    expect(review?.timedRuns).toBe(0);
+    expect(review?.p50Ms).toBeNull();
+    expect(h.totals.flakyGates).toBe(1);
+    expect(h.gates[0]?.gate).toBe("tests"); // flaky ranks first
+
+    const r = await app.request("/v1/gates/health");
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { totals: { flakyGates: number } }).totals.flakyGates).toBe(1);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

@@ -18,6 +18,7 @@ const run = (o: Partial<GateRun>): GateRun => ({
   rubric: "tests green, error paths reviewed",
   evidence: null,
   sessionId: null,
+  durationMs: null,
   createdAt: "2026-08-22T12:00:00Z",
   ...o,
 });

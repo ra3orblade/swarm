@@ -39,6 +39,7 @@ import {
   clusterProjectKey,
   collisionGraph,
   compileRedactions,
+  gateHealth as computeGateHealth,
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
@@ -242,7 +243,7 @@ CREATE TABLE IF NOT EXISTS processes (
 CREATE INDEX IF NOT EXISTS processes_live ON processes(ended_at, project_id);
 CREATE TABLE IF NOT EXISTS gates (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, gate TEXT, verdict TEXT,
-  rubric TEXT, evidence TEXT, session_id TEXT, created_at TEXT
+  rubric TEXT, evidence TEXT, session_id TEXT, duration_ms INTEGER, created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS gates_task ON gates(project_id, task, created_at);
 CREATE TABLE IF NOT EXISTS handoffs (
@@ -447,7 +448,7 @@ export class Store {
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
-  static readonly SCHEMA_VERSION = 1;
+  static readonly SCHEMA_VERSION = 2;
   schemaVersion(): number {
     return Number(this.meta("schema_version") ?? 0);
   }
@@ -506,6 +507,20 @@ export class Store {
           "session_id",
           "events",
         );
+      },
+      // v2 — gate duration as a number (M9.7). Executed gates only ever recorded their wall-clock
+      // inside the rubric prose ("ran `bun test` — exit 0 in 12.3s"), which cannot be aggregated.
+      // Back-fill the historic rows by reading that suffix; agent-recorded gates stay null.
+      (db) => {
+        this.ensureColumn("gates", "duration_ms", "INTEGER");
+        const rows = db
+          .query("SELECT id, rubric FROM gates WHERE duration_ms IS NULL AND rubric LIKE '%s'")
+          .all() as Array<{ id: number; rubric: string | null }>;
+        const upd = db.query("UPDATE gates SET duration_ms = ? WHERE id = ?");
+        for (const r of rows) {
+          const m = /\bin ([0-9]+(?:\.[0-9]+)?)s$/.exec(r.rubric ?? "");
+          if (m) upd.run(Math.round(Number(m[1]) * 1000), r.id);
+        }
       },
     ];
     for (let v = this.schemaVersion(); v < steps.length; v++) {
@@ -1439,6 +1454,7 @@ export class Store {
       rubric: r.rubric as string,
       evidence: (r.evidence as string) ?? null,
       sessionId: (r.session_id as string) ?? null,
+      durationMs: (r.duration_ms as number | null) ?? null,
       createdAt: r.created_at as string,
     };
   }
@@ -1856,8 +1872,8 @@ export class Store {
     const sessionId = this.knownSession(input.sessionId);
     const r = this.db
       .query(
-        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, created_at, actor_kind, actor_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, duration_ms, created_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         projectId,
@@ -1867,6 +1883,7 @@ export class Store {
         (input.rubric as string).trim(),
         input.evidence?.trim() || null,
         sessionId,
+        typeof input.durationMs === "number" ? Math.max(0, Math.round(input.durationMs)) : null,
         createdAt,
         ...actorCols(this.actorFor(input.sessionId ? null : "daemon", sessionId)),
       );
@@ -3801,6 +3818,40 @@ export class Store {
         projectId: s.projectId ?? meta.get(s.sessionId)?.project_id ?? null,
       })),
     };
+  }
+
+  /**
+   * Gate flakiness and cost (M9.7). Runs come straight from the ledger; `duration_ms` is null for
+   * gates an agent recorded rather than the daemon executed, and the rollup keeps those out of the
+   * duration percentiles while still counting them as runs.
+   */
+  gateHealth(projectId?: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT project_id, task, gate, verdict, duration_ms, created_at FROM gates
+         WHERE created_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      project_id: string | null;
+      task: string;
+      gate: string;
+      verdict: string;
+      duration_ms: number | null;
+      created_at: string;
+    }>;
+    return computeGateHealth(
+      rows
+        .filter((r) => r.verdict === "pass" || r.verdict === "fail")
+        .map((r) => ({
+          projectId: r.project_id,
+          task: r.task,
+          gate: r.gate,
+          verdict: r.verdict as "pass" | "fail",
+          durationMs: r.duration_ms,
+          at: r.created_at,
+        })),
+    );
   }
 
   collisions(projectId?: string) {

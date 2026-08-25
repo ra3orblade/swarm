@@ -250,6 +250,13 @@ async function refresh() {
     waitChanged = JSON.stringify(w) !== JSON.stringify(state.waiting);
     state.waiting = w;
   }
+  let ghChanged = false;
+  if (state.view === "gates" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const gh = await fetch(`/v1/gates/health${q}`).then((r) => r.json()).catch(() => state.gateHealth);
+    ghChanged = JSON.stringify(gh) !== JSON.stringify(state.gateHealth);
+    state.gateHealth = gh;
+  }
   let outChanged = false;
   if (state.view === "outcomes" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -257,7 +264,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || ghChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -269,6 +276,7 @@ const VIEW_DEFS = [
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
   // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
+  { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -1337,6 +1345,41 @@ function renderOutcomes() {
     (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent, rerender: touch })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
     dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100), rerender: touch });
+}
+
+// M9.7: gate flakiness and cost. A gate that flips on the *same task* told you two different
+// things about identical work — that is the number worth ranking on, not a raw fail count.
+function renderGateHealth() {
+  const h = state.gateHealth;
+  const head = (sub) => `<h2>Gates <span>${sub}</span></h2>`;
+  if (!h) { $("#main").innerHTML = head("flakiness and wall-clock") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!h.gates.length) {
+    $("#main").innerHTML = head("flakiness and wall-clock") + `<div class="empty">${PX.idle()}No gate runs in the last 30 days${state.sel ? " in this project" : ""}.<br>Gates appear here once <code>swarm_gate_run</code> or a workflow's gate step records one.</div>`;
+    return;
+  }
+  const t = h.totals;
+  const secs = (v) => (v === null ? '<span class="dim">—</span>' : v < 1000 ? `${v}ms` : `${(v / 1000).toFixed(1)}s`);
+  // Oldest-first strip, matching Recent gates on the Board.
+  const strip = (g) => {
+    const rs = [...g.history].reverse();
+    return `<span class="gh" title="last ${rs.length} run${rs.length === 1 ? "" : "s"}, oldest first">${rs.map((r) => `<i class="${r.verdict === "pass" ? "ok" : "bad"}" title="${esc(r.task)} · ${esc(r.at)}${r.durationMs === null ? "" : ` · ${(r.durationMs / 1000).toFixed(1)}s`}"></i>`).join("")}</span>`;
+  };
+  const cols = [
+    { key: "gate", label: "gate", width: 150, get: (g) => g.gate, cell: (g) => `<b>${esc(g.gate)}</b>${g.flaky ? ' <span class="badge bad" title="This gate returned both a pass and a fail on the same task">Flaky</span>' : ""}` },
+    { key: "history", label: "history", width: 150, sortable: false, filterable: false, get: () => null, cell: strip },
+    { key: "runs", label: "runs", width: 60, num: true, get: (g) => g.runs, cell: (g) => g.runs },
+    { key: "pass", label: "pass rate", width: 84, num: true, get: (g) => g.passRate, cell: (g) => `${Math.round(g.passRate * 100)}%` },
+    { key: "flips", label: "flips", width: 64, num: true, get: (g) => g.flips, cell: (g) => (g.flips ? `<b class="bad">${g.flips}</b>` : '<span class="dim">0</span>') },
+    { key: "p50", label: "p50", width: 66, num: true, get: (g) => g.p50Ms ?? -1, cell: (g) => secs(g.p50Ms) },
+    { key: "p95", label: "p95", width: 66, num: true, get: (g) => g.p95Ms ?? -1, cell: (g) => secs(g.p95Ms) },
+    { key: "max", label: "slowest", width: 74, num: true, get: (g) => g.maxMs ?? -1, cell: (g) => secs(g.maxMs) },
+    { key: "total", label: "total", width: 74, num: true, get: (g) => g.totalMs, cell: (g) => (g.timedRuns ? dur(g.totalMs) : '<span class="dim">—</span>') },
+    { key: "last", label: "last", flex: true, get: (g) => g.lastAt ?? "", cell: (g) => (g.lastAt ? `${g.lastVerdict === "pass" ? '<span class="badge ok">Pass</span>' : '<span class="badge warn">Fail</span>'} <span class="dim">${ago(g.lastAt)}</span>` : '<span class="dim">—</span>') },
+  ];
+  const sub = `${t.gates} gate${t.gates === 1 ? "" : "s"} · ${t.runs} run${t.runs === 1 ? "" : "s"} · last 30 days${t.flakyGates ? ` · <b class="navcount">${t.flakyGates} flaky</b>` : " · none flaky"}${t.totalMs ? ` · ${dur(t.totalMs)} of wall-clock` : ""}`;
+  $("#main").innerHTML = head(sub) +
+    dataTable({ id: "gate-health", columns: cols, rows: h.gates, rerender: touch }) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Flaky = the same gate returned both a pass and a fail on one task. A gate that fails on one task and passes on another is doing its job, and is not counted. Durations cover executed gates only — a gate an agent simply recorded has no wall-clock.</p>`;
 }
 
 // M9.12: live file-collision graph — which live sessions touch which files, contested files

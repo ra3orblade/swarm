@@ -8,6 +8,7 @@ export * from "./config";
 export * from "./dispatch";
 export * from "./dryrun";
 export * from "./forge";
+export * from "./gatehealth";
 export * from "./gates";
 export * from "./graphs";
 export * from "./ledger";
