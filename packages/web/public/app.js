@@ -94,7 +94,12 @@ const projGlyph = (p, size = 14) => p?.icon
 const projCell = (id) => { const p = state.projects.find((x) => x.id === id); return p ? `${projGlyph(p, 12)} ${esc(p.name)}` : esc(projName(id)); };
 const projName = (id) => state.projects.find((p) => p.id === id)?.name ?? (id === "p_unknown" ? "?" : "(removed)");
 const short = (p) => String(p ?? "").replace(/^\/Users\/[^/]+/, "~");
-const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
+// Never wider than 5 characters, so a numeric column never has to ellipsize a number: without a
+// billions step a 2.8B context read "2820.0M", and the tenth is noise once the mantissa is 3 digits.
+// At most 3 significant digits, so a numeric column never has to ellipsize a number: without a
+// billions step a 2.8B context read "2820.0M", and the tenth is noise once the mantissa is 3 digits.
+const unit = (n, div, suffix) => `${(n / div).toFixed((n /= div) >= 100 ? 0 : n >= 10 ? 1 : 2)}${suffix}`;
+const tok = (n) => (n >= 1e9 ? unit(n, 1e9, "B") : n >= 1e6 ? unit(n, 1e6, "M") : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n | 0));
 const usd = (n) => (n == null ? '<span class="dim">—</span>' : `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/-\d{8}$/, "") : "");
 const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) ?? 0), 0);
@@ -173,6 +178,7 @@ window.addEventListener("menus:openchange", (e) => {
   if (e.detail?.open) return;
   // Menu closed: drop the trigger's open state and paint whatever render() deferred.
   for (const b of $$("#viewnav .navgrp.open")) b.classList.remove("open");
+  for (const el of $$(".menu-open")) el.classList.remove("menu-open");
   if (state.dirty) schedule();
 });
 // Last snapshot body + last render time: an unchanged snapshot (same seq, same data) skips the render
@@ -254,7 +260,8 @@ const VIEW_DEFS = [
   { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
-  { id: "outcomes", label: "Outcomes", icon: "check", group: "Insight", render: () => renderOutcomes() },
+  // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
+  { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -324,7 +331,10 @@ function renderNav() {
     .map((g) => {
       const n = g.views.reduce((a, v) => a + (v.badge?.() ?? 0), 0);
       const on = !state.session && g.views.some((v) => v.id === state.view);
-      return `<button class="navgrp ${on ? "on" : ""}" data-grp="${g.name}" aria-haspopup="menu">${g.name}${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}${ic("chevron-down", 12, "chev")}</button>`;
+      // The group name alone never says which of its views you are on, so ten destinations hid
+      // behind four words. The active group carries the view's own label.
+      const cur = on ? g.views.find((v) => v.id === state.view) : null;
+      return `<button class="navgrp ${on ? "on" : ""}" data-grp="${g.name}"${on ? ' aria-current="page"' : ""} aria-haspopup="menu">${g.name}${cur ? `<span class="navview">${esc(cur.label)}</span>` : ""}${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}${ic("chevron-down", 12, "chev")}</button>`;
     })
     .join("");
   if (html !== navHtml) { navHtml = html; $("#viewnav").innerHTML = html; }
@@ -537,7 +547,11 @@ function renderBoardKpis() {
   const orphaned = claims.filter((c) => c.state === "orphaned").length;
   const wts = (state.sel ? [state.sel] : state.projects.map((p) => p.id)).flatMap((id) => state.worktrees[id] ?? []);
   const dirty = wts.filter((w) => w.dirty > 0).length, merged = wts.filter((w) => !w.main && w.merged).length;
-  const inc = (state.incidents ?? []).filter((i) => inSel(i.projectId) && !i.acked).length;
+  // The snapshot carries only the 20 most recent open incidents, so counting that window caps the
+  // KPI at 20 while the Guard badge shows the real number. Both now read the same true count.
+  const inc = state.sel
+    ? (state.openIncidentsByProject?.[state.sel] ?? (state.incidents ?? []).filter((i) => inSel(i.projectId) && !i.acked).length)
+    : (state.openIncidents ?? (state.incidents ?? []).filter((i) => !i.acked).length);
   const tasks = state.sel && state.tasks?.tasks ? state.tasks.tasks : null;
   const ready = tasks ? tasks.filter((t) => t.ready).length : null;
   const gateFails = tasks ? tasks.filter((t) => (t.gates ?? []).some((g) => g.verdict === "fail")).length : 0;
@@ -1905,6 +1919,11 @@ function openMenu(kind, anchor, d) {
   const spec = menuSpec(kind, d);
   if (!spec) return;
   if (!window.menus) { console.warn("menus.js not built — run: bun run build:web"); return; }
+  // Once the menu is up the pointer is over *it*, not the row, so a :hover-only kebab vanishes
+  // under its own menu. Mark the row (and the kebab) until menus:openchange reports the close.
+  if (anchor?.closest) {
+    for (const el of [anchor.closest(".proj"), anchor.closest("tr"), anchor.closest(".more")]) el?.classList.add("menu-open");
+  }
   window.menus.open(anchor, spec);
 }
 document.addEventListener("keydown", (e) => {
@@ -2165,21 +2184,49 @@ const PROJECT_EMOJI = ["🐝", "🚀", "🧪", "📦", "🛠️", "🌐", "📊"
 // (⌃⌘Space on macOS, Win+. on Windows) covers search. Filtered by the font once, lazily.
 const EMOJI_BLOCKS = [["Smileys & people", 0x1f600, 0x1f64f], ["Gestures & body", 0x1f440, 0x1f4ff], ["Animals & nature", 0x1f400, 0x1f43f], ["Food", 0x1f32d, 0x1f37f], ["Activity & travel", 0x1f680, 0x1f6ff], ["Objects", 0x1f4a0, 0x1f4ff], ["Symbols", 0x1f300, 0x1f32c], ["More", 0x1f900, 0x1f9ff], ["Extended", 0x1fa70, 0x1faff], ["Misc", 0x2600, 0x26ff], ["Dingbats", 0x2700, 0x27bf]];
 let emojiGrid = null;
-function buildEmojiGrid() {
-  if (emojiGrid) return emojiGrid;
-  // A code point counts as an emoji the platform can draw if it paints colored pixels.
-  const S = 20, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+// Which code points the platform font actually draws in colour is a per-machine answer, so it is
+// probed once and remembered. Two things made that probe cost ~150ms of blocked main thread:
+// it called getImageData once per code point (1536 GPU->CPU readbacks), and the blocks overlap,
+// so 96 code points were probed — and rendered — twice. Now it is one readback per block over a
+// grid of glyphs, deduped, and the answer is cached across reloads.
+const EMOJI_CACHE_KEY = "swarm.emoji.v1";
+function detectEmoji(a, b) {
+  const S = 20, COLS = 32, n = b - a + 1, rows = Math.ceil(n / COLS);
+  const cv = document.createElement("canvas");
+  cv.width = COLS * S; cv.height = rows * S;
   const c = cv.getContext("2d", { willReadFrequently: true });
   c.font = `${S - 4}px system-ui`; c.textBaseline = "top";
-  const colored = (ch) => {
-    c.clearRect(0, 0, S, S); c.fillText(ch, 0, 0);
-    const d = c.getImageData(0, 0, S, S).data;
-    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40 && (Math.abs(d[i] - d[i + 1]) > 24 || Math.abs(d[i + 1] - d[i + 2]) > 24)) return true;
-    return false;
-  };
-  emojiGrid = EMOJI_BLOCKS.map(([name, a, b]) => {
-    const list = [];
-    for (let cp = a; cp <= b; cp++) { const ch = String.fromCodePoint(cp); if (colored(ch)) list.push(ch); }
+  for (let i = 0; i < n; i++) c.fillText(String.fromCodePoint(a + i), (i % COLS) * S, ((i / COLS) | 0) * S);
+  const d = c.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, out = [];
+  // A code point counts as an emoji the platform can draw if its cell paints coloured pixels.
+  for (let i = 0; i < n; i++) {
+    const x0 = (i % COLS) * S, y0 = ((i / COLS) | 0) * S;
+    let ok = false;
+    for (let y = y0; y < y0 + S && !ok; y++)
+      for (let x = x0; x < x0 + S; x++) {
+        const p = (y * W + x) * 4;
+        if (d[p + 3] > 40 && (Math.abs(d[p] - d[p + 1]) > 24 || Math.abs(d[p + 1] - d[p + 2]) > 24)) { ok = true; break; }
+      }
+    if (ok) out.push(String.fromCodePoint(a + i));
+  }
+  return out;
+}
+function buildEmojiGrid() {
+  if (emojiGrid) return emojiGrid;
+  // The cache is keyed by the UA (a font change is what would invalidate it) plus the block list.
+  const sig = `${navigator.userAgent}|${EMOJI_BLOCKS.map((x) => x.join(":")).join(",")}`;
+  let blocks = null;
+  try {
+    const hit = JSON.parse(localStorage.getItem(EMOJI_CACHE_KEY) ?? "null");
+    if (hit?.sig === sig) blocks = hit.blocks;
+  } catch { /* corrupt or unavailable cache: probe again */ }
+  if (!blocks) {
+    const seen = new Set();
+    blocks = EMOJI_BLOCKS.map(([, a, b]) => detectEmoji(a, b).filter((e) => !seen.has(e) && seen.add(e)));
+    try { localStorage.setItem(EMOJI_CACHE_KEY, JSON.stringify({ sig, blocks })); } catch { /* private mode / quota */ }
+  }
+  emojiGrid = EMOJI_BLOCKS.map(([name], i) => {
+    const list = blocks[i] ?? [];
     return list.length ? `<div class="emoji-sec">${esc(name)}</div><div class="emoji-row">${list.map((e) => `<span class="emoji" data-emoji="${e}">${e}</span>`).join("")}</div>` : "";
   }).join("");
   return emojiGrid;

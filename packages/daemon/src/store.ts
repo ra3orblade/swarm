@@ -4780,6 +4780,22 @@ export class Store {
     return r.n;
   }
 
+  /** Open (un-acked) incident count per project, so a project-scoped KPI is not capped by the
+   *  snapshot's 20-row incident window. Projects with none are omitted. */
+  openIncidentsByProject(): Record<string, number> {
+    const rows = this.db
+      .query(
+        `SELECT e.project_id AS pid, COUNT(*) AS n FROM events e
+         LEFT JOIN incident_acks a ON a.seq = e.seq
+         WHERE e.type = 'incident.opened' AND a.seq IS NULL AND e.project_id IS NOT NULL
+         GROUP BY e.project_id`,
+      )
+      .all() as { pid: string; n: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.pid] = r.n;
+    return out;
+  }
+
   /** Acknowledge one incident (idempotent). Returns false if no such incident. */
   ackIncident(seq: number, by?: string | null): boolean {
     const row = this.db
@@ -5313,6 +5329,9 @@ export class Store {
       processes: this.memoised("processes", 5000, () => this.processes()),
       incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),
       openIncidents: this.memoised("openIncidents", 30_000, () => this.openIncidents()),
+      openIncidentsByProject: this.memoised("openIncidentsByProject", 30_000, () =>
+        this.openIncidentsByProject(),
+      ),
       questions: this.questions({ open: true, limit: 50 }),
       resources: this.resources(),
       seq: this.seq(),
