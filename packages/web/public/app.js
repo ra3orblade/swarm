@@ -284,6 +284,13 @@ async function refresh() {
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
   }
+  let mcpChanged = false;
+  if (state.view === "mcp" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const m = await fetch(`/v1/mcp/health${q}`).then((r) => r.json()).catch(() => state.mcpHealth);
+    mcpChanged = JSON.stringify(m) !== JSON.stringify(state.mcpHealth);
+    state.mcpHealth = m;
+  }
   let ghChanged = false;
   if (state.view === "gates" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -298,7 +305,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -312,6 +319,7 @@ const VIEW_DEFS = [
   // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
   { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
+  { id: "mcp", label: "MCP", icon: "plugs-connected", group: "Insight", render: () => renderMcpHealth() },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -1382,6 +1390,38 @@ function renderOutcomes() {
     (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent, rerender: touch })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
     dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100), rerender: touch });
+}
+
+// M9.6: which MCP servers the fleet waits on. Latency is hook-to-hook — the wall-clock between
+// PreToolUse and PostToolUse — so it is what the agent actually waited for, including any time a
+// call spent behind a permission prompt. That is why the view leads with p50/p95, not max.
+function renderMcpHealth() {
+  const h = state.mcpHealth;
+  const head = (sub) => `<h2>MCP <span>${sub}</span></h2>`;
+  if (!h) { $("#main").innerHTML = head("server health") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!h.servers.length) {
+    $("#main").innerHTML = head("server health") + `<div class="empty">${PX.idle()}No tool calls in the last 7 days${state.sel ? " in this project" : ""}.</div>`;
+    return;
+  }
+  const t = h.totals;
+  const ms = (v) => (v === null ? '<span class="dim">—</span>' : v < 1000 ? `${v}ms` : v < 60_000 ? `${(v / 1000).toFixed(1)}s` : dur(v));
+  const cols = [
+    { key: "server", label: "server", width: 170, get: (s) => s.server, cell: (s) => `<b>${esc(s.server)}</b>${s.mcp ? "" : ' <span class="badge">built-in</span>'}` },
+    { key: "calls", label: "calls", width: 74, num: true, get: (s) => s.calls, cell: (s) => s.calls.toLocaleString() },
+    { key: "sessions", label: "sessions", width: 78, num: true, get: (s) => s.sessions, cell: (s) => s.sessions },
+    { key: "p50", label: "p50", width: 68, num: true, get: (s) => s.p50Ms ?? -1, cell: (s) => ms(s.p50Ms) },
+    { key: "p95", label: "p95", width: 68, num: true, get: (s) => s.p95Ms ?? -1, cell: (s) => ms(s.p95Ms) },
+    { key: "max", label: "slowest", width: 78, num: true, get: (s) => s.maxMs ?? -1, cell: (s) => `<span class="dim" title="Includes any time the call spent waiting on a person">${ms(s.maxMs)}</span>` },
+    { key: "wait", label: "waited", width: 82, num: true, get: (s) => s.totalMs, cell: (s) => dur(s.totalMs) },
+    { key: "unans", label: "no reply", width: 78, num: true, get: (s) => s.unanswered, cell: (s) => (s.unanswered ? `<b class="bad">${s.unanswered}</b>` : '<span class="dim">0</span>') },
+    { key: "err", label: "errors", width: 74, num: true, get: (s) => s.errorRate, cell: (s) => (s.errors ? `<b class="bad">${Math.round(s.errorRate * 100)}%</b>` : '<span class="dim">0</span>') },
+    { key: "tools", label: "busiest tools", flex: true, sortable: false, get: () => null, cell: (s) => s.tools.map((x) => `<span class="br" title="${esc(x.tool)} · ${x.calls} calls${x.p50Ms === null ? "" : ` · p50 ${x.p50Ms}ms`}">${esc(x.tool)} <b>${x.calls}</b></span>`).join(" ") },
+  ];
+  const share = t.totalMs ? Math.round((t.mcpMs / t.totalMs) * 100) : 0;
+  const sub = `${t.servers} MCP server${t.servers === 1 ? "" : "s"} · ${t.calls.toLocaleString()} call${t.calls === 1 ? "" : "s"} · last 7 days · ${dur(t.mcpMs)} waiting on MCP (${share}% of all tool time)`;
+  $("#main").innerHTML = head(sub) +
+    dataTable({ id: "mcp-health", columns: cols, rows: h.servers, rerender: touch }) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Latency is measured hook to hook, so it is the wall-clock an agent actually waited — a call held behind a permission prompt carries that wait too, which is why <b>slowest</b> can be hours and p50/p95 are the numbers to read. <b>errors</b> counts only unambiguous failures: a command that merely prints the word "error" is not one.</p>`;
 }
 
 // M9.7: gate flakiness and cost. A gate that flips on the *same task* told you two different

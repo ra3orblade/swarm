@@ -93,6 +93,7 @@ import {
   type MemoryDoc,
   type MemoryKind,
   type Message,
+  mcpHealth,
   modelAllowed,
   needsBootstrap,
   nextExpiry,
@@ -142,6 +143,7 @@ import {
   type Task,
   type TaskView,
   type ToolCallSample,
+  type ToolCallTiming,
   type TrackedProcess,
   type Turn,
   taskBoard,
@@ -4147,6 +4149,72 @@ export class Store {
     return lineageGraph(sessions, edges, { expanded });
   }
 
+  /**
+   * MCP server health (M9.6). No duration is recorded anywhere, so each call's latency is the
+   * wall-clock between its `PreToolUse` and `PostToolUse` hooks, paired per session in `seq` order:
+   * a completion closes the most recent still-open request for the same tool, which is right for
+   * nesting and for a session that interleaves calls. A request with no completion (denied by a
+   * rule, or the session died) is counted but contributes no latency.
+   */
+  mcpHealth(projectId?: string, days = 7) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, seq, ts, type,
+                json_extract(payload,'$.tool') AS tool,
+                json_extract(payload,'$.toolResponse') AS response
+         FROM events
+         WHERE type IN ('tool.requested','tool.completed') AND ts >= ?
+           AND json_extract(payload,'$.tool') IS NOT NULL${projectId ? " AND project_id = ?" : ""}
+         ORDER BY session_id, seq`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      seq: number;
+      ts: string;
+      type: string;
+      tool: string;
+      response: string | null;
+    }>;
+
+    const calls: ToolCallTiming[] = [];
+    // At most ONE open request per (session, tool). A second request for the same tool means the
+    // first was never answered — a stack instead let an abandoned request sit for hours and then
+    // be closed by an unrelated completion, which reported one Bash call as taking 7.8 hours.
+    const pending = new Map<string, Map<string, string>>();
+    const abandon = (sessionId: string, tool: string, at: string) => {
+      calls.push({ sessionId, tool, ms: null, errored: false, at });
+    };
+
+    for (const r of rows) {
+      if (!r.session_id) continue;
+      const perSession = pending.get(r.session_id) ?? new Map<string, string>();
+      pending.set(r.session_id, perSession);
+      if (r.type === "tool.requested") {
+        const open = perSession.get(r.tool);
+        if (open) abandon(r.session_id, r.tool, open);
+        perSession.set(r.tool, r.ts);
+        continue;
+      }
+      const startedAt = perSession.get(r.tool);
+      perSession.delete(r.tool);
+      calls.push({
+        sessionId: r.session_id,
+        tool: r.tool,
+        ms: startedAt
+          ? Math.max(0, new Date(r.ts).getTime() - new Date(startedAt).getTime())
+          : null,
+        errored: toolResponseErrored(safeJson(r.response)),
+        at: r.ts,
+      });
+    }
+    // Whatever is still open at the end of the window never completed.
+    for (const [sessionId, perSession] of pending)
+      for (const [tool, at] of perSession) abandon(sessionId, tool, at);
+
+    return mcpHealth(calls);
+  }
+
   collisions(projectId?: string) {
     const cutoff = new Date(Date.now() - IDLE_MS).toISOString();
     const live = this.db
@@ -5799,6 +5867,20 @@ export class Store {
       resources: this.resources(),
       seq: this.seq(),
     };
+  }
+}
+
+/**
+ * `json_extract` hands back a scalar for a string/number and a JSON string for an object, so a
+ * tool response arrives in either shape. Parse when it parses, keep the raw string when it does
+ * not — `toolResponseErrored` understands both.
+ */
+function safeJson(v: string | null): unknown {
+  if (v === null) return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
   }
 }
 

@@ -16,6 +16,7 @@ export * from "./hygiene";
 export * from "./ledger";
 export * from "./lessons";
 export * from "./lineage";
+export * from "./mcphealth";
 export * from "./memory";
 export * from "./messages";
 export * from "./outcomes";
