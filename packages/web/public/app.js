@@ -1734,7 +1734,23 @@ async function openSession(id) {
 // Rendered log rows, keyed per event seq / turn id (+ the mutable turn fields) so only new rows are formatted.
 const rowCache = new Map();
 let logRendered = null; // keys of the rows currently in #log, in order — enables append-only updates
-const evRow = (i) => `<div class="ev ${i.cls}"><span class="t">${hhmm(i.ts)}</span><span class="k">${esc(i.kind)}</span><span class="m">${esc(i.text)}${i.out ? `<span class="dim"> · ${tok(i.out)} out${i.cost != null ? ` · $${i.cost.toFixed(3)}` : ""}</span>` : ""}</span></div>`;
+// The kind column showed raw hook names — "pretooluse", "subagentstop" — which are long, repeat on
+// every row, and say nothing the row does not: a tool row already begins with the tool's name. Short
+// labels here buy the transcript back ~70px of width per row; the full name stays in the title.
+const EV_LABEL = {
+  PreToolUse: "tool", PostToolUse: "result", UserPromptSubmit: "you", Stop: "stop",
+  SubagentStart: "sub →", SubagentStop: "sub ←", Notification: "note",
+  SessionStart: "start", SessionEnd: "end", PreCompact: "compact",
+  assistant: "agent", subagent: "sub",
+  // ledger events reach the transcript too, and their dotted type names are the longest of all
+  "incident.opened": "rule", "question.asked": "asks", "question.answered": "answer",
+  "message.sent": "msg", "gate.recorded": "gate", "session.stuck": "stuck",
+  "permission.requested": "perm?", "permission.resolved": "perm",
+  "claim.acquired": "claim", "claim.released": "release", "pr.opened": "pr",
+};
+// Anything unmapped keeps its last dotted segment rather than the whole `a.b` name.
+const evLabel = (k) => EV_LABEL[k] ?? String(k).split(".").at(-1) ?? String(k);
+const evRow = (i) => `<div class="ev ${i.cls}"><span class="t">${hhmm(i.ts)}</span><span class="k" title="${esc(i.kind)}">${esc(evLabel(i.kind))}</span><span class="m">${esc(i.text)}${i.out ? `<span class="dim"> · ${tok(i.out)} out${i.cost != null ? ` · $${i.cost.toFixed(3)}` : ""}</span>` : ""}</span></div>`;
 // Merge the two ts-sorted inputs (events by seq ≈ ts, turns by ts) in one pass → [{key, html}].
 function sessionStream() {
   const out = [];
