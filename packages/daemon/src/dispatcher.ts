@@ -196,6 +196,9 @@ export class Dispatcher {
         task: t.id,
         runId: r.run.id,
         worktree: r.run.worktree,
+        // Who asked for this run. Without it a dispatched session has no parent in the lineage
+        // graph (M9.13) — the run's own session is the *child*, not the requester.
+        by: this.opts.get(projectId)?.owner ?? null,
         summary: `dispatch ${t.id} → run ${r.run.id}`,
       },
     });

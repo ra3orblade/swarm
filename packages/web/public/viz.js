@@ -332,4 +332,76 @@ function bipartite(sessions, files, { rowH = 30, maxFiles = 40 } = {}) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:1100px" role="img" aria-label="File collision graph">${edges.join("")}${sessNodes.join("")}${fileNodes.join("")}${more}</svg>`;
 }
 
-window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort, bipartite };
+
+// M9.11/M9.13: render a graph the layout engine has already positioned. All the maths (layering,
+// crossing reduction, cycle breaking) lives in core/dag.ts and is unit-tested; this only draws.
+// Edge colour carries the *relationship*, node colour the agent, so the two never compete.
+const EDGE_STYLE = {
+  subagent: { color: "var(--acc)", dash: "" },
+  dispatch: { color: "var(--c3,#5a9e6f)", dash: "" },
+  message: { color: "var(--warn)", dash: "3 3" },
+  handoff: { color: "var(--dim)", dash: "6 3" },
+};
+function dag(graph, { nodeW = 190, rowH = 34, pad = 20 } = {}) {
+  if (!graph?.nodes?.length) return "";
+  const W = graph.width + nodeW + pad * 2;
+  const H = graph.height + rowH + pad * 2;
+  const at = new Map(graph.nodes.map((n) => [n.id, n]));
+  const cx = (n) => pad + n.x + 7;
+  const cy = (n) => pad + n.y + rowH / 2;
+  const trunc = (t, n = 22) => (t.length <= n ? t : `${t.slice(0, n - 1)}…`);
+  // An edge must leave from *after* its source's label, or it draws straight across the text it
+  // just came from — which is what made the first version unreadable.
+  const labelEnd = (n) => {
+    const text = trunc(n.title ?? n.id.slice(0, 8));
+    const r = n.groupSize ? 0 : n.degree > 3 ? 8 : n.degree > 1 ? 6.5 : 5;
+    const w = n.groupSize ? text.length * 6.6 + 26 : r + 6 + text.length * 6.6;
+    return cx(n) + w + 6;
+  };
+  const edges = graph.edges.map((e) => {
+    const a = at.get(e.from), b = at.get(e.to);
+    if (!a || !b) return "";
+    const st = EDGE_STYLE[e.kind] ?? EDGE_STYLE.handoff;
+    const x1 = labelEnd(a), y1 = cy(a), x2 = cx(b) - 8, y2 = cy(b);
+    // A back edge (it closed a cycle) bows the other way so the pair is visibly a round trip.
+    const bow = e.back ? -Math.max(24, Math.abs(y2 - y1) * 0.6) : 0;
+    const mx = (x1 + x2) / 2;
+    const d = e.back
+      ? `M ${x1} ${y1} C ${mx} ${y1 + bow}, ${mx} ${y2 + bow}, ${x2} ${y2}`
+      : `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    const tip = `${attr(e.kind)}${e.label ? ` · ${attr(String(e.label))}` : ""}`;
+    return `<path d="${d}" fill="none" stroke="${st.color}" stroke-width="${e.back ? 1 : 1.6}"
+      ${st.dash ? `stroke-dasharray="${st.dash}"` : ""} opacity="${e.back ? 0.5 : 0.8}" data-tip="${tip}"/>`;
+  });
+
+  const OUTCOME = { merged: "var(--ok)", reverted: "var(--bad)", open: "var(--warn)" };
+  const nodes = graph.nodes.map((n) => {
+    const live = n.state === "active" || n.state === "waiting";
+    const label = trunc(n.title ?? n.id.slice(0, 8));
+    // A collapsed sibling fan draws as a pill you can open, not as another dot.
+    if (n.groupSize) {
+      const w = label.length * 6.6 + 26;
+      return `<g data-tip="${attr(label)} — click to expand" data-group="${attr(n.id)}" style="cursor:pointer">
+        <rect x="${cx(n) - 7}" y="${cy(n) - 10}" width="${w}" height="20" rx="10"
+          fill="var(--acc-soft)" stroke="${agentColor(n.agent)}" stroke-width="1" opacity=".95"/>
+        <text x="${cx(n) + 6}" y="${cy(n) + 4}" font-size="11.5" font-weight="600" fill="var(--acc)">${attr(label)}</text>
+        <text x="${cx(n) + w - 16}" y="${cy(n) + 4}" font-size="11" fill="var(--acc)">+</text></g>`;
+    }
+    const r = n.degree > 3 ? 8 : n.degree > 1 ? 6.5 : 5;
+    const ring = n.outcome ? OUTCOME[n.outcome] : null;
+    const tip = `${attr(n.title ?? n.id.slice(0, 8))}<br><span class='dim'>${attr(agentName(n.agent))} · ${attr(n.kind)}${n.costUsd ? ` · $${n.costUsd.toFixed(2)}` : ""} · ${n.degree} link${n.degree === 1 ? "" : "s"}</span>`;
+    // paint-order:stroke puts a panel-coloured halo behind the text, so an edge passing under a
+    // label cannot render it unreadable — which is what made the first version a hairball.
+    return `<g data-tip="${tip}" data-s="${attr(n.id)}" style="cursor:pointer">
+      ${ring ? `<circle cx="${cx(n)}" cy="${cy(n)}" r="${r + 3}" fill="none" stroke="${ring}" stroke-width="1.5" opacity=".8"/>` : ""}
+      <circle cx="${cx(n)}" cy="${cy(n)}" r="${r}" fill="${agentColor(n.agent)}"${live ? ' stroke="var(--fg)" stroke-width="1"' : ""}/>
+      <text x="${cx(n) + r + 6}" y="${cy(n) + 4}" font-size="11.5" fill="var(--fg-2)"
+        stroke="var(--panel)" stroke-width="3" paint-order="stroke" stroke-linejoin="round">${attr(label)}</text></g>`;
+  });
+
+  // Natural size, not width:100%. A hub-and-spoke graph is tall and narrow, and scaling that to the
+  // container's width magnifies the height into thousands of pixels; the card scrolls instead.
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Session lineage graph">${edges.join("")}${nodes.join("")}</svg>`;
+}
+
+window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort, bipartite, dag, EDGE_STYLE };

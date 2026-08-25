@@ -255,8 +255,16 @@ async function refresh() {
     incChanged = JSON.stringify(inc) !== JSON.stringify(state.allIncidents);
     state.allIncidents = inc;
   }
+  let linChanged = false;
+  if (state.view === "graphs" && (state.graphTab ?? "collisions") === "lineage" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const open = (state.lineageOpen ?? []).map((g) => `&expand=${encodeURIComponent(g)}`).join("");
+    const lin = await fetch(`/v1/graphs/lineage${q || "?"}${open}`).then((r) => r.json()).catch(() => state.lineage);
+    linChanged = JSON.stringify(lin) !== JSON.stringify(state.lineage);
+    state.lineage = lin;
+  }
   let colChanged = false;
-  if (state.view === "graphs" && !state.session) {
+  if (state.view === "graphs" && (state.graphTab ?? "collisions") !== "lineage" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
     const col = await fetch(`/v1/graphs/collisions${q}`).then((r) => r.json()).catch(() => state.collisions);
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
@@ -290,7 +298,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || ghChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -316,6 +324,8 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
 {
   const v = localStorage.getItem("swarm.view");
   if (VIEWS.includes(v)) state.view = v;
+  const gt = localStorage.getItem("swarm.graphTab");
+  if (gt === "lineage" || gt === "collisions") state.graphTab = gt;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
   // Deep links win over persisted state: ?view=board&project=<id>&session=<id>
@@ -1472,9 +1482,13 @@ function renderHygiene() {
 // M9.12: live file-collision graph — which live sessions touch which files, contested files
 // highlighted. Data from /v1/graphs/collisions (fetched by the poll while the view is open).
 function renderGraphs() {
+  const tab = state.graphTab ?? "collisions";
+  const chip = (k, label, n) => `<span class="chip ${tab === k ? "on" : ""}" data-graphtab="${k}">${label}${n ? ` <b>${n}</b>` : ""}</span>`;
+  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}</div>`;
+  const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
+  if (tab === "lineage") return renderLineage(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
-  const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>`;
   if (!g || !g.sessions.length) {
     $("#main").innerHTML = head("live file collisions") + `<div class="empty">${PX.idle()}No live sessions${state.sel ? " in this project" : ""}.<br>The collision graph shows who is touching what, the moment two agents run at once.</div>`;
     return;
@@ -1489,6 +1503,30 @@ function renderGraphs() {
   $("#main").innerHTML = head(sub) +
     `<div class="card" style="padding:14px">${viz.bipartite(sessions, g.files)}</div>
      <div style="margin-top:10px;display:flex;gap:16px;align-items:center">${viz.legend(agents)}<span class="dim" style="font-size:var(--fs-sm)">solid edge = writing · faint edge = reading · <span style="color:var(--bad)">red file</span> = two sessions on it, at least one writing</span></div>`;
+}
+
+// M9.13: who started whom, who told whom, who picked up whose work. Every edge is a recorded
+// relationship — nothing is inferred from timing.
+const EDGE_LEGEND = [
+  ["subagent", "spawned a subagent", "var(--acc)", ""],
+  ["dispatch", "dispatched a run", "var(--c3,#5a9e6f)", ""],
+  ["message", "sent a message", "var(--warn)", "3 3"],
+  ["handoff", "handed the task on", "var(--dim)", "6 3"],
+];
+function renderLineage(head) {
+  const g = state.lineage;
+  if (!g) { $("#main").innerHTML = head("session lineage") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!g.nodes.length) {
+    $("#main").innerHTML = head("session lineage") + `<div class="empty">${PX.idle()}No relationships between sessions${state.sel ? " in this project" : ""} in the last 14 days.<br>Edges appear when a session spawns a subagent, dispatches a run, messages another agent, or hands a task on.</div>`;
+    return;
+  }
+  const key = EDGE_LEGEND.filter(([k]) => g.byKind[k]).map(([k, label, color, dash]) =>
+    `<span style="display:inline-flex;align-items:center;gap:6px"><svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg><span class="dim" style="font-size:var(--fs-sm)">${label} <b>${g.byKind[k]}</b></span></span>`).join("");
+  const sub = `${g.nodes.length} session${g.nodes.length === 1 ? "" : "s"} · ${g.edges.length} link${g.edges.length === 1 ? "" : "s"} · ${g.roots} root${g.roots === 1 ? "" : "s"} · last 14 days${g.truncated ? ` · <b class="navcount" title="The best-connected ${g.nodes.length} are drawn; the rest would be an unreadable column">${g.truncated} not drawn</b>` : ""}`;
+  $("#main").innerHTML = head(sub) +
+    `<div class="card" style="padding:14px;overflow:auto;max-height:72vh">${viz.dag(g)}</div>
+     <div style="margin-top:10px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">${key}
+       <span class="dim" style="font-size:var(--fs-sm)">a green pill is a collapsed group — click to open it · ring = outcome · thicker dot = more links · a bowed edge closed a loop</span></div>`;
 }
 
 function renderTimeline() {
@@ -2124,7 +2162,7 @@ document.addEventListener("contextmenu", (ev) => {
 // unreachable (closest() returns null and the click dies silently) — that is how Replay,
 // Resume-where-it-died and the dry-run Re-run button all shipped dead.
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-graphtab],[data-group],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -2210,6 +2248,14 @@ document.addEventListener("click", async (ev) => {
   if (t.id === "dryrun") { ev.preventDefault(); return openDryRun(); }
   if (t.dataset.skind !== undefined) { ev.preventDefault(); srch.kind = t.dataset.skind; return runSearch().then(renderSearch); }
   if (t.id === "drRun") { ev.preventDefault(); return runDryRun(); }
+  if (t.dataset.group) {
+    ev.preventDefault();
+    const open = new Set(state.lineageOpen ?? []);
+    open.has(t.dataset.group) ? open.delete(t.dataset.group) : open.add(t.dataset.group);
+    state.lineageOpen = [...open];
+    return refresh();
+  }
+  if (t.dataset.graphtab) { state.graphTab = t.dataset.graphtab; localStorage.setItem("swarm.graphTab", state.graphTab); return refresh(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }
   if (t.dataset.ack) { ev.preventDefault(); ev.stopPropagation(); return act.ack(t.dataset.ack); }
   if (t.dataset.ackall) {
