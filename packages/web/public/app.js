@@ -254,7 +254,8 @@ const VIEW_DEFS = [
   { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
-  { id: "outcomes", label: "Outcomes", icon: "check", group: "Insight", render: () => renderOutcomes() },
+  // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
+  { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -324,7 +325,10 @@ function renderNav() {
     .map((g) => {
       const n = g.views.reduce((a, v) => a + (v.badge?.() ?? 0), 0);
       const on = !state.session && g.views.some((v) => v.id === state.view);
-      return `<button class="navgrp ${on ? "on" : ""}" data-grp="${g.name}" aria-haspopup="menu">${g.name}${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}${ic("chevron-down", 12, "chev")}</button>`;
+      // The group name alone never says which of its views you are on, so ten destinations hid
+      // behind four words. The active group carries the view's own label.
+      const cur = on ? g.views.find((v) => v.id === state.view) : null;
+      return `<button class="navgrp ${on ? "on" : ""}" data-grp="${g.name}"${on ? ' aria-current="page"' : ""} aria-haspopup="menu">${g.name}${cur ? `<span class="navview">${esc(cur.label)}</span>` : ""}${n ? `<b class="navcount">${n > 99 ? "99+" : n}</b>` : ""}${ic("chevron-down", 12, "chev")}</button>`;
     })
     .join("");
   if (html !== navHtml) { navHtml = html; $("#viewnav").innerHTML = html; }
@@ -537,7 +541,11 @@ function renderBoardKpis() {
   const orphaned = claims.filter((c) => c.state === "orphaned").length;
   const wts = (state.sel ? [state.sel] : state.projects.map((p) => p.id)).flatMap((id) => state.worktrees[id] ?? []);
   const dirty = wts.filter((w) => w.dirty > 0).length, merged = wts.filter((w) => !w.main && w.merged).length;
-  const inc = (state.incidents ?? []).filter((i) => inSel(i.projectId) && !i.acked).length;
+  // The snapshot carries only the 20 most recent open incidents, so counting that window caps the
+  // KPI at 20 while the Guard badge shows the real number. Both now read the same true count.
+  const inc = state.sel
+    ? (state.openIncidentsByProject?.[state.sel] ?? (state.incidents ?? []).filter((i) => inSel(i.projectId) && !i.acked).length)
+    : (state.openIncidents ?? (state.incidents ?? []).filter((i) => !i.acked).length);
   const tasks = state.sel && state.tasks?.tasks ? state.tasks.tasks : null;
   const ready = tasks ? tasks.filter((t) => t.ready).length : null;
   const gateFails = tasks ? tasks.filter((t) => (t.gates ?? []).some((g) => g.verdict === "fail")).length : 0;

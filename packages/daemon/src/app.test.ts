@@ -1094,6 +1094,29 @@ describe("rules + incidents (Phase 2)", () => {
     expect((store.snapshot() as { openIncidents: number }).openIncidents).toBe(0);
   });
 
+  it("the snapshot's per-project incident count is not capped by the incident window (M9)", async () => {
+    const dir = repo();
+    const { app, store } = createApp(new Store(tmpHome()));
+    // More incidents than the snapshot's 20-row window, so a count taken over that window is wrong.
+    for (let n = 0; n < 25; n++)
+      await hook(app, {
+        session_id: `s-cap-${n}`,
+        cwd: dir,
+        tool_name: "Bash",
+        tool_input: { command: "pkill -f node" },
+      });
+    const snap = store.snapshot() as {
+      incidents: unknown[];
+      openIncidents: number;
+      openIncidentsByProject: Record<string, number>;
+    };
+    const pid = store.projects()[0]?.id as string;
+    expect(snap.incidents.length).toBe(20); // the window the dashboard used to count
+    expect(snap.openIncidents).toBe(25); // the truth
+    expect(snap.openIncidentsByProject[pid]).toBe(25); // ...now available per project too
+    expect(store.openIncidentsByProject()[pid]).toBe(store.openIncidents(pid));
+  });
+
   it("off disables a rule per-repo", async () => {
     const fs = require("node:fs");
     const dir = repo();

@@ -133,6 +133,9 @@
     transition:color var(--t-fast),background var(--t-fast)}
   #viewnav .navgrp:hover{color:var(--fg-2);background:var(--panel-2)}
   #viewnav .navgrp.on{color:var(--fg);background:var(--panel-2)}
+  /* the active view's own name, so the header answers "where am I" without opening a menu */
+  #viewnav .navview{color:var(--acc);font-weight:600}
+  #viewnav .navview::before{content:"";display:inline-block;width:1px;height:11px;margin:0 7px -1px;background:var(--line)}
   /* while this button's menu is open: held-down state, so the trigger reads as the open one */
   #viewnav .navgrp.open{color:var(--fg);background:var(--line)}
   #viewnav .navgrp.open .chev{opacity:.9;transform:rotate(180deg)}
@@ -274,7 +277,11 @@
   tbody tr{transition:background var(--t-fast)}
   tbody tr[data-s]{cursor:pointer}
   tbody tr:hover{background:var(--panel-2)}
-  td:first-child{overflow:visible}
+  /* The status-dot cell alone opts out of clipping: `.s.active` paints a pulsing box-shadow
+     that a 24px `overflow:hidden` cell would shear off. Scoped to that cell on purpose --
+     as `td:first-child` it also un-clipped the first *content* column of every grid, so long
+     values (branch names on Outcomes) painted straight over the next column. */
+  tbody td.td-lead{overflow:visible}
   /* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
   .dt thead th{position:relative;user-select:none;-webkit-user-select:none}
   /* visible column dividers in the header: the "these columns are adjustable" cue */
