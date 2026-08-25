@@ -67,6 +67,7 @@ import {
   type HeldWorktree,
   type HistoricalCall,
   handoffDoc,
+  handoffEdges,
   hasLockedRules,
   hookCoverage,
   hygieneReport,
@@ -81,9 +82,12 @@ import {
   isTrackedPid,
   type LeaseClaim,
   LIVE_WINDOW_MS,
+  type LineageEdgeInput,
+  type LineageSession,
   type LiveSession,
   type LoadedConfig,
   type LogParseResult,
+  lineageGraph,
   loadConfig,
   loadConfigDetailed,
   type MemoryDoc,
@@ -3990,6 +3994,157 @@ export class Store {
     );
 
     return hygieneReport(procs, trees);
+  }
+
+  /**
+   * Session lineage (M9.13): the four recorded relationships between sessions, laid out as a DAG.
+   * Every edge comes from something the ledger already stores — nothing here is inferred from
+   * timing or proximity.
+   */
+  lineage(projectId?: string, days = 14, expanded: string[] = []) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const pArgs = projectId ? [projectId] : [];
+
+    const rows = this.db
+      .query(
+        `SELECT id, project_id, title, agent, kind, state, parent_id, started_at, ended_at
+         FROM sessions WHERE last_seen_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      id: string;
+      project_id: string | null;
+      title: string | null;
+      agent: string | null;
+      kind: string;
+      state: string;
+      parent_id: string | null;
+      started_at: string;
+      ended_at: string | null;
+    }>;
+    const cost = new Map(
+      (
+        this.db
+          .query(
+            "SELECT session_id, SUM(cost_usd) AS c FROM turns WHERE ts >= ? GROUP BY session_id",
+          )
+          .all(since) as Array<{ session_id: string; c: number | null }>
+      ).map((r) => [r.session_id, r.c]),
+    );
+    const sessions: LineageSession[] = rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      title: r.title,
+      agent: r.agent ?? "claude-code",
+      kind: r.kind,
+      state: r.state,
+      startedAt: r.started_at,
+      endedAt: r.ended_at,
+      costUsd: cost.get(r.id) ?? null,
+      outcome: null,
+    }));
+    const known = new Set(sessions.map((s) => s.id));
+
+    const edges: LineageEdgeInput[] = [];
+    // 1. subagent — a subagent is not a session row (`subagent.started` only bumps a counter on its
+    // parent); it is a run of turns carrying an `agent_id`. Roll those up into a node of their own,
+    // so delegated work is visible with the cost it actually incurred.
+    for (const a of this.db
+      .query(
+        `SELECT t.session_id, t.agent_id, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts,
+                SUM(t.cost_usd) AS cost, COUNT(*) AS turns
+         FROM turns t WHERE t.agent_id IS NOT NULL AND t.ts >= ?
+         GROUP BY t.session_id, t.agent_id`,
+      )
+      .all(since) as Array<{
+      session_id: string;
+      agent_id: string;
+      first_ts: string;
+      last_ts: string;
+      cost: number | null;
+      turns: number;
+    }>) {
+      const parent = sessions.find((x) => x.id === a.session_id);
+      if (!parent) continue; // its session is outside the window, or another project
+      const id = `sub:${a.session_id}:${a.agent_id}`;
+      sessions.push({
+        id,
+        projectId: parent.projectId,
+        title: `subagent ${a.agent_id.slice(0, 8)} · ${a.turns} turn${a.turns === 1 ? "" : "s"}`,
+        agent: parent.agent,
+        kind: "subagent",
+        state: "ended",
+        startedAt: a.first_ts,
+        endedAt: a.last_ts,
+        costUsd: a.cost,
+        outcome: null,
+      });
+      known.add(id);
+      edges.push({ from: a.session_id, to: id, kind: "subagent", at: a.first_ts });
+    }
+
+    // 2. dispatch — `by` names who asked; only an owner that resolves to a session is an edge
+    for (const d of this.db
+      .query(
+        `SELECT session_id, ts, json_extract(payload,'$.by') AS by, json_extract(payload,'$.task') AS task
+         FROM events WHERE type = 'dispatch.started' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      session_id: string | null;
+      ts: string;
+      by: string | null;
+      task: string | null;
+    }>) {
+      if (!d.session_id || !d.by) continue;
+      const a = actorFrom(d.by, null);
+      if (a.kind === "agent" && known.has(a.id) && a.id !== d.session_id)
+        edges.push({ from: a.id, to: d.session_id, kind: "dispatch", at: d.ts, label: d.task });
+    }
+
+    // 3. message — sender → recipient (M7.6)
+    for (const m of this.db
+      .query(
+        `SELECT session_id, ts, json_extract(payload,'$.recipient') AS to_session,
+                json_extract(payload,'$.text') AS text
+         FROM events WHERE type = 'message.sent' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      session_id: string | null;
+      ts: string;
+      to_session: string | null;
+      text: string | null;
+    }>)
+      if (m.session_id && m.to_session)
+        edges.push({
+          from: m.session_id,
+          to: m.to_session,
+          kind: "message",
+          at: m.ts,
+          label: m.text?.slice(0, 80) ?? null,
+        });
+
+    // 4. handoff — successive claim holders of one task (the actor on a claim is its session)
+    const holds = (
+      this.db
+        .query(
+          `SELECT task, project_id, actor_kind, actor_id, acquired_at FROM claims
+           WHERE acquired_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+        )
+        .all(since, ...pArgs) as Array<{
+        task: string;
+        project_id: string | null;
+        actor_kind: string | null;
+        actor_id: string | null;
+        acquired_at: string;
+      }>
+    ).map((c) => ({
+      task: c.task,
+      projectId: c.project_id,
+      sessionId: c.actor_kind === "agent" ? c.actor_id : null,
+      at: c.acquired_at,
+    }));
+    edges.push(...handoffEdges(holds));
+
+    return lineageGraph(sessions, edges, { expanded });
   }
 
   collisions(projectId?: string) {

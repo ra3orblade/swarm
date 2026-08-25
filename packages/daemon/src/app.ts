@@ -192,6 +192,15 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   app.get("/v1/graphs/collisions", (c) =>
     c.json(store.collisions(c.req.query("project") || undefined)),
   );
+  app.get("/v1/graphs/lineage", (c) =>
+    c.json(
+      store.lineage(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+        c.req.queries("expand") ?? [],
+      ),
+    ),
+  );
   app.get("/v1/hygiene", (c) => c.json(store.hygiene(c.req.query("project") || undefined)));
   app.get("/v1/gates/health", (c) =>
     c.json(
