@@ -1309,6 +1309,66 @@ describe("event storage and wire shape (perf)", () => {
     expect((await app.request("/v1/events/99")).status).toBe(404);
   });
 
+  it("measures blocked-on-human time, closing a notification with the next activity (M9.4)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const at = (min: number) => new Date(Date.UTC(2026, 7, 24, 10, min)).toISOString();
+    const base = { projectId: "p1", sessionId: "s1" } as const;
+    // a permission prompt answered after 5 minutes
+    store.append({
+      ...base,
+      ts: at(0),
+      type: "permission.requested",
+      payload: { requestId: "r1", tool: "Bash" },
+    });
+    store.append({
+      ...base,
+      ts: at(5),
+      type: "permission.resolved",
+      payload: { requestId: "r1", tool: "Bash", allow: true },
+    });
+    // a question answered after 15
+    store.append({
+      ...base,
+      ts: at(10),
+      type: "question.asked",
+      payload: { id: 7, text: "which branch?" },
+    });
+    store.append({
+      ...base,
+      ts: at(25),
+      type: "question.answered",
+      payload: { id: 7, answer: "main" },
+    });
+    // a notification has no closing event: the session's next tool call ends the wait
+    store.append({
+      ...base,
+      ts: at(30),
+      type: "session.notification",
+      payload: { summary: "needs input" },
+    });
+    store.append({ ...base, ts: at(38), type: "tool.requested", payload: { tool: "Read" } });
+    // an unrelated session's prompt must not close s1's notification
+    store.append({
+      projectId: "p1",
+      sessionId: "s2",
+      ts: at(31),
+      type: "prompt.submitted",
+      payload: {},
+    });
+
+    const w = store.waiting();
+    const s1 = w.sessions.find((x) => x.sessionId === "s1");
+    expect(s1?.episodes).toBe(3);
+    expect(s1?.blockedMs).toBe((5 + 15 + 8) * 60_000);
+    expect(s1?.byKind.notification.blockedMs).toBe(8 * 60_000);
+    expect(s1?.openSince).toBeNull();
+    expect(w.totals.waitingNow).toBe(0);
+
+    const r = await app.request("/v1/waiting");
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { totals: { episodes: number } }).totals.episodes).toBe(3);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

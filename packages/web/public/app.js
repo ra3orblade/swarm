@@ -243,6 +243,13 @@ async function refresh() {
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
   }
+  let waitChanged = false;
+  if ((state.view === "fleet" || state.view === "stats") && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const w = await fetch(`/v1/waiting${q}`).then((r) => r.json()).catch(() => state.waiting);
+    waitChanged = JSON.stringify(w) !== JSON.stringify(state.waiting);
+    state.waiting = w;
+  }
   let outChanged = false;
   if (state.view === "outcomes" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -250,7 +257,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -451,10 +458,19 @@ function onboarding() {
 
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
+// M9.4: this session is blocked on a person right now — the badge says for how long, and on what.
+const waitFor = (sid) => (state.waiting?.sessions ?? []).find((w) => w.sessionId === sid);
+const WAIT_WHAT = { permission: "a permission prompt", question: "a question it asked", notification: "a notification" };
+function waitBadge(sid) {
+  const w = waitFor(sid);
+  if (!w?.openSince) return "";
+  const what = WAIT_WHAT[w.openKind] ?? "you";
+  return ` <span class="badge warn" title="Blocked on ${esc(what)} since ${esc(w.openSince)}${w.openLabel ? ` — ${esc(w.openLabel)}` : ""}">Waiting ${ago(w.openSince)}</span>`;
+}
 const FLEET_COLS = [
   { key: "project", label: "project", width: 112, get: (s) => projName(s.projectId), cell: (s) => projCell(s.projectId) },
   { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
-  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}${s.stuck ? ` <span class="badge bad" title="${esc(s.stuck)} — heuristic, nothing was interrupted; open the session to judge">Stuck</span>` : ""}` },
+  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}${s.stuck ? ` <span class="badge bad" title="${esc(s.stuck)} — heuristic, nothing was interrupted; open the session to judge">Stuck</span>` : ""}${waitBadge(s.id)}` },
   { key: "branch", label: "branch", width: 116, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => {
     const line = s.lastText ? s.lastText.split("\n").find((l) => l.trim()) ?? "" : "";
@@ -1141,6 +1157,34 @@ document.addEventListener("change", async (ev) => {
 });
 document.addEventListener("input", (ev) => { if (ev.target.id === "psIcon") { $("#psImage").value = ""; setIconPreview(ev.target.value.trim()); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === ev.target.value.trim()); } });
 document.addEventListener("input", (ev) => { if (ev.target.id === "srchQ") { srch.q = ev.target.value; clearTimeout(srch.db); srch.db = setTimeout(runSearch, 150); } });
+// M9.4: how much of the fleet's time is spent waiting on a person, and on what. Blocked time is
+// not idle time — it is the agent standing still with the work half-done, which is why it gets a
+// number rather than a footnote.
+function waitingSection() {
+  const w = state.waiting;
+  if (!w?.totals?.episodes) return "";
+  const t = w.totals;
+  const kindRow = (k, label) => {
+    const x = t.byKind[k];
+    return x?.episodes ? `<tr><td>${label}</td><td class="num">${x.episodes}</td><td class="num">${dur(x.blockedMs)}</td></tr>` : "";
+  };
+  const top = w.sessions.slice(0, 8).map((s) => `<tr${s.sessionId ? ` data-s="${esc(s.sessionId)}"` : ""}>
+      <td>${esc(s.title ?? s.sessionId.slice(0, 8))}${s.openSince ? ` <span class="badge warn">waiting ${ago(s.openSince)}</span>` : ""}</td>
+      <td class="num">${s.episodes}</td><td class="num">${dur(s.blockedMs)}</td><td class="num">${dur(s.longestMs)}</td></tr>`).join("");
+  return `<h2 class="mt-sec">Waiting on you <span>last 7 days · time agents spent blocked on a person${t.waitingNow ? ` · <b class="navcount">${t.waitingNow} waiting now</b>` : ""}</span></h2>
+     <div class="cols">
+       <div class="chart-card" style="margin:0"><h3>By what blocked them</h3>
+         <table class="mini"><thead><tr><th>kind</th><th class="num">times</th><th class="num">blocked</th></tr></thead>
+         <tbody>${kindRow("permission", "Permission prompt")}${kindRow("question", "Question it asked")}${kindRow("notification", "Notification")}
+           <tr><td><b>Total</b></td><td class="num"><b>${t.episodes}</b></td><td class="num"><b>${dur(t.blockedMs)}</b></td></tr>
+           <tr><td class="dim">median wait</td><td class="num"></td><td class="num dim">${dur(t.medianMs)}</td></tr>
+           <tr><td class="dim">longest wait</td><td class="num"></td><td class="num dim">${dur(t.longestMs)}</td></tr>
+         </tbody></table></div>
+       <div class="chart-card" style="margin:0"><h3>Sessions that waited most</h3>
+         <table class="mini"><thead><tr><th>session</th><th class="num">waits</th><th class="num">blocked</th><th class="num">longest</th></tr></thead>
+         <tbody>${top}</tbody></table></div>
+     </div>`;
+}
 function renderStats() {
   const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
   const scope = state.sel ? esc(projName(state.sel)) : "all projects";
@@ -1228,6 +1272,7 @@ function renderStats() {
        <div class="chart-card" style="margin:0"><h3>Tool leaderboard <span>calls · all time</span></h3>${st.tools.length ? viz.hbars(st.tools.map(([k, v]) => [toolName(k), v])) : '<div class="dim">no tool calls yet</div>'}</div>
        <div><h2 style="margin-top:0">Records</h2><div class="records">${records}</div></div>
      </div>
+     ${waitingSection()}
      <p class="dim" style="margin-top:var(--gap-sec)">Word counts assume ~0.75 words per token; a novel is 90k words. Costs use list prices, as on Spend. ${pct(T.sidechainTurns, T.turns)} of turns came from subagents.</p>`;
 }
 

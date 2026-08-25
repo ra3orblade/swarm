@@ -27,5 +27,6 @@ export * from "./stall";
 export * from "./tasks";
 export * from "./team";
 export * from "./types";
+export * from "./waiting";
 export * from "./workflows";
 export * from "./worktree";

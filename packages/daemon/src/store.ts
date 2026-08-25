@@ -98,6 +98,7 @@ import {
   type Price,
   type ProcessKind,
   type Project,
+  pairWaits,
   parseAiderHistory,
   parseCodexRollout,
   parseGeminiChat,
@@ -143,7 +144,10 @@ import {
   validateHandoff,
   validateMessage,
   validateQuestion,
+  type WaitKind,
+  type WaitSample,
   WRITE_TOOLS,
+  waitingReport,
 } from "@swarm/core";
 import { runBootstrap } from "./bootstrap";
 import { findBin } from "./forge";
@@ -3684,6 +3688,121 @@ export class Store {
    * where they overlap. Reads `tool.requested` events (they carry `toolInput.file_path` for the
    * file tools); assembly is `collisionGraph` in core. Scoped to a project when given.
    */
+  /**
+   * Waiting-on-human (M9.4): the spans where a session sat blocked on a person.
+   *
+   * `permission.*` and `question.*` already come in pairs. `session.notification` has no closing
+   * event, so it is closed by the session's *next activity* — its next prompt or tool call is
+   * exactly the moment the human unblocked it. Ordering uses `seq` rather than `ts` so the
+   * `events(session_id, seq)` index does the work.
+   */
+  waiting(projectId?: string, days = 7) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const pArgs = projectId ? [projectId] : [];
+
+    const paired = this.db
+      .query(
+        `SELECT type, session_id, project_id, ts,
+                COALESCE(json_extract(payload,'$.requestId'), json_extract(payload,'$.id')) AS key,
+                COALESCE(json_extract(payload,'$.tool'), json_extract(payload,'$.text')) AS label
+         FROM events
+         WHERE type IN ('permission.requested','permission.resolved','question.asked','question.answered')
+           AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      type: string;
+      session_id: string | null;
+      project_id: string | null;
+      ts: string;
+      key: string | number | null;
+      label: string | null;
+    }>;
+
+    const notes = this.db
+      .query(
+        `SELECT n.seq, n.session_id, n.project_id, n.ts,
+                json_extract(n.payload,'$.summary') AS label,
+                (SELECT MIN(a.ts) FROM events a
+                  WHERE a.session_id = n.session_id AND a.seq > n.seq
+                    AND a.type IN ('prompt.submitted','tool.requested')) AS resumed
+         FROM events n
+         WHERE n.type = 'session.notification' AND n.ts >= ?${projectId ? " AND n.project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      seq: number;
+      session_id: string | null;
+      project_id: string | null;
+      ts: string;
+      label: string | null;
+      resumed: string | null;
+    }>;
+
+    const samples: WaitSample[] = [];
+    for (const r of paired) {
+      if (!r.session_id || r.key === null) continue;
+      const kind: WaitKind = r.type.startsWith("permission") ? "permission" : "question";
+      samples.push({
+        sessionId: r.session_id,
+        projectId: r.project_id,
+        kind,
+        key: String(r.key),
+        phase: r.type.endsWith(".requested") || r.type.endsWith(".asked") ? "start" : "end",
+        ts: r.ts,
+        ...(r.label ? { label: r.label.slice(0, 120) } : {}),
+      });
+    }
+    for (const n of notes) {
+      if (!n.session_id) continue;
+      const key = String(n.seq);
+      samples.push({
+        sessionId: n.session_id,
+        projectId: n.project_id,
+        kind: "notification",
+        key,
+        phase: "start",
+        ts: n.ts,
+        ...(n.label ? { label: n.label.slice(0, 120) } : {}),
+      });
+      if (n.resumed)
+        samples.push({
+          sessionId: n.session_id,
+          projectId: n.project_id,
+          kind: "notification",
+          key,
+          phase: "end",
+          ts: n.resumed,
+        });
+    }
+
+    const ends: Record<string, string | undefined> = {};
+    for (const r of this.db
+      .query("SELECT id, ended_at FROM sessions WHERE ended_at IS NOT NULL")
+      .all() as Array<{ id: string; ended_at: string }>)
+      ends[r.id] = r.ended_at;
+
+    const report = waitingReport(pairWaits(samples, new Date().toISOString(), ends));
+    // Enrich with what the view needs to name a session, the way collisions() does.
+    const meta = new Map(
+      (
+        this.db.query("SELECT id, title, agent, project_id FROM sessions").all() as Array<{
+          id: string;
+          title: string | null;
+          agent: string | null;
+          project_id: string | null;
+        }>
+      ).map((r) => [r.id, r]),
+    );
+    return {
+      ...report,
+      sessions: report.sessions.map((s) => ({
+        ...s,
+        title: meta.get(s.sessionId)?.title ?? null,
+        agent: meta.get(s.sessionId)?.agent ?? "claude-code",
+        projectId: s.projectId ?? meta.get(s.sessionId)?.project_id ?? null,
+      })),
+    };
+  }
+
   collisions(projectId?: string) {
     const cutoff = new Date(Date.now() - IDLE_MS).toISOString();
     const live = this.db
