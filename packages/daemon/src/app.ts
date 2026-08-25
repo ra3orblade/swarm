@@ -201,6 +201,14 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  app.get("/v1/context", (c) =>
+    c.json(
+      store.context(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7)),
+      ),
+    ),
+  );
   app.get("/v1/mcp/health", (c) =>
     c.json(
       store.mcpHealth(

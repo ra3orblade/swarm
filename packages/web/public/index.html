@@ -216,7 +216,13 @@
   .wn b{color:var(--fg)}
   .wn .snip{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;font-family:var(--mono);font-size:var(--fs-sm);line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:2px 0 12px;color:var(--fg-2)}
   .wn .cbtn{font-weight:500;font-size:var(--fs-sm);color:var(--acc);margin-left:8px}
-  .rp .snip{max-height:32vh;overflow:auto}
+  /* Replay steps through calls whose payloads differ wildly in size. With the dialog free to grow
+     to `.pk`'s max-height, every step resized it — and because it is centred, Prev/Next moved
+     vertically under the cursor mid-click. The dialog is a fixed height and the body scrolls
+     inside it, so only the content changes as you step. One scroll region, not nested ones. */
+  .rp{height:78vh}
+  .rp .pk-b{max-height:none;flex:1;min-height:0;overflow:auto;gap:2px}
+  .rp .snip{max-height:none;overflow:visible}
   .rp .pk-f input[type=range]{accent-color:var(--acc)}
   /* pending permission prompts (M3.2) */
   .perm{background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r-sm);padding:10px 12px;margin-top:10px}
@@ -408,11 +414,14 @@
   .comp{display:flex;gap:2px;height:12px;border-radius:var(--r-xs);overflow:hidden;margin-top:4px}
   .comp i{display:block;min-width:2px;transition:filter var(--t-fast)}.comp i:hover{filter:brightness(1.15)}
   .hbars{display:flex;flex-direction:column;gap:4px}
-  .hb{display:grid;grid-template-columns:minmax(0,88px) 1fr 30px;gap:8px;align-items:center;font-size:var(--fs-md)}
+  /* The value column was a fixed 30px with no nowrap, so anything wider than "999" wrapped onto
+     three lines and tripled the row height. It sizes to its content now and never wraps; the
+     label gets a little more room before it has to ellipsize. */
+  .hb{display:grid;grid-template-columns:minmax(0,120px) 1fr auto;gap:8px;align-items:center;font-size:var(--fs-md)}
   .hb .k{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-2)}
   .hb .t{height:8px;background:var(--panel-2);border-radius:3px;overflow:hidden}
   .hb .t i{display:block;height:100%;border-radius:3px;min-width:2px}
-  .hb .n{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-mono)}
+  .hb .n{text-align:right;white-space:nowrap;color:var(--dim);font-variant-numeric:tabular-nums;font-size:var(--fs-mono)}
   .cal{position:relative;padding-top:16px}
   .cal-months{position:absolute;top:0;left:0;right:0;height:14px}
   .cal-months span{position:absolute;font:var(--fs-2xs) var(--mono);color:var(--faint)}

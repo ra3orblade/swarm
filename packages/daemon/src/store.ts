@@ -40,6 +40,7 @@ import {
   collisionGraph,
   compileRedactions,
   gateHealth as computeGateHealth,
+  contextReport,
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
@@ -4213,6 +4214,101 @@ export class Store {
       for (const [tool, at] of perSession) abandon(sessionId, tool, at);
 
     return mcpHealth(calls);
+  }
+
+  /**
+   * Context composition (M9.5). Tool-result volume and re-reads are read straight out of the event
+   * log, so the character counts are exact; the token figures on top of them are a flat 4:1
+   * estimate and are labelled as such. MCP schemas and the system prompt are not observable from
+   * hooks, so they are absent rather than guessed at.
+   */
+  context(projectId?: string, days = 7) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const pArgs = projectId ? [projectId] : [];
+    const where = projectId ? " AND project_id = ?" : "";
+
+    const results = (
+      this.db
+        .query(
+          `SELECT session_id, json_extract(payload,'$.tool') AS tool,
+                  LENGTH(json_extract(payload,'$.toolResponse')) AS chars
+           FROM events
+           WHERE type = 'tool.completed' AND ts >= ?${where}
+             AND json_extract(payload,'$.tool') IS NOT NULL
+             AND json_extract(payload,'$.toolResponse') IS NOT NULL`,
+        )
+        .all(since, ...pArgs) as Array<{
+        session_id: string | null;
+        tool: string;
+        chars: number | null;
+      }>
+    )
+      .filter((r) => r.session_id)
+      .map((r) => ({ sessionId: r.session_id as string, tool: r.tool, chars: r.chars ?? 0 }));
+
+    // A read's size is the response to it, so request and completion are joined on their session
+    // and path. `Read` is the tool that pulls a file into the window verbatim.
+    const reads = (
+      this.db
+        .query(
+          `SELECT req.session_id,
+                  json_extract(req.payload,'$.toolInput.file_path') AS path,
+                  (SELECT LENGTH(json_extract(done.payload,'$.toolResponse')) FROM events done
+                    WHERE done.session_id = req.session_id AND done.seq > req.seq
+                      AND done.type = 'tool.completed'
+                      AND json_extract(done.payload,'$.tool') = 'Read'
+                    ORDER BY done.seq LIMIT 1) AS chars
+           FROM events req
+           WHERE req.type = 'tool.requested' AND json_extract(req.payload,'$.tool') = 'Read'
+             AND req.ts >= ?${where.replace("project_id", "req.project_id")}
+             AND json_extract(req.payload,'$.toolInput.file_path') IS NOT NULL`,
+        )
+        .all(since, ...pArgs) as Array<{
+        session_id: string | null;
+        path: string;
+        chars: number | null;
+      }>
+    )
+      .filter((r) => r.session_id)
+      .map((r) => ({ sessionId: r.session_id as string, path: r.path, chars: r.chars ?? 0 }));
+
+    const turns = (
+      this.db
+        .query(
+          `SELECT t.session_id, SUM(t.input) AS input, SUM(t.cache_read) AS cache_read,
+                  SUM(t.cache_write) AS cache_write, SUM(t.thinking) AS thinking, SUM(t.output) AS output
+           FROM turns t${projectId ? " JOIN sessions s ON s.id = t.session_id" : ""}
+           WHERE t.ts >= ?${projectId ? " AND s.project_id = ?" : ""}
+           GROUP BY t.session_id`,
+        )
+        .all(since, ...pArgs) as Array<Record<string, number | string | null>>
+    ).map((r) => ({
+      sessionId: r.session_id as string,
+      input: (r.input as number) ?? 0,
+      cacheRead: (r.cache_read as number) ?? 0,
+      cacheWrite: (r.cache_write as number) ?? 0,
+      thinking: (r.thinking as number) ?? 0,
+      output: (r.output as number) ?? 0,
+    }));
+
+    const report = contextReport(results, reads, turns);
+    const meta = new Map(
+      (
+        this.db.query("SELECT id, title, agent FROM sessions").all() as Array<{
+          id: string;
+          title: string | null;
+          agent: string | null;
+        }>
+      ).map((r) => [r.id, r]),
+    );
+    return {
+      ...report,
+      sessions: report.sessions.map((s) => ({
+        ...s,
+        title: meta.get(s.sessionId)?.title ?? null,
+        agent: meta.get(s.sessionId)?.agent ?? "claude-code",
+      })),
+    };
   }
 
   collisions(projectId?: string) {
