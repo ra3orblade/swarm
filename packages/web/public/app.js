@@ -122,21 +122,27 @@ function pixmap(rows, cell = 6) {
 }
 const PX = {
   // The palette carries three tones (accent / light / dark) and this used one, which is why it
-  // read as a flat blob. Outline and features in `d`, face in `X`, antenna bulbs in `g`.
+  // read as a flat blob. Outline, ear modules and features in `d`; face and body in `X`; antenna
+  // tips and the chest light in `g`. The body tapers rather than sitting under the head as a slab.
   idle: () => pixmap([
-    "  g     g  ",
-    "  X     X  ",
-    "  X     X  ",
-    " ddddddddd ",
-    " dXXXXXXXd ",
-    "ddXddXddXdd",
-    "ddXddXddXdd",
-    "ddXXXXXXXdd",
-    " dXdddddXd ",
-    " dXXXXXXXd ",
-    " ddddddddd ",
-    "    XXX    ",
-    "  XXXXXXX  ",
+    "    g     g    ",
+    "    X     X    ",
+    "    X     X    ",
+    "  ddddddddddd  ",
+    "  dXXXXXXXXXd  ",
+    "dddXXXXXXXXXddd",
+    "dddXddXXXddXddd",
+    "dddXddXXXddXddd",
+    "dddXXXXXXXXXddd",
+    "  dXdddddddXd  ",
+    "  dXXXXXXXXXd  ",
+    "  ddddddddddd  ",
+    "      XXX      ",
+    "  ddddddddddd  ",
+    " dddXXXXXXXddd ",
+    "dXXXXXgggXXXXXd",
+    "dXXXXXXXXXXXXXd",
+    "ddddddddddddddd",
   ]),
   folder: () => pixmap([
     " XXXX     ",
