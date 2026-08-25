@@ -39,6 +39,7 @@ import {
   clusterProjectKey,
   collisionGraph,
   compileRedactions,
+  gateHealth as computeGateHealth,
   costUsd,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
@@ -68,6 +69,7 @@ import {
   handoffDoc,
   hasLockedRules,
   hookCoverage,
+  hygieneReport,
   incidentDoc,
   incidentKey,
   isActive,
@@ -97,7 +99,9 @@ import {
   PRICES,
   type Price,
   type ProcessKind,
+  type ProcSample,
   type Project,
+  pairWaits,
   parseAiderHistory,
   parseCodexRollout,
   parseGeminiChat,
@@ -143,7 +147,11 @@ import {
   validateHandoff,
   validateMessage,
   validateQuestion,
+  type WaitKind,
+  type WaitSample,
+  type WorktreeSample,
   WRITE_TOOLS,
+  waitingReport,
 } from "@swarm/core";
 import { runBootstrap } from "./bootstrap";
 import { findBin } from "./forge";
@@ -238,7 +246,7 @@ CREATE TABLE IF NOT EXISTS processes (
 CREATE INDEX IF NOT EXISTS processes_live ON processes(ended_at, project_id);
 CREATE TABLE IF NOT EXISTS gates (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, gate TEXT, verdict TEXT,
-  rubric TEXT, evidence TEXT, session_id TEXT, created_at TEXT
+  rubric TEXT, evidence TEXT, session_id TEXT, duration_ms INTEGER, created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS gates_task ON gates(project_id, task, created_at);
 CREATE TABLE IF NOT EXISTS handoffs (
@@ -443,7 +451,7 @@ export class Store {
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
-  static readonly SCHEMA_VERSION = 1;
+  static readonly SCHEMA_VERSION = 2;
   schemaVersion(): number {
     return Number(this.meta("schema_version") ?? 0);
   }
@@ -502,6 +510,20 @@ export class Store {
           "session_id",
           "events",
         );
+      },
+      // v2 — gate duration as a number (M9.7). Executed gates only ever recorded their wall-clock
+      // inside the rubric prose ("ran `bun test` — exit 0 in 12.3s"), which cannot be aggregated.
+      // Back-fill the historic rows by reading that suffix; agent-recorded gates stay null.
+      (db) => {
+        this.ensureColumn("gates", "duration_ms", "INTEGER");
+        const rows = db
+          .query("SELECT id, rubric FROM gates WHERE duration_ms IS NULL AND rubric LIKE '%s'")
+          .all() as Array<{ id: number; rubric: string | null }>;
+        const upd = db.query("UPDATE gates SET duration_ms = ? WHERE id = ?");
+        for (const r of rows) {
+          const m = /\bin ([0-9]+(?:\.[0-9]+)?)s$/.exec(r.rubric ?? "");
+          if (m) upd.run(Math.round(Number(m[1]) * 1000), r.id);
+        }
       },
     ];
     for (let v = this.schemaVersion(); v < steps.length; v++) {
@@ -1435,6 +1457,7 @@ export class Store {
       rubric: r.rubric as string,
       evidence: (r.evidence as string) ?? null,
       sessionId: (r.session_id as string) ?? null,
+      durationMs: (r.duration_ms as number | null) ?? null,
       createdAt: r.created_at as string,
     };
   }
@@ -1852,8 +1875,8 @@ export class Store {
     const sessionId = this.knownSession(input.sessionId);
     const r = this.db
       .query(
-        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, created_at, actor_kind, actor_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO gates (project_id, task, gate, verdict, rubric, evidence, session_id, duration_ms, created_at, actor_kind, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         projectId,
@@ -1863,6 +1886,7 @@ export class Store {
         (input.rubric as string).trim(),
         input.evidence?.trim() || null,
         sessionId,
+        typeof input.durationMs === "number" ? Math.max(0, Math.round(input.durationMs)) : null,
         createdAt,
         ...actorCols(this.actorFor(input.sessionId ? null : "daemon", sessionId)),
       );
@@ -3684,6 +3708,290 @@ export class Store {
    * where they overlap. Reads `tool.requested` events (they carry `toolInput.file_path` for the
    * file tools); assembly is `collisionGraph` in core. Scoped to a project when given.
    */
+  /**
+   * Waiting-on-human (M9.4): the spans where a session sat blocked on a person.
+   *
+   * `permission.*` and `question.*` already come in pairs. `session.notification` has no closing
+   * event, so it is closed by the session's *next activity* — its next prompt or tool call is
+   * exactly the moment the human unblocked it. Ordering uses `seq` rather than `ts` so the
+   * `events(session_id, seq)` index does the work.
+   */
+  waiting(projectId?: string, days = 7) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const pArgs = projectId ? [projectId] : [];
+
+    const paired = this.db
+      .query(
+        `SELECT type, session_id, project_id, ts,
+                COALESCE(json_extract(payload,'$.requestId'), json_extract(payload,'$.id')) AS key,
+                COALESCE(json_extract(payload,'$.tool'), json_extract(payload,'$.text')) AS label
+         FROM events
+         WHERE type IN ('permission.requested','permission.resolved','question.asked','question.answered')
+           AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      type: string;
+      session_id: string | null;
+      project_id: string | null;
+      ts: string;
+      key: string | number | null;
+      label: string | null;
+    }>;
+
+    const notes = this.db
+      .query(
+        `SELECT n.seq, n.session_id, n.project_id, n.ts,
+                json_extract(n.payload,'$.summary') AS label,
+                (SELECT MIN(a.ts) FROM events a
+                  WHERE a.session_id = n.session_id AND a.seq > n.seq
+                    AND a.type IN ('prompt.submitted','tool.requested')) AS resumed
+         FROM events n
+         WHERE n.type = 'session.notification' AND n.ts >= ?${projectId ? " AND n.project_id = ?" : ""}`,
+      )
+      .all(since, ...pArgs) as Array<{
+      seq: number;
+      session_id: string | null;
+      project_id: string | null;
+      ts: string;
+      label: string | null;
+      resumed: string | null;
+    }>;
+
+    const samples: WaitSample[] = [];
+    for (const r of paired) {
+      if (!r.session_id || r.key === null) continue;
+      const kind: WaitKind = r.type.startsWith("permission") ? "permission" : "question";
+      samples.push({
+        sessionId: r.session_id,
+        projectId: r.project_id,
+        kind,
+        key: String(r.key),
+        phase: r.type.endsWith(".requested") || r.type.endsWith(".asked") ? "start" : "end",
+        ts: r.ts,
+        ...(r.label ? { label: r.label.slice(0, 120) } : {}),
+      });
+    }
+    for (const n of notes) {
+      if (!n.session_id) continue;
+      const key = String(n.seq);
+      samples.push({
+        sessionId: n.session_id,
+        projectId: n.project_id,
+        kind: "notification",
+        key,
+        phase: "start",
+        ts: n.ts,
+        ...(n.label ? { label: n.label.slice(0, 120) } : {}),
+      });
+      if (n.resumed)
+        samples.push({
+          sessionId: n.session_id,
+          projectId: n.project_id,
+          kind: "notification",
+          key,
+          phase: "end",
+          ts: n.resumed,
+        });
+    }
+
+    const ends: Record<string, string | undefined> = {};
+    for (const r of this.db
+      .query("SELECT id, ended_at FROM sessions WHERE ended_at IS NOT NULL")
+      .all() as Array<{ id: string; ended_at: string }>)
+      ends[r.id] = r.ended_at;
+
+    const report = waitingReport(pairWaits(samples, new Date().toISOString(), ends));
+    // Enrich with what the view needs to name a session, the way collisions() does.
+    const meta = new Map(
+      (
+        this.db.query("SELECT id, title, agent, project_id FROM sessions").all() as Array<{
+          id: string;
+          title: string | null;
+          agent: string | null;
+          project_id: string | null;
+        }>
+      ).map((r) => [r.id, r]),
+    );
+    return {
+      ...report,
+      sessions: report.sessions.map((s) => ({
+        ...s,
+        title: meta.get(s.sessionId)?.title ?? null,
+        agent: meta.get(s.sessionId)?.agent ?? "claude-code",
+        projectId: s.projectId ?? meta.get(s.sessionId)?.project_id ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Gate flakiness and cost (M9.7). Runs come straight from the ledger; `duration_ms` is null for
+   * gates an agent recorded rather than the daemon executed, and the rollup keeps those out of the
+   * duration percentiles while still counting them as runs.
+   */
+  gateHealth(projectId?: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT project_id, task, gate, verdict, duration_ms, created_at FROM gates
+         WHERE created_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      project_id: string | null;
+      task: string;
+      gate: string;
+      verdict: string;
+      duration_ms: number | null;
+      created_at: string;
+    }>;
+    return computeGateHealth(
+      rows
+        .filter((r) => r.verdict === "pass" || r.verdict === "fail")
+        .map((r) => ({
+          projectId: r.project_id,
+          task: r.task,
+          gate: r.gate,
+          verdict: r.verdict as "pass" | "fail",
+          durationMs: r.duration_ms,
+          at: r.created_at,
+        })),
+    );
+  }
+
+  /** Newest mtime of a worktree root and its `.git` — a cheap "when was this last touched". */
+  private static worktreeIdleMs(path: string): number | null {
+    let newest = 0;
+    for (const f of [path, join(path, ".git")]) {
+      try {
+        newest = Math.max(newest, statSync(f).mtimeMs);
+      } catch {
+        /* gone or unreadable */
+      }
+    }
+    return newest ? Math.max(0, Date.now() - newest) : null;
+  }
+
+  /**
+   * Disk per worktree, sampled off the event loop and cached — `du` over a node_modules-heavy tree
+   * takes seconds, and nothing that slow may sit on a request path (see the M4 perf pass). Callers
+   * get whatever the last sweep found, and `null` until the first one lands.
+   */
+  private duCache = new Map<string, { v: number | null; t: number }>();
+  private duInflight: Promise<void> | null = null;
+  private refreshDisk(paths: string[], ttlMs: number): void {
+    if (this.duInflight) return;
+    const stale = paths.filter((p) => {
+      const hit = this.duCache.get(p);
+      return !hit || Date.now() - hit.t >= ttlMs;
+    });
+    if (!stale.length) return;
+    this.duInflight = (async () => {
+      for (const path of stale) {
+        let v: number | null = null;
+        try {
+          const proc = Bun.spawn(["du", "-sk", "-x", path], { stdout: "pipe", stderr: "ignore" });
+          const out = await new Response(proc.stdout).text();
+          if ((await proc.exited) === 0) {
+            const n = Number.parseInt(out.trim().split(/\s+/)[0] ?? "", 10);
+            if (Number.isFinite(n)) v = n;
+          }
+        } catch {
+          /* removed mid-sweep, or no du */
+        }
+        this.duCache.set(path, { v, t: Date.now() });
+      }
+    })().finally(() => {
+      this.duInflight = null;
+    });
+  }
+
+  /**
+   * Machine hygiene (M9.8): what the fleet left lying around. Observation only — this never reaps
+   * anything, so a "dead" row here means the registry has genuinely drifted rather than that this
+   * call cleaned up behind itself.
+   */
+  hygiene(projectId?: string, diskTtlMs = 600_000) {
+    const rows = (
+      this.db
+        .query(
+          `SELECT * FROM processes WHERE ended_at IS NULL${projectId ? " AND project_id = ?" : ""}
+           ORDER BY started_at DESC`,
+        )
+        .all(...(projectId ? [projectId] : [])) as Array<Record<string, unknown>>
+    ).map((r) => this.rowToProcess(r));
+
+    // One `ps` for every tracked pid, rather than one per row.
+    const usage = new Map<number, { cpu: number; rss: number }>();
+    if (rows.length) {
+      try {
+        const out = Bun.spawnSync([
+          "ps",
+          "-o",
+          "pid=,pcpu=,rss=",
+          "-p",
+          rows.map((r) => r.pid).join(","),
+        ]);
+        for (const line of new TextDecoder().decode(out.stdout).split("\n")) {
+          const [pid, cpu, rss] = line.trim().split(/\s+/);
+          if (pid) usage.set(Number(pid), { cpu: Number(cpu) || 0, rss: Number(rss) || 0 });
+        }
+      } catch {
+        /* no ps: cpu/rss stay null */
+      }
+    }
+    const liveSessionIds = new Set(
+      (
+        this.db
+          .query("SELECT id FROM sessions WHERE ended_at IS NULL AND state IN ('active','waiting')")
+          .all() as Array<{ id: string }>
+      ).map((r) => r.id),
+    );
+    const procs: ProcSample[] = rows.map((p) => {
+      const u = usage.get(p.pid);
+      return {
+        pid: p.pid,
+        name: p.name,
+        kind: p.kind,
+        projectId: p.projectId,
+        sessionId: p.sessionId,
+        port: p.port,
+        startedAt: p.startedAt,
+        alive: this.processIsOurs(p),
+        sessionLive: !p.sessionId || liveSessionIds.has(p.sessionId),
+        cpuPct: u ? u.cpu : null,
+        rssKb: u ? u.rss : null,
+      };
+    });
+
+    const projects = projectId ? [projectId] : this.projects().map((p) => p.id);
+    const claims = this.claims().filter((c) => c.state !== "released");
+    const trees: WorktreeSample[] = [];
+    for (const pid of projects)
+      for (const w of this.worktrees(pid)) {
+        const held = claims.find((c) => c.worktree === w.path);
+        trees.push({
+          projectId: pid,
+          path: w.path,
+          branch: w.branch,
+          main: w.main,
+          dirty: w.dirty,
+          ahead: w.ahead,
+          merged: w.merged,
+          idleMs: Store.worktreeIdleMs(w.path),
+          diskKb: this.duCache.get(w.path)?.v ?? null,
+          heldByClaim: held?.task ?? null,
+          liveSessions: this.sessions().filter(
+            (s) => s.cwd?.startsWith(w.path) && !s.endedAt && s.state !== "ended",
+          ).length,
+        });
+      }
+    this.refreshDisk(
+      trees.map((t) => t.path),
+      diskTtlMs,
+    );
+
+    return hygieneReport(procs, trees);
+  }
+
   collisions(projectId?: string) {
     const cutoff = new Date(Date.now() - IDLE_MS).toISOString();
     const live = this.db

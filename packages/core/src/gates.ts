@@ -21,12 +21,15 @@ export interface GateRun {
   /** How it was checked: command output, PR link, notes. Optional. */
   evidence: string | null;
   sessionId: string | null;
+  /** Wall-clock of an executed gate; null for one an agent simply recorded (M9.7). */
+  durationMs: number | null;
   createdAt: string;
 }
 
 export type GateInput = Pick<GateRun, "task" | "gate" | "verdict"> & {
   rubric?: string | null | undefined;
   evidence?: string | null | undefined;
+  durationMs?: number | null | undefined;
 };
 
 export type GateDecision = { ok: true } | { ok: false; reason: string };
@@ -123,5 +126,6 @@ export function executedGateInput(
     verdict: outcome.exitCode === 0 && !outcome.timedOut ? "pass" : "fail",
     rubric: `ran \`${cmd}\` — ${how} in ${(outcome.durationMs / 1000).toFixed(1)}s`,
     evidence: evidenceTail(outcome.output) || null,
+    durationMs: outcome.durationMs,
   };
 }

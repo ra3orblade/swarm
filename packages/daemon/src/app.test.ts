@@ -1309,6 +1309,165 @@ describe("event storage and wire shape (perf)", () => {
     expect((await app.request("/v1/events/99")).status).toBe(404);
   });
 
+  it("measures blocked-on-human time, closing a notification with the next activity (M9.4)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const at = (min: number) => new Date(Date.UTC(2026, 7, 24, 10, min)).toISOString();
+    const base = { projectId: "p1", sessionId: "s1" } as const;
+    // a permission prompt answered after 5 minutes
+    store.append({
+      ...base,
+      ts: at(0),
+      type: "permission.requested",
+      payload: { requestId: "r1", tool: "Bash" },
+    });
+    store.append({
+      ...base,
+      ts: at(5),
+      type: "permission.resolved",
+      payload: { requestId: "r1", tool: "Bash", allow: true },
+    });
+    // a question answered after 15
+    store.append({
+      ...base,
+      ts: at(10),
+      type: "question.asked",
+      payload: { id: 7, text: "which branch?" },
+    });
+    store.append({
+      ...base,
+      ts: at(25),
+      type: "question.answered",
+      payload: { id: 7, answer: "main" },
+    });
+    // a notification has no closing event: the session's next tool call ends the wait
+    store.append({
+      ...base,
+      ts: at(30),
+      type: "session.notification",
+      payload: { summary: "needs input" },
+    });
+    store.append({ ...base, ts: at(38), type: "tool.requested", payload: { tool: "Read" } });
+    // an unrelated session's prompt must not close s1's notification
+    store.append({
+      projectId: "p1",
+      sessionId: "s2",
+      ts: at(31),
+      type: "prompt.submitted",
+      payload: {},
+    });
+
+    const w = store.waiting();
+    const s1 = w.sessions.find((x) => x.sessionId === "s1");
+    expect(s1?.episodes).toBe(3);
+    expect(s1?.blockedMs).toBe((5 + 15 + 8) * 60_000);
+    expect(s1?.byKind.notification.blockedMs).toBe(8 * 60_000);
+    expect(s1?.openSince).toBeNull();
+    expect(w.totals.waitingNow).toBe(0);
+
+    const r = await app.request("/v1/waiting");
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { totals: { episodes: number } }).totals.episodes).toBe(3);
+  });
+
+  it("gate health flags only same-task flips, and ranks flaky gates first (M9.7)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-gate-repo-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    const pid = (store.resolveProject(dir, true) as { id: string }).id;
+    // The same gate returning both verdicts on ONE task is flakiness...
+    store.recordGate(pid, {
+      task: "t1",
+      gate: "tests",
+      verdict: "pass",
+      rubric: "ran `bun test`",
+      durationMs: 12_500,
+    });
+    store.recordGate(pid, {
+      task: "t1",
+      gate: "tests",
+      verdict: "fail",
+      rubric: "ran `bun test`",
+      durationMs: 9000,
+    });
+    // ...whereas failing on a different task is the gate doing its job.
+    store.recordGate(pid, {
+      task: "t2",
+      gate: "lint",
+      verdict: "fail",
+      rubric: "ran `biome`",
+      durationMs: 2000,
+    });
+    // An agent-recorded gate carries no duration and must not drag the percentiles to zero.
+    store.recordGate(pid, { task: "t3", gate: "review", verdict: "pass", rubric: "read the diff" });
+
+    const h = store.gateHealth();
+    const tests = h.gates.find((g) => g.gate === "tests");
+    const lint = h.gates.find((g) => g.gate === "lint");
+    const review = h.gates.find((g) => g.gate === "review");
+    expect(tests?.flaky).toBe(true);
+    expect(tests?.flips).toBe(1);
+    expect(tests?.maxMs).toBe(12_500);
+    expect(lint?.flaky).toBe(false);
+    expect(review?.timedRuns).toBe(0);
+    expect(review?.p50Ms).toBeNull();
+    expect(h.totals.flakyGates).toBe(1);
+    expect(h.gates[0]?.gate).toBe("tests"); // flaky ranks first
+
+    const r = await app.request("/v1/gates/health");
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { totals: { flakyGates: number } }).totals.flakyGates).toBe(1);
+  });
+
+  it("hygiene reports a process still running after its session ended (M9.8)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-hyg-repo-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    const pid = (store.resolveProject(dir, true) as { id: string }).id;
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.started",
+      projectId: pid,
+      sessionId: "s-hyg",
+      payload: { cwd: dir },
+    });
+    // Our own pid is unquestionably alive, so `alive` is true and only the session matters.
+    store.registerProcess({
+      pid: process.pid,
+      projectId: pid,
+      sessionId: "s-hyg",
+      kind: "serve",
+      name: "web",
+      cwd: dir,
+      cmd: "bun dev",
+      owner: "test",
+      log: null,
+      port: 3400,
+    });
+    expect(store.hygiene().totals.orphanedProcesses).toBe(0); // session still live
+
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.ended",
+      projectId: pid,
+      sessionId: "s-hyg",
+      payload: {},
+    });
+    const h = store.hygiene();
+    const p = h.processes.find((x) => x.pid === process.pid);
+    expect(p?.issue).toBe("orphaned");
+    expect(p?.reclaimable).toBe(true);
+    expect(p?.note).toContain("3400"); // the port it is still holding
+    expect(h.totals.issues).toBeGreaterThan(0);
+
+    const r = await app.request("/v1/hygiene");
+    expect(r.status).toBe(200);
+    expect(
+      ((await r.json()) as { totals: { orphanedProcesses: number } }).totals.orphanedProcesses,
+    ).toBe(1);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

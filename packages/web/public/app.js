@@ -243,6 +243,27 @@ async function refresh() {
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
   }
+  let waitChanged = false;
+  if ((state.view === "fleet" || state.view === "stats") && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const w = await fetch(`/v1/waiting${q}`).then((r) => r.json()).catch(() => state.waiting);
+    waitChanged = JSON.stringify(w) !== JSON.stringify(state.waiting);
+    state.waiting = w;
+  }
+  let hygChanged = false;
+  if (state.view === "hygiene" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const hy = await fetch(`/v1/hygiene${q}`).then((r) => r.json()).catch(() => state.hygiene);
+    hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
+    state.hygiene = hy;
+  }
+  let ghChanged = false;
+  if (state.view === "gates" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const gh = await fetch(`/v1/gates/health${q}`).then((r) => r.json()).catch(() => state.gateHealth);
+    ghChanged = JSON.stringify(gh) !== JSON.stringify(state.gateHealth);
+    state.gateHealth = gh;
+  }
   let outChanged = false;
   if (state.view === "outcomes" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -250,7 +271,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || ghChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -260,8 +281,10 @@ const VIEW_DEFS = [
   { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
+  { id: "hygiene", label: "Hygiene", icon: "trash", group: "Work", render: () => renderHygiene(), badge: () => state.hygiene?.totals?.issues ?? 0 },
   // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
+  { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -451,10 +474,19 @@ function onboarding() {
 
 // ---------- fleet
 // Fleet data-grid columns (sortable/resizable/reorderable/filterable via table.js).
+// M9.4: this session is blocked on a person right now — the badge says for how long, and on what.
+const waitFor = (sid) => (state.waiting?.sessions ?? []).find((w) => w.sessionId === sid);
+const WAIT_WHAT = { permission: "a permission prompt", question: "a question it asked", notification: "a notification" };
+function waitBadge(sid) {
+  const w = waitFor(sid);
+  if (!w?.openSince) return "";
+  const what = WAIT_WHAT[w.openKind] ?? "you";
+  return ` <span class="badge warn" title="Blocked on ${esc(what)} since ${esc(w.openSince)}${w.openLabel ? ` — ${esc(w.openLabel)}` : ""}">Waiting ${ago(w.openSince)}</span>`;
+}
 const FLEET_COLS = [
   { key: "project", label: "project", width: 112, get: (s) => projName(s.projectId), cell: (s) => projCell(s.projectId) },
   { key: "agent", label: "agent", width: 78, cls: "td-badge", get: (s) => agentLabel(s.agent), cell: (s) => agentBadge(s.agent) },
-  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}${s.stuck ? ` <span class="badge bad" title="${esc(s.stuck)} — heuristic, nothing was interrupted; open the session to judge">Stuck</span>` : ""}` },
+  { key: "session", label: "session", width: 210, get: (s) => s.title ?? s.id, cell: (s) => `${kindIcon(s)}<b>${esc(s.title ?? s.id.slice(0, 8))}</b>${s.subagents ? ` <span class="badge acc">${s.subagents} Sub</span>` : ""}${(state.questions ?? []).some((q) => q.sessionId === s.id) ? ' <span class="badge warn" title="This agent asked a question only a human can answer — open the session">Asking</span>' : ""}${s.stuck ? ` <span class="badge bad" title="${esc(s.stuck)} — heuristic, nothing was interrupted; open the session to judge">Stuck</span>` : ""}${waitBadge(s.id)}` },
   { key: "branch", label: "branch", width: 116, get: (s) => s.branch ?? "", cell: (s) => `<span class="br">${esc(s.branch ?? "")}</span>` },
   { key: "now", label: "now", flex: true, get: (s) => s.last, cell: (s) => {
     const line = s.lastText ? s.lastText.split("\n").find((l) => l.trim()) ?? "" : "";
@@ -1141,6 +1173,34 @@ document.addEventListener("change", async (ev) => {
 });
 document.addEventListener("input", (ev) => { if (ev.target.id === "psIcon") { $("#psImage").value = ""; setIconPreview(ev.target.value.trim()); for (const e of $$(".emoji")) e.classList.toggle("on", e.dataset.emoji === ev.target.value.trim()); } });
 document.addEventListener("input", (ev) => { if (ev.target.id === "srchQ") { srch.q = ev.target.value; clearTimeout(srch.db); srch.db = setTimeout(runSearch, 150); } });
+// M9.4: how much of the fleet's time is spent waiting on a person, and on what. Blocked time is
+// not idle time — it is the agent standing still with the work half-done, which is why it gets a
+// number rather than a footnote.
+function waitingSection() {
+  const w = state.waiting;
+  if (!w?.totals?.episodes) return "";
+  const t = w.totals;
+  const kindRow = (k, label) => {
+    const x = t.byKind[k];
+    return x?.episodes ? `<tr><td>${label}</td><td class="num">${x.episodes}</td><td class="num">${dur(x.blockedMs)}</td></tr>` : "";
+  };
+  const top = w.sessions.slice(0, 8).map((s) => `<tr${s.sessionId ? ` data-s="${esc(s.sessionId)}"` : ""}>
+      <td>${esc(s.title ?? s.sessionId.slice(0, 8))}${s.openSince ? ` <span class="badge warn">waiting ${ago(s.openSince)}</span>` : ""}</td>
+      <td class="num">${s.episodes}</td><td class="num">${dur(s.blockedMs)}</td><td class="num">${dur(s.longestMs)}</td></tr>`).join("");
+  return `<h2 class="mt-sec">Waiting on you <span>last 7 days · time agents spent blocked on a person${t.waitingNow ? ` · <b class="navcount">${t.waitingNow} waiting now</b>` : ""}</span></h2>
+     <div class="cols">
+       <div class="chart-card" style="margin:0"><h3>By what blocked them</h3>
+         <table class="mini"><thead><tr><th>kind</th><th class="num">times</th><th class="num">blocked</th></tr></thead>
+         <tbody>${kindRow("permission", "Permission prompt")}${kindRow("question", "Question it asked")}${kindRow("notification", "Notification")}
+           <tr><td><b>Total</b></td><td class="num"><b>${t.episodes}</b></td><td class="num"><b>${dur(t.blockedMs)}</b></td></tr>
+           <tr><td class="dim">median wait</td><td class="num"></td><td class="num dim">${dur(t.medianMs)}</td></tr>
+           <tr><td class="dim">longest wait</td><td class="num"></td><td class="num dim">${dur(t.longestMs)}</td></tr>
+         </tbody></table></div>
+       <div class="chart-card" style="margin:0"><h3>Sessions that waited most</h3>
+         <table class="mini"><thead><tr><th>session</th><th class="num">waits</th><th class="num">blocked</th><th class="num">longest</th></tr></thead>
+         <tbody>${top}</tbody></table></div>
+     </div>`;
+}
 function renderStats() {
   const st = statsCache.key === (state.sel ?? "") ? statsCache.data : null;
   const scope = state.sel ? esc(projName(state.sel)) : "all projects";
@@ -1228,6 +1288,7 @@ function renderStats() {
        <div class="chart-card" style="margin:0"><h3>Tool leaderboard <span>calls · all time</span></h3>${st.tools.length ? viz.hbars(st.tools.map(([k, v]) => [toolName(k), v])) : '<div class="dim">no tool calls yet</div>'}</div>
        <div><h2 style="margin-top:0">Records</h2><div class="records">${records}</div></div>
      </div>
+     ${waitingSection()}
      <p class="dim" style="margin-top:var(--gap-sec)">Word counts assume ~0.75 words per token; a novel is 90k words. Costs use list prices, as on Spend. ${pct(T.sidechainTurns, T.turns)} of turns came from subagents.</p>`;
 }
 
@@ -1292,6 +1353,101 @@ function renderOutcomes() {
     (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent, rerender: touch })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
     dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100), rerender: touch });
+}
+
+// M9.7: gate flakiness and cost. A gate that flips on the *same task* told you two different
+// things about identical work — that is the number worth ranking on, not a raw fail count.
+function renderGateHealth() {
+  const h = state.gateHealth;
+  const head = (sub) => `<h2>Gates <span>${sub}</span></h2>`;
+  if (!h) { $("#main").innerHTML = head("flakiness and wall-clock") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!h.gates.length) {
+    $("#main").innerHTML = head("flakiness and wall-clock") + `<div class="empty">${PX.idle()}No gate runs in the last 30 days${state.sel ? " in this project" : ""}.<br>Gates appear here once <code>swarm_gate_run</code> or a workflow's gate step records one.</div>`;
+    return;
+  }
+  const t = h.totals;
+  const secs = (v) => (v === null ? '<span class="dim">—</span>' : v < 1000 ? `${v}ms` : `${(v / 1000).toFixed(1)}s`);
+  // Oldest-first strip, matching Recent gates on the Board.
+  const strip = (g) => {
+    const rs = [...g.history].reverse();
+    return `<span class="gh" title="last ${rs.length} run${rs.length === 1 ? "" : "s"}, oldest first">${rs.map((r) => `<i class="${r.verdict === "pass" ? "ok" : "bad"}" title="${esc(r.task)} · ${esc(r.at)}${r.durationMs === null ? "" : ` · ${(r.durationMs / 1000).toFixed(1)}s`}"></i>`).join("")}</span>`;
+  };
+  const cols = [
+    { key: "gate", label: "gate", width: 150, get: (g) => g.gate, cell: (g) => `<b>${esc(g.gate)}</b>${g.flaky ? ' <span class="badge bad" title="This gate returned both a pass and a fail on the same task">Flaky</span>' : ""}` },
+    { key: "history", label: "history", width: 150, sortable: false, filterable: false, get: () => null, cell: strip },
+    { key: "runs", label: "runs", width: 60, num: true, get: (g) => g.runs, cell: (g) => g.runs },
+    { key: "pass", label: "pass rate", width: 84, num: true, get: (g) => g.passRate, cell: (g) => `${Math.round(g.passRate * 100)}%` },
+    { key: "flips", label: "flips", width: 64, num: true, get: (g) => g.flips, cell: (g) => (g.flips ? `<b class="bad">${g.flips}</b>` : '<span class="dim">0</span>') },
+    { key: "p50", label: "p50", width: 66, num: true, get: (g) => g.p50Ms ?? -1, cell: (g) => secs(g.p50Ms) },
+    { key: "p95", label: "p95", width: 66, num: true, get: (g) => g.p95Ms ?? -1, cell: (g) => secs(g.p95Ms) },
+    { key: "max", label: "slowest", width: 74, num: true, get: (g) => g.maxMs ?? -1, cell: (g) => secs(g.maxMs) },
+    { key: "total", label: "total", width: 74, num: true, get: (g) => g.totalMs, cell: (g) => (g.timedRuns ? dur(g.totalMs) : '<span class="dim">—</span>') },
+    { key: "last", label: "last", flex: true, get: (g) => g.lastAt ?? "", cell: (g) => (g.lastAt ? `${g.lastVerdict === "pass" ? '<span class="badge ok">Pass</span>' : '<span class="badge warn">Fail</span>'} <span class="dim">${ago(g.lastAt)}</span>` : '<span class="dim">—</span>') },
+  ];
+  const sub = `${t.gates} gate${t.gates === 1 ? "" : "s"} · ${t.runs} run${t.runs === 1 ? "" : "s"} · last 30 days${t.flakyGates ? ` · <b class="navcount">${t.flakyGates} flaky</b>` : " · none flaky"}${t.totalMs ? ` · ${dur(t.totalMs)} of wall-clock` : ""}`;
+  $("#main").innerHTML = head(sub) +
+    dataTable({ id: "gate-health", columns: cols, rows: h.gates, rerender: touch }) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Flaky = the same gate returned both a pass and a fail on one task. A gate that fails on one task and passes on another is doing its job, and is not counted. Durations cover executed gates only — a gate an agent simply recorded has no wall-clock.</p>`;
+}
+
+// M9.8: machine hygiene — what the fleet left behind. Observation plus the two actions that
+// already exist (stop a process, remove a worktree); nothing here reclaims anything on its own,
+// and a worktree with uncommitted or unpushed work is never offered as safe.
+const ISSUE_BADGE = {
+  dead: ["bad", "Dead"], orphaned: ["bad", "Orphaned"], hungry: ["warn", "Hungry"],
+  stale: ["warn", "Stale"], abandoned: ["warn", "Abandoned"], heavy: ["", "Heavy"],
+};
+const mb = (kb) => (kb === null || kb === undefined ? '<span class="dim">—</span>' : kb >= 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
+const issueBadge = (i) => { const b = ISSUE_BADGE[i]; return b ? `<span class="badge ${b[0]}">${b[1]}</span>` : '<span class="dim">ok</span>'; };
+function renderHygiene() {
+  const h = state.hygiene;
+  const head = (sub) => `<h2>Hygiene <span>${sub}</span></h2>`;
+  if (!h) { $("#main").innerHTML = head("what the fleet left behind") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  const t = h.totals;
+  if (!h.processes.length && !h.worktrees.length) {
+    $("#main").innerHTML = head("what the fleet left behind") + `<div class="empty">${PX.idle()}Nothing tracked${state.sel ? " in this project" : ""}.<br>Processes started through <code>swarm serve</code> / <code>proc</code> and this machine's worktrees appear here.</div>`;
+    return;
+  }
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
+  // Disk is sampled in the background, so "0 MB" before the first sweep would be a lie — say so.
+  const sampled = h.worktrees.filter((w) => w.diskKb !== null).length;
+  const diskPending = h.worktrees.length > 0 && sampled === 0;
+  const totalDisk = diskPending ? "measuring…" : mb(t.diskKb);
+  const kpis = `<div class="kpis">${
+    kpi("Needs a look", t.issues, t.issues ? "processes + worktrees" : "all clean", t.issues ? "hot" : "")
+  }${kpi("Processes", t.processes, t.orphanedProcesses || t.deadProcesses ? `${t.orphanedProcesses} orphaned · ${t.deadProcesses} dead` : "all healthy", t.orphanedProcesses || t.deadProcesses ? "hot" : "")
+  }${kpi("Worktrees", t.worktrees, t.staleWorktrees ? `${t.staleWorktrees} stale` : "none stale", t.staleWorktrees ? "warm" : "")
+  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")}</div>`;
+
+  const pcols = [
+    { key: "issue", label: "state", width: 96, get: (p) => p.issue ?? "", cell: (p) => issueBadge(p.issue) },
+    { key: "name", label: "name", width: 130, get: (p) => p.name, cell: (p) => `<b>${esc(p.name)}</b>` },
+    { key: "kind", label: "kind", width: 64, get: (p) => p.kind, cell: (p) => `<span class="br">${esc(p.kind)}</span>` },
+    { key: "pid", label: "pid", width: 64, num: true, get: (p) => p.pid, cell: (p) => p.pid },
+    { key: "port", label: "port", width: 60, num: true, get: (p) => p.port ?? 0, cell: (p) => p.port ?? '<span class="dim">—</span>' },
+    { key: "cpu", label: "cpu", width: 60, num: true, get: (p) => p.cpuPct ?? -1, cell: (p) => (p.cpuPct === null ? '<span class="dim">—</span>' : `${p.cpuPct.toFixed(0)}%`) },
+    { key: "rss", label: "memory", width: 78, num: true, get: (p) => p.rssKb ?? -1, cell: (p) => mb(p.rssKb) },
+    { key: "note", label: "why", flex: true, get: (p) => p.note ?? "", cell: (p) => (p.note ? `<span class="now" title="${esc(p.note)}">${esc(p.note)}</span>` : '<span class="dim">—</span>') },
+    { key: "act", label: "", width: 70, sortable: false, filterable: false, get: () => null, cell: (p) => (p.reclaimable ? `<a href="#" class="mini-act" data-procstop="${esc(String(p.pid))}" data-procproj="${esc(p.projectId)}" title="Stop this process">Stop</a>` : "") },
+  ];
+  const wcols = [
+    { key: "issue", label: "state", width: 106, get: (w) => w.issue ?? "", cell: (w) => issueBadge(w.issue) },
+    { key: "branch", label: "branch", width: 190, get: (w) => w.branch ?? w.path, cell: (w) => `<b>${esc(w.branch ?? "(detached)")}</b>${w.main ? ' <span class="badge">main</span>' : ""}` },
+    { key: "disk", label: "disk", width: 78, num: true, get: (w) => w.diskKb ?? -1, cell: (w) => mb(w.diskKb) },
+    { key: "idle", label: "untouched", width: 88, num: true, get: (w) => w.idleMs ?? -1, cell: (w) => (w.idleMs === null ? '<span class="dim">—</span>' : dur(w.idleMs)) },
+    { key: "state2", label: "work", width: 130, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? (w.merged ? '<span class="badge ok">Merged</span>' : '<span class="badge">Clean</span>') : ""}` },
+    { key: "held", label: "in use", width: 110, get: (w) => w.heldByClaim ?? "", cell: (w) => (w.heldByClaim ? `<span class="br" title="Claimed">${esc(w.heldByClaim)}</span>` : w.liveSessions ? `<span class="badge acc">${w.liveSessions} live</span>` : '<span class="dim">—</span>') },
+    { key: "note", label: "why", flex: true, get: (w) => w.note ?? "", cell: (w) => (w.note ? `<span class="now" title="${esc(w.note)}">${esc(w.note)}</span>` : '<span class="dim">—</span>') },
+    { key: "act", label: "", width: 80, sortable: false, filterable: false, get: () => null, cell: (w) => (w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : "") },
+  ];
+  const sub = t.issues ? `<b class="navcount">${t.issues} need${t.issues === 1 ? "s" : ""} a look</b>` : "nothing to clean up";
+  $("#main").innerHTML = head(sub) + kpis +
+    `<h2 class="mt-sec">Processes <span>${h.processes.length} tracked · started through swarm, never matched by command pattern</span></h2>` +
+    (h.processes.length ? dataTable({ id: "hyg-procs", columns: pcols, rows: h.processes, rerender: touch }) : `<div class="empty">${PX.idle()}No tracked processes.</div>`) +
+    `<h2 class="mt-sec">Worktrees <span>${h.worktrees.length} on this machine · ${totalDisk}${diskPending ? "" : " on disk"}${sampled && sampled < h.worktrees.length ? ` · ${sampled}/${h.worktrees.length} measured` : ""}</span></h2>` +
+    (h.worktrees.length ? dataTable({ id: "hyg-trees", columns: wcols, rows: h.worktrees, rerender: touch }) : `<div class="empty">${PX.idle()}No worktrees.</div>`) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Only merged worktrees with nothing uncommitted, nothing unpushed and nobody working in them are offered for removal. Anything unmerged is listed but never called safe. Disk is sampled in the background, so sizes fill in a moment after the view opens.</p>`;
 }
 
 // M9.12: live file-collision graph — which live sessions touch which files, contested files
