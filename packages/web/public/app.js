@@ -108,7 +108,14 @@ const ic = (name, size = 14, cls = "") => (window.icon ? window.icon(name, size,
 const kindIcon = (s) => ic(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13, "kind");
 // pixel-art illustrations for empty states (crispEdges, theme-green; won't clash with icon packs)
 function pixmap(rows, cell = 6) {
-  const C = { X: "var(--acc)", g: "var(--c5,#7fb069)", d: "var(--c4,#2f7d4f)" };
+  // All three tones are derived from the accent, so they are guaranteed to separate in either
+  // theme. The old palette used --c4 for the shade, whose luminance in light mode (0.158) is
+  // indistinguishable from --acc's (0.160) — the outline simply vanished into the face.
+  const C = {
+    X: "var(--acc)",
+    g: "color-mix(in srgb, var(--acc) 45%, white)",
+    d: "color-mix(in srgb, var(--acc) 58%, black)",
+  };
   const w = Math.max(...rows.map((r) => r.length)) * cell;
   const h = rows.length * cell;
   let r = "";
