@@ -69,6 +69,7 @@ import {
   handoffDoc,
   hasLockedRules,
   hookCoverage,
+  hygieneReport,
   incidentDoc,
   incidentKey,
   isActive,
@@ -98,6 +99,7 @@ import {
   PRICES,
   type Price,
   type ProcessKind,
+  type ProcSample,
   type Project,
   pairWaits,
   parseAiderHistory,
@@ -147,6 +149,7 @@ import {
   validateQuestion,
   type WaitKind,
   type WaitSample,
+  type WorktreeSample,
   WRITE_TOOLS,
   waitingReport,
 } from "@swarm/core";
@@ -3852,6 +3855,141 @@ export class Store {
           at: r.created_at,
         })),
     );
+  }
+
+  /** Newest mtime of a worktree root and its `.git` — a cheap "when was this last touched". */
+  private static worktreeIdleMs(path: string): number | null {
+    let newest = 0;
+    for (const f of [path, join(path, ".git")]) {
+      try {
+        newest = Math.max(newest, statSync(f).mtimeMs);
+      } catch {
+        /* gone or unreadable */
+      }
+    }
+    return newest ? Math.max(0, Date.now() - newest) : null;
+  }
+
+  /**
+   * Disk per worktree, sampled off the event loop and cached — `du` over a node_modules-heavy tree
+   * takes seconds, and nothing that slow may sit on a request path (see the M4 perf pass). Callers
+   * get whatever the last sweep found, and `null` until the first one lands.
+   */
+  private duCache = new Map<string, { v: number | null; t: number }>();
+  private duInflight: Promise<void> | null = null;
+  private refreshDisk(paths: string[], ttlMs: number): void {
+    if (this.duInflight) return;
+    const stale = paths.filter((p) => {
+      const hit = this.duCache.get(p);
+      return !hit || Date.now() - hit.t >= ttlMs;
+    });
+    if (!stale.length) return;
+    this.duInflight = (async () => {
+      for (const path of stale) {
+        let v: number | null = null;
+        try {
+          const proc = Bun.spawn(["du", "-sk", "-x", path], { stdout: "pipe", stderr: "ignore" });
+          const out = await new Response(proc.stdout).text();
+          if ((await proc.exited) === 0) {
+            const n = Number.parseInt(out.trim().split(/\s+/)[0] ?? "", 10);
+            if (Number.isFinite(n)) v = n;
+          }
+        } catch {
+          /* removed mid-sweep, or no du */
+        }
+        this.duCache.set(path, { v, t: Date.now() });
+      }
+    })().finally(() => {
+      this.duInflight = null;
+    });
+  }
+
+  /**
+   * Machine hygiene (M9.8): what the fleet left lying around. Observation only — this never reaps
+   * anything, so a "dead" row here means the registry has genuinely drifted rather than that this
+   * call cleaned up behind itself.
+   */
+  hygiene(projectId?: string, diskTtlMs = 600_000) {
+    const rows = (
+      this.db
+        .query(
+          `SELECT * FROM processes WHERE ended_at IS NULL${projectId ? " AND project_id = ?" : ""}
+           ORDER BY started_at DESC`,
+        )
+        .all(...(projectId ? [projectId] : [])) as Array<Record<string, unknown>>
+    ).map((r) => this.rowToProcess(r));
+
+    // One `ps` for every tracked pid, rather than one per row.
+    const usage = new Map<number, { cpu: number; rss: number }>();
+    if (rows.length) {
+      try {
+        const out = Bun.spawnSync([
+          "ps",
+          "-o",
+          "pid=,pcpu=,rss=",
+          "-p",
+          rows.map((r) => r.pid).join(","),
+        ]);
+        for (const line of new TextDecoder().decode(out.stdout).split("\n")) {
+          const [pid, cpu, rss] = line.trim().split(/\s+/);
+          if (pid) usage.set(Number(pid), { cpu: Number(cpu) || 0, rss: Number(rss) || 0 });
+        }
+      } catch {
+        /* no ps: cpu/rss stay null */
+      }
+    }
+    const liveSessionIds = new Set(
+      (
+        this.db
+          .query("SELECT id FROM sessions WHERE ended_at IS NULL AND state IN ('active','waiting')")
+          .all() as Array<{ id: string }>
+      ).map((r) => r.id),
+    );
+    const procs: ProcSample[] = rows.map((p) => {
+      const u = usage.get(p.pid);
+      return {
+        pid: p.pid,
+        name: p.name,
+        kind: p.kind,
+        projectId: p.projectId,
+        sessionId: p.sessionId,
+        port: p.port,
+        startedAt: p.startedAt,
+        alive: this.processIsOurs(p),
+        sessionLive: !p.sessionId || liveSessionIds.has(p.sessionId),
+        cpuPct: u ? u.cpu : null,
+        rssKb: u ? u.rss : null,
+      };
+    });
+
+    const projects = projectId ? [projectId] : this.projects().map((p) => p.id);
+    const claims = this.claims().filter((c) => c.state !== "released");
+    const trees: WorktreeSample[] = [];
+    for (const pid of projects)
+      for (const w of this.worktrees(pid)) {
+        const held = claims.find((c) => c.worktree === w.path);
+        trees.push({
+          projectId: pid,
+          path: w.path,
+          branch: w.branch,
+          main: w.main,
+          dirty: w.dirty,
+          ahead: w.ahead,
+          merged: w.merged,
+          idleMs: Store.worktreeIdleMs(w.path),
+          diskKb: this.duCache.get(w.path)?.v ?? null,
+          heldByClaim: held?.task ?? null,
+          liveSessions: this.sessions().filter(
+            (s) => s.cwd?.startsWith(w.path) && !s.endedAt && s.state !== "ended",
+          ).length,
+        });
+      }
+    this.refreshDisk(
+      trees.map((t) => t.path),
+      diskTtlMs,
+    );
+
+    return hygieneReport(procs, trees);
   }
 
   collisions(projectId?: string) {

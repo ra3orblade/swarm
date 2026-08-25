@@ -192,6 +192,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   app.get("/v1/graphs/collisions", (c) =>
     c.json(store.collisions(c.req.query("project") || undefined)),
   );
+  app.get("/v1/hygiene", (c) => c.json(store.hygiene(c.req.query("project") || undefined)));
   app.get("/v1/gates/health", (c) =>
     c.json(
       store.gateHealth(

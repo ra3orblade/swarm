@@ -1419,6 +1419,55 @@ describe("event storage and wire shape (perf)", () => {
     expect(((await r.json()) as { totals: { flakyGates: number } }).totals.flakyGates).toBe(1);
   });
 
+  it("hygiene reports a process still running after its session ended (M9.8)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-hyg-repo-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    const pid = (store.resolveProject(dir, true) as { id: string }).id;
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.started",
+      projectId: pid,
+      sessionId: "s-hyg",
+      payload: { cwd: dir },
+    });
+    // Our own pid is unquestionably alive, so `alive` is true and only the session matters.
+    store.registerProcess({
+      pid: process.pid,
+      projectId: pid,
+      sessionId: "s-hyg",
+      kind: "serve",
+      name: "web",
+      cwd: dir,
+      cmd: "bun dev",
+      owner: "test",
+      log: null,
+      port: 3400,
+    });
+    expect(store.hygiene().totals.orphanedProcesses).toBe(0); // session still live
+
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.ended",
+      projectId: pid,
+      sessionId: "s-hyg",
+      payload: {},
+    });
+    const h = store.hygiene();
+    const p = h.processes.find((x) => x.pid === process.pid);
+    expect(p?.issue).toBe("orphaned");
+    expect(p?.reclaimable).toBe(true);
+    expect(p?.note).toContain("3400"); // the port it is still holding
+    expect(h.totals.issues).toBeGreaterThan(0);
+
+    const r = await app.request("/v1/hygiene");
+    expect(r.status).toBe(200);
+    expect(
+      ((await r.json()) as { totals: { orphanedProcesses: number } }).totals.orphanedProcesses,
+    ).toBe(1);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

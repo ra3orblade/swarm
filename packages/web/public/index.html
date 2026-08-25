@@ -478,6 +478,11 @@
   td .more{opacity:0;color:var(--faint);padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),background var(--t-fast);line-height:0;display:inline-flex;vertical-align:middle}
   tr:hover td .more,.proj:hover .more,tr.menu-open td .more,.menu-open>.more,.more.menu-open{opacity:1}
   td .more:hover{background:var(--line);color:var(--fg)}
+  /* the one action a hygiene row offers, inline in its grid cell */
+  .mini-act{display:inline-flex;align-items:center;color:var(--fg-2);border:1px solid var(--line);border-radius:var(--r-sm);
+    padding:2px 9px;font-size:var(--fs-sm);font-weight:500;text-decoration:none;transition:color var(--t-fast),border-color var(--t-fast)}
+  .mini-act:hover{color:var(--acc);border-color:var(--acc)}
+  .mini-act.bad:hover{color:var(--bad);border-color:var(--bad)}
   .stat .ph{color:var(--faint);margin-right:7px}
   .empty .ph{display:block;margin:0 auto 10px;color:var(--faint)}
   .empty .px{display:block;margin:0 auto 14px;image-rendering:pixelated}

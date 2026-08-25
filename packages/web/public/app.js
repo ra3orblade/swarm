@@ -250,6 +250,13 @@ async function refresh() {
     waitChanged = JSON.stringify(w) !== JSON.stringify(state.waiting);
     state.waiting = w;
   }
+  let hygChanged = false;
+  if (state.view === "hygiene" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const hy = await fetch(`/v1/hygiene${q}`).then((r) => r.json()).catch(() => state.hygiene);
+    hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
+    state.hygiene = hy;
+  }
   let ghChanged = false;
   if (state.view === "gates" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -264,7 +271,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || ghChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || outChanged || waitChanged || ghChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -274,6 +281,7 @@ const VIEW_DEFS = [
   { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
+  { id: "hygiene", label: "Hygiene", icon: "trash", group: "Work", render: () => renderHygiene(), badge: () => state.hygiene?.totals?.issues ?? 0 },
   // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
   { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
@@ -1380,6 +1388,66 @@ function renderGateHealth() {
   $("#main").innerHTML = head(sub) +
     dataTable({ id: "gate-health", columns: cols, rows: h.gates, rerender: touch }) +
     `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Flaky = the same gate returned both a pass and a fail on one task. A gate that fails on one task and passes on another is doing its job, and is not counted. Durations cover executed gates only — a gate an agent simply recorded has no wall-clock.</p>`;
+}
+
+// M9.8: machine hygiene — what the fleet left behind. Observation plus the two actions that
+// already exist (stop a process, remove a worktree); nothing here reclaims anything on its own,
+// and a worktree with uncommitted or unpushed work is never offered as safe.
+const ISSUE_BADGE = {
+  dead: ["bad", "Dead"], orphaned: ["bad", "Orphaned"], hungry: ["warn", "Hungry"],
+  stale: ["warn", "Stale"], abandoned: ["warn", "Abandoned"], heavy: ["", "Heavy"],
+};
+const mb = (kb) => (kb === null || kb === undefined ? '<span class="dim">—</span>' : kb >= 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
+const issueBadge = (i) => { const b = ISSUE_BADGE[i]; return b ? `<span class="badge ${b[0]}">${b[1]}</span>` : '<span class="dim">ok</span>'; };
+function renderHygiene() {
+  const h = state.hygiene;
+  const head = (sub) => `<h2>Hygiene <span>${sub}</span></h2>`;
+  if (!h) { $("#main").innerHTML = head("what the fleet left behind") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  const t = h.totals;
+  if (!h.processes.length && !h.worktrees.length) {
+    $("#main").innerHTML = head("what the fleet left behind") + `<div class="empty">${PX.idle()}Nothing tracked${state.sel ? " in this project" : ""}.<br>Processes started through <code>swarm serve</code> / <code>proc</code> and this machine's worktrees appear here.</div>`;
+    return;
+  }
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const badge = (n, label, cls) => (n > 0 ? `<span class="badge ${cls}">${n} ${label}</span>` : "");
+  // Disk is sampled in the background, so "0 MB" before the first sweep would be a lie — say so.
+  const sampled = h.worktrees.filter((w) => w.diskKb !== null).length;
+  const diskPending = h.worktrees.length > 0 && sampled === 0;
+  const totalDisk = diskPending ? "measuring…" : mb(t.diskKb);
+  const kpis = `<div class="kpis">${
+    kpi("Needs a look", t.issues, t.issues ? "processes + worktrees" : "all clean", t.issues ? "hot" : "")
+  }${kpi("Processes", t.processes, t.orphanedProcesses || t.deadProcesses ? `${t.orphanedProcesses} orphaned · ${t.deadProcesses} dead` : "all healthy", t.orphanedProcesses || t.deadProcesses ? "hot" : "")
+  }${kpi("Worktrees", t.worktrees, t.staleWorktrees ? `${t.staleWorktrees} stale` : "none stale", t.staleWorktrees ? "warm" : "")
+  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")}</div>`;
+
+  const pcols = [
+    { key: "issue", label: "state", width: 96, get: (p) => p.issue ?? "", cell: (p) => issueBadge(p.issue) },
+    { key: "name", label: "name", width: 130, get: (p) => p.name, cell: (p) => `<b>${esc(p.name)}</b>` },
+    { key: "kind", label: "kind", width: 64, get: (p) => p.kind, cell: (p) => `<span class="br">${esc(p.kind)}</span>` },
+    { key: "pid", label: "pid", width: 64, num: true, get: (p) => p.pid, cell: (p) => p.pid },
+    { key: "port", label: "port", width: 60, num: true, get: (p) => p.port ?? 0, cell: (p) => p.port ?? '<span class="dim">—</span>' },
+    { key: "cpu", label: "cpu", width: 60, num: true, get: (p) => p.cpuPct ?? -1, cell: (p) => (p.cpuPct === null ? '<span class="dim">—</span>' : `${p.cpuPct.toFixed(0)}%`) },
+    { key: "rss", label: "memory", width: 78, num: true, get: (p) => p.rssKb ?? -1, cell: (p) => mb(p.rssKb) },
+    { key: "note", label: "why", flex: true, get: (p) => p.note ?? "", cell: (p) => (p.note ? `<span class="now" title="${esc(p.note)}">${esc(p.note)}</span>` : '<span class="dim">—</span>') },
+    { key: "act", label: "", width: 70, sortable: false, filterable: false, get: () => null, cell: (p) => (p.reclaimable ? `<a href="#" class="mini-act" data-procstop="${esc(String(p.pid))}" data-procproj="${esc(p.projectId)}" title="Stop this process">Stop</a>` : "") },
+  ];
+  const wcols = [
+    { key: "issue", label: "state", width: 106, get: (w) => w.issue ?? "", cell: (w) => issueBadge(w.issue) },
+    { key: "branch", label: "branch", width: 190, get: (w) => w.branch ?? w.path, cell: (w) => `<b>${esc(w.branch ?? "(detached)")}</b>${w.main ? ' <span class="badge">main</span>' : ""}` },
+    { key: "disk", label: "disk", width: 78, num: true, get: (w) => w.diskKb ?? -1, cell: (w) => mb(w.diskKb) },
+    { key: "idle", label: "untouched", width: 88, num: true, get: (w) => w.idleMs ?? -1, cell: (w) => (w.idleMs === null ? '<span class="dim">—</span>' : dur(w.idleMs)) },
+    { key: "state2", label: "work", width: 130, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? (w.merged ? '<span class="badge ok">Merged</span>' : '<span class="badge">Clean</span>') : ""}` },
+    { key: "held", label: "in use", width: 110, get: (w) => w.heldByClaim ?? "", cell: (w) => (w.heldByClaim ? `<span class="br" title="Claimed">${esc(w.heldByClaim)}</span>` : w.liveSessions ? `<span class="badge acc">${w.liveSessions} live</span>` : '<span class="dim">—</span>') },
+    { key: "note", label: "why", flex: true, get: (w) => w.note ?? "", cell: (w) => (w.note ? `<span class="now" title="${esc(w.note)}">${esc(w.note)}</span>` : '<span class="dim">—</span>') },
+    { key: "act", label: "", width: 80, sortable: false, filterable: false, get: () => null, cell: (w) => (w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : "") },
+  ];
+  const sub = t.issues ? `<b class="navcount">${t.issues} need${t.issues === 1 ? "s" : ""} a look</b>` : "nothing to clean up";
+  $("#main").innerHTML = head(sub) + kpis +
+    `<h2 class="mt-sec">Processes <span>${h.processes.length} tracked · started through swarm, never matched by command pattern</span></h2>` +
+    (h.processes.length ? dataTable({ id: "hyg-procs", columns: pcols, rows: h.processes, rerender: touch }) : `<div class="empty">${PX.idle()}No tracked processes.</div>`) +
+    `<h2 class="mt-sec">Worktrees <span>${h.worktrees.length} on this machine · ${totalDisk}${diskPending ? "" : " on disk"}${sampled && sampled < h.worktrees.length ? ` · ${sampled}/${h.worktrees.length} measured` : ""}</span></h2>` +
+    (h.worktrees.length ? dataTable({ id: "hyg-trees", columns: wcols, rows: h.worktrees, rerender: touch }) : `<div class="empty">${PX.idle()}No worktrees.</div>`) +
+    `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Only merged worktrees with nothing uncommitted, nothing unpushed and nobody working in them are offered for removal. Anything unmerged is listed but never called safe. Disk is sampled in the background, so sizes fill in a moment after the view opens.</p>`;
 }
 
 // M9.12: live file-collision graph — which live sessions touch which files, contested files
