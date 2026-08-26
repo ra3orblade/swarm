@@ -48,31 +48,13 @@
      swaying as they go; the stars are a handful of bright ones that fall fast, trail behind, and
      flash white just before they leave. No static field behind them — the motion is the texture.
      Both fade out of the middle so nothing sits behind a word you have to read. */
+  /* Matrix rain. Real rain is a dense character grid with long trails — a few thousand
+     glyph cells a second, which the DOM cannot carry — so it is one canvas and one rAF
+     loop. The mask keeps it out of the middle, where the headline has to stay readable. */
   .hero .sky{position:absolute;inset:-80px -120px 0;z-index:0;overflow:hidden;pointer-events:none;
-    -webkit-mask-image:radial-gradient(ellipse 44% 50% at 50% 46%,transparent 0%,transparent 38%,#000 86%);
-    mask-image:radial-gradient(ellipse 44% 50% at 50% 46%,transparent 0%,transparent 38%,#000 86%)}
-  /* Each flake is its own head plus four dimmer pixels above it — the echo a falling
-     character leaves behind. Hard colour stops keep the trail pixellated, not smeared. */
-  .hero .snow i{position:absolute;left:var(--x);top:-8vh;width:var(--s);height:calc(var(--s) * 5);
-    opacity:var(--o);
-    background:linear-gradient(to bottom,
-      color-mix(in srgb,var(--acc) 7%,transparent) 0 20%,
-      color-mix(in srgb,var(--acc) 18%,transparent) 20% 40%,
-      color-mix(in srgb,var(--acc) 36%,transparent) 40% 60%,
-      color-mix(in srgb,var(--acc) 62%,transparent) 60% 80%,
-      var(--acc) 80% 100%);
-    animation:snowfall var(--d) linear var(--t) infinite,sway calc(var(--d) / 3) ease-in-out var(--t) infinite alternate}
-  @keyframes snowfall{from{transform:translateY(0)}to{transform:translateY(118vh)}}
-  @keyframes sway{from{margin-left:0}to{margin-left:var(--sw)}}
-  .hero .stars i{position:absolute;left:var(--x);top:0;width:4px;height:var(--h);
-    background:linear-gradient(to bottom,transparent,rgba(163,230,53,.5) 60%,#eaffc0 92%,#fff 100%);
-    animation:starfall var(--d) cubic-bezier(.4,0,.9,.5) var(--t) infinite}
-  @keyframes starfall{
-    0%{transform:translateY(-30vh);opacity:0}
-    12%{opacity:.9}
-    88%{opacity:1}
-    97%{opacity:1;filter:brightness(2.4)}
-    100%{transform:translateY(122vh);opacity:0;filter:brightness(1)}}
+    -webkit-mask-image:radial-gradient(ellipse 50% 54% at 50% 46%,transparent 0%,transparent 38%,#000 88%);
+    mask-image:radial-gradient(ellipse 50% 54% at 50% 46%,transparent 0%,transparent 38%,#000 88%)}
+  .hero .sky canvas{display:block;width:100%;height:100%;opacity:.72}
   @media (prefers-reduced-motion: reduce){.hero .sky{display:none}}
   .hero::after{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
     background:radial-gradient(ellipse 55% 50% at 50% 28%,var(--acc-soft),transparent 65%)}
@@ -217,7 +199,7 @@
   </header>
 
   <div class="hero">
-    <div class="sky" aria-hidden="true"><div class="snow"><i style="--x:32.38%;--s:3px;--d:21.9s;--t:-32.4s;--o:0.44;--sw:8px"></i><i style="--x:36.57%;--s:2px;--d:32.2s;--t:-26.7s;--o:0.21;--sw:26px"></i><i style="--x:6.99%;--s:2px;--d:25.0s;--t:-32.0s;--o:0.36;--sw:14px"></i><i style="--x:63.06%;--s:2px;--d:25.5s;--t:-20.5s;--o:0.49;--sw:8px"></i><i style="--x:55.67%;--s:3px;--d:19.8s;--t:-29.1s;--o:0.22;--sw:20px"></i><i style="--x:56.03%;--s:3px;--d:16.1s;--t:-14.6s;--o:0.24;--sw:8px"></i><i style="--x:54.77%;--s:2px;--d:25.3s;--t:-13.0s;--o:0.34;--sw:26px"></i><i style="--x:77.72%;--s:4px;--d:25.7s;--t:-18.6s;--o:0.28;--sw:14px"></i><i style="--x:69.90%;--s:3px;--d:15.6s;--t:-23.8s;--o:0.34;--sw:20px"></i><i style="--x:72.94%;--s:3px;--d:26.2s;--t:-31.5s;--o:0.34;--sw:14px"></i><i style="--x:75.71%;--s:3px;--d:32.7s;--t:-19.7s;--o:0.49;--sw:8px"></i><i style="--x:76.46%;--s:3px;--d:20.8s;--t:-22.1s;--o:0.34;--sw:26px"></i><i style="--x:6.88%;--s:2px;--d:32.9s;--t:-17.9s;--o:0.39;--sw:8px"></i><i style="--x:73.12%;--s:3px;--d:26.9s;--t:-0.2s;--o:0.44;--sw:20px"></i><i style="--x:71.66%;--s:3px;--d:14.5s;--t:-18.3s;--o:0.23;--sw:8px"></i><i style="--x:49.37%;--s:3px;--d:29.4s;--t:-29.6s;--o:0.26;--sw:26px"></i><i style="--x:91.68%;--s:4px;--d:15.6s;--t:-18.7s;--o:0.36;--sw:14px"></i><i style="--x:81.93%;--s:3px;--d:28.1s;--t:-0.5s;--o:0.40;--sw:26px"></i><i style="--x:95.77%;--s:3px;--d:15.7s;--t:-28.9s;--o:0.39;--sw:8px"></i><i style="--x:48.50%;--s:3px;--d:19.3s;--t:-33.9s;--o:0.31;--sw:20px"></i><i style="--x:60.98%;--s:3px;--d:33.1s;--t:-10.5s;--o:0.34;--sw:8px"></i><i style="--x:45.66%;--s:4px;--d:22.0s;--t:-20.6s;--o:0.33;--sw:26px"></i><i style="--x:6.22%;--s:2px;--d:33.7s;--t:-19.0s;--o:0.22;--sw:8px"></i><i style="--x:10.24%;--s:3px;--d:24.7s;--t:-1.7s;--o:0.38;--sw:8px"></i><i style="--x:87.43%;--s:4px;--d:17.0s;--t:-25.4s;--o:0.29;--sw:20px"></i><i style="--x:47.42%;--s:2px;--d:31.0s;--t:-0.2s;--o:0.33;--sw:26px"></i><i style="--x:31.19%;--s:3px;--d:16.0s;--t:-22.4s;--o:0.26;--sw:14px"></i><i style="--x:51.63%;--s:3px;--d:33.0s;--t:-16.0s;--o:0.23;--sw:8px"></i><i style="--x:75.81%;--s:3px;--d:33.6s;--t:-4.6s;--o:0.40;--sw:20px"></i><i style="--x:51.84%;--s:3px;--d:21.1s;--t:-26.4s;--o:0.35;--sw:20px"></i><i style="--x:63.64%;--s:3px;--d:30.1s;--t:-6.2s;--o:0.42;--sw:14px"></i><i style="--x:19.99%;--s:4px;--d:21.1s;--t:-33.0s;--o:0.19;--sw:20px"></i><i style="--x:47.22%;--s:3px;--d:27.9s;--t:-1.5s;--o:0.32;--sw:20px"></i><i style="--x:95.50%;--s:3px;--d:15.6s;--t:-30.5s;--o:0.33;--sw:20px"></i><i style="--x:20.44%;--s:2px;--d:23.6s;--t:-11.8s;--o:0.44;--sw:8px"></i><i style="--x:83.46%;--s:2px;--d:32.2s;--t:-7.4s;--o:0.42;--sw:26px"></i><i style="--x:88.90%;--s:4px;--d:29.8s;--t:-22.7s;--o:0.44;--sw:26px"></i><i style="--x:46.32%;--s:2px;--d:28.5s;--t:-28.2s;--o:0.22;--sw:14px"></i><i style="--x:59.08%;--s:4px;--d:30.1s;--t:-29.0s;--o:0.44;--sw:26px"></i><i style="--x:65.73%;--s:3px;--d:17.1s;--t:-15.4s;--o:0.19;--sw:8px"></i><i style="--x:52.66%;--s:3px;--d:22.7s;--t:-4.4s;--o:0.44;--sw:14px"></i><i style="--x:2.80%;--s:3px;--d:19.9s;--t:-25.8s;--o:0.37;--sw:20px"></i><i style="--x:54.44%;--s:3px;--d:15.2s;--t:-8.8s;--o:0.47;--sw:26px"></i><i style="--x:82.71%;--s:3px;--d:24.6s;--t:-16.2s;--o:0.19;--sw:26px"></i><i style="--x:77.65%;--s:2px;--d:29.5s;--t:-28.9s;--o:0.23;--sw:8px"></i><i style="--x:55.65%;--s:3px;--d:27.6s;--t:-16.0s;--o:0.33;--sw:8px"></i></div><div class="stars"><i style="--x:83.72%;--d:1.56s;--t:-21.0s;--h:16vh"></i><i style="--x:73.96%;--d:2.06s;--t:-11.4s;--h:16vh"></i><i style="--x:45.01%;--d:2.17s;--t:-12.9s;--h:28vh"></i><i style="--x:23.55%;--d:1.80s;--t:-12.8s;--h:22vh"></i><i style="--x:50.68%;--d:1.77s;--t:-12.4s;--h:22vh"></i><i style="--x:87.21%;--d:2.48s;--t:-20.7s;--h:22vh"></i><i style="--x:18.07%;--d:1.63s;--t:-14.5s;--h:16vh"></i></div></div><svg class="mark" viewBox="0 0 102 78" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><title>Swarm</title><rect class="blink" x="24" y="0" width="6" height="6" fill="#d6f4a4"/><rect class="blink" x="72" y="0" width="6" height="6" fill="#d6f4a4"/><rect x="24" y="6" width="6" height="6" fill="#a3e635"/><rect x="72" y="6" width="6" height="6" fill="#a3e635"/><rect x="24" y="12" width="6" height="6" fill="#a3e635"/><rect x="72" y="12" width="6" height="6" fill="#a3e635"/><rect x="12" y="18" width="78" height="6" fill="#5f851f"/><rect x="12" y="24" width="6" height="6" fill="#5f851f"/><rect x="18" y="24" width="66" height="6" fill="#a3e635"/><rect x="84" y="24" width="6" height="6" fill="#5f851f"/><rect x="12" y="30" width="6" height="6" fill="#5f851f"/><rect x="18" y="30" width="12" height="6" fill="#d6f4a4"/><rect x="30" y="30" width="54" height="6" fill="#a3e635"/><rect x="84" y="30" width="6" height="6" fill="#5f851f"/><rect x="0" y="36" width="18" height="6" fill="#5f851f"/><rect x="18" y="36" width="12" height="6" fill="#a3e635"/><rect x="30" y="36" width="12" height="6" fill="#5f851f"/><rect x="42" y="36" width="18" height="6" fill="#a3e635"/><rect x="60" y="36" width="12" height="6" fill="#5f851f"/><rect x="72" y="36" width="12" height="6" fill="#a3e635"/><rect x="84" y="36" width="18" height="6" fill="#5f851f"/><rect x="0" y="42" width="18" height="6" fill="#5f851f"/><rect x="18" y="42" width="12" height="6" fill="#a3e635"/><rect x="30" y="42" width="12" height="6" fill="#5f851f"/><rect x="42" y="42" width="18" height="6" fill="#a3e635"/><rect x="60" y="42" width="12" height="6" fill="#5f851f"/><rect x="72" y="42" width="12" height="6" fill="#a3e635"/><rect x="84" y="42" width="18" height="6" fill="#5f851f"/><rect x="0" y="48" width="18" height="6" fill="#5f851f"/><rect x="18" y="48" width="66" height="6" fill="#a3e635"/><rect x="84" y="48" width="18" height="6" fill="#5f851f"/><rect x="0" y="54" width="18" height="6" fill="#5f851f"/><rect x="18" y="54" width="12" height="6" fill="#a3e635"/><rect x="30" y="54" width="42" height="6" fill="#5f851f"/><rect x="72" y="54" width="12" height="6" fill="#a3e635"/><rect x="84" y="54" width="18" height="6" fill="#5f851f"/><rect x="12" y="60" width="6" height="6" fill="#5f851f"/><rect x="18" y="60" width="66" height="6" fill="#a3e635"/><rect x="84" y="60" width="6" height="6" fill="#5f851f"/><rect x="12" y="66" width="6" height="6" fill="#5f851f"/><rect x="18" y="66" width="66" height="6" fill="#a3e635"/><rect x="84" y="66" width="6" height="6" fill="#5f851f"/><rect x="12" y="72" width="78" height="6" fill="#5f851f"/></svg>
+    <div class="sky" aria-hidden="true"><canvas id="rain"></canvas></div><svg class="mark" viewBox="0 0 102 78" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><title>Swarm</title><rect class="blink" x="24" y="0" width="6" height="6" fill="#d6f4a4"/><rect class="blink" x="72" y="0" width="6" height="6" fill="#d6f4a4"/><rect x="24" y="6" width="6" height="6" fill="#a3e635"/><rect x="72" y="6" width="6" height="6" fill="#a3e635"/><rect x="24" y="12" width="6" height="6" fill="#a3e635"/><rect x="72" y="12" width="6" height="6" fill="#a3e635"/><rect x="12" y="18" width="78" height="6" fill="#5f851f"/><rect x="12" y="24" width="6" height="6" fill="#5f851f"/><rect x="18" y="24" width="66" height="6" fill="#a3e635"/><rect x="84" y="24" width="6" height="6" fill="#5f851f"/><rect x="12" y="30" width="6" height="6" fill="#5f851f"/><rect x="18" y="30" width="12" height="6" fill="#d6f4a4"/><rect x="30" y="30" width="54" height="6" fill="#a3e635"/><rect x="84" y="30" width="6" height="6" fill="#5f851f"/><rect x="0" y="36" width="18" height="6" fill="#5f851f"/><rect x="18" y="36" width="12" height="6" fill="#a3e635"/><rect x="30" y="36" width="12" height="6" fill="#5f851f"/><rect x="42" y="36" width="18" height="6" fill="#a3e635"/><rect x="60" y="36" width="12" height="6" fill="#5f851f"/><rect x="72" y="36" width="12" height="6" fill="#a3e635"/><rect x="84" y="36" width="18" height="6" fill="#5f851f"/><rect x="0" y="42" width="18" height="6" fill="#5f851f"/><rect x="18" y="42" width="12" height="6" fill="#a3e635"/><rect x="30" y="42" width="12" height="6" fill="#5f851f"/><rect x="42" y="42" width="18" height="6" fill="#a3e635"/><rect x="60" y="42" width="12" height="6" fill="#5f851f"/><rect x="72" y="42" width="12" height="6" fill="#a3e635"/><rect x="84" y="42" width="18" height="6" fill="#5f851f"/><rect x="0" y="48" width="18" height="6" fill="#5f851f"/><rect x="18" y="48" width="66" height="6" fill="#a3e635"/><rect x="84" y="48" width="18" height="6" fill="#5f851f"/><rect x="0" y="54" width="18" height="6" fill="#5f851f"/><rect x="18" y="54" width="12" height="6" fill="#a3e635"/><rect x="30" y="54" width="42" height="6" fill="#5f851f"/><rect x="72" y="54" width="12" height="6" fill="#a3e635"/><rect x="84" y="54" width="18" height="6" fill="#5f851f"/><rect x="12" y="60" width="6" height="6" fill="#5f851f"/><rect x="18" y="60" width="66" height="6" fill="#a3e635"/><rect x="84" y="60" width="6" height="6" fill="#5f851f"/><rect x="12" y="66" width="6" height="6" fill="#5f851f"/><rect x="18" y="66" width="66" height="6" fill="#a3e635"/><rect x="84" y="66" width="6" height="6" fill="#5f851f"/><rect x="12" y="72" width="78" height="6" fill="#5f851f"/></svg>
     <h1>See every agent. Stop the collisions.</h1>
     <p class="tag">One daemon watches every agent session on your machine, keeps the ledger of who holds which task, worktree and port, spawns and gates agents of its own — and turns “never do X” from a line in <code>CLAUDE.md</code> into a permission decision.</p>
     <p class="tag" style="font-size:15px;margin-top:-18px">Local-first. No account, no telemetry, nothing added to your repositories.</p>
@@ -485,6 +467,85 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
   document.addEventListener("keydown", (e) => { if (e.target.closest?.("input,textarea")) return; const open = lb.classList.contains("open"); if (open && e.key === "Escape") return hide(); if (e.key === "ArrowRight") return open ? show(li + 1) : go(cur + 1); if (e.key === "ArrowLeft") return open ? show(li - 1) : go(cur - 1); });
   let sx = null; lb.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }, { passive: true });
   lb.addEventListener("touchend", (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 40) show(li + (dx < 0 ? 1 : -1)); sx = null; });
+})();
+</script>
+<script>
+(() => {
+  const cv = document.getElementById("rain");
+  if (!cv || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const ctx = cv.getContext("2d", { alpha: true });
+  // Half-width katakana and digits, the glyphs the film actually used.
+  const GLYPHS = "\uff66\uff67\uff68\uff69\uff6a\uff6b\uff6c\uff6d\uff6e\uff6f\uff71\uff72\uff73\uff74\uff75\uff76\uff77\uff78\uff79\uff7a\uff7b\uff7c\uff7d\uff7e\uff7f\uff80\uff81\uff82\uff83\uff84\uff85\uff86\uff87\uff88\uff89\uff8a\uff8b\uff8c\uff8d\uff8e\uff8f\uff90\uff91\uff92\uff93\uff94\uff95\uff96\uff97\uff98\uff99\uff9a\uff9b\uff9d0123456789";
+  const pick = () => GLYPHS[(Math.random() * GLYPHS.length) | 0];
+  const CELL = 20, HEAD = "#f4ffe0", BODY = "163,230,53";
+
+  let cols = [], dpr = 1, w = 0, h = 0;
+  function size() {
+    const r = cv.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = r.width; h = r.height;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${CELL - 3}px ui-monospace,SFMono-Regular,Menlo,monospace`;
+    ctx.textBaseline = "top";
+    const n = Math.ceil(w / CELL);
+    cols = Array.from({ length: n }, () => ({
+      // A column sits dark until its turn comes, which is what puts the gaps in.
+      y: -((Math.random() * 60) | 0),
+      every: 2 + ((Math.random() * 4) | 0),   // frames per glyph — the speed spread
+      tick: 0,
+      last: null,
+      on: Math.random() > 0.1,
+      dim: 0.55 + Math.random() * 0.45,   // some streams sit far back, some in front
+    }));
+    return true;
+  }
+
+  function frame() {
+    // Erase a little alpha everywhere: what is left behind each head becomes the trail.
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0,0,0,.062)";
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = "source-over";
+
+    const rows = Math.ceil(h / CELL);
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
+      if (!c.on || ++c.tick < c.every) continue;
+      c.tick = 0;
+      const x = i * CELL;
+      // Repaint the previous head in green so only the leading glyph stays white.
+      if (c.last !== null && c.y > 0) {
+        ctx.fillStyle = `rgba(${BODY},${c.dim})`;
+        ctx.fillText(c.last, x, (c.y - 1) * CELL);
+      }
+      if (c.y >= 0 && c.y < rows) {
+        const g = pick();
+        ctx.fillStyle = HEAD;
+        ctx.fillText(g, x, c.y * CELL);
+        c.last = g;
+      }
+      c.y++;
+      if (c.y > rows && Math.random() > 0.96) {
+        c.y = -((Math.random() * 20) | 0);
+        c.last = null;
+        c.every = 2 + ((Math.random() * 4) | 0);
+      }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  let raf = 0;
+  const stop = () => { cancelAnimationFrame(raf); raf = 0; };
+  const start = () => { if (!raf && size()) raf = requestAnimationFrame(frame); };
+
+  // Only run while the hero is actually on screen and the tab is in front.
+  new IntersectionObserver(([e]) => (e.isIntersecting && !document.hidden ? start() : stop()))
+    .observe(cv.parentElement);
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+  let t = 0;
+  addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { stop(); start(); }, 150); });
 })();
 </script>
 </body>
