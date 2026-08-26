@@ -2,6 +2,38 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.12.0] — 2026-08-26
+
+The Observatory is finished. Swarm has spent this milestone answering questions about your fleet that used to need a person reading logs; this release adds the last five and, just as importantly, makes the dashboard admit when something has gone wrong instead of quietly showing you a stale screen.
+
+Two things I want to be straight about, because both are cases where the plan was wrong and the code says so.
+
+The roadmap wanted repeated tool cycles to feed the stuck detector. They should not. `Read → Edit → Read → Edit` is the single most ordinary thing an agent does, and flagging it would have fired on healthy work all day long. A cycle only counts when the calls inside it are *failing*, which is the same bar the stuck detector already sets for a plain repeat.
+
+And it wanted deadlock detection on held resources. A deadlock cannot happen here: claims fail closed, so a second claimer is refused rather than queued and nobody ever blocks. What can happen is contention — two agents each wanting what the other holds — and that needed a fact nobody was recording, so Swarm now records it.
+
+### Added
+
+- **Tool transitions.** What an agent reaches for after what, as a weighted matrix. Not a graph drawing: the transition graph is dense and cyclic, so a layered drawing turns into a hairball where nearly every edge doubles back. A matrix has no crossings, puts a tool following itself on the diagonal, and shows a lopsided pair of cells when `A → B` happens far more than `B → A`. On my machine: 10,198 transitions across 62 sessions, and `Bash → Bash` 6,881 of them.
+
+- **File heat.** Where the fleet's attention actually goes — hottest files, hottest directories, and how much of every touch was a file being read again. Mine says **55%**, and 222 files were opened once and never returned to. It also looks for files several sessions keep re-reading and hardly ever edit, because those are the ones whose conclusion belongs in `CLAUDE.md` instead of being re-derived in every window. It found none, correctly: everything multiple sessions read here is also something they were editing.
+
+- **Resource holding.** Claims, ports, leases and processes on one picture with whoever holds them, and a resource is orphaned when the *session* that took it ended — not when its owner looks idle, because an owner string outlives the run it belonged to. Refusals are now recorded, so the view can also show contention rings.
+
+- **Security audit.** Hosts your agents reached for, packages they installed, and credential files they opened. Observation only — nothing here denies anything, and it reads what was *requested*, so a command one of your rules already blocked still shows up. It is a lint and not a sandbox, and the view says so: an obfuscated command will not match, and a comment mentioning `.env` will.
+
+- **Rule effectiveness.** Whether a rule is teaching anyone anything. Firing once is a rule working; firing forty times on the same shaped command is friction, and either the habit needs changing or the rule does. Incidents are clustered by the shape of what they fired on, so that difference is visible at a glance. Swarm now also records when your rule set changes, so "before this rule, after this rule" becomes answerable from here on — it was not answerable before, because nothing knew when a rule landed.
+
+- **An error boundary.** The dashboard is one long-lived page and it had no way to say it had broken: an exception left the previous screen up looking current, and a failed poll was swallowed. Now a view that throws shows the error with its stack, and there is a copyable report and a prefilled issue link. The report is the version, the view, the error and the last few failed requests — no session contents, no paths, no titles — and nothing leaves your machine unless you send it.
+
+### Fixed
+
+- **A 404 on a Swarm route is now named for what it usually is.** If the dashboard was updated and the daemon has not restarted, the page says exactly that and offers the restart, rather than spinning on a view that will never load.
+- **Light mode was olive.** The accent was a yellow-green darkened in sRGB, which drains the colour and leaves khaki — every bar, sparkline and heatmap cell in the theme was that colour. The greens are derived in OKLCH now, which holds the hue as the lightness comes down, and text and chart fills are separate values because they answer to different contrast rules.
+- Badges had two pixels of vertical padding against eight horizontal, and read as squashed.
+- The project sidebar's icon sat a pixel above everything else in its row.
+- Several tables stretched three or four columns across the page with their numbers a screen away from what they described; those are lists now.
+
 ## [0.11.3] — 2026-08-26
 
 A proper robot.
