@@ -51,8 +51,16 @@
   .hero .sky{position:absolute;inset:-80px -120px 0;z-index:0;overflow:hidden;pointer-events:none;
     -webkit-mask-image:radial-gradient(ellipse 44% 50% at 50% 46%,transparent 0%,transparent 38%,#000 86%);
     mask-image:radial-gradient(ellipse 44% 50% at 50% 46%,transparent 0%,transparent 38%,#000 86%)}
-  .hero .snow i{position:absolute;left:var(--x);top:-6vh;width:var(--s);height:var(--s);
-    background:var(--acc);opacity:var(--o);
+  /* Each flake is its own head plus four dimmer pixels above it — the echo a falling
+     character leaves behind. Hard colour stops keep the trail pixellated, not smeared. */
+  .hero .snow i{position:absolute;left:var(--x);top:-8vh;width:var(--s);height:calc(var(--s) * 5);
+    opacity:var(--o);
+    background:linear-gradient(to bottom,
+      color-mix(in srgb,var(--acc) 7%,transparent) 0 20%,
+      color-mix(in srgb,var(--acc) 18%,transparent) 20% 40%,
+      color-mix(in srgb,var(--acc) 36%,transparent) 40% 60%,
+      color-mix(in srgb,var(--acc) 62%,transparent) 60% 80%,
+      var(--acc) 80% 100%);
     animation:snowfall var(--d) linear var(--t) infinite,sway calc(var(--d) / 3) ease-in-out var(--t) infinite alternate}
   @keyframes snowfall{from{transform:translateY(0)}to{transform:translateY(118vh)}}
   @keyframes sway{from{margin-left:0}to{margin-left:var(--sw)}}

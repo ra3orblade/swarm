@@ -8,7 +8,7 @@ Two things 0.11.1 said it did and didn't.
 
 ### Fixed
 - **The desktop app icon.** 0.11.1 put the robot in the dashboard, on the site and in the favicons, then left the macOS and Windows app icons as the old mark — so the thing in your Dock was the one place that still didn't match. All seventeen are generated from the same drawing now, by `tools/icons.ts`, read straight off the pixel grid in `core` with no image editor anywhere in the loop. That covers `.icns`, `.ico` and every Windows store size, and the iOS and Android sets if you have them checked out.
-- **The hero animation.** The matrix rain looked like a screensaver, and there was a static grid of pixels behind it that never moved at all. Both are gone. It's snow now, with a star falling through it every few seconds and flaring white on its way out.
+- **The hero animation.** The old matrix rain was tight columns marching down in lockstep, with a static grid of pixels behind it that never moved at all. Both are gone. The pixels drift now, each one at its own speed and each trailing the short echo a falling character leaves behind it, and every few seconds a star drops through the whole thing and flares white on its way out.
 
 ## [0.11.1] — 2026-08-26
 
