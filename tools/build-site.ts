@@ -3,7 +3,15 @@
  *  docs/*.md        → site/docs/design/<slug>.html   (design docs — "Internals")
  *  CHANGELOG.md     → site/changelog.html.  All output is gitignored.
  *  Usage: bun run site:build   (then: bun run site:deploy) */
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { marked } from "marked";
 
@@ -297,6 +305,44 @@ writeFileSync(
   }),
 );
 
+// ── sitemap.xml + robots.txt ────────────────────────────────────────────────
+// Every page this build produces, listed once, with the URL form the site actually links (Vercel's
+// `cleanUrls` serves `/changelog` for `changelog.html`). `lastmod` comes from the source markdown,
+// not from the build clock, so re-running the build does not tell crawlers everything changed.
+const mtime = (p: string): string => statSync(join(root, p)).mtime.toISOString().slice(0, 10);
+const urls: Array<{ loc: string; lastmod: string; priority: string }> = [
+  { loc: "/", lastmod: mtime("site/index.html"), priority: "1.0" },
+  { loc: "/docs/", lastmod: mtime("docs/guide"), priority: "0.9" },
+  { loc: "/changelog", lastmod: mtime("CHANGELOG.md"), priority: "0.8" },
+  { loc: "/docs/design/", lastmod: mtime("docs/00-index.md"), priority: "0.4" },
+  ...guide.map((d) => ({
+    loc: `/docs/${d.slug}`,
+    lastmod: mtime(`docs/guide/${d.file}`),
+    priority: "0.7",
+  })),
+  ...design.map((d) => ({
+    loc: `/docs/design/${d.slug}`,
+    lastmod: mtime(`docs/${d.file}`),
+    priority: "0.3",
+  })),
+];
+writeFileSync(
+  join(root, "site", "sitemap.xml"),
+  `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    urls
+      .map(
+        (u) =>
+          `  <url><loc>${SITE}${u.loc}</loc><lastmod>${u.lastmod}</lastmod><priority>${u.priority}</priority></url>`,
+      )
+      .join("\n") +
+    `\n</urlset>\n`,
+);
+writeFileSync(
+  join(root, "site", "robots.txt"),
+  `User-agent: *\nAllow: /\n\nSitemap: ${SITE}/sitemap.xml\n`,
+);
+
 console.log(
-  `site: ${guide.length} guide + ${design.length} design docs + changelog → site/ (v${version})`,
+  `site: ${guide.length} guide + ${design.length} design docs + changelog + sitemap (${urls.length} urls) → site/ (v${version})`,
 );
