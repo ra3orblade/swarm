@@ -17,6 +17,7 @@ export type EventType =
   | "claim.released"
   | "claim.expired"
   | "claim.orphaned"
+  | "claim.denied"
   | "worktree.bootstrapped"
   | "worktree.created"
   | "worktree.removed"

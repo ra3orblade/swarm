@@ -29,6 +29,7 @@ export * from "./processes";
 export * from "./project-id";
 export * from "./provenance";
 export * from "./questions";
+export * from "./resourcegraph";
 export * from "./resources";
 export * from "./review";
 export * from "./rules";
