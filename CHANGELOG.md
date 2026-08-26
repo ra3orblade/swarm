@@ -2,6 +2,14 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.11.2] — 2026-08-26
+
+Two things 0.11.1 said it did and didn't.
+
+### Fixed
+- **The desktop app icon.** 0.11.1 put the robot in the dashboard, on the site and in the favicons, then left the macOS and Windows app icons as the old mark — so the thing in your Dock was the one place that still didn't match. All seventeen are generated from the same drawing now, by `tools/icons.ts`, read straight off the pixel grid in `core` with no image editor anywhere in the loop. That covers `.icns`, `.ico` and every Windows store size, and the iOS and Android sets if you have them checked out.
+- **The hero animation.** What shipped in 0.11.1 was pixel columns marching down in lockstep over a static grid that never moved at all. It's a proper rain now — streams of glyphs, each falling at its own speed, bright leading character, trail dying out behind it. The columns sit at three depths, where size, pitch, speed and brightness all move together: the flat uniform grid is the part that reads as an impression of the film, so that is the part that had to go. One canvas and one animation-frame loop: 0.27ms a frame, paused when the hero scrolls off screen or the tab goes to the background, and never started at all under `prefers-reduced-motion`.
+
 ## [0.11.1] — 2026-08-26
 
 Mostly the look of the thing, plus one page that was genuinely slow.
