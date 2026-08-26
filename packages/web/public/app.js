@@ -265,7 +265,7 @@ const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.age
 
 // One render per animation frame, whatever triggered it (SSE, polls, clicks).
 let raf = 0;
-const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; safeRender(); }); };
 const touch = () => { state.dirty = true; schedule(); };
 // `render()` refuses to paint while a menu is open (it would detach the anchor the menu is
 // positioned against) and defers the frame instead. fancy-menus exposes no close callback, so the
@@ -287,7 +287,7 @@ async function refresh() {
   const txt = await (await fetch("/v1/state")).text();
   const same = txt === lastSnap;
   if (!same) { lastSnap = txt; Object.assign(state, JSON.parse(txt)); }
-  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; state.hooksInstalled = h.hooksInstalled !== false; maybeUpdateNudge(h); maybeWhatsNew(); }).catch(() => {});
+  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; state.diskVersion = h.disk ?? null; state.hooksInstalled = h.hooksInstalled !== false; maybeUpdateNudge(h); maybeWhatsNew(); }).catch(() => {});
   let prsChanged = false;
   if (state.view === "prs" && !state.session) {
     const prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
@@ -339,16 +339,30 @@ async function refresh() {
   if (state.view === "graphs" && (state.graphTab ?? "collisions") === "lineage" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
     const open = (state.lineageOpen ?? []).map((g) => `&expand=${encodeURIComponent(g)}`).join("");
-    const lin = await fetch(`/v1/graphs/lineage${q || "?"}${open}`).then((r) => r.json()).catch(() => state.lineage);
+    const lin = (await api(`/v1/graphs/lineage${q || "?"}${open}`)) ?? state.lineage;
     linChanged = JSON.stringify(lin) !== JSON.stringify(state.lineage);
     state.lineage = lin;
   }
   let colChanged = false;
-  if (state.view === "graphs" && (state.graphTab ?? "collisions") !== "lineage" && !state.session) {
+  if (state.view === "graphs" && (state.graphTab ?? "collisions") === "collisions" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
-    const col = await fetch(`/v1/graphs/collisions${q}`).then((r) => r.json()).catch(() => state.collisions);
+    const col = (await api(`/v1/graphs/collisions${q}`)) ?? state.collisions;
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
+  }
+  let resChanged = false;
+  if (state.view === "graphs" && state.graphTab === "resources" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const rg = (await api(`/v1/graphs/resources${q}`)) ?? state.resourceGraph;
+    resChanged = JSON.stringify(rg) !== JSON.stringify(state.resourceGraph);
+    state.resourceGraph = rg;
+  }
+  let trChanged = false;
+  if (state.view === "graphs" && state.graphTab === "tools" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const tr = (await api(`/v1/graphs/transitions${q}`)) ?? state.transitions;
+    trChanged = JSON.stringify(tr) !== JSON.stringify(state.transitions);
+    state.transitions = tr;
   }
   let waitChanged = false;
   if ((state.view === "fleet" || state.view === "stats") && !state.session) {
@@ -363,6 +377,27 @@ async function refresh() {
     const hy = await fetch(`/v1/hygiene${q}`).then((r) => r.json()).catch(() => state.hygiene);
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
+  }
+  let reChanged = false;
+  if (state.view === "rules" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const re = (await api(`/v1/rules/effect${q}`)) ?? state.ruleEffect;
+    reChanged = JSON.stringify(re) !== JSON.stringify(state.ruleEffect);
+    state.ruleEffect = re;
+  }
+  let secChanged = false;
+  if (state.view === "security" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const sec = (await api(`/v1/security${q}`)) ?? state.security;
+    secChanged = JSON.stringify(sec) !== JSON.stringify(state.security);
+    state.security = sec;
+  }
+  let heatChanged = false;
+  if (state.view === "heat" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const h = (await api(`/v1/heat${q}`)) ?? state.heat;
+    heatChanged = JSON.stringify(h) !== JSON.stringify(state.heat);
+    state.heat = h;
   }
   let ctxChanged = false;
   if (state.view === "context" && !state.session) {
@@ -407,7 +442,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || secChanged || reChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -424,11 +459,14 @@ const VIEW_DEFS = [
   { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
   { id: "mcp", label: "MCP", icon: "plugs-connected", group: "Insight", render: () => renderMcpHealth() },
   { id: "context", label: "Context", icon: "brain", group: "Insight", render: () => renderContext() },
+  { id: "heat", label: "Files", icon: "file-text", group: "Insight", render: () => renderHeat(), badge: () => state.heat?.candidates?.length ?? 0 },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
+  { id: "security", label: "Security", icon: "shield", group: "Guard", render: () => renderSecurity(), badge: () => state.security?.totals?.secrets ?? 0 },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard", render: () => renderProvenance(), badge: () => state.provenance?.totals?.untracked ?? 0 },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard", render: () => renderIncidentsView(), badge: () => state.openIncidents ?? 0 },
+  { id: "rules", label: "Rules", icon: "shield", group: "Guard", render: () => renderRuleEffect(), badge: () => state.ruleEffect?.totals?.unchanged ?? 0 },
 ];
 const viewDef = (id) => VIEW_DEFS.find((v) => v.id === id);
 const VIEWS = VIEW_DEFS.map((v) => v.id);
@@ -438,7 +476,7 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
   const v = localStorage.getItem("swarm.view");
   if (VIEWS.includes(v)) state.view = v;
   const gt = localStorage.getItem("swarm.graphTab");
-  if (gt === "lineage" || gt === "collisions") state.graphTab = gt;
+  if (["lineage", "collisions", "tools", "resources"].includes(gt)) state.graphTab = gt;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
   // Deep links win over persisted state: ?view=board&project=<id>&session=<id>
@@ -448,6 +486,78 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
   // Mark the restored tab before the first snapshot lands, so the nav doesn't flash "Fleet".
   renderNav();
 }
+// ---------- errors
+// The dashboard is one long-lived page: an exception in a view used to leave the last frame on
+// screen with no sign anything had gone wrong, and a failed poll was swallowed by `.catch(() =>
+// keep the old value)`. Both now surface. `api()` records what failed so a report has something
+// in it, and `render()` is wrapped so a throwing view shows a panel instead of a frozen one.
+const failures = []; // newest first, capped — a report wants the recent ones, not all of them
+const noteFailure = (f) => { failures.unshift({ ...f, at: new Date().toISOString() }); failures.length = Math.min(failures.length, 12); };
+
+/**
+ * GET JSON, or null. A non-2xx is a failure worth naming: a 404 on a `/v1/` route almost always
+ * means the running daemon is older than the page it is serving, which is a restart, not a bug.
+ */
+async function api(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { noteFailure({ url, status: r.status, kind: r.status === 404 ? "missing-route" : "http" }); return null; }
+    return await r.json();
+  } catch (e) {
+    noteFailure({ url, status: 0, kind: "network", message: String(e?.message ?? e) });
+    return null;
+  }
+}
+
+/** Everything a bug report needs and nothing a person would mind pasting into a public issue. */
+function errorReport(err, where) {
+  return {
+    swarm: state.version ?? "unknown",
+    onDisk: state.diskVersion ?? null,
+    view: where ?? state.view,
+    graphTab: state.graphTab ?? null,
+    session: state.session ? "open" : "none", // the id is not ours to put in a public issue
+    projectScoped: Boolean(state.sel),
+    error: err ? `${err.name ?? "Error"}: ${err.message ?? err}` : null,
+    stack: err?.stack ? String(err.stack).split("\n").slice(0, 8).join("\n") : null,
+    recentFailedRequests: failures.slice(0, 6),
+    userAgent: navigator.userAgent,
+    at: new Date().toISOString(),
+  };
+}
+
+let lastError = null;
+function renderErrorPanel(err, where) {
+  lastError = { err, where };
+  const skew = failures.find((f) => f.kind === "missing-route");
+  const rep = errorReport(err, where);
+  $("#main").innerHTML =
+    `<h2 class="err-h">${ic("warning", 14, "err-ic")}Something broke <span>${esc(where ?? state.view)}</span></h2>
+     <div class="card err-card">
+       ${err
+         ? `<p style="margin:0 0 10px">This view hit an error. The rest of the dashboard is still fine — switching views or reloading usually clears it.</p>`
+         : `<p style="margin:0 0 10px"><b>The daemon is older than this page.</b> <code>${esc(skew?.url ?? "")}</code> came back 404, which means the dashboard was updated but the running daemon has not restarted yet.</p>
+            <button class="btn primary" data-act="restart-daemon">Restart daemon</button>`}
+       ${err ? `<pre class="err-detail">${esc(rep.stack || rep.error)}</pre>` : ""}
+       ${err && skew ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Also worth knowing: <code>${esc(skew.url)}</code> is 404ing, so this daemon is older than the page. <a href="#" data-act="restart-daemon">Restart it</a>.</p>` : ""}
+       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+         <button class="btn" data-act="err-copy">Copy report</button>
+         <button class="btn" data-act="err-issue">Open an issue</button>
+         <button class="btn" data-act="err-reload">Reload</button>
+       </div>
+       <p class="dim" style="margin:12px 0 0;font-size:var(--fs-sm)">The report is the version, the view, the error and the last few failed requests — no session contents, no paths, no titles. Copy it first if you want to read it before sending.</p>
+     </div>`;
+}
+
+// A view that throws must not take the whole page with it, and must not leave the previous frame
+// up pretending to be current.
+function safeRender() {
+  try { render(); }
+  catch (e) { try { renderErrorPanel(e, state.view); } catch { /* the panel itself failed; leave the frame */ } }
+}
+addEventListener("error", (e) => noteFailure({ kind: "exception", url: location.hash || "#", status: 0, message: String(e.message ?? e.error ?? e) }));
+addEventListener("unhandledrejection", (e) => noteFailure({ kind: "rejection", url: location.hash || "#", status: 0, message: String(e.reason?.message ?? e.reason ?? e) }));
+
 function render() {
   // A row menu is anchored to DOM that a re-render would replace (and the focus jump closes it):
   // hold the frame while one is open; the next poll or interaction paints it.
@@ -1777,9 +1887,11 @@ function renderHygiene() {
 function renderGraphs() {
   const tab = state.graphTab ?? "collisions";
   const chip = (k, label, n) => `<span class="chip ${tab === k ? "on" : ""}" data-graphtab="${k}">${label}${n ? ` <b>${n}</b>` : ""}</span>`;
-  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}</div>`;
+  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}${chip("tools", "Tools", state.transitions?.loops?.length ?? 0)}${chip("resources", "Resources", state.resourceGraph?.totals?.orphaned ?? 0)}</div>`;
   const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
   if (tab === "lineage") return renderLineage(head);
+  if (tab === "tools") return renderTransitions(head);
+  if (tab === "resources") return renderResources(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
   if (!g || !g.sessions.length) {
@@ -1820,6 +1932,272 @@ function renderLineage(head) {
     `<div class="card" style="padding:14px;overflow:auto;max-height:72vh">${viz.dag(g)}</div>
      <div style="margin-top:10px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">${key}
        <span class="dim" style="font-size:var(--fs-sm)">a green pill is a collapsed group — click to open it · ring = outcome · thicker dot = more links · a bowed edge closed a loop</span></div>`;
+}
+
+// M9.15: what an agent reaches for after what. Edge thickness is the weight; a two-tool cycle is
+// a round trip, which is only worth worrying about when the calls inside it are also failing —
+// so the loops table describes shape, and the Stuck badge (M9.3) stays the thing that judges.
+function renderTransitions(head) {
+  const g = state.transitions;
+  if (!g) {
+    // Distinguish "not fetched yet" from "this daemon has no such route": the second never resolves
+    // on its own, and telling someone to wait for it is a lie.
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/transitions"));
+    if (skew) return renderErrorPanel(null, "graphs · tools");
+    $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!g.nodes?.length) {
+    $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.idle()}No tool calls recorded${state.sel ? " in this project" : ""} in the last 7 days.<br>The matrix fills in as agents work — it counts what each tool call was followed by.</div>`;
+    return;
+  }
+  const tools = g.nodes.slice(0, 18).map((n) => n.tool);
+  const shown = new Set(tools);
+  const sub = `${g.nodes.length} tool${g.nodes.length === 1 ? "" : "s"} · ${g.transitions.toLocaleString()} transitions · ${g.sessions} session${g.sessions === 1 ? "" : "s"} · last 7 days${g.nodes.length > tools.length ? ` · <span class="dim">${g.nodes.length - tools.length} quieter not shown</span>` : ""}`;
+  const loops = (g.loops ?? []).slice(0, 9);
+  const loopRows = loops.map((l) => `<tr>
+      <td class="clip">${l.tools.map((t) => `<span class="br">${esc(ctxToolLabel(t))}</span>`).join(' <span class="dim">→</span> ')}${l.tools.length === 1 ? ' <span class="dim">itself</span>' : ""}</td>
+      <td class="num"><b>${l.weight.toLocaleString()}</b></td>
+      <td class="num">${l.sessions}</td>
+    </tr>`).join("");
+  $("#main").innerHTML = head(sub) +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>What follows what <span>row ran, then column · darker = more often</span></h3>
+         ${viz.matrix(tools, g.edges.filter((e) => shown.has(e.from) && shown.has(e.to)), { label: ctxToolLabel })}</div>
+       <div class="chart-card" style="margin:0"><h3>Round trips <span>a tool pair that keeps handing back</span></h3>
+         ${loops.length
+           ? `<table class="mini"><colgroup><col style="width:52%"><col style="width:26%"><col style="width:22%"></colgroup><thead><tr><th>loop</th><th class="num">round trips</th><th class="num">sessions</th></tr></thead><tbody>${loopRows}</tbody></table>
+              <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">A loop is ordinary work — <code>Read → Edit</code> is what writing code looks like. It only counts as stuck when the calls inside it are <em>failing</em>, which is what the <b>Stuck</b> badge on Fleet judges.</p>`
+           : '<div class="dim">No tool pair hands back to the other — every move is one-way.</div>'}</div>
+     </div>`;
+}
+
+// M9.17: claims, ports, leases and processes on one picture with whoever holds them. Orphaned
+// means the holding session ended (or the lease expired) — the same reading Hygiene uses. There
+// is no deadlock to find: claims fail closed, so a second claimer is refused rather than queued
+// and nobody ever blocks. What the rings show is contention — two agents each wanting what the
+// other has — which is a scheduling problem for a person, not a lock to break.
+function renderResources(head) {
+  const g = state.resourceGraph;
+  if (!g) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/resources"));
+    if (skew) return renderErrorPanel(null, "graphs · resources");
+    $("#main").innerHTML = head("who holds what") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!g.resources.length) {
+    $("#main").innerHTML = head("who holds what") + `<div class="empty">${PX.idle()}Nothing is held${state.sel ? " in this project" : ""}.<br>Claims, ports, leases and tracked processes appear here with whoever took them.</div>`;
+    return;
+  }
+  const t = g.totals;
+  const sub = `${t.held} held · ${t.orphaned ? `<b class="navcount">${t.orphaned} orphaned</b>` : "none orphaned"}${t.contested ? ` · <b class="navcount">${t.contested} contested</b>` : ""}`;
+  // Same shape the collision graph draws: holders on the left, what they hold on the right.
+  const holders = g.holders.map((h) => ({ id: h.id, label: h.gone ? `${h.id} (gone)` : h.id, agent: "claude-code", files: h.holds, writes: h.holds }));
+  const items = g.resources.map((r) => ({ path: `${r.kind === "claim" ? "" : `${r.kind} `}${r.name}`, readers: r.wanted, writers: r.holder ? [r.holder] : [], contested: r.wanted.length > 0 || r.orphaned }));
+  const rings = g.contention.map((c) => `<li>${c.owners.map((o) => `<span class="br">${esc(o)}</span>`).join(' <span class="dim">wants what</span> ')} <span class="dim">holds — via</span> ${c.resources.map((r) => `<code>${esc(r)}</code>`).join(", ")}</li>`).join("");
+  const orphans = g.resources.filter((r) => r.orphaned);
+  $("#main").innerHTML = head(sub) +
+    (rings ? `<div class="card err-card" style="margin-bottom:12px"><b>${g.contention.length} contention ring${g.contention.length === 1 ? "" : "s"}</b> — each agent wants something the next one holds. Nothing is blocked (claims refuse rather than queue), but they are working against each other.<ul style="margin:8px 0 0;padding-left:18px">${rings}</ul></div>` : "") +
+    `<div class="card" style="padding:14px">${viz.bipartite(holders, items)}</div>
+     <div style="margin-top:10px" class="dim" style="font-size:var(--fs-sm)">solid edge = holds · faint edge = was refused it · <span style="color:var(--bad)">red</span> = orphaned or contested</div>` +
+    (orphans.length
+      ? `<div class="chart-card" style="margin-top:14px"><h3>Orphaned <span>the session that took it has ended</span></h3>
+         <ul class="plainlist">${orphans.map((r) => `<li><span class="badge">${esc(r.kind)}</span><b>${esc(r.name)}</b><span class="dim">held by ${esc(r.holder ?? "nobody")}</span></li>`).join("")}</ul></div>`
+      : "");
+}
+
+// M9.16: where the fleet's attention actually goes. The candidates list is the point — a file many
+// separate sessions read, re-read, and hardly ever write is one the fleet keeps re-learning, and
+// that belongs in CLAUDE.md. A file read *and written* a lot is just where the work is.
+function renderHeat(head) {
+  const h = state.heat;
+  const title = (sub) => `<h2>Files <span>${sub}</span></h2>`;
+  if (!h) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/heat"));
+    if (skew) return renderErrorPanel(null, "files");
+    $("#main").innerHTML = title("file-touch heat") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!h.files.length) {
+    $("#main").innerHTML = title("file-touch heat") + `<div class="empty">${PX.idle()}No file was touched more than once${state.sel ? " in this project" : ""} in the last 14 days.</div>`;
+    return;
+  }
+  const t = h.totals;
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const kpis = `<div class="kpis">${kpi("Files touched", t.files.toLocaleString(), `${t.touches.toLocaleString()} touches · last 14 days`)}
+    ${kpi("Re-reads", t.rereads.toLocaleString(), t.touches ? `${Math.round((t.rereads / t.touches) * 100)}% of every touch` : "none")}
+    ${kpi("Touched once", t.cold.toLocaleString(), "cold — read and never returned to")}
+    ${kpi("CLAUDE.md candidates", h.candidates.length, h.candidates.length ? "re-read by several sessions" : "nothing worth writing down", h.candidates.length ? "warm" : "")}</div>`;
+  // Paths here are long and the column is narrow, and neither end can simply be cut: the head is
+  // a home prefix every row shares, and the tail is the filename — which is the only part worth
+  // reading. Three worktrees each have a packages/web/public/app.js, so the name alone is not
+  // enough either. Name first, then just enough of its directory to tell them apart, dimmed and
+  // free to truncate.
+  const nameOf = (p) => short(p).split("/").pop() || short(p);
+  const ctxOf = (p, n = 2) => {
+    const parts = short(p).split("/");
+    parts.pop();
+    return parts.length <= n ? parts.join("/") : `…/${parts.slice(-n).join("/")}`;
+  };
+  /**
+   * Two segments of context is usually enough, but three worktrees each holding a
+   * packages/web/public/app.js all render identically — the list then reads as one file listed
+   * three times. Widen the context only for the rows that actually collide, and only as far as it
+   * takes to tell them apart.
+   */
+  const labelPaths = (paths) => {
+    const out = new Map();
+    for (const p of paths) {
+      let n = 2;
+      let label = `${nameOf(p)}|${ctxOf(p, n)}`;
+      while (n < 6 && paths.some((q) => q !== p && `${nameOf(q)}|${ctxOf(q, n)}` === label)) {
+        n++;
+        label = `${nameOf(p)}|${ctxOf(p, n)}`;
+      }
+      out.set(p, ctxOf(p, n));
+    }
+    return out;
+  };
+  const pathCell = (p, ctx) =>
+    `<b>${esc(nameOf(p))}</b> <span class="dim">${esc(ctx.get(p) ?? ctxOf(p))}</span>`;
+
+  const shownFiles = h.files.slice(0, 14);
+  const fileCtx = labelPaths(shownFiles.map((f) => f.path));
+  const fileRows = shownFiles.map((f) => `<tr>
+      <td class="clip path" title="${esc(short(f.path))}">${pathCell(f.path, fileCtx)}</td>
+      <td class="num"><b>${f.touches.toLocaleString()}</b></td>
+      <td class="num">${f.sessions}</td>
+      <td class="num">${f.rereads.toLocaleString()}</td>
+      <td class="num">${f.writes.toLocaleString()}</td>
+    </tr>`).join("");
+  const top = h.dirs[0]?.touches || 1;
+  const shownDirs = h.dirs.slice(0, 10);
+  const dirCtx = labelPaths(shownDirs.map((d) => d.dir));
+  const dirRows = shownDirs.map((d) => `<li>
+      <span class="bar" style="--w:${Math.max(2, Math.round((d.touches / top) * 100))}%"></span>
+      <span class="clip path" title="${esc(short(d.dir))}">${pathCell(d.dir, dirCtx)}</span>
+      <b>${d.touches.toLocaleString()}</b>
+      <span class="dim">${d.files} file${d.files === 1 ? "" : "s"} · ${d.sessions} session${d.sessions === 1 ? "" : "s"}</span>
+    </li>`).join("");
+  const shownCand = h.candidates.slice(0, 10);
+  const candCtx = labelPaths(shownCand.map((f) => f.path));
+  const cand = shownCand.map((f) => `<tr>
+      <td class="clip path" title="${esc(short(f.path))}">${pathCell(f.path, candCtx)}</td>
+      <td class="num"><b>${f.rereads.toLocaleString()}</b></td>
+      <td class="num">${f.sessions}</td>
+    </tr>`).join("");
+  $("#main").innerHTML = title(`${t.files.toLocaleString()} files · ${t.touches.toLocaleString()} touches · ${t.sessions} sessions · last 14 days`) + kpis +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>Hottest files <span>every touch, across sessions</span></h3>
+         <table class="mini"><colgroup><col style="width:46%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:13%"></colgroup>
+         <thead><tr><th>path</th><th class="num">touches</th><th class="num">sessions</th><th class="num">re-reads</th><th class="num">writes</th></tr></thead><tbody>${fileRows}</tbody></table></div>
+       <div style="display:flex;flex-direction:column;gap:var(--gap-sec);min-width:0">
+       <div class="chart-card" style="margin:0"><h3>Worth writing down <span>read again and again, rarely written</span></h3>
+         ${cand
+           ? `<table class="mini"><colgroup><col style="width:58%"><col style="width:22%"><col style="width:20%"></colgroup><thead><tr><th>path</th><th class="num">re-reads</th><th class="num">sessions</th></tr></thead><tbody>${cand}</tbody></table>
+              <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Several sessions keep reading these and rarely change them — the conclusion is being re-derived every time. Put it in <code>CLAUDE.md</code> once instead.</p>`
+           : '<div class="dim">Nothing here is worth extracting. Every file several sessions re-read is also one they edit — that is where the work is, not a reference being re-learned.</div>'}</div>
+       <div class="chart-card" style="margin:0"><h3>By directory <span>where the work sits</span></h3>
+         <ul class="heatlist">${dirRows}</ul></div>
+       </div>
+     </div>
+     <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>Incidents are not correlated here.</b> An incident records the rule, the action and the command — not a path — so tying a rule that fired on a shell command to a file would mean parsing paths out of command strings and guessing.</p>`;
+}
+
+// M9.9: what agents reached for. Observation only — nothing here denies anything, and the point of
+// looking is to learn what your fleet actually does before writing an `ask` rule about it.
+function renderSecurity() {
+  const r = state.security;
+  const head = (sub) => `<h2>Security <span>${sub}</span></h2>`;
+  if (!r) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/security"));
+    if (skew) return renderErrorPanel(null, "security");
+    $("#main").innerHTML = head("what agents reached for") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  const t = r.totals;
+  if (!t.scanned) {
+    $("#main").innerHTML = head("what agents reached for") + `<div class="empty">${PX.idle()}No commands recorded${state.sel ? " in this project" : ""} in the last 14 days.</div>`;
+    return;
+  }
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const remote = r.egress.filter((h) => !h.local);
+  const kpis = `<div class="kpis">
+    ${kpi("Hosts reached", t.remoteHosts, `${r.egress.length - t.remoteHosts} more were local`)}
+    ${kpi("Packages installed", t.installs, `${new Set(r.installs.map((i) => i.ecosystem)).size} ecosystem${new Set(r.installs.map((i) => i.ecosystem)).size === 1 ? "" : "s"}`)}
+    ${kpi("Credential files opened", t.secrets, t.secrets ? "by name — contents are never read" : "none", t.secrets ? "hot" : "")}
+    ${kpi("Commands scanned", t.scanned.toLocaleString(), "last 14 days")}</div>`;
+  const rows = (list, cells) => list.map((x) => `<tr>${cells(x)}</tr>`).join("");
+  $("#main").innerHTML = head(`${t.scanned.toLocaleString()} commands · last 14 days`) + kpis +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>Hosts reached <span>named in a command or a fetch</span></h3>
+         ${remote.length
+           ? `<table class="mini"><colgroup><col style="width:60%"><col style="width:20%"><col style="width:20%"></colgroup><thead><tr><th>host</th><th class="num">times</th><th class="num">sessions</th></tr></thead><tbody>
+              ${rows(remote.slice(0, 14), (h) => `<td class="clip path"><b>${esc(h.host)}</b></td><td class="num">${h.hits}</td><td class="num">${h.sessions}</td>`)}</tbody></table>`
+           : '<div class="dim">Nothing but localhost.</div>'}
+         <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">A host here means an agent <em>named</em> it. Whether bytes left is not something Swarm can see without running the command, so it over-reports rather than under-reports.</p></div>
+       <div style="display:flex;flex-direction:column;gap:var(--gap-sec);min-width:0">
+         <div class="chart-card" style="margin:0"><h3>Credential files <span>opened by name</span></h3>
+           ${r.secrets.length
+             ? `<ul class="plainlist">${r.secrets.map((sx) => `<li><span class="badge warn">${esc(sx.what)}</span><b>${sx.hits}×</b><span class="dim">${sx.sessions} session${sx.sessions === 1 ? "" : "s"}</span></li>`).join("")}</ul>
+                <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Swarm reads the <em>path</em>, never the contents — this says something opened the file and nothing about what was in it.</p>`
+             : '<div class="dim">No credential file was opened by name.</div>'}</div>
+         <div class="chart-card" style="margin:0"><h3>Packages installed <span>what the machine will run later</span></h3>
+           ${r.installs.length
+             ? `<ul class="plainlist">${r.installs.slice(0, 12).map((i) => `<li><span class="badge">${esc(i.ecosystem)}</span><b>${esc(i.pkg)}</b><span class="dim">${i.hits}×</span></li>`).join("")}</ul>`
+             : '<div class="dim">Nothing was installed.</div>'}</div>
+       </div>
+     </div>
+     <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>This is a lint, not a sandbox.</b> Everything here is matched against the recorded command text, so an obfuscated command will not match and a comment mentioning <code>.env</code> will. It is here to tell you what your fleet does, so you can decide what to write an <code>ask</code> rule about.</p>`;
+}
+
+// M9.10: a rule that fires once and never again taught somebody something. A rule that fires forty
+// times on the same shaped command is friction — the habit needs changing, or the rule does.
+function renderRuleEffect() {
+  const r = state.ruleEffect;
+  const head = (sub) => `<h2>Rules <span>${sub}</span></h2>`;
+  if (!r) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/rules/"));
+    if (skew) return renderErrorPanel(null, "rules");
+    $("#main").innerHTML = head("is a rule teaching anyone anything?") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!r.rules.length) {
+    $("#main").innerHTML = head("is a rule teaching anyone anything?") + `<div class="empty">${PX.idle()}No rule has fired${state.sel ? " in this project" : ""} in the last 30 days.<br>That is the good outcome: rules exist to be learned and then never hit again.</div>`;
+    return;
+  }
+  const t = r.totals;
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const TREND = { rising: ["bad", "rising"], falling: ["ok", "falling"], steady: ["", "steady"] };
+  const kpis = `<div class="kpis">
+    ${kpi("Incidents", t.incidents, "last 30 days")}
+    ${kpi("Rules firing", t.rules, `${t.acked} incident${t.acked === 1 ? "" : "s"} acknowledged`)}
+    ${kpi("Not settling", t.unchanged, t.unchanged ? "firing as much as ever, or more" : "every rule is quieting down", t.unchanged ? "hot" : "")}
+    ${kpi("Change history", r.noChangeHistory ? "none" : "yes", r.noChangeHistory ? "no before/after yet" : "before/after available")}</div>`;
+
+  const cards = r.rules.map((x) => {
+    const [cls, word] = TREND[x.trend];
+    const spark = viz.sparkline(x.perDay.map((d) => d.n));
+    const worst = x.clusters[0];
+    return `<div class="chart-card" style="margin:0">
+      <h3>${esc(x.rule)} <span><b class="${cls}">${word}</b> · ${x.total} incident${x.total === 1 ? "" : "s"} · ${x.acked} acked</span></h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">${spark}
+        <span class="dim" style="font-size:var(--fs-sm)">${ago(x.lastAt)} since the last one</span></div>
+      ${worst && x.total > 1
+        ? `<p style="margin:0 0 8px;font-size:var(--fs-md)">${Math.round(x.concentration * 100)}% of these are the same shape: <code>${esc(worst.signature)}</code></p>
+           <ul class="plainlist">${x.clusters.map((c) => `<li><b>${esc(c.signature)}</b><span class="dim">${c.hits}×</span><span class="clip dim" title="${esc(c.example)}">${esc(c.example.slice(0, 70))}</span></li>`).join("")}</ul>`
+        : '<p class="dim" style="margin:0;font-size:var(--fs-md)">Fired once. Whatever it was, it has not come back.</p>'}
+      ${x.landed
+        ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Since it landed ${ago(x.landed.at)} ago: <b>${x.landed.afterPerDay.toFixed(1)}/day</b>, against ${x.landed.beforePerDay.toFixed(1)}/day before.</p>`
+        : ""}
+    </div>`;
+  }).join("");
+
+  $("#main").innerHTML = head(`${t.incidents} incidents · ${t.rules} rule${t.rules === 1 ? "" : "s"} · last 30 days`) + kpis +
+    `<div class="cols">${cards}</div>` +
+    (r.noChangeHistory
+      ? `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>No before-and-after yet.</b> Comparing a rule's rate before and after it landed needs to know when it landed, and nothing recorded that until now — the daemon writes <code>rules.changed</code> from this version on, so the comparison fills in for edits made from here.</p>`
+      : "");
 }
 
 function renderTimeline() {
@@ -2590,6 +2968,24 @@ document.addEventListener("click", async (ev) => {
     open.has(t.dataset.group) ? open.delete(t.dataset.group) : open.add(t.dataset.group);
     state.lineageOpen = [...open];
     return refresh();
+  }
+  if (t.dataset.act?.startsWith("err-") || t.dataset.act === "restart-daemon") {
+    ev.preventDefault();
+    const rep = JSON.stringify(errorReport(lastError?.err, lastError?.where), null, 2);
+    if (t.dataset.act === "err-copy") { copy(rep); t.textContent = "copied"; setTimeout(() => { t.textContent = "Copy report"; }, 1400); return; }
+    if (t.dataset.act === "err-issue") {
+      // Prefilled, but the person still reads and sends it — nothing leaves the machine on its own.
+      const body = `**What I was doing:**\n\n\n<details><summary>Report</summary>\n\n\`\`\`json\n${rep}\n\`\`\`\n</details>`;
+      const url = `https://github.com/ra3orblade/swarm/issues/new?title=${encodeURIComponent(`Dashboard error in ${lastError?.where ?? state.view}`)}&body=${encodeURIComponent(body)}`;
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    if (t.dataset.act === "err-reload") { lastError = null; return location.reload(); }
+    t.textContent = "restarting…";
+    fetch("/v1/daemon/restart", { method: "POST" })
+      .catch(() => {})
+      .then(() => setTimeout(() => location.reload(), 1500));
+    return;
   }
   if (t.dataset.graphtab) { state.graphTab = t.dataset.graphtab; localStorage.setItem("swarm.graphTab", state.graphTab); return refresh(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }

@@ -31,7 +31,7 @@ import { Store } from "./store";
 import { TeamForwarder } from "./team";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.11.3";
+export const VERSION = process.env.SWARM_VERSION ?? "0.12.0";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
@@ -203,6 +203,47 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
         c.req.query("project") || undefined,
         Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
         c.req.queries("expand") ?? [],
+      ),
+    ),
+  );
+  app.get("/v1/rules/effect", (c) =>
+    c.json(
+      store.ruleEffect(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(365, Number(c.req.query("days") ?? 30) || 30)),
+      ),
+    ),
+  );
+  app.get("/v1/security", (c) =>
+    c.json(
+      store.security(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+      ),
+    ),
+  );
+  app.get("/v1/heat", (c) =>
+    c.json(
+      store.fileHeat(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+      ),
+    ),
+  );
+  app.get("/v1/graphs/resources", (c) =>
+    c.json(
+      store.resourceHolding(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(30, Number(c.req.query("days") ?? 3) || 3)),
+      ),
+    ),
+  );
+  app.get("/v1/graphs/transitions", (c) =>
+    c.json(
+      store.transitions(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7)),
+        Math.max(1, Math.min(50, Number(c.req.query("min") ?? 2) || 2)),
       ),
     ),
   );

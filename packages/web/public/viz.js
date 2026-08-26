@@ -335,6 +335,43 @@ function bipartite(sessions, files, { rowH = 30, maxFiles = 40 } = {}) {
 }
 
 
+// M9.15: a transition digraph as an adjacency matrix — rows are what ran, columns what ran next.
+// A layered graph drawing is the wrong tool at this density: the graph is cyclic and near-complete,
+// so almost every edge becomes a back-edge and the picture is a hairball. A matrix has no crossings,
+// puts self-loops on the diagonal where they read at a glance, and shows asymmetry (A→B far heavier
+// than B→A) as a visibly lopsided pair of cells.
+function matrix(tools, edges, { label = (t) => t, cell = 26, maxWeight = 0 } = {}) {
+  if (!tools.length) return "";
+  const at = new Map(edges.map((e) => [`${e.from} ${e.to}`, e]));
+  const top = maxWeight || edges.reduce((m, e) => Math.max(m, e.weight), 0);
+  const rowLabel = 150, colLabel = 96;
+  const W = rowLabel + tools.length * cell + 8;
+  const H = colLabel + tools.length * cell + 8;
+  // Column headers are rotated rather than truncated: tool names are long and a column is 26px.
+  const cols = tools.map((t, i) => {
+    const x = rowLabel + i * cell + cell / 2;
+    return `<text transform="translate(${x} ${colLabel - 6}) rotate(-55)" font-size="10.5" fill="var(--dim)" text-anchor="start">${attr(label(t))}</text>`;
+  }).join("");
+  const rows = tools.map((from, r) => {
+    const y = colLabel + r * cell;
+    const name = `<text x="${rowLabel - 8}" y="${y + cell / 2 + 3.5}" font-size="11" fill="var(--fg-2)" text-anchor="end">${attr(label(from))}</text>`;
+    const cells = tools.map((to, c) => {
+      const e = at.get(`${from} ${to}`);
+      const x = rowLabel + c * cell;
+      const diag = from === to;
+      if (!e) return `<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" rx="2" fill="var(--panel-2)" opacity="${diag ? 0.9 : 0.45}"/>`;
+      // Log scale: one hot pair (Bash→Bash, thousands) would flatten everything else on a linear one.
+      const t = Math.min(1, Math.log1p(e.weight) / Math.log1p(top || 1));
+      const step = t > 0.8 ? 5 : t > 0.6 ? 4 : t > 0.4 ? 3 : t > 0.2 ? 2 : 1;
+      const tip = `${attr(label(from))} → ${attr(label(to))} · ${e.weight.toLocaleString()}× · ${e.sessions} session${e.sessions === 1 ? "" : "s"}`;
+      return `<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" rx="2" fill="var(--acc-${step})"
+        ${diag ? 'stroke="var(--acc-fill)" stroke-width="1"' : ""} data-tip="${tip}"/>`;
+    }).join("");
+    return name + cells;
+  }).join("");
+  return `<div style="overflow:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="tool transition matrix">${cols}${rows}</svg></div>`;
+}
+
 // M9.11/M9.13: render a graph the layout engine has already positioned. All the maths (layering,
 // crossing reduction, cycle breaking) lives in core/dag.ts and is unit-tested; this only draws.
 // Edge colour carries the *relationship*, node colour the agent, so the two never compete.
@@ -406,4 +443,4 @@ function dag(graph, { nodeW = 190, rowH = 34, pad = 20 } = {}) {
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Session lineage graph">${edges.join("")}${nodes.join("")}</svg>`;
 }
 
-window.viz = { stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort, bipartite, dag, EDGE_STYLE };
+window.viz = { matrix, stackedColumns, line, calendar, streaks, localDay, heatmap, sparkline, compositionBar, hbars, turnStrip, timeline, legend, agentColor, agentName, AGENT_ORDER, agentSort, bipartite, dag, EDGE_STYLE };

@@ -50,6 +50,7 @@ import {
   detectStall,
   dryRunRules,
   executedGateInput,
+  fileHeat,
   formatAnswers,
   formatHandoff,
   formatMessages,
@@ -66,6 +67,7 @@ import {
   guardBash,
   guardWrite,
   type Handoff,
+  type HeldRow,
   type HeldWorktree,
   type HistoricalCall,
   handoffDoc,
@@ -132,13 +134,16 @@ import {
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
+  resourceGraph,
   reviewArgs,
   reviewGateInput,
   reviewPrompt,
+  ruleEffect,
   type Stall,
   type SwarmConfig,
   type SwarmEvent,
   scoreTrial,
+  securityScan,
   sessionDoc,
   shouldAutoRenew,
   splitArmTask,
@@ -153,12 +158,14 @@ import {
   taskBoard,
   taskSourceKind,
   toolResponseErrored,
+  transitionGraph,
   validateGateRun,
   validateHandoff,
   validateMessage,
   validateQuestion,
   type WaitKind,
   type WaitSample,
+  type WantedRow,
   type WorktreeSample,
   WRITE_TOOLS,
   waitingReport,
@@ -2005,7 +2012,62 @@ export class Store {
     const loaded = loadConfigDetailed({ repoRoot, home: this.home });
     this.policyCache.set(key, { at: Date.now(), loaded });
     this.writePolicyCache(loaded);
+    this.noteRuleChange(key, loaded.config.rules);
     return loaded;
+  }
+
+  /**
+   * M9.10: record when the effective rule set changes, so "incidents before this rule vs after"
+   * becomes answerable later. Nothing recorded when a rule landed, so nothing could be compared.
+   *
+   * The signature is persisted in `meta`, not held in memory: a restart would otherwise look like
+   * a change every time and the timeline would fill with edits nobody made.
+   */
+  /** The project row whose root is this repo, when there is one. */
+  private projectIdForRoot(root: string): string | null {
+    if (!root) return null;
+    const row = this.db.query("SELECT id FROM projects WHERE root = ?").get(root) as
+      | { id: string }
+      | undefined;
+    return row?.id ?? null;
+  }
+
+  private noteRuleChange(key: string, rules: RulesConfig) {
+    const sig = JSON.stringify(Object.entries(rules).sort());
+    const metaKey = `rules.sig:${key}`;
+    const prev = (
+      this.db.query("SELECT value FROM meta WHERE key = ?").get(metaKey) as
+        | { value: string }
+        | undefined
+    )?.value;
+    if (prev === sig) return;
+    this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(metaKey, sig);
+    if (prev === undefined) return; // first sighting is not a change
+    const before = new Map(JSON.parse(prev) as Array<[string, string]>);
+    const after = new Map(Object.entries(rules));
+    const added = [...after.keys()].filter((r) => !before.has(r)).sort();
+    const removed = [...before.keys()].filter((r) => !after.has(r)).sort();
+    const retuned = [...after.entries()]
+      .filter(([r, mode]) => before.has(r) && before.get(r) !== mode)
+      .map(([r, mode]) => `${r}=${mode}`)
+      .sort();
+    if (!added.length && !removed.length && !retuned.length) return;
+    this.append({
+      ts: new Date().toISOString(),
+      type: "rules.changed",
+      // Rules are configured per repo, not per project row, and a change can land before any
+      // project for that repo exists — so it is attributed to the repo and left project-less.
+      projectId: this.projectIdForRoot(key) ?? "",
+      sessionId: null,
+      payload: {
+        repo: key || null,
+        added,
+        removed,
+        retuned,
+        rules: [...after.keys()].sort(),
+        summary: `rules changed${added.length ? ` +${added.join(",")}` : ""}${removed.length ? ` -${removed.join(",")}` : ""}${retuned.length ? ` ~${retuned.join(",")}` : ""}`,
+      },
+    });
   }
 
   /**
@@ -3564,7 +3626,27 @@ export class Store {
     if (!p) return { ok: false as const, error: "unknown project" };
     const now = Date.now();
     const decision = canClaim(this.claimRows(projectId), task, owner, now);
-    if (!decision.ok) return { ok: false as const, error: claimRefusalMessage(decision, task) };
+    if (!decision.ok) {
+      // Record the refusal (M9.17). Fail-closed claims refuse rather than queue, so without this
+      // a contested task left no trace at all and "who wanted what somebody else had" was simply
+      // not in the data. Self-refusals are not contention and are not worth an event.
+      if (decision.heldBy !== owner)
+        this.append({
+          ts: new Date(now).toISOString(),
+          type: "claim.denied",
+          projectId,
+          sessionId,
+          actor: this.actorFor(owner, sessionId),
+          payload: {
+            task,
+            owner,
+            heldBy: decision.heldBy,
+            until: decision.until,
+            summary: `${owner} was refused ${task} — held by ${decision.heldBy}`,
+          },
+        });
+      return { ok: false as const, error: claimRefusalMessage(decision, task) };
+    }
     const branch = `task/${task}`;
     const worktree = this.worktreePath(projectId, task);
     if (existsSync(worktree))
@@ -4487,6 +4569,256 @@ export class Store {
         };
       }),
     };
+  }
+
+  /**
+   * M9.15 tool-transition digraph: what follows what, over `tool.requested` in the window.
+   *
+   * Ordered by `(session_id, seq)` so the pairs are the session's own order — `ts` would be wrong
+   * here, since two calls inside one turn can share a timestamp and a tie broken arbitrarily would
+   * invent transitions that never happened.
+   */
+  transitions(projectId?: string, days = 7, minWeight = 1) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.tool') AS tool
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?
+           AND json_extract(payload,'$.tool') IS NOT NULL${projectId ? " AND project_id = ?" : ""}
+         ORDER BY session_id, seq`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      tool: string | null;
+    }>;
+    return transitionGraph(
+      rows.map((r) => ({ sessionId: r.session_id ?? "", tool: r.tool ?? "" })),
+      { minWeight },
+    );
+  }
+
+  /**
+   * M9.17 resource-holding graph: claims, runtime resources and tracked processes on one picture,
+   * with the refusals (`claim.denied`) as wanted-edges.
+   *
+   * A resource is orphaned when the session that took it has ended, or when its lease has expired.
+   * That is deliberately the same reading M9.8 uses, and it is the *session* that decides it —
+   * an owner string outlives the run it belonged to, so asking whether the owner is "still around"
+   * would call every finished agent's leftovers live.
+   */
+  resourceHolding(projectId?: string, days = 3) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const p = projectId ? " AND c.project_id = ?" : "";
+    const args = projectId ? [projectId] : [];
+
+    const ended = new Map(
+      (
+        this.db
+          .query("SELECT id, ended_at FROM sessions WHERE ended_at IS NOT NULL")
+          .all() as Array<{
+          id: string;
+          ended_at: string;
+        }>
+      ).map((r) => [r.id, r.ended_at]),
+    );
+
+    const claims = this.db
+      .query(
+        `SELECT c.task AS name, c.owner, c.project_id, c.expires_at, c.actor_id AS session_id
+         FROM claims c WHERE c.state = 'held' AND c.released_at IS NULL${p}`,
+      )
+      .all(...args) as Array<{
+      name: string;
+      owner: string;
+      project_id: string | null;
+      expires_at: string | null;
+      session_id: string | null;
+    }>;
+    const resources = this.db
+      .query(
+        `SELECT c.name, c.owner, c.project_id, c.expires_at, c.session_id, c.port
+         FROM resources c WHERE c.released = 0${p}`,
+      )
+      .all(...args) as Array<{
+      name: string;
+      owner: string | null;
+      project_id: string | null;
+      expires_at: string | null;
+      session_id: string | null;
+      port: number | null;
+    }>;
+    const procs = this.db
+      .query(
+        `SELECT c.name, c.owner, c.project_id, c.session_id, c.port
+         FROM processes c WHERE c.ended_at IS NULL${p}`,
+      )
+      .all(...args) as Array<{
+      name: string | null;
+      owner: string | null;
+      project_id: string | null;
+      session_id: string | null;
+      port: number | null;
+    }>;
+    const denials = this.db
+      .query(
+        `SELECT json_extract(payload,'$.task') AS name, json_extract(payload,'$.owner') AS owner,
+                json_extract(payload,'$.heldBy') AS held_by, ts, project_id
+         FROM events WHERE type = 'claim.denied' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(since, ...args) as Array<{
+      name: string | null;
+      owner: string | null;
+      held_by: string | null;
+      ts: string;
+      project_id: string | null;
+    }>;
+
+    const held: HeldRow[] = [
+      ...claims.map((r) => ({
+        kind: "claim" as const,
+        name: r.name,
+        owner: r.owner,
+        sessionId: r.session_id,
+        sessionEndedAt: r.session_id ? (ended.get(r.session_id) ?? null) : null,
+        expiresAt: r.expires_at,
+        projectId: r.project_id,
+      })),
+      ...resources.map((r) => ({
+        kind: (r.port ? "port" : "lease") as "port" | "lease",
+        name: r.port ? String(r.port) : r.name,
+        owner: r.owner ?? "unknown",
+        sessionId: r.session_id,
+        sessionEndedAt: r.session_id ? (ended.get(r.session_id) ?? null) : null,
+        expiresAt: r.expires_at,
+        projectId: r.project_id,
+      })),
+      ...procs.map((r) => ({
+        kind: "process" as const,
+        name: r.name ?? (r.port ? `:${r.port}` : "process"),
+        owner: r.owner ?? "unknown",
+        sessionId: r.session_id,
+        sessionEndedAt: r.session_id ? (ended.get(r.session_id) ?? null) : null,
+        expiresAt: null,
+        projectId: r.project_id,
+      })),
+    ];
+    const wanted: WantedRow[] = denials
+      .filter((d) => d.name && d.owner && d.held_by)
+      .map((d) => ({
+        kind: "claim" as const,
+        name: d.name as string,
+        owner: d.owner as string,
+        heldBy: d.held_by as string,
+        at: d.ts,
+        projectId: d.project_id,
+      }));
+    return resourceGraph(held, wanted);
+  }
+
+  /**
+   * M9.16 agent-traversal map: file-touch heat across sessions.
+   *
+   * Reads the same `tool.requested` rows the collision graph does, but over a window rather than
+   * over the live sessions — the question here is where attention goes across the fleet, not who
+   * is colliding right now.
+   */
+  fileHeat(projectId?: string, days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.tool') AS tool,
+                json_extract(payload,'$.toolInput.file_path') AS path
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?
+           AND json_extract(payload,'$.toolInput.file_path') IS NOT NULL${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      tool: string | null;
+      path: string | null;
+    }>;
+    return fileHeat(
+      rows.map((r) => ({ sessionId: r.session_id ?? "", tool: r.tool ?? "", path: r.path ?? "" })),
+    );
+  }
+
+  /**
+   * M9.9 security audit: egress hosts, package installs and credential-file reads.
+   *
+   * Reads what was *requested*, so a command that was denied by a rule still shows up — which is
+   * the point of an audit. The command and the URL live under different keys depending on the
+   * tool, so both are pulled and concatenated by the scanner.
+   */
+  security(projectId?: string, days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, ts, json_extract(payload,'$.tool') AS tool,
+                COALESCE(json_extract(payload,'$.toolInput.command'),
+                         json_extract(payload,'$.toolInput.url'), '') AS command,
+                json_extract(payload,'$.toolInput.file_path') AS path
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      ts: string;
+      tool: string | null;
+      command: string | null;
+      path: string | null;
+    }>;
+    return securityScan(
+      rows.map((r) => ({
+        sessionId: r.session_id ?? "",
+        tool: r.tool ?? "",
+        command: r.command ?? "",
+        path: r.path,
+        at: r.ts,
+      })),
+    );
+  }
+
+  /**
+   * M9.10 rule effectiveness: how often each rule fires, on what, and whether that is falling.
+   *
+   * Acks come from `incident_acks` keyed by the event `seq`, the same join the Incidents view uses,
+   * so "seen" means the same thing in both places.
+   */
+  ruleEffect(projectId?: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT e.seq, e.ts,
+                json_extract(e.payload,'$.rule') AS rule,
+                COALESCE(json_extract(e.payload,'$.command'), '') AS command,
+                (a.seq IS NOT NULL) AS acked
+         FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
+         WHERE e.type = 'incident.opened' AND e.ts >= ?${projectId ? " AND e.project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      ts: string;
+      rule: string | null;
+      command: string | null;
+      acked: number;
+    }>;
+    const changes = this.db
+      .query(
+        `SELECT ts, COALESCE(json_extract(payload,'$.added'), '[]') AS added
+         FROM events WHERE type = 'rules.changed' AND ts >= ?`,
+      )
+      .all(since) as Array<{ ts: string; added: string }>;
+    return ruleEffect(
+      rows.map((r) => ({
+        rule: r.rule ?? "",
+        command: r.command ?? "",
+        at: r.ts,
+        acked: Boolean(r.acked),
+      })),
+      changes.map((c) => ({ at: c.ts, added: JSON.parse(c.added) as string[] })),
+      Date.now(),
+      days,
+    );
   }
 
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */
