@@ -557,7 +557,9 @@
   main>h2:not(:first-child){margin-top:var(--gap-sec)}
   .mt-sec{margin-top:var(--gap-sec)}
   /* project glyphs (icon/color settings) */
-  .pg{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:var(--fs-md);line-height:1;color:var(--dim);vertical-align:middle;margin-top:-2px;overflow:visible}
+  /* No margin nudge and no vertical-align: the row is a centred flex line, so a negative margin
+     only drags the icon off centre and vertical-align does nothing at all in flex. */
+  .pg{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:var(--fs-md);line-height:1;color:var(--dim);overflow:visible}
   .pg-c1{color:var(--c1)} .pg-c2{color:var(--c2)} .pg-c3{color:var(--c3)} .pg-c4{color:var(--c4)} .pg-c5{color:var(--c5)} .pg-c6{color:var(--c6)} .pg-c7{color:var(--c7)}
   .pg-img{width:16px;height:16px;object-fit:cover;border-radius:var(--r-xs);display:block}
   .pg-lg{width:34px;height:34px;font-size:var(--fs-2xl);line-height:1;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel-2);overflow:hidden} .pg-lg .pg-img{width:34px;height:34px;border-radius:0}
