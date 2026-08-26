@@ -41,6 +41,7 @@ Mostly things that had been quietly wrong for a while:
 - Pixel art was nearly invisible in light mode — the outline and the face it sat on were the same brightness to within 0.002.
 - Replay resized itself on every step, so Prev/Next slid out from under the cursor mid-click.
 - The transcript gave 204px of every row to a timestamp and a label like `pretooluse`, which repeats on every line and tells you nothing.
+- After upgrading, your browser could quietly keep running the previous version's dashboard — the files were served with no cache headers at all. That's why "What's New" could greet a 0.11 upgrade with 0.10's notes: the notes bundle was a stale copy, and the lookup silently fell back to the newest release it happened to have instead of admitting it didn't have yours.
 
 ### Notes
 

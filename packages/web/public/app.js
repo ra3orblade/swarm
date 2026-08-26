@@ -2260,9 +2260,13 @@ ${p.reason ?? ""}`.slice(0, 180);
 // What's New: release notes for the running version, from window.RELEASE_NOTES (release-notes.js).
 // The desktop menu calls window.swarmWhatsNew; the settings menu calls whatsNew(); it also opens
 // itself once after an upgrade (localStorage remembers the last version the user saw).
-function releaseNotesFor(version) {
+// `strict` matters: the automatic post-upgrade panel must never fall back. Falling back showed
+// 0.10.0's notes under a "What's New" triggered by upgrading to 0.11.0 — the notes bundle was a
+// stale cached copy that had no 0.11.0 in it, and the fallback quietly hid that.
+function releaseNotesFor(version, { strict = false } = {}) {
   const all = window.RELEASE_NOTES || {};
   if (version && all[version]) return { version, ...all[version] };
+  if (strict) return null;
   const latest = Object.keys(all)[0];
   return latest ? { version: latest, ...all[latest] } : null;
 }
@@ -2313,7 +2317,7 @@ function maybeWhatsNew() {
   let seen; try { seen = localStorage.getItem("swarm.seenVersion"); } catch {}
   if (seen === state.version) return;
   if (!seen) { try { localStorage.setItem("swarm.seenVersion", state.version); } catch {} return; }
-  if (releaseNotesFor(state.version)) whatsNew(state.version);
+  if (releaseNotesFor(state.version, { strict: true })) whatsNew(state.version);
 }
 
 // Star nudge: once a month at most, never on first open, dismissable for good. Pure localStorage —

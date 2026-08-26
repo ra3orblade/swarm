@@ -1537,6 +1537,26 @@ describe("event storage and wire shape (perf)", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("dashboard assets revalidate, so an upgrade cannot serve the old build (M-launch)", async () => {
+    const { app } = createApp(new Store(tmpHome()));
+    const r = await app.request("/app.js");
+    expect(r.status).toBe(200);
+    // Without these a browser may keep the previous version's app.js and release-notes.js after
+    // the daemon restarts into a new build — which is how "What's New" showed the old release.
+    expect(r.headers.get("cache-control")).toBe("no-cache");
+    const etag = r.headers.get("etag");
+    expect(etag).toBeTruthy();
+
+    // A matching etag is a cheap 304 rather than the whole file again.
+    const again = await app.request("/app.js", { headers: { "if-none-match": etag as string } });
+    expect(again.status).toBe(304);
+
+    // A stale etag still gets the real file.
+    const stale = await app.request("/app.js", { headers: { "if-none-match": 'W/"0-0"' } });
+    expect(stale.status).toBe(200);
+    expect((await stale.text()).length).toBeGreaterThan(0);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
