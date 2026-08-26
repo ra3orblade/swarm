@@ -28,19 +28,19 @@ export const ROBOT: readonly string[] = [
   "                   SSOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMOSS                   ",
   "                   DDKMMLLLMLLMMMMMMMMMMMMMMMMMMMMMODD                   ",
   "                   DDOMMLMMMMMMMMMMMMMMMMMMMMMMMMMMODD                   ",
-  "              SSSS DDOMMLMMMMMMMMMMMMMMMMMMMMMMMMMMODD SSSS              ",
-  "              SSSS DDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODD SSSS              ",
-  "             SMMMM DDOMMLMMMMMMMMMMMMMMMMMMMMMMMMMMODD SMMMS             ",
-  "             DMSSS DDOMMMMOOOOOOMMMMMMMMMOOOOOOMMMMODD SSSED             ",
-  "             DSSSS DDOMMMMODDDDDMMMMMMMMMODDDDDMMMMODD SSSSK             ",
-  "             DSMMS DDOMMMMDDDDDDMMMMMMMMMKDDDDDMMMMODD SMMSK             ",
-  "             DSSSS DDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODD SSSSK             ",
-  "             DSSSS DDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODD DSSSK             ",
-  "             DSSSS DDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODD DSSSK             ",
-  "             DSSSK DDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODD DSSSD             ",
-  "             OKKKK DDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODD KKKKO             ",
-  "              KKKK DDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODD OKKK              ",
-  "              KKKO DDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODD OKKK              ",
+  "              SSSSODDOMMLMMMMMMMMMMMMMMMMMMMMMMMMMMODDOSSSS              ",
+  "              SSSSODDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODDOSSSS              ",
+  "             SMMMMODDOMMLMMMMMMMMMMMMMMMMMMMMMMMMMMODDOSMMMS             ",
+  "             DMSSSODDOMMMMOOOOOOMMMMMMMMMOOOOOOMMMMODDOSSSED             ",
+  "             DSSSSODDOMMMMODDDDDMMMMMMMMMODDDDDMMMMODDOSSSSK             ",
+  "             DSMMSODDOMMMMDDDDDDMMMMMMMMMKDDDDDMMMMODDOSMMSK             ",
+  "             DSSSSODDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODDOSSSSK             ",
+  "             DSSSSODDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODDODSSSK             ",
+  "             DSSSSODDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODDODSSSK             ",
+  "             DSSSKODDOMMMMDDDDDDMMMMMMMMMDDDDDDMMMMODDODSSSD             ",
+  "             OKKKKODDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODDOKKKKO             ",
+  "              KKKKODDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODDOOKKK              ",
+  "              KKKOODDOMMMMMMMMMMMMMMMMMMMMMMMMMMMMMODDOOKKK              ",
   "                   DDOMMMMDDDDDDDDDDDDDDDDDDDDDMMMMODD                   ",
   "                   DDOMMMMDDDDDDDDDDDDDDDDDDDDDMMMMODD                   ",
   "                   DDOMMMMDDDDDDDDDDDDDDDDDDDDDMMMMODD                   ",
@@ -50,23 +50,23 @@ export const ROBOT: readonly string[] = [
   "                   DDDOOOOOOOOOOOOOOOOOOOOOOOOOOOOOKDD                   ",
   "                   DDDDDDDDDDDDDDDDDDDDDDDDDDDDDKDDDDD                   ",
   "                   DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD                   ",
-  "                                                                         ",
+  "                               OOOOOOOOOOO                               ",
   "                               OODDDDDKKOO                               ",
   "                               DSMMMMMMSDD                               ",
-  "                                 OOOOOOO                                 ",
+  "                               OOOOOOOOOOO                               ",
   "                              KDSMMMMMESSKK                              ",
-  "                   MMMMMMSSK OKDSMMMMMSSSDKO DSEMMMMMM                   ",
-  "         SSSSDO   MMMMMMSSKKO               OKSSSMMMMMM   ODSSSS         ",
-  "        EEESSSSO LLLLMMMMMESSSSSSSSSSSSSSSSSSSSMMMMMLLLL OSSSSMME        ",
-  "       SMMSSSSK EELLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLEE OSSSSEMS       ",
-  "      DSSSSSSSO SEEKSMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMSOEED OSSSSSSSK      ",
-  "      DSSSSSSDO SEOSKEMMMMMMMMMMMMMMMMMMMMMMMMMMMMMEOSDED ODSSSSSSK      ",
-  "      KSSSSSSKO DSSOSEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEESOEED OKSSSSSSK      ",
-  "      DKSSSSKKO DSMEEMLLLLLLLLLLLLLLLLLLLLLLLLLLLLLMSEMSD OKKSSSSDK      ",
-  "      OKDDKDKKO KSMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMSK OKKKKKKKO      ",
-  "       OOOOKKKO KSMMMMESSSSSSSSSSSSSMMMMEEEEEESSSSEMMMMSK OKKKOOOO       ",
-  "       OOO  KKO KSMMMSSKKKKKKKKKKKKKKMMMDKOOOOOOOODDMMMSK OKK  OOO       ",
-  "      OKSSK  O  KSMMMKKMLLLLLLLLLLLMKMMMDDSSSSSSSSDDMMMSK  O  DSSKO      ",
+  "                   MMMMMMSSKOOKDSMMMMMSSSDKOODSEMMMMMM                   ",
+  "         SSSSDO   MMMMMMSSKKOOOOOOOOOOOOOOOOOKSSSMMMMMM   ODSSSS         ",
+  "        EEESSSSOOLLLLMMMMMESSSSSSSSSSSSSSSSSSSSMMMMMLLLLOOSSSSMME        ",
+  "       SMMSSSSKOEELLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLEEOOSSSSEMS       ",
+  "      DSSSSSSSOOSEEKSMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMSOEEDOOSSSSSSSK      ",
+  "      DSSSSSSDOOSEOSKEMMMMMMMMMMMMMMMMMMMMMMMMMMMMMEOSDEDOODSSSSSSK      ",
+  "      KSSSSSSKOODSSOSEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEESOEEDOOKSSSSSSK      ",
+  "      DKSSSSKKOODSMEEMLLLLLLLLLLLLLLLLLLLLLLLLLLLLLMSEMSDOOKKSSSSDK      ",
+  "      OKDDKDKKOOKSMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMSKOOKKKKKKKO      ",
+  "      OOOOOKKKOOKSMMMMESSSSSSSSSSSSSMMMMEEEEEESSSSEMMMMSKOOKKKOOOOO      ",
+  "      OOOOOOKKOOKSMMMSSKKKKKKKKKKKKKKMMMDKOOOOOOOODDMMMSKOOKKOOOOOO      ",
+  "      OKSSKOOOOOKSMMMKKMLLLLLLLLLLLMKMMMDDSSSSSSSSDDMMMSKOOOOODSSKO      ",
   "      SDOKKK    KSMMMKDLLLLLLLLLLLLLKMMMKDKKKDDKKKDKMMMSK    KKKKDS      ",
   "     DMLLMKO    KSMMMKDLLLLLLLLLLLLLKMMMDDDDDDDDDSKDMMMSK    ODMLLMD     ",
   "     DELLMSD    KSMMMKKMLLLLLLLLLLLLKMMMDKKKKKKKKKDDMMMSK    DSMLLEO     ",
@@ -76,19 +76,19 @@ export const ROBOT: readonly string[] = [
   "   KSKKKKSO     KSMMMMMOOMMOOMKOEMOOMMMMDOOOOOOOOODDMMMSK     OSKKKKSO   ",
   "   SMLLMDO      KSMMMMMKKMMKKMDKEMKKMMMMKDDDDSSSSDDDMMMSK      ODMLLMS   ",
   "   SMMMMSD      KSMMMMMEEMMEEMEEMMEEMMMMDSOOOOOOOODDMMSSK      DSMMMMD   ",
-  "                KSSMMMMMMMMMMMMMMMMMMMMMDDDDDDDDDDDDMSSSK                ",
+  "   OOOOOOO      KSSMMMMMMMMMMMMMMMMMMMMMDDDDDDDDDDDDMSSSK      OOOOOOO   ",
   " KSMLLLMMSKO    KSSSSMMMMMMMMMMMMMMMMMMMSOOOOOOOOOOSSSSSK    OKSMLLLLMSO ",
   " DSMMMEEESKK    KSSKSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSOSSK    KDSMMMMMESD ",
-  " DSMMMMMESKK    KSO KSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSO KSK    KKSMMMMMMSD ",
+  " DSMMMMMESKK    KSOOKSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSOOKSK    KKSMMMMMMSD ",
   " DSMMMMMESKK    OKSKSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSDSKO    KDSMMMMMMSD ",
   " KDDDDDDDDKK      KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK      KKDDDDDDDDO ",
-  " O OOOOOO                                                       OOOOOO O ",
+  " OOOOOOOOOOO         OOOOOOOOO             OOOOOOOOO         OOOOOOOOOOO ",
   "DSDO     OSSO        ODKKKKKKK             OKKKKKKKO        KEDO     ODEK",
   "SMDO     OSMD        KDSSSSSSK             KDSSSSSKO        SMDO     ODMS",
-  "DEK       OED         OOKKKOOO             OOOKKOOO         SSO       KMS",
-  "DEK       OED         SEMMMMSK             OSMMMMED         SSK       KES",
+  "DEKO     OOED         OOKKKOOO             OOOKKOOO         SSOO     OKMS",
+  "DEKO     OOED         SEMMMMSK             OSMMMMED         SSKO     OKES",
   "DSSO     OESK         SEMMMMSK             OSMMMMED         KSSO     OSSK",
-  "KSMS     EEDO          OKKKKK               OKKKKK          OSEE     EMSO",
+  "KSMS     EEDO         OOKKKKKO             OOKKKKKO         OSEE     EMSO",
   " DSS     SSK          OSEEESDO             ODSEEESO          KSS     SSD ",
   " OOO     OO           SEMMMMSK             OSMMMMED           OO     OOO ",
   "                      KSSSSSDO             OKSSESSK                      ",
@@ -97,7 +97,7 @@ export const ROBOT: readonly string[] = [
   "                  SMLMMMMMMMMLLED       SEMMMMMMMMMMLMS                  ",
   "                 DMMMMMMMMMMMMMMD       SMMMMMMMMMMMMMSK                 ",
   "                ODSSSSSSSSSSSSSSDO     ODSSSSSSSSSSSSSSKO                ",
-  "                 OOOOOOOOOOOOOOOO       OOOOOOOOOOOOOOOO                 ",
+  "                OOOOOOOOOOOOOOOOO       OOOOOOOOOOOOOOOOO                ",
   "                OKSSSSSSSSSSSSSSK       KSSSSSSSSSSSSSSKO                ",
   "                OKDDDDDDDDDDDDDDK       KDDDDDDDDDDDDDDOO                ",
 ];
@@ -151,7 +151,10 @@ export const ART_PALETTE: Readonly<Record<string, string>> = {
   L: "#d3f39f",
 };
 
-/** Trim fully-blank rows and columns so an icon has no dead margin. */
+/**
+ * Trim the blank margin around a drawing. Only the outermost blank rows and columns go: a blank
+ * row in the middle is part of the picture, and dropping it silently shortens the whole thing.
+ */
 export function trimArt(rows: readonly string[]): string[] {
   const w = Math.max(...rows.map((r) => r.length));
   const pad = rows.map((r) => r.padEnd(w, " "));
@@ -160,7 +163,11 @@ export function trimArt(rows: readonly string[]): string[] {
   let r = w - 1;
   while (l < w && !used(l)) l++;
   while (r > l && !used(r)) r--;
-  return pad.filter((row) => row.trim().length > 0).map((row) => row.slice(l, r + 1));
+  let t = 0;
+  let b = pad.length - 1;
+  while (t < pad.length && (pad[t] as string).trim().length === 0) t++;
+  while (b > t && (pad[b] as string).trim().length === 0) b--;
+  return pad.slice(t, b + 1).map((row) => row.slice(l, r + 1));
 }
 
 /** Render a grid to a standalone SVG with literal colours (the site has no CSS custom properties). */

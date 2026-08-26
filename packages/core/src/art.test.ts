@@ -93,6 +93,11 @@ describe("trimArt", () => {
     expect(trimArt(["XX", "Xd"])).toEqual(["XX", "Xd"]);
   });
 
+  /** A blank row inside the drawing is part of it — dropping it shortens the whole figure. */
+  test("keeps a blank row in the middle and only trims the edges", () => {
+    expect(trimArt(["  ", "XX", "  ", "XX", "  "])).toEqual(["XX", "  ", "XX"]);
+  });
+
   test("the trimmed mark has no dead margin on either side", () => {
     const t = trimArt(MARK);
     expect(t.some((r) => r[0] !== " ")).toBe(true);
