@@ -78,7 +78,7 @@ const css = `
   a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
   .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
   header{padding:18px 0;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line-2)}
-  header .mark{width:26px;image-rendering:pixelated}
+  header .mark{width:32px;height:auto;image-rendering:pixelated}
   header b{font-size:16px;letter-spacing:.02em}header b a{color:var(--fg)}
   header nav{margin-left:auto;display:flex;gap:18px;font-size:14px}
   header nav a{color:var(--fg-2)}header nav a:hover,header nav a.on{color:var(--acc);text-decoration:none}
@@ -119,8 +119,10 @@ const css = `
   footer a{color:var(--dim)}footer a:hover{color:var(--acc)}
 `;
 
-// The robot head, generated from ROBOT_HEAD in core/art.ts (one drawing, one source).
-const mark = `<svg class="mark" viewBox="0 0 102 78" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><title>Swarm</title><rect class="blink" x="24" y="0" width="6" height="6" fill="#d6f4a4"/><rect class="blink" x="72" y="0" width="6" height="6" fill="#d6f4a4"/><rect x="24" y="6" width="6" height="6" fill="#a3e635"/><rect x="72" y="6" width="6" height="6" fill="#a3e635"/><rect x="24" y="12" width="6" height="6" fill="#a3e635"/><rect x="72" y="12" width="6" height="6" fill="#a3e635"/><rect x="12" y="18" width="78" height="6" fill="#5f851f"/><rect x="12" y="24" width="6" height="6" fill="#5f851f"/><rect x="18" y="24" width="66" height="6" fill="#a3e635"/><rect x="84" y="24" width="6" height="6" fill="#5f851f"/><rect x="12" y="30" width="6" height="6" fill="#5f851f"/><rect x="18" y="30" width="12" height="6" fill="#d6f4a4"/><rect x="30" y="30" width="54" height="6" fill="#a3e635"/><rect x="84" y="30" width="6" height="6" fill="#5f851f"/><rect x="0" y="36" width="18" height="6" fill="#5f851f"/><rect x="18" y="36" width="12" height="6" fill="#a3e635"/><rect x="30" y="36" width="12" height="6" fill="#5f851f"/><rect x="42" y="36" width="18" height="6" fill="#a3e635"/><rect x="60" y="36" width="12" height="6" fill="#5f851f"/><rect x="72" y="36" width="12" height="6" fill="#a3e635"/><rect x="84" y="36" width="18" height="6" fill="#5f851f"/><rect x="0" y="42" width="18" height="6" fill="#5f851f"/><rect x="18" y="42" width="12" height="6" fill="#a3e635"/><rect x="30" y="42" width="12" height="6" fill="#5f851f"/><rect x="42" y="42" width="18" height="6" fill="#a3e635"/><rect x="60" y="42" width="12" height="6" fill="#5f851f"/><rect x="72" y="42" width="12" height="6" fill="#a3e635"/><rect x="84" y="42" width="18" height="6" fill="#5f851f"/><rect x="0" y="48" width="18" height="6" fill="#5f851f"/><rect x="18" y="48" width="66" height="6" fill="#a3e635"/><rect x="84" y="48" width="18" height="6" fill="#5f851f"/><rect x="0" y="54" width="18" height="6" fill="#5f851f"/><rect x="18" y="54" width="12" height="6" fill="#a3e635"/><rect x="30" y="54" width="42" height="6" fill="#5f851f"/><rect x="72" y="54" width="12" height="6" fill="#a3e635"/><rect x="84" y="54" width="18" height="6" fill="#5f851f"/><rect x="12" y="60" width="6" height="6" fill="#5f851f"/><rect x="18" y="60" width="66" height="6" fill="#a3e635"/><rect x="84" y="60" width="6" height="6" fill="#5f851f"/><rect x="12" y="66" width="6" height="6" fill="#5f851f"/><rect x="18" y="66" width="66" height="6" fill="#a3e635"/><rect x="84" y="66" width="6" height="6" fill="#5f851f"/><rect x="12" y="72" width="78" height="6" fill="#5f851f"/></svg>`;
+// The header mark, written by `bun tools/icons.ts` from MARK in core/art.ts (one drawing, one
+// source). A PNG rather than inline SVG so every page links the same file instead of carrying a
+// copy of the drawing in its own markup.
+const mark = `<img class="mark" src="/mark.png" width="24" height="24" alt="Swarm" decoding="async">`;
 
 // the same icon files the landing page links (site/favicon.svg, favicon.ico, apple-touch-icon.png)
 const favicon =

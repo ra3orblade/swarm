@@ -1,9 +1,11 @@
 /**
- * Desktop and store icons, rendered from the one robot in `core/src/art.ts`.
+ * Every icon and mark Swarm ships, rendered from the one robot in `core/src/art.ts`.
  *
  * The art is flat coloured squares, so every size is an exact nearest-neighbour scale — no
  * rasteriser, no blurring, and no second copy of the drawing to keep in sync. `.icns` is built by
  * macOS's own `iconutil`; `.ico` embeds PNGs directly, which every modern Windows accepts.
+ *
+ * Writes the desktop/store icons, and the site's transparent marks and favicons.
  *
  *   bun tools/icons.ts
  */
@@ -12,16 +14,20 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { ROBOT_HEAD, trimArt } from "../packages/core/src/art";
+import { ART_PALETTE, artSvg, HEAD, MARK, trimArt } from "../packages/core/src/art";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "apps/desktop/src-tauri/icons");
+const site = join(root, "site");
 
-const PAL: Record<string, [number, number, number]> = {
-  X: [0xa3, 0xe6, 0x35],
-  g: [0xd6, 0xf4, 0xa4],
-  d: [0x5f, 0x85, 0x1f],
-};
+const rgb = (hex: string): [number, number, number] => [
+  Number.parseInt(hex.slice(1, 3), 16),
+  Number.parseInt(hex.slice(3, 5), 16),
+  Number.parseInt(hex.slice(5, 7), 16),
+];
+const PAL: Record<string, [number, number, number]> = Object.fromEntries(
+  Object.entries(ART_PALETTE).map(([k, v]) => [k, rgb(v)]),
+);
 const BG: [number, number, number] = [0x0e, 0x10, 0x13];
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -53,25 +59,67 @@ function pngSize(file: string): number | null {
   }
 }
 
-const art = trimArt(ROBOT_HEAD);
-const cols = (art[0] as string).length;
-const rows = art.length;
+type Art = { rows: string[]; cols: number; h: number };
+const prep = (grid: readonly string[]): Art => {
+  const rows = trimArt(grid);
+  return { rows, cols: (rows[0] as string).length, h: rows.length };
+};
+const BIG = prep(HEAD);
+const SMALL = prep(MARK);
 
-/** One square icon: rounded dark tile, robot centred, nearest-neighbour so pixels stay pixels. */
-function png(size: number, { radius = size * 0.22, pad = 2 } = {}): Buffer {
-  const box = Math.max(cols, rows) + pad * 2;
-  const ox = Math.round((box - cols) / 2);
-  const oy = Math.round((box - rows) / 2);
-  const scale = size / box;
+/** Whole-pixel cell size for this art in this tile; 0 when it cannot fit at all. */
+const cellFor = (size: number, a: Art) => Math.floor((size * 0.86) / Math.max(a.cols, a.h));
+/** How much of the tile's width the art covers. 0 means it does not fit. */
+const fit = (size: number, a: Art) => (cellFor(size, a) * a.cols) / size;
+
+/**
+ * The detailed head wherever it both fits the tile and gets at least 2px a cell; the simple one
+ * everywhere else. One pixel a cell is the mush case — 47 columns of bevel, ear pods and eye
+ * sockets rendered a pixel each is noise, not a robot. Whole-pixel cells also quantise hard at
+ * this scale: at 150px the head can only take 2px cells, covering 63% of the tile and reading as
+ * shrunken, where the simple mark takes 10px cells and fills it.
+ */
+const artFor = (size: number): Art =>
+  cellFor(size, BIG) >= 2 && fit(size, BIG) >= 0.65 ? BIG : SMALL;
+
+/**
+ * One square icon: rounded dark tile, art centred on it.
+ *
+ * The cell size is a whole number of pixels, always. Scaling by `size / box` looks reasonable and
+ * is what makes small icons mushy — at 32px that was 1.6 pixels a cell, so cells landed on two
+ * pixels or one depending where they fell and the eyes came out different sizes. Picking an
+ * integer cell and centring the result costs a little tile coverage and keeps every pixel square.
+ *
+ * `inset` reserves a transparent margin around the tile. macOS wants one: its icon grid puts the
+ * rounded square at about 80% of the canvas, and an icon that bleeds to the edge sits visibly
+ * larger in the Dock than every icon beside it.
+ */
+function png(
+  size: number,
+  { radius, art, inset = 0 }: { radius?: number; art?: Art; inset?: number } = {},
+): Buffer {
+  const m = Math.round(size * inset);
+  const tile = size - m * 2;
+  // Pick the art from the tile, not the canvas: with the macOS inset a 128px icon only has 102px
+  // of tile, which is under 2px a cell for the detailed head even though 128 is over it.
+  const chosen = art ?? artFor(tile);
+  const { rows: grid, cols, h: rows } = chosen;
+  const r = radius ?? tile * 0.2237; // the macOS corner, 185.4/824
+  const cell = Math.max(1, cellFor(tile, chosen));
+  const ox = m + Math.round((tile - cols * cell) / 2);
+  const oy = m + Math.round((tile - rows * cell) / 2);
   const raw = Buffer.alloc((size * 4 + 1) * size);
   let p = 0;
   const outside = (x: number, y: number) => {
-    const near = (cx: number, cy: number) => (x - cx) ** 2 + (y - cy) ** 2 > radius ** 2;
+    if (x < m || y < m || x >= size - m || y >= size - m) return true;
+    const lo = m + r;
+    const hi = size - m - r - 1;
+    const near = (cx: number, cy: number) => (x - cx) ** 2 + (y - cy) ** 2 > r ** 2;
     return (
-      (x < radius && y < radius && near(radius, radius)) ||
-      (x >= size - radius && y < radius && near(size - radius - 1, radius)) ||
-      (x < radius && y >= size - radius && near(radius, size - radius - 1)) ||
-      (x >= size - radius && y >= size - radius && near(size - radius - 1, size - radius - 1))
+      (x < lo && y < lo && near(lo, lo)) ||
+      (x > hi && y < lo && near(hi, lo)) ||
+      (x < lo && y > hi && near(lo, hi)) ||
+      (x > hi && y > hi && near(hi, hi))
     );
   };
   for (let y = 0; y < size; y++) {
@@ -79,10 +127,10 @@ function png(size: number, { radius = size * 0.22, pad = 2 } = {}): Buffer {
     for (let x = 0; x < size; x++) {
       const off = outside(x, y);
       let col = BG;
-      const gx = Math.floor(x / scale) - ox;
-      const gy = Math.floor(y / scale) - oy;
+      const gx = Math.floor((x - ox) / cell);
+      const gy = Math.floor((y - oy) / cell);
       if (!off && gy >= 0 && gy < rows && gx >= 0 && gx < cols) {
-        const hit = PAL[(art[gy] as string)[gx] as string];
+        const hit = PAL[(grid[gy] as string)[gx] as string];
         if (hit) col = hit;
       }
       raw[p++] = col[0];
@@ -91,9 +139,14 @@ function png(size: number, { radius = size * 0.22, pad = 2 } = {}): Buffer {
       raw[p++] = off ? 0 : 255;
     }
   }
+  return encode(size, size, raw);
+}
+
+/** Wrap raw RGBA scanlines (each already prefixed with its filter byte) as a PNG. */
+function encode(w: number, h: number, raw: Buffer): Buffer {
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8;
   ihdr[9] = 6;
   return Buffer.concat([
@@ -102,6 +155,29 @@ function png(size: number, { radius = size * 0.22, pad = 2 } = {}): Buffer {
     chunk("IDAT", deflateSync(raw, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/**
+ * The drawing alone on transparency, at an exact integer scale — no tile, no rounding, no
+ * padding. This is what the site puts on the page, so it stays crisp under image-rendering:
+ * pixelated at any size the layout gives it.
+ */
+function sprite({ rows: grid, cols, h }: Art, scale: number): Buffer {
+  const w = cols * scale;
+  const raw = Buffer.alloc((w * 4 + 1) * h * scale);
+  let p = 0;
+  for (let y = 0; y < h * scale; y++) {
+    raw[p++] = 0;
+    const row = grid[Math.floor(y / scale)] as string;
+    for (let x = 0; x < w; x++) {
+      const hit = PAL[row[Math.floor(x / scale)] as string];
+      raw[p++] = hit ? hit[0] : 0;
+      raw[p++] = hit ? hit[1] : 0;
+      raw[p++] = hit ? hit[2] : 0;
+      raw[p++] = hit ? 255 : 0;
+    }
+  }
+  return encode(w, h * scale, raw);
 }
 
 /** A multi-size .ico, each entry a PNG. 0 in the size byte means 256. */
@@ -171,6 +247,8 @@ for (const sub of ["ios", "android"]) {
 const set = join(out, "icon.iconset");
 rmSync(set, { recursive: true, force: true });
 mkdirSync(set, { recursive: true });
+// Apple's icon grid keeps the rounded square at ~80% of the canvas. Below 128px there are
+// not enough pixels to spend on a margin — a 32px icon would be left with 26px of tile.
 for (const [name, size] of [
   ["icon_16x16.png", 16],
   ["icon_16x16@2x.png", 32],
@@ -183,11 +261,38 @@ for (const [name, size] of [
   ["icon_512x512.png", 512],
   ["icon_512x512@2x.png", 1024],
 ] as Array<[string, number]>)
-  writeFileSync(join(set, name), png(size));
+  writeFileSync(join(set, name), png(size, { inset: size >= 128 ? 0.0977 : 0 }));
+let icns = false;
 try {
   execFileSync("iconutil", ["-c", "icns", set, "-o", join(out, "icon.icns")]);
   rmSync(set, { recursive: true, force: true });
-  console.log(`icons: ${files.length} png + icon.ico + icon.icns → ${out}`);
+  icns = true;
 } catch {
-  console.log(`icons: ${files.length} png + icon.ico → ${out} (icon.icns needs macOS iconutil)`);
+  // iconutil is macOS-only; on other platforms the .icns in the tree stays as it is.
 }
+
+// ── the site's own marks ────────────────────────────────────────────────────
+// Transparent, unpadded, and emitted at exactly the size the page displays them. Pixel art only
+// stays crisp at whole-number scales: `image-rendering: pixelated` saves an upscale, but nothing
+// saves a downscale — 304px of art squeezed into 190 drops every eighth column and the eyes come
+// out lopsided. So the scale lives here, next to the CSS width it has to agree with.
+const HERO = 6; //   site/index.html  .hero .mark  { width: 282px }  = 47 cells x 6
+const HEADER = 2; // site/index.html  header .mark { width:  32px }  = 16 cells x 2
+writeFileSync(join(site, "head.png"), sprite(BIG, HERO));
+writeFileSync(join(site, "mark.png"), sprite(SMALL, HEADER));
+writeFileSync(join(site, "apple-touch-icon.png"), png(180, { art: SMALL }));
+writeFileSync(join(site, "favicon.ico"), ico([16, 32, 48]));
+writeFileSync(
+  join(site, "favicon.svg"),
+  artSvg(SMALL.rows, ART_PALETTE, {
+    title: "Swarm",
+    cell: 1,
+    tile: { fill: "#0e1013", pad: 2, radius: 4 },
+  }),
+);
+
+console.log(
+  `icons: ${files.length} png + icon.ico${icns ? " + icon.icns" : ""} → ${out}\n` +
+    `       head.png, mark.png, apple-touch-icon.png, favicon.ico, favicon.svg → ${site}` +
+    (icns ? "" : "\n       (icon.icns needs macOS iconutil)"),
+);
