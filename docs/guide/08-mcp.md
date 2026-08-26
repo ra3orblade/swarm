@@ -84,9 +84,33 @@ Inputs: none. Lists resources held in this project plus machine-global ones.
 
 Inputs: `{ all?: boolean }`. The first task in the repo's [task source](04-claims-and-worktrees.md#a-task-source) that is unclaimed, not done, and whose dependencies are done — what to pick up next. `all: true` lists every ready task. Fails with a hint when the repo has no `[tasks] source`.
 
+### `swarm_gates`
+
+Inputs: `{ task?: string }`. The gates this repo requires (`.swarm.toml [gates] required`) and, for a task, the latest verdict per gate with its run history. A task is done only when every required gate's latest run is a pass. Call it before claiming to know what "done" means here.
+
+### `swarm_gate_record`
+
+| Input | Type | Meaning |
+|---|---|---|
+| `task` | string | task id |
+| `gate` | string | `review`, `tests`, … |
+| `verdict` | `"pass"` \| `"fail"` | |
+| `rubric` | string | **required** — what you actually checked |
+| `evidence` | string, optional | output, counts, findings |
+
+A verdict without a rubric is rejected: a bare "pass" is noise. The latest run of a gate decides, failed runs stay on record, and every fail opens an incident. Use `swarm_gate_run` instead whenever the gate has a command — then the record says exactly what ran.
+
 ### `swarm_gate_run`
 
 Inputs: `{ task: string, gates?: string[] }`. Runs the gates the repo defines as commands (`.swarm.toml [gates.<name>] cmd`) inside the task's held worktree and records the verdicts — exit 0 is a pass, the rubric is the command, the evidence is the output tail (the last lines are returned on a fail). Defaults to the required gates that have a command. Use it instead of `swarm_gate_record` whenever a gate has a command: the record then says exactly what ran.
+
+### `swarm_handoff`
+
+Inputs: `{ task: string, done: string, remaining: string, files?: string[], verify?: string }`. Before stopping or releasing, record what was done, what remains (in order), the files worth reading first and how to verify. The next session that starts in that worktree receives it automatically as context. `done` and `remaining` are required.
+
+### `swarm_resume`
+
+Inputs: `{ task: string }`. The latest handoff on a task. Read it before continuing someone else's work. A handoff marked `auto:` was derived by Swarm from what the previous session actually did — files edited, last verify command — when it stopped without leaving one.
 
 ### `swarm_context`
 
@@ -98,7 +122,11 @@ Inputs: `{ question: string, options?: string[] }`. Park a question only a human
 
 ### `swarm_inbox`
 
-No inputs. Answers to your `swarm_ask` questions you haven't received yet.
+No inputs. Answers to your `swarm_ask` questions, and messages other agents or the human sent you, that you haven't received yet.
+
+### `swarm_send`
+
+Inputs: `{ to: string, text: string }`. A short message to another session (session id), to whoever holds a task (task id), or to `"lead"` — the human's interactive session in this project. Delivery is on their next tool call, or immediately for a spawned run; a message to a task nobody holds yet waits until someone does. Replies come back through `swarm_inbox`.
 
 ### `swarm_dispatch`
 
