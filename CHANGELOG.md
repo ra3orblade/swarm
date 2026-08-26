@@ -2,6 +2,14 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.11.2] — 2026-08-26
+
+Two things 0.11.1 said it did and didn't.
+
+### Fixed
+- **The desktop app icon.** 0.11.1 put the robot in the dashboard, on the site and in the favicons, then left the macOS and Windows app icons as the old mark — so the thing in your Dock was the one place that still didn't match. All seventeen are generated from the same drawing now, by `tools/icons.ts`, read straight off the pixel grid in `core` with no image editor anywhere in the loop. That covers `.icns`, `.ico` and every Windows store size, and the iOS and Android sets if you have them checked out.
+- **The hero animation.** The matrix rain looked like a screensaver, and there was a static grid of pixels behind it that never moved at all. Both are gone. It's snow now, with a star falling through it every few seconds and flaring white on its way out.
+
 ## [0.11.1] — 2026-08-26
 
 Mostly the look of the thing, plus one page that was genuinely slow.
