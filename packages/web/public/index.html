@@ -553,7 +553,11 @@
      a flex line, which is exactly right — those are already centred by `align-items`. */
   .ph{display:inline-block;vertical-align:-0.09em;flex:none}
   header .nav{display:inline-flex;align-items:center;gap:6px}
-  .navcount{font:600 var(--fs-xs) var(--mono);color:var(--warn);background:var(--warn-soft);border-radius:var(--r-pill);padding:1px 6px;line-height:1.4}
+  /* Same pill as `.badge` in a table — it was mono with 1px of padding, so the identical count
+     looked like a different component depending on whether it sat in a heading or a row. Only the
+     colour differs, because it always means "this needs attention". */
+  .navcount{display:inline-block;font:500 var(--fs-xs) var(--sans);text-transform:none;letter-spacing:0;
+    color:var(--warn);background:var(--warn-soft);border-radius:var(--r-pill);padding:4px 8px;line-height:1.2}
   header .nav .ph{opacity:.75}
   header .nav.on .ph{opacity:1;color:var(--acc)}
   .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border-radius:var(--r-sm);
