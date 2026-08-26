@@ -379,9 +379,14 @@
   .stat b{font-weight:600;font-variant-numeric:tabular-nums}
   .stat small{color:var(--faint);font-weight:400}
   .side h4{margin:16px 0 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
-  table.mini{border:0;table-layout:fixed}table.mini td{padding:3px 0;border:0;font-size:var(--fs-md)}
+  table.mini{border:0;table-layout:fixed;width:100%}
+  table.mini td{padding:3px 0;border:0;font-size:var(--fs-md)}
+  /* Columns need a gutter of their own: a right-aligned number sits flush against whatever
+     follows it, which put "4%" and "app.js" hard up against each other. */
+  table.mini th + th,table.mini td + td{padding-left:14px}
   table.mini td:first-child{color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   table.mini td.num{color:var(--dim);width:34px}
+  table.mini td.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   /* spend */
   .bars{display:flex;gap:5px;align-items:flex-end;height:110px;background:var(--panel);

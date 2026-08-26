@@ -1531,7 +1531,7 @@ function renderContext() {
       <td class="num">${chars(s.toolChars)}</td>
       <td class="num"><b>${chars(s.wastedChars)}</b></td>
       <td class="num">${Math.round(s.wasteShare * 100)}%</td>
-      <td>${s.worst.map((w) => `<span class="br" title="${esc(w.path)} — read ${w.reads}× · ${chars(w.wastedChars)} chars re-read">${esc(w.path.split("/").slice(-1)[0])} <b>${w.reads}×</b></span>`).join(" ")}</td>
+      <td class="clip">${s.worst.slice(0, 2).map((w) => `<span class="br" title="${esc(w.path)} — read ${w.reads}× · ${chars(w.wastedChars)} chars re-read">${esc(w.path.split("/").slice(-1)[0])} <b>${w.reads}×</b></span>`).join(" ")}</td>
     </tr>`).join("");
 
   $("#main").innerHTML = head(`last 7 days · ${chars(t.toolChars)} characters returned by tools`) + kpis +
@@ -1539,7 +1539,7 @@ function renderContext() {
        <div class="chart-card" style="margin:0"><h3>What fills the window <span>by tool · characters returned</span></h3>
          ${viz.hbars(c.byTool.map((x) => [ctxToolLabel(x.tool), x.chars, `${chars(x.chars)} · ${x.calls}`]))}</div>
        <div class="chart-card" style="margin:0"><h3>Re-read waste <span>the same file, read again</span></h3>
-         ${worst.length ? `<table class="mini"><thead><tr><th>session</th><th class="num">returned</th><th class="num">wasted</th><th class="num">share</th><th>worst files</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="dim">Nothing was read twice — no waste to report.</div>'}</div>
+         ${worst.length ? `<table class="mini"><colgroup><col style="width:31%"><col style="width:15%"><col style="width:14%"><col style="width:11%"><col style="width:29%"></colgroup><thead><tr><th>session</th><th class="num">returned</th><th class="num">wasted</th><th class="num">share</th><th>worst files</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="dim">Nothing was read twice — no waste to report.</div>'}</div>
      </div>
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Character counts are exact — every tool response is stored. Token figures are a flat 4:1 estimate. <b>MCP tool schemas and the system prompt are not included</b>: Swarm sees tool calls, never the schemas or the prompt preamble, so they are left out rather than guessed at.</p>`;
 }
