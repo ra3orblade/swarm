@@ -31,7 +31,7 @@ import { Store } from "./store";
 import { TeamForwarder } from "./team";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.11.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.11.1";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
@@ -250,7 +250,8 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // M9.2 outcomes: did the work survive? Sessions (ledger) × PRs (forge, open + merged) ×
   // reverts (git log); the join and scorecards are `outcomeReport` in core.
   // Shared by /v1/outcomes and /v1/provenance so both read one join, not two that can drift.
-  const outcomesFor = async (project?: string) => {
+  const outcomesFor = async (project?: string, opts: { blocking?: boolean } = {}) => {
+    const blocking = opts.blocking !== false;
     const sessions = store
       .snapshot()
       .sessions.filter((s) => !project || s.projectId === project)
@@ -264,8 +265,13 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       }));
     const prs: OutcomePR[] = [];
     const reverted = new Set<string>();
+    let stale = false;
     for (const p of store.projects().filter((x) => !project || x.id === project)) {
-      const o = await forge.merged(p.id, p.root);
+      // Provenance paints from cache and lets the forge catch up; /v1/outcomes still waits.
+      const o = blocking
+        ? { ...(await forge.merged(p.id, p.root)), fresh: true }
+        : forge.mergedCached(p.id, p.root);
+      if (!o.fresh) stale = true;
       for (const m of o.merged) prs.push({ ...m, state: "merged" });
       for (const sha of o.reverted) reverted.add(sha);
     }
@@ -281,7 +287,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
           mergedAt: null,
           mergeSha: null,
         });
-    return outcomeReport(sessions, prs, reverted);
+    return { ...outcomeReport(sessions, prs, reverted), stale };
   };
   app.get("/v1/outcomes", async (c) =>
     c.json(await outcomesFor(c.req.query("project") || undefined)),
@@ -354,7 +360,9 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
 
   app.get("/v1/provenance", async (c) => {
     const project = c.req.query("project") || undefined;
-    const { branches } = await outcomesFor(project);
+    const limit = Math.max(1, Math.min(500, Number(c.req.query("limit") ?? 50) || 50));
+    const offset = Math.max(0, Number(c.req.query("offset") ?? 0) || 0);
+    const { branches, stale } = await outcomesFor(project, { blocking: false });
     const projects = store.projects().filter((p) => !project || p.id === project);
     const tasks: ProvenanceTask[] = [];
     // `Task` carries no issue URL today — the task source parses ids and titles, not links —
@@ -381,7 +389,17 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
         branch: s.branch,
         costUsd: s.costUsd,
       }));
-    return c.json(provenance(tasks, claims, sessions, branches));
+    const full = provenance(tasks, claims, sessions, branches);
+    // The rows are ranked worst-first, so a page is the page that matters; `total` lets the view
+    // say what it is not showing rather than silently truncating.
+    return c.json({
+      ...full,
+      chains: full.chains.slice(offset, offset + limit),
+      page: { limit, offset, total: full.chains.length },
+      // PR state may still be catching up on a cold start; the view says so instead of implying
+      // that every chain genuinely has no pull request.
+      stale,
+    });
   });
   // M4.5: memory search over Swarm's own data (handoffs, incidents, gates, session text).
   app.get("/v1/memory", (c) => {
