@@ -258,7 +258,36 @@ for (const el of document.querySelectorAll("i[data-icon]")) el.outerHTML = ic(el
 const getTheme = () => localStorage.getItem("swarm.theme") ?? "system";
 const setTheme = (t) => { localStorage.setItem("swarm.theme", t); if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; };
 setTheme(getTheme());
-const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
+/**
+ * Copy, and say whether it worked. The desktop shell's webview exposes no async clipboard API, and
+ * the old one-liner used `?.` — so there it did nothing at all, silently. Falls back to a hidden
+ * textarea, which still works in that webview.
+ */
+async function copy(text) {
+  const value = String(text ?? "");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // permission denied or no secure context — fall through to the textarea
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, value.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 const tail = (p, n = 16) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
@@ -526,6 +555,12 @@ function errorReport(err, where) {
   };
 }
 
+/** Chrome's stack starts with the message, WebKit's does not — do not lose it on either. */
+const errText = (rep) =>
+  rep.stack && rep.error && rep.stack.startsWith(rep.error.split(":")[0] ?? "")
+    ? rep.stack
+    : [rep.error, rep.stack].filter(Boolean).join("\n");
+
 let lastError = null;
 function renderErrorPanel(err, where) {
   lastError = { err, where };
@@ -538,7 +573,7 @@ function renderErrorPanel(err, where) {
          ? `<p style="margin:0 0 10px">This view hit an error. The rest of the dashboard is still fine — switching views or reloading usually clears it.</p>`
          : `<p style="margin:0 0 10px"><b>The daemon is older than this page.</b> <code>${esc(skew?.url ?? "")}</code> came back 404, which means the dashboard was updated but the running daemon has not restarted yet.</p>
             <button class="btn primary" data-act="restart-daemon">Restart daemon</button>`}
-       ${err ? `<pre class="err-detail">${esc(rep.stack || rep.error)}</pre>` : ""}
+       ${err ? `<pre class="err-detail">${esc(errText(rep))}</pre>` : ""}
        ${err && skew ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Also worth knowing: <code>${esc(skew.url)}</code> is 404ing, so this daemon is older than the page. <a href="#" data-act="restart-daemon">Restart it</a>.</p>` : ""}
        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
          <button class="btn" data-act="err-copy">Copy report</button>
@@ -1895,7 +1930,7 @@ function renderGraphs() {
   const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
   if (tab === "lineage") return renderLineage(head);
   if (tab === "tools") return renderTransitions(head);
-  if (tab === "resources") return renderResources(head);
+  if (tab === "resources") return renderResourceGraph(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
   if (!g || !g.sessions.length) {
@@ -1981,7 +2016,7 @@ function renderTransitions(head) {
 // is no deadlock to find: claims fail closed, so a second claimer is refused rather than queued
 // and nobody ever blocks. What the rings show is contention — two agents each wanting what the
 // other has — which is a scheduling problem for a person, not a lock to break.
-function renderResources(head) {
+function renderResourceGraph(head) {
   const g = state.resourceGraph;
   if (!g) {
     const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/resources"));
@@ -2413,7 +2448,7 @@ async function sendStdin() {
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("#stdinSend")) return sendStdin();
   const cp = ev.target.closest("[data-copy]");
-  if (cp) { ev.preventDefault(); copy(cp.dataset.copy); cp.classList.add("copied"); setTimeout(() => cp.classList.remove("copied"), 1000); return; }
+  if (cp) { ev.preventDefault(); copy(cp.dataset.copy).then((ok) => { cp.classList.add(ok ? "copied" : "copy-failed"); setTimeout(() => cp.classList.remove("copied", "copy-failed"), 1200); }); return; }
   const qa = ev.target.closest("[data-qanswer]");
   if (qa) { ev.preventDefault(); return answerQuestion(Number(qa.dataset.qanswer), qa.dataset.text); }
   const a = ev.target.closest("[data-perm-allow]"), d = ev.target.closest("[data-perm-deny]");
@@ -2976,7 +3011,24 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.act?.startsWith("err-") || t.dataset.act === "restart-daemon") {
     ev.preventDefault();
     const rep = JSON.stringify(errorReport(lastError?.err, lastError?.where), null, 2);
-    if (t.dataset.act === "err-copy") { copy(rep); t.textContent = "copied"; setTimeout(() => { t.textContent = "Copy report"; }, 1400); return; }
+    if (t.dataset.act === "err-copy") {
+      copy(rep).then((ok) => {
+        t.textContent = ok ? "copied" : "copy blocked — select it below";
+        if (!ok) {
+          // Never claim it copied when it did not: put the report on screen, pre-selected.
+          const ta = document.createElement("textarea");
+          ta.className = "err-detail";
+          ta.readOnly = true;
+          ta.value = rep;
+          ta.style.cssText = "width:100%;min-height:160px;margin-top:10px";
+          t.closest(".err-card")?.appendChild(ta);
+          ta.focus();
+          ta.select();
+        }
+        setTimeout(() => { t.textContent = "Copy report"; }, 2500);
+      });
+      return;
+    }
     if (t.dataset.act === "err-issue") {
       // Prefilled, but the person still reads and sends it — nothing leaves the machine on its own.
       const body = `**What I was doing:**\n\n\n<details><summary>Report</summary>\n\n\`\`\`json\n${rep}\n\`\`\`\n</details>`;

@@ -720,6 +720,9 @@
   .pathrow:hover .cp{color:var(--acc)}
   .pathrow.copied{border-color:var(--ok);color:var(--ok)}
   .pathrow.copied .dir,.pathrow.copied .cp{color:var(--ok)}
+  /* The desktop webview can refuse the clipboard; say so rather than flashing success anyway. */
+  .pathrow.copy-failed{border-color:var(--bad);color:var(--bad)}
+  .pathrow.copy-failed .dir,.pathrow.copy-failed .cp{color:var(--bad)}
   /* first-run onboarding card */
   .onboard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 30px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;max-width:640px;margin:40px auto}
   .onboard h3{font-size:var(--fs-xl);color:var(--fg)}
