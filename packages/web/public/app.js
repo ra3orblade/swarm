@@ -350,6 +350,13 @@ async function refresh() {
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
   }
+  let resChanged = false;
+  if (state.view === "graphs" && state.graphTab === "resources" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const rg = (await api(`/v1/graphs/resources${q}`)) ?? state.resourceGraph;
+    resChanged = JSON.stringify(rg) !== JSON.stringify(state.resourceGraph);
+    state.resourceGraph = rg;
+  }
   let trChanged = false;
   if (state.view === "graphs" && state.graphTab === "tools" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -414,7 +421,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -445,7 +452,7 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
   const v = localStorage.getItem("swarm.view");
   if (VIEWS.includes(v)) state.view = v;
   const gt = localStorage.getItem("swarm.graphTab");
-  if (gt === "lineage" || gt === "collisions" || gt === "tools") state.graphTab = gt;
+  if (["lineage", "collisions", "tools", "resources"].includes(gt)) state.graphTab = gt;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
   // Deep links win over persisted state: ?view=board&project=<id>&session=<id>
@@ -501,7 +508,7 @@ function renderErrorPanel(err, where) {
   const skew = failures.find((f) => f.kind === "missing-route");
   const rep = errorReport(err, where);
   $("#main").innerHTML =
-    `<h2 class="err-h">${ic("warning", 15, "err-ic")}Something broke <span>${esc(where ?? state.view)}</span></h2>
+    `<h2 class="err-h">${ic("warning", 14, "err-ic")}Something broke <span>${esc(where ?? state.view)}</span></h2>
      <div class="card err-card">
        ${err
          ? `<p style="margin:0 0 10px">This view hit an error. The rest of the dashboard is still fine — switching views or reloading usually clears it.</p>`
@@ -510,7 +517,7 @@ function renderErrorPanel(err, where) {
        ${err ? `<pre class="err-detail">${esc(rep.stack || rep.error)}</pre>` : ""}
        ${err && skew ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Also worth knowing: <code>${esc(skew.url)}</code> is 404ing, so this daemon is older than the page. <a href="#" data-act="restart-daemon">Restart it</a>.</p>` : ""}
        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-         <button class="btn err-btn" data-act="err-copy">Copy report</button>
+         <button class="btn" data-act="err-copy">Copy report</button>
          <button class="btn" data-act="err-issue">Open an issue</button>
          <button class="btn" data-act="err-reload">Reload</button>
        </div>
@@ -1856,10 +1863,11 @@ function renderHygiene() {
 function renderGraphs() {
   const tab = state.graphTab ?? "collisions";
   const chip = (k, label, n) => `<span class="chip ${tab === k ? "on" : ""}" data-graphtab="${k}">${label}${n ? ` <b>${n}</b>` : ""}</span>`;
-  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}${chip("tools", "Tools", state.transitions?.loops?.length ?? 0)}</div>`;
+  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}${chip("tools", "Tools", state.transitions?.loops?.length ?? 0)}${chip("resources", "Resources", state.resourceGraph?.totals?.orphaned ?? 0)}</div>`;
   const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
   if (tab === "lineage") return renderLineage(head);
   if (tab === "tools") return renderTransitions(head);
+  if (tab === "resources") return renderResources(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
   if (!g || !g.sessions.length) {
@@ -1938,6 +1946,40 @@ function renderTransitions(head) {
               <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">A loop is ordinary work — <code>Read → Edit</code> is what writing code looks like. It only counts as stuck when the calls inside it are <em>failing</em>, which is what the <b>Stuck</b> badge on Fleet judges.</p>`
            : '<div class="dim">No tool pair hands back to the other — every move is one-way.</div>'}</div>
      </div>`;
+}
+
+// M9.17: claims, ports, leases and processes on one picture with whoever holds them. Orphaned
+// means the holding session ended (or the lease expired) — the same reading Hygiene uses. There
+// is no deadlock to find: claims fail closed, so a second claimer is refused rather than queued
+// and nobody ever blocks. What the rings show is contention — two agents each wanting what the
+// other has — which is a scheduling problem for a person, not a lock to break.
+function renderResources(head) {
+  const g = state.resourceGraph;
+  if (!g) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/resources"));
+    if (skew) return renderErrorPanel(null, "graphs · resources");
+    $("#main").innerHTML = head("who holds what") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!g.resources.length) {
+    $("#main").innerHTML = head("who holds what") + `<div class="empty">${PX.idle()}Nothing is held${state.sel ? " in this project" : ""}.<br>Claims, ports, leases and tracked processes appear here with whoever took them.</div>`;
+    return;
+  }
+  const t = g.totals;
+  const sub = `${t.held} held · ${t.orphaned ? `<b class="navcount">${t.orphaned} orphaned</b>` : "none orphaned"}${t.contested ? ` · <b class="navcount">${t.contested} contested</b>` : ""}`;
+  // Same shape the collision graph draws: holders on the left, what they hold on the right.
+  const holders = g.holders.map((h) => ({ id: h.id, label: h.gone ? `${h.id} (gone)` : h.id, agent: "claude-code", files: h.holds, writes: h.holds }));
+  const items = g.resources.map((r) => ({ path: `${r.kind === "claim" ? "" : `${r.kind} `}${r.name}`, readers: r.wanted, writers: r.holder ? [r.holder] : [], contested: r.wanted.length > 0 || r.orphaned }));
+  const rings = g.contention.map((c) => `<li>${c.owners.map((o) => `<span class="br">${esc(o)}</span>`).join(' <span class="dim">wants what</span> ')} <span class="dim">holds — via</span> ${c.resources.map((r) => `<code>${esc(r)}</code>`).join(", ")}</li>`).join("");
+  const orphans = g.resources.filter((r) => r.orphaned);
+  $("#main").innerHTML = head(sub) +
+    (rings ? `<div class="card err-card" style="margin-bottom:12px"><b>${g.contention.length} contention ring${g.contention.length === 1 ? "" : "s"}</b> — each agent wants something the next one holds. Nothing is blocked (claims refuse rather than queue), but they are working against each other.<ul style="margin:8px 0 0;padding-left:18px">${rings}</ul></div>` : "") +
+    `<div class="card" style="padding:14px">${viz.bipartite(holders, items)}</div>
+     <div style="margin-top:10px" class="dim" style="font-size:var(--fs-sm)">solid edge = holds · faint edge = was refused it · <span style="color:var(--bad)">red</span> = orphaned or contested</div>` +
+    (orphans.length ? `<div class="chart-card" style="margin-top:14px"><h3>Orphaned <span>the session that took it has ended</span></h3>
+       <table class="mini"><colgroup><col style="width:18%"><col style="width:44%"><col style="width:38%"></colgroup><thead><tr><th>kind</th><th>name</th><th>holder</th></tr></thead><tbody>
+       ${orphans.map((r) => `<tr><td>${esc(r.kind)}</td><td class="clip">${esc(r.name)}</td><td class="clip">${esc(r.holder ?? "—")}</td></tr>`).join("")}
+       </tbody></table></div>` : "");
 }
 
 function renderTimeline() {
