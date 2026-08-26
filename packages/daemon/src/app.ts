@@ -206,6 +206,15 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  app.get("/v1/graphs/transitions", (c) =>
+    c.json(
+      store.transitions(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7)),
+        Math.max(1, Math.min(50, Number(c.req.query("min") ?? 2) || 2)),
+      ),
+    ),
+  );
   app.get("/v1/context", (c) =>
     c.json(
       store.context(

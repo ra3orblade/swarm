@@ -35,6 +35,7 @@ export * from "./rules";
 export * from "./stall";
 export * from "./tasks";
 export * from "./team";
+export * from "./transitions";
 export * from "./types";
 export * from "./waiting";
 export * from "./workflows";

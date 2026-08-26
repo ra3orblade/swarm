@@ -153,6 +153,7 @@ import {
   taskBoard,
   taskSourceKind,
   toolResponseErrored,
+  transitionGraph,
   validateGateRun,
   validateHandoff,
   validateMessage,
@@ -4487,6 +4488,33 @@ export class Store {
         };
       }),
     };
+  }
+
+  /**
+   * M9.15 tool-transition digraph: what follows what, over `tool.requested` in the window.
+   *
+   * Ordered by `(session_id, seq)` so the pairs are the session's own order — `ts` would be wrong
+   * here, since two calls inside one turn can share a timestamp and a tie broken arbitrarily would
+   * invent transitions that never happened.
+   */
+  transitions(projectId?: string, days = 7, minWeight = 1) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.tool') AS tool
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?
+           AND json_extract(payload,'$.tool') IS NOT NULL${projectId ? " AND project_id = ?" : ""}
+         ORDER BY session_id, seq`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      tool: string | null;
+    }>;
+    return transitionGraph(
+      rows.map((r) => ({ sessionId: r.session_id ?? "", tool: r.tool ?? "" })),
+      { minWeight },
+    );
   }
 
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */

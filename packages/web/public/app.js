@@ -344,11 +344,18 @@ async function refresh() {
     state.lineage = lin;
   }
   let colChanged = false;
-  if (state.view === "graphs" && (state.graphTab ?? "collisions") !== "lineage" && !state.session) {
+  if (state.view === "graphs" && (state.graphTab ?? "collisions") === "collisions" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
     const col = await fetch(`/v1/graphs/collisions${q}`).then((r) => r.json()).catch(() => state.collisions);
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
+  }
+  let trChanged = false;
+  if (state.view === "graphs" && state.graphTab === "tools" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const tr = await fetch(`/v1/graphs/transitions${q}`).then((r) => r.json()).catch(() => state.transitions);
+    trChanged = JSON.stringify(tr) !== JSON.stringify(state.transitions);
+    state.transitions = tr;
   }
   let waitChanged = false;
   if ((state.view === "fleet" || state.view === "stats") && !state.session) {
@@ -407,7 +414,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -438,7 +445,7 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
   const v = localStorage.getItem("swarm.view");
   if (VIEWS.includes(v)) state.view = v;
   const gt = localStorage.getItem("swarm.graphTab");
-  if (gt === "lineage" || gt === "collisions") state.graphTab = gt;
+  if (gt === "lineage" || gt === "collisions" || gt === "tools") state.graphTab = gt;
   const sel = localStorage.getItem("swarm.sel");
   if (sel) state.sel = sel;
   // Deep links win over persisted state: ?view=board&project=<id>&session=<id>
@@ -1777,9 +1784,10 @@ function renderHygiene() {
 function renderGraphs() {
   const tab = state.graphTab ?? "collisions";
   const chip = (k, label, n) => `<span class="chip ${tab === k ? "on" : ""}" data-graphtab="${k}">${label}${n ? ` <b>${n}</b>` : ""}</span>`;
-  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}</div>`;
+  const tabs = `<div class="chips">${chip("collisions", "Collisions", state.collisions?.contested ?? 0)}${chip("lineage", "Lineage", state.lineage?.edges?.length ?? 0)}${chip("tools", "Tools", state.transitions?.loops?.length ?? 0)}</div>`;
   const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
   if (tab === "lineage") return renderLineage(head);
+  if (tab === "tools") return renderTransitions(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
   if (!g || !g.sessions.length) {
@@ -1820,6 +1828,37 @@ function renderLineage(head) {
     `<div class="card" style="padding:14px;overflow:auto;max-height:72vh">${viz.dag(g)}</div>
      <div style="margin-top:10px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">${key}
        <span class="dim" style="font-size:var(--fs-sm)">a green pill is a collapsed group — click to open it · ring = outcome · thicker dot = more links · a bowed edge closed a loop</span></div>`;
+}
+
+// M9.15: what an agent reaches for after what. Edge thickness is the weight; a two-tool cycle is
+// a round trip, which is only worth worrying about when the calls inside it are also failing —
+// so the loops table describes shape, and the Stuck badge (M9.3) stays the thing that judges.
+function renderTransitions(head) {
+  const g = state.transitions;
+  if (!g) { $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!g.nodes?.length) {
+    $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.idle()}No tool calls recorded${state.sel ? " in this project" : ""} in the last 7 days.<br>The matrix fills in as agents work — it counts what each tool call was followed by.</div>`;
+    return;
+  }
+  const tools = g.nodes.slice(0, 18).map((n) => n.tool);
+  const shown = new Set(tools);
+  const sub = `${g.nodes.length} tool${g.nodes.length === 1 ? "" : "s"} · ${g.transitions.toLocaleString()} transitions · ${g.sessions} session${g.sessions === 1 ? "" : "s"} · last 7 days${g.nodes.length > tools.length ? ` · <span class="dim">${g.nodes.length - tools.length} quieter not shown</span>` : ""}`;
+  const loops = (g.loops ?? []).slice(0, 9);
+  const loopRows = loops.map((l) => `<tr>
+      <td class="clip">${l.tools.map((t) => `<span class="br">${esc(ctxToolLabel(t))}</span>`).join(' <span class="dim">→</span> ')}${l.tools.length === 1 ? ' <span class="dim">itself</span>' : ""}</td>
+      <td class="num"><b>${l.weight.toLocaleString()}</b></td>
+      <td class="num">${l.sessions}</td>
+    </tr>`).join("");
+  $("#main").innerHTML = head(sub) +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>What follows what <span>row ran, then column · darker = more often</span></h3>
+         ${viz.matrix(tools, g.edges.filter((e) => shown.has(e.from) && shown.has(e.to)), { label: ctxToolLabel })}</div>
+       <div class="chart-card" style="margin:0"><h3>Round trips <span>a tool pair that keeps handing back</span></h3>
+         ${loops.length
+           ? `<table class="mini"><colgroup><col style="width:52%"><col style="width:26%"><col style="width:22%"></colgroup><thead><tr><th>loop</th><th class="num">round trips</th><th class="num">sessions</th></tr></thead><tbody>${loopRows}</tbody></table>
+              <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">A loop is ordinary work — <code>Read → Edit</code> is what writing code looks like. It only counts as stuck when the calls inside it are <em>failing</em>, which is what the <b>Stuck</b> badge on Fleet judges.</p>`
+           : '<div class="dim">No tool pair hands back to the other — every move is one-way.</div>'}</div>
+     </div>`;
 }
 
 function renderTimeline() {
