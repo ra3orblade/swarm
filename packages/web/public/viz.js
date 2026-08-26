@@ -93,10 +93,12 @@ function compositionBar(parts, { fmt = fmtTok } = {}) {
 }
 
 /** Horizontal bars for a ranked list (tool mix). rows: [[label, n]] */
+// rows: [label, value] or [label, value, displayValue] — a caller with large magnitudes passes its
+// own formatted string rather than printing 8518611 at the reader.
 function hbars(rows, color = "var(--acc)") {
   const max = Math.max(1, ...rows.map((r) => r[1]));
   return `<div class="hbars">${rows
-    .map(([k, v]) => `<div class="hb"><span class="k">${attr(k)}</span><span class="t"><i style="width:${(100 * v) / max}%;background:${color}"></i></span><span class="n">${v}</span></div>`)
+    .map(([k, v, d]) => `<div class="hb" title="${attr(k)}${d === undefined ? "" : ` — ${attr(d)}`}"><span class="k">${attr(k)}</span><span class="t"><i style="width:${(100 * v) / max}%;background:${color}"></i></span><span class="n">${attr(d ?? v)}</span></div>`)
     .join("")}</div>`;
 }
 

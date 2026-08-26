@@ -284,6 +284,13 @@ async function refresh() {
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
   }
+  let ctxChanged = false;
+  if (state.view === "context" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const cx = await fetch(`/v1/context${q}`).then((r) => r.json()).catch(() => state.context);
+    ctxChanged = JSON.stringify(cx) !== JSON.stringify(state.context);
+    state.context = cx;
+  }
   let mcpChanged = false;
   if (state.view === "mcp" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -305,7 +312,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -320,6 +327,7 @@ const VIEW_DEFS = [
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
   { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
   { id: "mcp", label: "MCP", icon: "plugs-connected", group: "Insight", render: () => renderMcpHealth() },
+  { id: "context", label: "Context", icon: "brain", group: "Insight", render: () => renderContext() },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -1390,6 +1398,53 @@ function renderOutcomes() {
     (o.byAgent.length > 1 ? `<h2 class="mt-sec">By agent</h2>${dataTable({ id: "outcomes-agent", columns: scoreCols("agent"), rows: o.byAgent, rerender: touch })}` : "") +
     `<h2 class="mt-sec">Branches <span>latest first</span></h2>` +
     dataTable({ id: "outcomes-branches", columns: BRANCH_COLS, rows: o.branches.slice(0, 100), rerender: touch });
+}
+
+// M9.5: where the context window goes. Character counts are exact (every tool response is stored);
+// the token figures are a flat 4:1 estimate and say so. Re-reading a file is the waste metric —
+// the first read is work, every copy after it is the price of having forgotten.
+// `toolName` puts the server first, so four MCP tools all truncated to "claude-in-c…" and the
+// half that tells them apart was the half cut off. Lead with the tool, keep a short server hint.
+function ctxToolLabel(tool) {
+  const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(tool);
+  if (!m) return tool;
+  const srv = m[1].replace(/[-_]/g, " ").split(" ").map((w) => w[0]).join("").toLowerCase();
+  return `${m[2]} · ${srv}`;
+}
+function renderContext() {
+  const c = state.context;
+  const head = (sub) => `<h2>Context <span>${sub}</span></h2>`;
+  if (!c) { $("#main").innerHTML = head("where the window goes") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!c.totals.sessions) {
+    $("#main").innerHTML = head("where the window goes") + `<div class="empty">${PX.idle()}No tool results in the last 7 days${state.sel ? " in this project" : ""}.</div>`;
+    return;
+  }
+  const t = c.totals;
+  const chars = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const kpis = `<div class="kpis">${
+    kpi("Returned by tools", `${chars(t.toolChars)}`, `characters · ≈${chars(t.toolTokens)} tokens`)
+  }${kpi("Spent re-reading", chars(t.wastedChars), t.wasteShare ? `${Math.round(t.wasteShare * 100)}% of it · ${t.rereadFiles} file${t.rereadFiles === 1 ? "" : "s"}` : "nothing re-read", t.wasteShare > 0.1 ? "hot" : t.wasteShare > 0.03 ? "warm" : "")
+  }${kpi("Cache hit", `${Math.round(t.cacheHit * 100)}%`, "of the window came back free")
+  }${kpi("Sessions", t.sessions, "with tool activity")}</div>`;
+
+  const worst = c.sessions.filter((s) => s.wastedChars > 0).slice(0, 10);
+  const rows = worst.map((s) => `<tr${s.sessionId ? ` data-s="${esc(s.sessionId)}"` : ""}>
+      <td>${esc(s.title ?? s.sessionId.slice(0, 8))}</td>
+      <td class="num">${chars(s.toolChars)}</td>
+      <td class="num"><b>${chars(s.wastedChars)}</b></td>
+      <td class="num">${Math.round(s.wasteShare * 100)}%</td>
+      <td>${s.worst.map((w) => `<span class="br" title="${esc(w.path)} — read ${w.reads}× · ${chars(w.wastedChars)} chars re-read">${esc(w.path.split("/").slice(-1)[0])} <b>${w.reads}×</b></span>`).join(" ")}</td>
+    </tr>`).join("");
+
+  $("#main").innerHTML = head(`last 7 days · ${chars(t.toolChars)} characters returned by tools`) + kpis +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>What fills the window <span>by tool · characters returned</span></h3>
+         ${viz.hbars(c.byTool.map((x) => [ctxToolLabel(x.tool), x.chars, `${chars(x.chars)} · ${x.calls}`]))}</div>
+       <div class="chart-card" style="margin:0"><h3>Re-read waste <span>the same file, read again</span></h3>
+         ${worst.length ? `<table class="mini"><thead><tr><th>session</th><th class="num">returned</th><th class="num">wasted</th><th class="num">share</th><th>worst files</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="dim">Nothing was read twice — no waste to report.</div>'}</div>
+     </div>
+     <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Character counts are exact — every tool response is stored. Token figures are a flat 4:1 estimate. <b>MCP tool schemas and the system prompt are not included</b>: Swarm sees tool calls, never the schemas or the prompt preamble, so they are left out rather than guessed at.</p>`;
 }
 
 // M9.6: which MCP servers the fleet waits on. Latency is hook-to-hook — the wall-clock between

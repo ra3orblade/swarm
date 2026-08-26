@@ -5,6 +5,7 @@ export * from "./adapters/claude-code/transcript";
 export * from "./audit";
 export * from "./budget";
 export * from "./config";
+export * from "./context";
 export * from "./dag";
 export * from "./dispatch";
 export * from "./dryrun";
