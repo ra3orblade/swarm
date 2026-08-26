@@ -2714,7 +2714,7 @@ function menuSpec(kind, d) {
       { label: "Refresh pricing", icon: "arrows-clockwise", caption: "LiteLLM", run: async () => { const r = await fetch("/v1/pricing/refresh", { method: "POST" }); if (!r.ok) console.warn("pricing refresh failed", r.status); refresh(); } },
       { label: "Copy dashboard URL", icon: "copy", run: () => copy(location.origin) },
       { divider: true },
-      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : "off", run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
+      { label: "Desktop notifications", icon: "bell", pressed: notifyOn(), caption: notifyOn() ? "on" : (notifyProblem ?? "off"), run: () => { notifyOn() ? disableNotifications() : enableNotifications(); $("#settings").blur(); } },
       { label: "What's New", icon: "star", caption: `v${state.version ?? "?"}`, run: () => whatsNew() },
       { label: "Documentation", icon: "book-open", caption: "getswarm", run: () => openExternal("https://getswarm.vercel.app/docs/") },
       { label: "Send feedback", icon: "comment-text", caption: "GitHub issue", run: () => openExternal(feedbackUrl()) },
@@ -2728,17 +2728,61 @@ function menuSpec(kind, d) {
 // act. Off until enabled from the settings menu (which requests OS permission). Quiet while focused.
 const NOTIFY_KEY = "swarm.notify";
 const notifyOn = () => { try { return localStorage.getItem(NOTIFY_KEY) === "on"; } catch { return false; } };
+
+/**
+ * Two ways to raise a notification, because the desktop shell has no web Notification API at all —
+ * WKWebView simply does not expose it, so the toggle used to hit "this browser doesn't support
+ * notifications" and then fail to even show that, since `alert` is unreliable there too. Inside the
+ * app we go through Tauri's notification plugin; in a browser, the web API as before.
+ */
+const notifier = (() => {
+  const tauri = () => window.__TAURI__?.notification ?? null;
+  return {
+    kind: () => (tauri() ? "desktop" : "Notification" in window ? "web" : null),
+    async granted() {
+      const t = tauri();
+      if (t) return await t.isPermissionGranted();
+      return "Notification" in window && Notification.permission === "granted";
+    },
+    async request() {
+      const t = tauri();
+      if (t) return (await t.requestPermission()) === "granted";
+      if (!("Notification" in window)) return false;
+      return (await Notification.requestPermission()) === "granted";
+    },
+    send(title, body, onClick, tag) {
+      const t = tauri();
+      // The plugin has no click callback, so a desktop notification informs rather than navigates.
+      if (t) return void t.sendNotification({ title, body });
+      const n = new Notification(title, tag ? { body, tag } : { body });
+      if (onClick) n.onclick = () => { onClick(); n.close(); };
+    },
+  };
+})();
+
+/** Set when enabling failed, so the menu can say why instead of silently staying off. */
+let notifyProblem = null;
 async function enableNotifications() {
-  if (!("Notification" in window)) { alert("This browser doesn't support notifications."); return; }
-  const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
-  if (perm !== "granted") { alert("Notifications were blocked. Allow them for this site in your browser/OS settings."); return; }
+  const kind = notifier.kind();
+  if (!kind) {
+    notifyProblem = "not available here";
+    return;
+  }
+  const ok = (await notifier.granted()) || (await notifier.request());
+  if (!ok) {
+    notifyProblem = kind === "desktop" ? "blocked in System Settings" : "blocked by the browser";
+    touch();
+    return;
+  }
+  notifyProblem = null;
   try { localStorage.setItem(NOTIFY_KEY, "on"); } catch {}
-  new Notification("Swarm notifications on", { body: "You'll be pinged when a run needs a permission or a claim is orphaned." });
+  notifier.send("Swarm notifications on", "You'll be pinged when a run needs a permission or a claim is orphaned.");
+  touch();
 }
-function disableNotifications() { try { localStorage.setItem(NOTIFY_KEY, "off"); } catch {} }
+function disableNotifications() { notifyProblem = null; try { localStorage.setItem(NOTIFY_KEY, "off"); } catch {} touch(); }
 let lastNotifyAt = 0;
 function notifyForEvent(ev) {
-  if (!notifyOn() || !("Notification" in window) || Notification.permission !== "granted") return;
+  if (!notifyOn() || !notifier.kind()) return;
   if (!document.hidden && ev.type !== "permission.requested" && ev.type !== "question.asked") return; // only prompts that block an agent interrupt while you're looking
   const now = Date.now();
   if (now - lastNotifyAt < 1500) return; // don't stack
@@ -2763,8 +2807,7 @@ ${p.reason ?? ""}`.slice(0, 180);
     onClick = () => { state.view = "board"; state.sel = ev.projectId || state.sel; state.session = null; refresh(); };
   } else return;
   lastNotifyAt = now;
-  const n = new Notification(title, { body, tag: `swarm-${ev.type}-${ev.sessionId ?? ev.seq}` });
-  n.onclick = () => { window.focus(); onClick?.(); n.close(); };
+  notifier.send(title, body, () => { window.focus(); onClick?.(); }, `swarm-${ev.type}-${ev.sessionId ?? ev.seq}`);
 }
 
 // What's New: release notes for the running version, from window.RELEASE_NOTES (release-notes.js).
