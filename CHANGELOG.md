@@ -24,10 +24,12 @@ The observatory release: the dashboard stops reporting what your agents *did* an
 - **A menu's current item and its hovered item were the same green**, so neither read as current. The highlight is neutral again and the accent is reserved for where you are.
 - **Numbers ellipsized in numeric columns** (`134….`): the token formatter had no billions step, so 2.8B rendered as "2820.0M". Nothing numeric can overflow its column now.
 - **The ⋯ vanished under its own menu** and the row jumped as it appeared — it was revealed by `:hover` alone and toggled as a flex item.
-- **Pixel art had no contrast in light mode.** The palette's shade and its face had a luminance separation of **0.002** — the outline was mathematically invisible. All three tones now derive from the accent, and the empty-state robot was redrawn with ear modules, a brow, a grille and a tapered body.
+- **Pixel art had no contrast in light mode.** The palette's shade and its face had a luminance separation of **0.002** — the outline was mathematically invisible. All three tones now derive from the accent.
 - **Replay resized on every step**, moving Prev/Next under the cursor mid-click. The dialog is a fixed height and the body scrolls inside it.
 - **The transcript spent 204px per row on chrome** before a character of content, most of it on raw hook names like `pretooluse` that repeat every row and say nothing the row does not.
 - Destructive menu rows had a grey icon beside red text; `hbars` value columns wrapped onto three lines and tripled row height.
+
+- **A robot.** The empty-state art is now a full drawing — head, ear modules, antennae, torso panel, arms and legs — and its head is the site's mark, hero and favicon, replacing the abstract pixel glyph. One grid in `core/src/art.ts` is the single source: the site imports it, the dashboard keeps an inline copy, and a test asserts the two are identical so they cannot drift. Same-colour runs merge into one rect, so the inlined mark is 2.6 KB rather than 8.8 KB. The hero blinks the antenna tips instead of pulsing every pixel.
 
 ### Notes
 - Schema **v2** applies automatically on first start and back-fills gate durations; `swarm doctor` reports the version.
