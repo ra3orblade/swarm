@@ -258,7 +258,36 @@ for (const el of document.querySelectorAll("i[data-icon]")) el.outerHTML = ic(el
 const getTheme = () => localStorage.getItem("swarm.theme") ?? "system";
 const setTheme = (t) => { localStorage.setItem("swarm.theme", t); if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; };
 setTheme(getTheme());
-const copy = (text) => navigator.clipboard?.writeText(String(text ?? ""));
+/**
+ * Copy, and say whether it worked. The desktop shell's webview exposes no async clipboard API, and
+ * the old one-liner used `?.` — so there it did nothing at all, silently. Falls back to a hidden
+ * textarea, which still works in that webview.
+ */
+async function copy(text) {
+  const value = String(text ?? "");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // permission denied or no secure context — fall through to the textarea
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, value.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 const tail = (p, n = 16) => { const t = short(p); return t.length > n ? `…${t.slice(-(n - 1))}` : t; };
 const agentLabel = (a) => viz.agentName(a);
 const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.agentColor(a)};background:color-mix(in srgb,${viz.agentColor(a)} 14%,transparent)">${esc(agentLabel(a))}</span>` : "");
@@ -526,6 +555,12 @@ function errorReport(err, where) {
   };
 }
 
+/** Chrome's stack starts with the message, WebKit's does not — do not lose it on either. */
+const errText = (rep) =>
+  rep.stack && rep.error && rep.stack.startsWith(rep.error.split(":")[0] ?? "")
+    ? rep.stack
+    : [rep.error, rep.stack].filter(Boolean).join("\n");
+
 let lastError = null;
 function renderErrorPanel(err, where) {
   lastError = { err, where };
@@ -538,7 +573,7 @@ function renderErrorPanel(err, where) {
          ? `<p style="margin:0 0 10px">This view hit an error. The rest of the dashboard is still fine — switching views or reloading usually clears it.</p>`
          : `<p style="margin:0 0 10px"><b>The daemon is older than this page.</b> <code>${esc(skew?.url ?? "")}</code> came back 404, which means the dashboard was updated but the running daemon has not restarted yet.</p>
             <button class="btn primary" data-act="restart-daemon">Restart daemon</button>`}
-       ${err ? `<pre class="err-detail">${esc(rep.stack || rep.error)}</pre>` : ""}
+       ${err ? `<pre class="err-detail">${esc(errText(rep))}</pre>` : ""}
        ${err && skew ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Also worth knowing: <code>${esc(skew.url)}</code> is 404ing, so this daemon is older than the page. <a href="#" data-act="restart-daemon">Restart it</a>.</p>` : ""}
        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
          <button class="btn" data-act="err-copy">Copy report</button>
@@ -1320,12 +1355,16 @@ function renderSpend() {
      <div class="kpis">${kpi("today", usd(todayCost), `${todayTurns} turns`)}${kpi(`${N}-day total`, usd(total14), `${activeDays} active day${activeDays === 1 ? "" : "s"}`)}${kpi("today vs avg", prevDays ? `${todayCost >= avg ? "+" : ""}${(((todayCost - avg) / avg) * 100).toFixed(0)}%` : "—", prevDays ? `vs ${usd(avg)} / active day` : "no earlier days to compare")}${kpi("agents", agents.length, agents.map(agentLabel).join(" · ") || "—")}${budgetKpi(kpi)}</div>
      <div class="chart-card"><h3>Daily cost · last ${N} days <span>stacked by agent</span></h3>${viz.stackedColumns(days, series)}${agents.length > 1 ? viz.legend(agents) : ""}</div>
      <div class="cols">
-       <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
-       <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
+       <div>
+         <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
+         <h2 class="mt-sec">By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+         <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}
+       </div>
+       <div>
+         ${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}
+         <h2 class="mt-sec">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}
+       </div>
      </div>
-     <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
-     <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
-     <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      ${renderAttribution()}
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
 }
@@ -1846,11 +1885,16 @@ function renderHygiene() {
   const sampled = h.worktrees.filter((w) => w.diskKb !== null).length;
   const diskPending = h.worktrees.length > 0 && sampled === 0;
   const totalDisk = diskPending ? "measuring…" : mb(t.diskKb);
+  const buildKb = h.worktrees.reduce((n, w) => n + (w.buildKb ?? 0), 0);
+  const clearable = h.worktrees
+    .filter((w) => !w.main && !w.heldByClaim && w.liveSessions === 0)
+    .reduce((n, w) => n + (w.buildKb ?? 0), 0);
   const kpis = `<div class="kpis">${
     kpi("Needs a look", t.issues, t.issues ? "processes + worktrees" : "all clean", t.issues ? "hot" : "")
   }${kpi("Processes", t.processes, t.orphanedProcesses || t.deadProcesses ? `${t.orphanedProcesses} orphaned · ${t.deadProcesses} dead` : "all healthy", t.orphanedProcesses || t.deadProcesses ? "hot" : "")
   }${kpi("Worktrees", t.worktrees, t.staleWorktrees ? `${t.staleWorktrees} stale` : "none stale", t.staleWorktrees ? "warm" : "")
-  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")}</div>`;
+  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")
+  }${kpi("Build output", diskPending ? '<span class="dim">—</span>' : mb(buildKb), clearable ? `${mb(clearable)} clearable now` : "nothing to clear", clearable ? "warm" : "")}</div>`;
 
   const pcols = [
     { key: "issue", label: "state", width: 96, get: (p) => p.issue ?? "", cell: (p) => issueBadge(p.issue) },
@@ -1867,11 +1911,16 @@ function renderHygiene() {
     { key: "issue", label: "state", width: 106, get: (w) => w.issue ?? "", cell: (w) => issueBadge(w.issue) },
     { key: "branch", label: "branch", width: 190, get: (w) => w.branch ?? w.path, cell: (w) => `<b>${esc(w.branch ?? "(detached)")}</b>${w.main ? ' <span class="badge">main</span>' : ""}` },
     { key: "disk", label: "disk", width: 78, num: true, get: (w) => w.diskKb ?? -1, cell: (w) => mb(w.diskKb) },
+    { key: "build", label: "build output", width: 100, num: true, get: (w) => w.buildKb ?? -1, cell: (w) => (w.buildKb === null ? '<span class="dim">—</span>' : `<span title="node_modules, target, dist — a rebuild recreates these">${mb(w.buildKb)}</span>`) },
     { key: "idle", label: "untouched", width: 88, num: true, get: (w) => w.idleMs ?? -1, cell: (w) => (w.idleMs === null ? '<span class="dim">—</span>' : dur(w.idleMs)) },
     { key: "state2", label: "work", width: 130, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? (w.merged ? '<span class="badge ok">Merged</span>' : '<span class="badge">Clean</span>') : ""}` },
     { key: "held", label: "in use", width: 110, get: (w) => w.heldByClaim ?? "", cell: (w) => (w.heldByClaim ? `<span class="br" title="Claimed">${esc(w.heldByClaim)}</span>` : w.liveSessions ? `<span class="badge acc">${w.liveSessions} live</span>` : '<span class="dim">—</span>') },
     { key: "note", label: "why", flex: true, get: (w) => w.note ?? "", cell: (w) => (w.note ? `<span class="now" title="${esc(w.note)}">${esc(w.note)}</span>` : '<span class="dim">—</span>') },
-    { key: "act", label: "", width: 80, sortable: false, filterable: false, get: () => null, cell: (w) => (w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : "") },
+    { key: "act", label: "", width: 196, sortable: false, filterable: false, get: () => null, cell: (w) => {
+      // Two different things: clearing build output keeps the branch, removing the worktree does not.
+      const canClear = !w.main && !w.heldByClaim && w.liveSessions === 0 && (w.buildKb ?? 0) > 0;
+      return `${canClear ? `<a href="#" class="mini-act" data-wtclear="${esc(w.path)}" title="Delete node_modules, target and dist here — a rebuild recreates them; the branch and any uncommitted work are untouched">Clear ${mb(w.buildKb)}</a>` : ""}${w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : ""}`;
+    } },
   ];
   const sub = t.issues ? `<b class="navcount">${t.issues} need${t.issues === 1 ? "s" : ""} a look</b>` : "nothing to clean up";
   $("#main").innerHTML = head(sub) + kpis +
@@ -1891,7 +1940,7 @@ function renderGraphs() {
   const head = (sub) => `<h2>Graphs <span>${sub}</span></h2>${tabs}`;
   if (tab === "lineage") return renderLineage(head);
   if (tab === "tools") return renderTransitions(head);
-  if (tab === "resources") return renderResources(head);
+  if (tab === "resources") return renderResourceGraph(head);
   const g = state.collisions;
   const title = (s) => s.title ?? s.id.slice(0, 8);
   if (!g || !g.sessions.length) {
@@ -1977,7 +2026,7 @@ function renderTransitions(head) {
 // is no deadlock to find: claims fail closed, so a second claimer is refused rather than queued
 // and nobody ever blocks. What the rings show is contention — two agents each wanting what the
 // other has — which is a scheduling problem for a person, not a lock to break.
-function renderResources(head) {
+function renderResourceGraph(head) {
   const g = state.resourceGraph;
   if (!g) {
     const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/resources"));
@@ -2185,7 +2234,7 @@ function renderRuleEffect() {
         <span class="dim" style="font-size:var(--fs-sm)">${ago(x.lastAt)} since the last one</span></div>
       ${worst && x.total > 1
         ? `<p style="margin:0 0 8px;font-size:var(--fs-md)">${Math.round(x.concentration * 100)}% of these are the same shape: <code>${esc(worst.signature)}</code></p>
-           <ul class="plainlist">${x.clusters.map((c) => `<li><b>${esc(c.signature)}</b><span class="dim">${c.hits}×</span><span class="clip dim" title="${esc(c.example)}">${esc(c.example.slice(0, 70))}</span></li>`).join("")}</ul>`
+           <ul class="clusters">${x.clusters.map((c) => `<li><b title="${esc(c.signature)}">${esc(c.signature)}</b><span class="n">${c.hits}×</span><span title="${esc(c.example)}">${esc(c.example)}</span></li>`).join("")}</ul>`
         : '<p class="dim" style="margin:0;font-size:var(--fs-md)">Fired once. Whatever it was, it has not come back.</p>'}
       ${x.landed
         ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Since it landed ${ago(x.landed.at)} ago: <b>${x.landed.afterPerDay.toFixed(1)}/day</b>, against ${x.landed.beforePerDay.toFixed(1)}/day before.</p>`
@@ -2409,7 +2458,7 @@ async function sendStdin() {
 document.addEventListener("click", (ev) => {
   if (ev.target.closest("#stdinSend")) return sendStdin();
   const cp = ev.target.closest("[data-copy]");
-  if (cp) { ev.preventDefault(); copy(cp.dataset.copy); cp.classList.add("copied"); setTimeout(() => cp.classList.remove("copied"), 1000); return; }
+  if (cp) { ev.preventDefault(); copy(cp.dataset.copy).then((ok) => { cp.classList.add(ok ? "copied" : "copy-failed"); setTimeout(() => cp.classList.remove("copied", "copy-failed"), 1200); }); return; }
   const qa = ev.target.closest("[data-qanswer]");
   if (qa) { ev.preventDefault(); return answerQuestion(Number(qa.dataset.qanswer), qa.dataset.text); }
   const a = ev.target.closest("[data-perm-allow]"), d = ev.target.closest("[data-perm-deny]");
@@ -2972,7 +3021,24 @@ document.addEventListener("click", async (ev) => {
   if (t.dataset.act?.startsWith("err-") || t.dataset.act === "restart-daemon") {
     ev.preventDefault();
     const rep = JSON.stringify(errorReport(lastError?.err, lastError?.where), null, 2);
-    if (t.dataset.act === "err-copy") { copy(rep); t.textContent = "copied"; setTimeout(() => { t.textContent = "Copy report"; }, 1400); return; }
+    if (t.dataset.act === "err-copy") {
+      copy(rep).then((ok) => {
+        t.textContent = ok ? "copied" : "copy blocked — select it below";
+        if (!ok) {
+          // Never claim it copied when it did not: put the report on screen, pre-selected.
+          const ta = document.createElement("textarea");
+          ta.className = "err-detail";
+          ta.readOnly = true;
+          ta.value = rep;
+          ta.style.cssText = "width:100%;min-height:160px;margin-top:10px";
+          t.closest(".err-card")?.appendChild(ta);
+          ta.focus();
+          ta.select();
+        }
+        setTimeout(() => { t.textContent = "Copy report"; }, 2500);
+      });
+      return;
+    }
     if (t.dataset.act === "err-issue") {
       // Prefilled, but the person still reads and sends it — nothing leaves the machine on its own.
       const body = `**What I was doing:**\n\n\n<details><summary>Report</summary>\n\n\`\`\`json\n${rep}\n\`\`\`\n</details>`;
@@ -2985,6 +3051,24 @@ document.addEventListener("click", async (ev) => {
     fetch("/v1/daemon/restart", { method: "POST" })
       .catch(() => {})
       .then(() => setTimeout(() => location.reload(), 1500));
+    return;
+  }
+  if (t.dataset.wtclear) {
+    ev.preventDefault();
+    const path = t.dataset.wtclear;
+    const label = t.textContent;
+    t.textContent = "clearing…";
+    fetch("/v1/hygiene/reclaim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    })
+      .then((r) => r.json())
+      .then((r) => {
+        t.textContent = r.ok ? `freed ${mb(r.freedKb)}` : (r.error ?? "failed");
+        setTimeout(() => { t.textContent = label; refresh(); }, 1600);
+      })
+      .catch(() => { t.textContent = label; });
     return;
   }
   if (t.dataset.graphtab) { state.graphTab = t.dataset.graphtab; localStorage.setItem("swarm.graphTab", state.graphTab); return refresh(); }

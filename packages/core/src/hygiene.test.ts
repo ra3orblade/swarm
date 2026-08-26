@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ProcSample, WorktreeSample } from "./hygiene";
-import { classifyProcess, classifyWorktree, hygieneReport } from "./hygiene";
+import { classifyProcess, classifyWorktree, hygieneReport, reclaimPlan } from "./hygiene";
 import { canRemoveWorktree } from "./worktree";
 
 const DAY = 86_400_000;
@@ -106,8 +106,15 @@ describe("classifyWorktree", () => {
     expect(classifyWorktree(tree({ heldByClaim: "M9.8" })).reclaimable).toBe(false);
   });
 
+  test("the stale threshold is two days, not a week", () => {
+    // Seven days never fired on a machine where work lands daily: the view reported 50 GB held
+    // and offered nothing at all to reclaim.
+    expect(classifyWorktree(tree({ idleMs: 2 * DAY })).issue).toBe("stale");
+    expect(classifyWorktree(tree({ idleMs: 1.9 * DAY })).issue).toBeNull();
+  });
+
   test("merged but recently touched is not yet stale", () => {
-    expect(classifyWorktree(tree({ idleMs: 2 * DAY })).issue).toBeNull();
+    expect(classifyWorktree(tree({ idleMs: 6 * 3_600_000 })).issue).toBeNull();
   });
 
   test("unmerged and long untouched is abandoned — surfaced, never auto-reclaimed", () => {
@@ -150,5 +157,72 @@ describe("hygieneReport", () => {
     const r = hygieneReport([proc()], [tree({ idleMs: DAY })]);
     expect(r.totals.issues).toBe(0);
     expect(r.totals.reclaimableKb).toBe(0);
+  });
+});
+
+describe("reclaimPlan", () => {
+  const wt = (o: Partial<WorktreeSample> = {}): WorktreeSample => tree({ path: "/w/a", ...o });
+  const d = (path: string, kb: number) => ({ path, kb });
+
+  test("sums the build directories it would remove", () => {
+    const p = reclaimPlan(wt(), [d("/w/a/node_modules", 200_000), d("/w/a/apps/x/dist", 5_000)]);
+    expect(p.dirs).toEqual(["/w/a/node_modules", "/w/a/apps/x/dist"]);
+    expect(p.kb).toBe(205_000);
+    expect(p.refusals).toEqual([]);
+  });
+
+  test("a dirty worktree is fine — build output is not the work", () => {
+    expect(reclaimPlan(wt({ dirty: 9 }), [d("/w/a/node_modules", 1)]).refusals).toEqual([]);
+  });
+
+  test("refuses the main checkout — that is where the person works", () => {
+    expect(reclaimPlan(wt({ main: true }), [d("/w/a/node_modules", 1)]).refusals).toEqual([
+      "this is the main checkout",
+    ]);
+  });
+
+  test("refuses while a session is live in it", () => {
+    const p = reclaimPlan(wt({ liveSessions: 1 }), [d("/w/a/node_modules", 1)]);
+    expect(p.refusals).toEqual(["1 live session in it"]);
+  });
+
+  test("refuses while a claim holds it", () => {
+    const p = reclaimPlan(wt({ heldByClaim: "M9.8" }), [d("/w/a/node_modules", 1)]);
+    expect(p.refusals).toEqual(["claimed by M9.8"]);
+  });
+
+  test("a path outside the worktree is refused, not silently skipped", () => {
+    // The whole safety of this rests on never deleting outside the tree it was asked about.
+    const p = reclaimPlan(wt(), [d("/etc/node_modules", 1)]);
+    expect(p.dirs).toEqual([]);
+    expect(p.refusals).toContain("a candidate lay outside the worktree");
+  });
+
+  test("a directory that is not a build directory is refused", () => {
+    const p = reclaimPlan(wt(), [d("/w/a/src", 1)]);
+    expect(p.dirs).toEqual([]);
+    expect(p.refusals).toContain("a candidate was not a build directory");
+  });
+
+  test("a worktree whose path prefixes another is not treated as containing it", () => {
+    // `/w/a` must not swallow `/w/abc`.
+    const p = reclaimPlan(wt(), [d("/w/abc/node_modules", 1)]);
+    expect(p.dirs).toEqual([]);
+  });
+
+  test("a nested worktree's build output belongs to that worktree, not its parent", () => {
+    // A checkout can hold `.claude/worktrees/x`; sweeping it up here would delete another
+    // worktree's output and count the same bytes twice.
+    const p = reclaimPlan(
+      wt(),
+      [d("/w/a/node_modules", 100), d("/w/a/.claude/worktrees/x/node_modules", 200)],
+      ["/w/a/.claude/worktrees/x"],
+    );
+    expect(p.dirs).toEqual(["/w/a/node_modules"]);
+    expect(p.kb).toBe(100);
+  });
+
+  test("nothing to remove is a plan of zero, not a refusal", () => {
+    expect(reclaimPlan(wt(), [])).toEqual({ path: "/w/a", dirs: [], kb: 0, refusals: [] });
   });
 });
