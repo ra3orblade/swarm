@@ -139,6 +139,25 @@ swarm dispatch clear [task]      # drop queued (and finished) rows
 
 Details: [Claims and worktrees → Dispatch](04-claims-and-worktrees.md#dispatch-hand-out-the-ready-tasks).
 
+## Workflows
+
+```sh
+swarm workflow ship login-form   # start the "ship" workflow on a task
+swarm workflow [ls]              # what this repo declares, and the runs in flight
+swarm workflow stop <task>       # stop the workflow running on a task
+```
+
+A workflow is a `[[workflows]]` step sequence in `.swarm.toml` — spawned runs, executed gates and the built-in `pr` — that the daemon walks a task through, one step at a time. Details: [Claims and worktrees → Workflows](04-claims-and-worktrees.md#workflows).
+
+## Messages
+
+```sh
+swarm msg send <session|task|lead> <text…>   # to a session, a task's holder, or your own live session
+swarm msg [ls] [--json]                      # what has been sent, ✓ when delivered
+```
+
+The recipient gets it as `[swarm]` context on its next tool call — or at once, if it's a spawned run. A message to a task nobody holds waits until someone claims it. From an agent: `swarm_send` / `swarm_inbox`.
+
 ## Search
 
 ```sh
@@ -192,6 +211,14 @@ active days (365d): 39
   claude-sonnet-4-20250514       1708 turns 2.7M out
 busiest day: 2026-08-14 (412 turns, $38.20)
 ```
+
+## A dashboard to look at
+
+```sh
+swarm demo                       # a throwaway daemon on :7799 with generated data
+```
+
+`demo` runs a second daemon with its own state under `~/.swarm/demo` and `SWARM_DEMO=1`, so it fills the dashboard with plausible sessions, claims, incidents and spend without touching yours. Useful for a screenshot or for seeing what a busy fleet looks like; delete `~/.swarm/demo` to reset it.
 
 ## Environment variables
 

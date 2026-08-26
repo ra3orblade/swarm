@@ -24,6 +24,9 @@ Every key, with its default:
 # Preferred port. SWARM_PORT overrides it. If the port is taken the daemon
 # binds a free one instead and records the real URL in ~/.swarm/daemon.json.
 port = 7777
+# "loopback-optional" (default): local callers may omit ~/.swarm/token.
+# "required": every request must carry it. Non-loopback callers always need it.
+auth = "loopback-optional"
 
 [rules]
 # Each rule is "ask" (agent must confirm), "deny" (blocked) or "off".
@@ -45,6 +48,57 @@ ports = []
 # weekly = 100
 warn_at = 0.8
 on_exceed = "warn"
+
+[tasks]
+# The repo's backlog, read-only: a markdown file with ID | Task | Depends | Status
+# tables, or "github" (issues via the gh CLI) / "linear" (via LINEAR_API_KEY).
+# source = "docs/plan.md"
+labels = []                # GitHub: only issues carrying every one of these
+# team = "ENG"             # Linear: one team
+
+[gates]
+# Verifications a task must pass. See the Claims page.
+required = []              # e.g. ["review", "tests"]
+auto = "session-end"       # when the daemon runs executable gates itself: "session-end" | "stop" | "off"
+
+# [gates.tests]
+# cmd = "bun test"         # exit 0 is a pass; the rubric is the command that ran
+# timeout = 900            # seconds, then killed and recorded as a fail
+# cwd = "packages/api"     # relative to the worktree; default = the worktree root
+# [gates.review]
+# builtin = "review"       # a read-only `claude -p` over the diff, fixed rubric
+# model = "sonnet"
+
+# [[workflows]]            # a step sequence the daemon walks a task through
+# name  = "ship"
+# steps = ["implement", "gate:tests", "gate:review", "pr"]
+# [workflows.prompts]
+# implement = "Task {task}: {title}. Work only in this worktree."
+
+[dispatch]
+# Defaults for `swarm dispatch` / swarm_dispatch.
+max_parallel = 2           # dispatched runs at once per project
+require_pr = true          # a task counts as done only with a PR open for its branch
+# permission_mode = "acceptEdits"
+# profile = "no-edits"     # full | no-edits | read-only
+# model = "sonnet"
+# max_turns = 40
+
+[events]
+# Retention for chatter events, in days. 0 = keep forever. Global only.
+retain_days = 30
+
+[audit]
+# The ledger-changing subset — claims, gates, permissions, incidents, PRs.
+# Kept forever by default. Global only.
+retain_days = 0
+
+[privacy]
+# What is stored at all. Global only.
+store_prompts = true       # false: prompts and assistant text are not stored
+store_reasoning = true     # false: thinking text is not stored (token counts still are)
+redact = []                # extra regexes replaced by [redacted] in every stored string;
+                           # API-key and Bearer-token shapes are always redacted
 
 [worktree]
 # Make new worktrees start warm: untracked files to copy from the main checkout,
@@ -169,6 +223,10 @@ Rules are **guardrails against accidents, not a security boundary**. They classi
 
 Every `ask` and `deny` is recorded as an incident — rule, decision, the command or path, the reason the agent saw, and which session it was. The **Incidents** view is the feed: *Open* shows what you haven't looked at yet (the count sits in the nav), *All* is history. **Ack** a row once you've seen it, or **Ack all**; the Board shows only open incidents. Over HTTP: `GET /v1/incidents?open=1`, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`.
 
+Each one stores the rule, the action, the command (first 400 characters), the reason the agent was shown, the project and the session. Besides the Incidents view they appear on the **Board**, in the live event stream (`swarm tail`) as `incident.opened`, and as a yellow "waiting" state on the session in Fleet while the agent is blocked on you. Force-releasing a resource someone else holds is recorded too, so overrides leave a trace.
+
+Incidents are not only a log. **Codify** on any row turns one into a `.swarm.toml` rule and a one-line `CLAUDE.md` lesson, and the [Rules view](12-observatory.md#rules--is-a-rule-teaching-anyone-anything) says whether each rule is settling down or just costing everyone time.
+
 ## ask, deny, off
 
 - **`ask`** — Claude Code pauses and asks you to approve the command, showing Swarm's reason (prefixed `[swarm]`). The default for every rule.
@@ -182,16 +240,6 @@ Both `ask` and `deny` are recorded as incidents. Set `SWARM_GUARD=off` in the da
 A third config layer sits above the two files: `~/.swarm/policy.toml` (or `$SWARM_POLICY`), merged **first** and the only layer that may carry `locked = ["rules.destructive_git", …]` — dotted keys that machine and repo config cannot override. Overrides are reported, not silently applied, and `swarm doctor` shows which file each effective value came from. Locked rules keep working even when the daemon is down (the hook shim evaluates them from an integrity-checked local cache) and even under `SWARM_GUARD=off`.
 
 On a [team](11-teams.md), the policy file is distributed automatically: the team daemon serves a signed policy, every machine verifies the signature against the key pinned at `swarm login`, and a tampered policy is never installed.
-
-## Incidents
-
-Every non-allow decision is stored with the rule, the action (asked or denied), the command (first 400 characters), the reason shown to the agent, the project and the session. They appear:
-
-- on the **Board** view under *Incidents*, newest first, with the reason on hover;
-- in the live event stream (`swarm tail`) as `incident.opened`;
-- as a yellow "waiting" state on the session in Fleet, since the agent is blocked on you.
-
-Force-releasing a resource someone else holds is also recorded, so overrides leave a trace.
 
 ## Trying a rule before turning it on
 

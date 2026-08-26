@@ -135,7 +135,11 @@ swarm wt gc [--apply]                             # stale worktrees: branch merg
 
 **PR** pushes the branch and opens a pull request (GitHub via `gh`) or merge request (GitLab via `glab`) with your local login, prefilled from what Swarm knows: the task's title from the task source, the latest handoff as the summary, the required gates as a checklist, and the file list. Edit the title and body in the drawer, tick *draft* if you like. It refuses a worktree with uncommitted changes — Swarm never commits for you — and reuses the PR if one is already open for that branch. From a terminal: `swarm pr open <task|worktree> [--title] [--body] [--draft]`, `--dry-run` to see the draft; from an agent: `swarm_pr_open`. A `pr.opened` event lands on the Timeline.
 
-`rm` follows the same rules as `release`: dirty or unpushed work is refused unless you `--force`, the main checkout is never removed, and a worktree a live claim holds is refused outright — release the claim instead. `gc` only ever proposes; `--apply` (or **Collect stale** on the Board) removes the candidates that would pass a plain `rm`, and lists the rest with what blocks them. "Merged" means the worktree's HEAD came into the main checkout's branch through a merge; a squash-merged branch isn't detected — `rm` it by hand.
+`rm` follows the same rules as `release`: dirty or unpushed work is refused unless you `--force`, the main checkout is never removed, and a worktree a live claim holds is refused outright — release the claim instead. `gc` only ever proposes; `--apply` (or **Collect stale** on the Board) removes the candidates that would pass a plain `rm`, and lists the rest with what blocks them.
+
+"Merged" is asked two ways, because one is not enough: `merge-base --is-ancestor` is the right test for a merge commit, and `git cherry` compares by patch id, which is what catches a **squash-merge** — a squash rewrites the branch's commits into one new commit, so the originals never become ancestors of the base and the branch would otherwise read as unmerged forever.
+
+Disk, build output and what is safe to reclaim are on [Hygiene](12-observatory.md#hygiene--what-the-fleet-left-behind).
 
 ## A task source
 
@@ -181,11 +185,52 @@ Each task gets its own claim and worktree and a `claude -p` run (the same machin
 
 When a run ends, Swarm decides what it amounted to from the ledger, never from the agent's word: executable required gates that didn't pass are run again by the daemon; then **done** means every required gate passes and a PR is open for the branch (`[dispatch] require_pr = false` to drop that), otherwise **gates-failed**, **no-pr**, **crashed** (non-zero exit or an error result) or **stopped**. Anything short of done opens a `dispatch_failed` incident; the claim and worktree are kept so you can **Resume where it died** or release it. A dispatched run never edits the task list — flipping a task ✅ stays a human act.
 
+## Workflows
+
+Dispatch hands a task to one agent and takes what comes back. A **workflow** says what *shipped* means for the repo, once, and the daemon walks each task through it:
+
+```toml
+[[workflows]]
+name  = "ship"
+steps = ["implement", "gate:tests", "gate:review", "pr"]
+
+[workflows.prompts]
+implement = "Task {task}: {title}. Work only in this worktree; commit as you go."
+```
+
+A step is one of three things:
+
+- a **name** — a spawned `claude -p` run in the task's worktree, with the prompt from `[workflows.prompts]` (`{task}` and `{title}` are substituted) or a default that tells the agent which step it is, what the workflow will do after it, and not to do those parts itself;
+- **`gate:<name>`** — the daemon executes that [gate](#gates) and records the verdict;
+- **`pr`** — the built-in: push the branch and open the pull request, exactly as `swarm pr open` does.
+
+```sh
+swarm workflow ship login-form   # start it
+swarm workflow                   # what this repo declares, and the runs in flight
+swarm workflow stop login-form   # stop the one on this task
+```
+
+One workflow runs on a task at a time, and steps run one at a time. The engine only reacts to things that already happen — a run ending, a gate recording, a PR opening — so nothing is polled and a step that takes an hour costs nothing while it waits. **A failed step stops the workflow** and opens an incident naming the step and its log; it never carries on to the next one. The claim and worktree are kept, so you can look, fix, and start it again.
+
+Nothing in a workflow ever writes to your task source: flipping a task to done stays a human act. The Board's **Workflows** section shows each run as its chain of steps — ✓ done, ● running, ✗ where it stopped, ○ still to come — with a *Stop*.
+
 ## When the agent needs you
 
 An autonomous run hits a question only a person can answer — which of two designs, whether to drop a column, a credential. Instead of guessing or stalling, it calls `swarm_ask` (up to eight suggested answers). The question shows on the session page under **waiting on you** with the options as one-click buttons (or *Answer…* for free text), the session gets an **Asking** badge on Fleet, and a desktop notification fires if you've enabled them. `swarm questions` lists what's open for the repo; `swarm answer <id> <text>` answers from a terminal.
 
 The answer reaches the agent without anyone relaying it: a spawned run gets it on stdin right away; an interactive session receives it as `[swarm]` context on its next tool call or prompt; an agent can also ask for it with `swarm_inbox`. If the session has ended, the next session that starts in that task's worktree is told about the open questions and any answers that never arrived. Each answer is delivered once. A question is answered once — a second answer is refused.
+
+### Messages between agents
+
+The same channel carries messages that aren't questions. An agent calls `swarm_send` — or you run `swarm msg send` — addressed to a session id, to a **task** (whoever holds it), or to `lead`, the human's live interactive session in the project:
+
+```sh
+swarm msg send login-form "the API contract changed — see docs/api.md"
+swarm msg send lead "blocked on the staging credential"
+swarm msg                                  # what has been sent, and whether it was delivered
+```
+
+Delivery is the same as an answer: a spawned run gets it on stdin, an interactive session receives it as `[swarm]` context on its next tool call, and any agent can pull with `swarm_inbox`. A message to a task nobody holds yet waits until someone does. **Interactive sessions are informed, never interrupted.**
 
 ## Where things live
 
