@@ -265,7 +265,7 @@ const agentBadge = (a) => (a ? `<span class="badge agent" style="color:${viz.age
 
 // One render per animation frame, whatever triggered it (SSE, polls, clicks).
 let raf = 0;
-const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; safeRender(); }); };
 const touch = () => { state.dirty = true; schedule(); };
 // `render()` refuses to paint while a menu is open (it would detach the anchor the menu is
 // positioned against) and defers the frame instead. fancy-menus exposes no close callback, so the
@@ -287,7 +287,7 @@ async function refresh() {
   const txt = await (await fetch("/v1/state")).text();
   const same = txt === lastSnap;
   if (!same) { lastSnap = txt; Object.assign(state, JSON.parse(txt)); }
-  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; state.hooksInstalled = h.hooksInstalled !== false; maybeUpdateNudge(h); maybeWhatsNew(); }).catch(() => {});
+  if (!state.version) fetch("/v1/health").then((r) => r.json()).then((h) => { state.version = h.version; state.diskVersion = h.disk ?? null; state.hooksInstalled = h.hooksInstalled !== false; maybeUpdateNudge(h); maybeWhatsNew(); }).catch(() => {});
   let prsChanged = false;
   if (state.view === "prs" && !state.session) {
     const prs = await (await fetch("/v1/prs")).json().catch(() => state.prs ?? []);
@@ -339,21 +339,21 @@ async function refresh() {
   if (state.view === "graphs" && (state.graphTab ?? "collisions") === "lineage" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
     const open = (state.lineageOpen ?? []).map((g) => `&expand=${encodeURIComponent(g)}`).join("");
-    const lin = await fetch(`/v1/graphs/lineage${q || "?"}${open}`).then((r) => r.json()).catch(() => state.lineage);
+    const lin = (await api(`/v1/graphs/lineage${q || "?"}${open}`)) ?? state.lineage;
     linChanged = JSON.stringify(lin) !== JSON.stringify(state.lineage);
     state.lineage = lin;
   }
   let colChanged = false;
   if (state.view === "graphs" && (state.graphTab ?? "collisions") === "collisions" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
-    const col = await fetch(`/v1/graphs/collisions${q}`).then((r) => r.json()).catch(() => state.collisions);
+    const col = (await api(`/v1/graphs/collisions${q}`)) ?? state.collisions;
     colChanged = JSON.stringify(col) !== JSON.stringify(state.collisions);
     state.collisions = col;
   }
   let trChanged = false;
   if (state.view === "graphs" && state.graphTab === "tools" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
-    const tr = await fetch(`/v1/graphs/transitions${q}`).then((r) => r.json()).catch(() => state.transitions);
+    const tr = (await api(`/v1/graphs/transitions${q}`)) ?? state.transitions;
     trChanged = JSON.stringify(tr) !== JSON.stringify(state.transitions);
     state.transitions = tr;
   }
@@ -455,6 +455,78 @@ let navHtml = ""; // last-rendered nav html; declared before the restore block b
   // Mark the restored tab before the first snapshot lands, so the nav doesn't flash "Fleet".
   renderNav();
 }
+// ---------- errors
+// The dashboard is one long-lived page: an exception in a view used to leave the last frame on
+// screen with no sign anything had gone wrong, and a failed poll was swallowed by `.catch(() =>
+// keep the old value)`. Both now surface. `api()` records what failed so a report has something
+// in it, and `render()` is wrapped so a throwing view shows a panel instead of a frozen one.
+const failures = []; // newest first, capped — a report wants the recent ones, not all of them
+const noteFailure = (f) => { failures.unshift({ ...f, at: new Date().toISOString() }); failures.length = Math.min(failures.length, 12); };
+
+/**
+ * GET JSON, or null. A non-2xx is a failure worth naming: a 404 on a `/v1/` route almost always
+ * means the running daemon is older than the page it is serving, which is a restart, not a bug.
+ */
+async function api(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { noteFailure({ url, status: r.status, kind: r.status === 404 ? "missing-route" : "http" }); return null; }
+    return await r.json();
+  } catch (e) {
+    noteFailure({ url, status: 0, kind: "network", message: String(e?.message ?? e) });
+    return null;
+  }
+}
+
+/** Everything a bug report needs and nothing a person would mind pasting into a public issue. */
+function errorReport(err, where) {
+  return {
+    swarm: state.version ?? "unknown",
+    onDisk: state.diskVersion ?? null,
+    view: where ?? state.view,
+    graphTab: state.graphTab ?? null,
+    session: state.session ? "open" : "none", // the id is not ours to put in a public issue
+    projectScoped: Boolean(state.sel),
+    error: err ? `${err.name ?? "Error"}: ${err.message ?? err}` : null,
+    stack: err?.stack ? String(err.stack).split("\n").slice(0, 8).join("\n") : null,
+    recentFailedRequests: failures.slice(0, 6),
+    userAgent: navigator.userAgent,
+    at: new Date().toISOString(),
+  };
+}
+
+let lastError = null;
+function renderErrorPanel(err, where) {
+  lastError = { err, where };
+  const skew = failures.find((f) => f.kind === "missing-route");
+  const rep = errorReport(err, where);
+  $("#main").innerHTML =
+    `<h2 class="err-h">${ic("warning", 15, "err-ic")}Something broke <span>${esc(where ?? state.view)}</span></h2>
+     <div class="card err-card">
+       ${err
+         ? `<p style="margin:0 0 10px">This view hit an error. The rest of the dashboard is still fine — switching views or reloading usually clears it.</p>`
+         : `<p style="margin:0 0 10px"><b>The daemon is older than this page.</b> <code>${esc(skew?.url ?? "")}</code> came back 404, which means the dashboard was updated but the running daemon has not restarted yet.</p>
+            <button class="btn primary" data-act="restart-daemon">Restart daemon</button>`}
+       ${err ? `<pre class="err-detail">${esc(rep.stack || rep.error)}</pre>` : ""}
+       ${err && skew ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Also worth knowing: <code>${esc(skew.url)}</code> is 404ing, so this daemon is older than the page. <a href="#" data-act="restart-daemon">Restart it</a>.</p>` : ""}
+       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+         <button class="btn err-btn" data-act="err-copy">Copy report</button>
+         <button class="btn" data-act="err-issue">Open an issue</button>
+         <button class="btn" data-act="err-reload">Reload</button>
+       </div>
+       <p class="dim" style="margin:12px 0 0;font-size:var(--fs-sm)">The report is the version, the view, the error and the last few failed requests — no session contents, no paths, no titles. Copy it first if you want to read it before sending.</p>
+     </div>`;
+}
+
+// A view that throws must not take the whole page with it, and must not leave the previous frame
+// up pretending to be current.
+function safeRender() {
+  try { render(); }
+  catch (e) { try { renderErrorPanel(e, state.view); } catch { /* the panel itself failed; leave the frame */ } }
+}
+addEventListener("error", (e) => noteFailure({ kind: "exception", url: location.hash || "#", status: 0, message: String(e.message ?? e.error ?? e) }));
+addEventListener("unhandledrejection", (e) => noteFailure({ kind: "rejection", url: location.hash || "#", status: 0, message: String(e.reason?.message ?? e.reason ?? e) }));
+
 function render() {
   // A row menu is anchored to DOM that a re-render would replace (and the focus jump closes it):
   // hold the frame while one is open; the next poll or interaction paints it.
@@ -1835,7 +1907,14 @@ function renderLineage(head) {
 // so the loops table describes shape, and the Stuck badge (M9.3) stays the thing that judges.
 function renderTransitions(head) {
   const g = state.transitions;
-  if (!g) { $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!g) {
+    // Distinguish "not fetched yet" from "this daemon has no such route": the second never resolves
+    // on its own, and telling someone to wait for it is a lie.
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/transitions"));
+    if (skew) return renderErrorPanel(null, "graphs · tools");
+    $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
   if (!g.nodes?.length) {
     $("#main").innerHTML = head("tool transitions") + `<div class="empty">${PX.idle()}No tool calls recorded${state.sel ? " in this project" : ""} in the last 7 days.<br>The matrix fills in as agents work — it counts what each tool call was followed by.</div>`;
     return;
@@ -2629,6 +2708,24 @@ document.addEventListener("click", async (ev) => {
     open.has(t.dataset.group) ? open.delete(t.dataset.group) : open.add(t.dataset.group);
     state.lineageOpen = [...open];
     return refresh();
+  }
+  if (t.dataset.act?.startsWith("err-") || t.dataset.act === "restart-daemon") {
+    ev.preventDefault();
+    const rep = JSON.stringify(errorReport(lastError?.err, lastError?.where), null, 2);
+    if (t.dataset.act === "err-copy") { copy(rep); t.textContent = "copied"; setTimeout(() => { t.textContent = "Copy report"; }, 1400); return; }
+    if (t.dataset.act === "err-issue") {
+      // Prefilled, but the person still reads and sends it — nothing leaves the machine on its own.
+      const body = `**What I was doing:**\n\n\n<details><summary>Report</summary>\n\n\`\`\`json\n${rep}\n\`\`\`\n</details>`;
+      const url = `https://github.com/ra3orblade/swarm/issues/new?title=${encodeURIComponent(`Dashboard error in ${lastError?.where ?? state.view}`)}&body=${encodeURIComponent(body)}`;
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    if (t.dataset.act === "err-reload") { lastError = null; return location.reload(); }
+    t.textContent = "restarting…";
+    fetch("/v1/daemon/restart", { method: "POST" })
+      .catch(() => {})
+      .then(() => setTimeout(() => location.reload(), 1500));
+    return;
   }
   if (t.dataset.graphtab) { state.graphTab = t.dataset.graphtab; localStorage.setItem("swarm.graphTab", state.graphTab); return refresh(); }
   if (t.dataset.inc) { state.incFilter = t.dataset.inc; state.allIncidents = null; return refresh(); }

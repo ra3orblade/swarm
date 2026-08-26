@@ -348,6 +348,19 @@
   .badge.bad{color:var(--bad);background:var(--bad-soft)}
   .badge.agent{color:var(--violet);background:color-mix(in srgb,var(--violet) 14%,transparent);font-weight:600}
 
+  /* error state: red enough to be unmistakable, not so red the stack is hard to read */
+  .err-h{color:var(--bad)}
+  .err-h .err-ic{color:var(--bad);vertical-align:-2px;margin-right:7px}
+  .err-card{padding:18px;max-width:760px;border-color:color-mix(in srgb,var(--bad) 38%,var(--line));
+    border-left:3px solid var(--bad);background:linear-gradient(to right,var(--bad-soft),transparent 220px),var(--panel)}
+  .err-card code{color:var(--bad)}
+  .err-btn{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));color:var(--bad)}
+  .err-btn:hover{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+  .err-detail{margin:0;padding:10px 12px;background:var(--panel-2);
+    border:1px solid color-mix(in srgb,var(--bad) 22%,var(--line));border-left:2px solid var(--bad);
+    border-radius:var(--r-sm);font:var(--fs-mono)/1.5 var(--mono);color:var(--fg-2);
+    white-space:pre-wrap;overflow-x:auto;max-height:220px}
+
   /* empty */
   .empty{color:var(--dim);padding:44px 24px;text-align:center;border:1px dashed var(--line);
     border-radius:var(--r);background:var(--panel);line-height:1.7}
