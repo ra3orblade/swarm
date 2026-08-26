@@ -10,14 +10,20 @@
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --panel-2:#f0f2f5; --line:#e4e7ec; --line-2:#eef0f3;
     --fg:#1a1d21; --fg-2:#3d4650; --dim:#8b929c; --faint:#aab1bb;
-    --acc:#4d7c0f; --acc-soft:rgba(132,204,22,.15);
+    /* Darkening a yellow-green in sRGB drains its chroma and leaves khaki, which is what the
+       old #4d7c0f was. These are darkened in OKLCH instead, which holds the hue: --acc clears
+       AA on both white panels (4.86:1) and the page ground (4.54:1) for text and buttons, while
+       --acc-fill is the brighter one for chart marks, where WCAG asks 3:1 rather than 4.5 and
+       the extra light is what stops the charts looking muddy. Dark mode needs no such split —
+       the accent is already bright there. */
+    --acc:#388114; --acc-fill:#559b1b; --acc-soft:rgba(85,155,27,.15);
     --ok:#1f9d55; --ok-soft:rgba(31,157,85,.12);
     --warn:#c77800; --warn-soft:rgba(199,120,0,.12);
     --bad:#d1352b; --bad-soft:rgba(209,53,43,.12);
     --violet:#7857c9;
     /* categorical (fixed agent slots; validated adjacent-pair CVD-safe) + one-hue steps for part-to-whole */
     --c0:#8b929c; --c1:#4d9e2a; --c2:#1b9e77; --c3:#9ab828; --c4:#2f7d4f; --c5:#7fb069; --c6:#0f5c3a; --c7:#c3d84a;
-    --acc-1:#e7f3d5; --acc-2:#c2e29a; --acc-3:#92c94f; --acc-4:#5a9e2a; --acc-5:#2f6613;
+    --acc-1:#e2f6d8; --acc-2:#b8e4a1; --acc-3:#8bc866; --acc-4:#5aa12e; --acc-5:#35741f;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     /* type scale (px) — use these, never literals */
@@ -43,7 +49,7 @@
     @media (prefers-color-scheme: dark){
       --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932; --line-2:#1e222a;
       --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
-      --acc:#a3e635; --acc-soft:rgba(163,230,53,.14);
+      --acc:#a3e635; --acc-fill:#a3e635; --acc-soft:rgba(163,230,53,.14);
       --ok:#3fb571; --ok-soft:rgba(63,181,113,.14);
       --warn:#d9a441; --warn-soft:rgba(217,164,65,.14);
       --bad:#f0655a; --bad-soft:rgba(240,101,90,.14);
@@ -58,7 +64,7 @@
   :root[data-theme="dark"]{
     --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932; --line-2:#1e222a;
     --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
-    --acc:#a3e635; --acc-soft:rgba(163,230,53,.14);
+    --acc:#a3e635; --acc-fill:#a3e635; --acc-soft:rgba(163,230,53,.14);
     --ok:#3fb571; --ok-soft:rgba(63,181,113,.14);
     --warn:#d9a441; --warn-soft:rgba(217,164,65,.14);
     --bad:#f0655a; --bad-soft:rgba(240,101,90,.14);

@@ -72,7 +72,7 @@ function heatmap(cells, { fmt = fmtUsd, label = "cost" } = {}) {
 }
 
 /** Tiny line for a table cell. pts: number[]; 88×20. */
-function sparkline(pts, color = "var(--acc)") {
+function sparkline(pts, color = "var(--acc-fill)") {
   if (!pts || pts.length < 2) return `<svg viewBox="0 0 88 20" class="spark"></svg>`;
   const max = Math.max(1e-9, ...pts);
   const step = 88 / (pts.length - 1);
@@ -95,7 +95,7 @@ function compositionBar(parts, { fmt = fmtTok } = {}) {
 /** Horizontal bars for a ranked list (tool mix). rows: [[label, n]] */
 // rows: [label, value] or [label, value, displayValue] — a caller with large magnitudes passes its
 // own formatted string rather than printing 8518611 at the reader.
-function hbars(rows, color = "var(--acc)") {
+function hbars(rows, color = "var(--acc-fill)") {
   const max = Math.max(1, ...rows.map((r) => r[1]));
   return `<div class="hbars">${rows
     .map(([k, v, d]) => `<div class="hb" title="${attr(k)}${d === undefined ? "" : ` — ${attr(d)}`}"><span class="k">${attr(k)}</span><span class="t"><i style="width:${(100 * v) / max}%;background:${color}"></i></span><span class="n">${attr(d ?? v)}</span></div>`)
@@ -123,7 +123,7 @@ function turnStripRender(turns, height) {
       const h = ((t.costUsd ?? 0) / max) * (H - 8);
       const x = i * slot + (slot - bw) / 2;
       const tip = `<b>turn ${i + 1}</b> · ${hm(t.ts)}<br>${fmtUsd(t.costUsd)} · ${fmtTok(t.output)} out${t.thinking ? ` · ${fmtTok(t.thinking)} thinking` : ""}<br><span>${attr(t.model ?? "")}</span>`;
-      return `<g data-tip="${attr(tip)}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/><path d="${roundTop(x, H - 2 - h, bw, h, 2)}" fill="var(--acc)"/></g>`;
+      return `<g data-tip="${attr(tip)}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/><path d="${roundTop(x, H - 2 - h, bw, h, 2)}" fill="var(--acc-fill)"/></g>`;
     })
     .join("");
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="chart" style="height:${H}px"><line x1="0" x2="${W}" y1="${H - 2}" y2="${H - 2}" class="base"/>${bars}</svg>`;
@@ -182,7 +182,7 @@ function timeline(sessions, { from, to, projName, now = Date.now(), detail = nul
  * Single-series line with area fill (cumulative spend). days: string[]; values: number[] aligned.
  * Hover column per point, tooltip shows the value and its delta from the previous point.
  */
-function line(days, values, { height = 150, fmt = fmtUsd, color = "var(--acc)", label = (d) => d.slice(5) } = {}) {
+function line(days, values, { height = 150, fmt = fmtUsd, color = "var(--acc-fill)", label = (d) => d.slice(5) } = {}) {
   const n = days.length;
   if (!n) return "";
   const max = Math.max(1e-9, ...values);
