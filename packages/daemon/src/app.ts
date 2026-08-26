@@ -206,6 +206,14 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  app.get("/v1/heat", (c) =>
+    c.json(
+      store.fileHeat(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+      ),
+    ),
+  );
   app.get("/v1/graphs/resources", (c) =>
     c.json(
       store.resourceHolding(

@@ -378,6 +378,13 @@ async function refresh() {
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
   }
+  let heatChanged = false;
+  if (state.view === "heat" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const h = (await api(`/v1/heat${q}`)) ?? state.heat;
+    heatChanged = JSON.stringify(h) !== JSON.stringify(state.heat);
+    state.heat = h;
+  }
   let ctxChanged = false;
   if (state.view === "context" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -421,7 +428,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -438,6 +445,7 @@ const VIEW_DEFS = [
   { id: "gates", label: "Gates", icon: "shield", group: "Insight", render: () => renderGateHealth(), badge: () => state.gateHealth?.totals?.flakyGates ?? 0 },
   { id: "mcp", label: "MCP", icon: "plugs-connected", group: "Insight", render: () => renderMcpHealth() },
   { id: "context", label: "Context", icon: "brain", group: "Insight", render: () => renderContext() },
+  { id: "heat", label: "Files", icon: "file-text", group: "Insight", render: () => renderHeat(), badge: () => state.heat?.candidates?.length ?? 0 },
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
@@ -1976,10 +1984,70 @@ function renderResources(head) {
     (rings ? `<div class="card err-card" style="margin-bottom:12px"><b>${g.contention.length} contention ring${g.contention.length === 1 ? "" : "s"}</b> — each agent wants something the next one holds. Nothing is blocked (claims refuse rather than queue), but they are working against each other.<ul style="margin:8px 0 0;padding-left:18px">${rings}</ul></div>` : "") +
     `<div class="card" style="padding:14px">${viz.bipartite(holders, items)}</div>
      <div style="margin-top:10px" class="dim" style="font-size:var(--fs-sm)">solid edge = holds · faint edge = was refused it · <span style="color:var(--bad)">red</span> = orphaned or contested</div>` +
-    (orphans.length ? `<div class="chart-card" style="margin-top:14px"><h3>Orphaned <span>the session that took it has ended</span></h3>
-       <table class="mini"><colgroup><col style="width:18%"><col style="width:44%"><col style="width:38%"></colgroup><thead><tr><th>kind</th><th>name</th><th>holder</th></tr></thead><tbody>
-       ${orphans.map((r) => `<tr><td>${esc(r.kind)}</td><td class="clip">${esc(r.name)}</td><td class="clip">${esc(r.holder ?? "—")}</td></tr>`).join("")}
-       </tbody></table></div>` : "");
+    (orphans.length
+      ? `<div class="chart-card" style="margin-top:14px"><h3>Orphaned <span>the session that took it has ended</span></h3>
+         <ul class="plainlist">${orphans.map((r) => `<li><span class="badge">${esc(r.kind)}</span><b>${esc(r.name)}</b><span class="dim">held by ${esc(r.holder ?? "nobody")}</span></li>`).join("")}</ul></div>`
+      : "");
+}
+
+// M9.16: where the fleet's attention actually goes. The candidates list is the point — a file many
+// separate sessions read, re-read, and hardly ever write is one the fleet keeps re-learning, and
+// that belongs in CLAUDE.md. A file read *and written* a lot is just where the work is.
+function renderHeat(head) {
+  const h = state.heat;
+  const title = (sub) => `<h2>Files <span>${sub}</span></h2>`;
+  if (!h) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/heat"));
+    if (skew) return renderErrorPanel(null, "files");
+    $("#main").innerHTML = title("file-touch heat") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!h.files.length) {
+    $("#main").innerHTML = title("file-touch heat") + `<div class="empty">${PX.idle()}No file was touched more than once${state.sel ? " in this project" : ""} in the last 14 days.</div>`;
+    return;
+  }
+  const t = h.totals;
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const kpis = `<div class="kpis">${kpi("Files touched", t.files.toLocaleString(), `${t.touches.toLocaleString()} touches · last 14 days`)}
+    ${kpi("Re-reads", t.rereads.toLocaleString(), t.touches ? `${Math.round((t.rereads / t.touches) * 100)}% of every touch` : "none")}
+    ${kpi("Touched once", t.cold.toLocaleString(), "cold — read and never returned to")}
+    ${kpi("CLAUDE.md candidates", h.candidates.length, h.candidates.length ? "re-read by several sessions" : "nothing worth writing down", h.candidates.length ? "warm" : "")}</div>`;
+  // Every path starts with the same home prefix, so truncating from the right hides the only part
+  // that differs. Keep the last few segments instead.
+  const segs = (p, n) => { const parts = short(p).split("/"); return parts.length <= n ? short(p) : `…/${parts.slice(-n).join("/")}`; };
+  const fileRows = h.files.slice(0, 14).map((f) => `<tr>
+      <td class="clip" title="${esc(short(f.path))}">${esc(segs(f.path, 3))}</td>
+      <td class="num"><b>${f.touches.toLocaleString()}</b></td>
+      <td class="num">${f.sessions}</td>
+      <td class="num">${f.rereads.toLocaleString()}</td>
+      <td class="num">${f.writes.toLocaleString()}</td>
+    </tr>`).join("");
+  const top = h.dirs[0]?.touches || 1;
+  const dirRows = h.dirs.slice(0, 10).map((d) => `<li>
+      <span class="bar" style="--w:${Math.max(2, Math.round((d.touches / top) * 100))}%"></span>
+      <span class="clip" title="${esc(short(d.dir))}">${esc(segs(d.dir, 4))}</span>
+      <b>${d.touches.toLocaleString()}</b>
+      <span class="dim">${d.files} file${d.files === 1 ? "" : "s"} · ${d.sessions} session${d.sessions === 1 ? "" : "s"}</span>
+    </li>`).join("");
+  const cand = h.candidates.slice(0, 10).map((f) => `<tr>
+      <td class="clip" title="${esc(f.path)}">${esc(f.path)}</td>
+      <td class="num"><b>${f.rereads.toLocaleString()}</b></td>
+      <td class="num">${f.sessions}</td>
+    </tr>`).join("");
+  $("#main").innerHTML = title(`${t.files.toLocaleString()} files · ${t.touches.toLocaleString()} touches · ${t.sessions} sessions · last 14 days`) + kpis +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>Hottest files <span>every touch, across sessions</span></h3>
+         <table class="mini"><colgroup><col style="width:46%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:13%"></colgroup>
+         <thead><tr><th>path</th><th class="num">touches</th><th class="num">sessions</th><th class="num">re-reads</th><th class="num">writes</th></tr></thead><tbody>${fileRows}</tbody></table></div>
+       <div class="chart-card" style="margin:0"><h3>Worth writing down <span>read again and again, rarely written</span></h3>
+         ${cand
+           ? `<table class="mini"><colgroup><col style="width:58%"><col style="width:22%"><col style="width:20%"></colgroup><thead><tr><th>path</th><th class="num">re-reads</th><th class="num">sessions</th></tr></thead><tbody>${cand}</tbody></table>
+              <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Several sessions keep reading these and rarely change them — the conclusion is being re-derived every time. Put it in <code>CLAUDE.md</code> once instead.</p>`
+           : '<div class="dim">Nothing here is worth extracting. Every file several sessions re-read is also one they edit — that is where the work is, not a reference being re-learned.</div>'}</div>
+     </div>
+     <div class="chart-card"><h3>By directory <span>where the work sits</span></h3>
+       <ul class="heatlist">${dirRows}</ul></div>
+     <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>Incidents are not correlated here.</b> An incident records the rule, the action and the command — not a path — so tying a rule that fired on a shell command to a file would mean parsing paths out of command strings and guessing.</p>`;
 }
 
 function renderTimeline() {

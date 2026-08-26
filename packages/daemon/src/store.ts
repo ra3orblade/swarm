@@ -50,6 +50,7 @@ import {
   detectStall,
   dryRunRules,
   executedGateInput,
+  fileHeat,
   formatAnswers,
   formatHandoff,
   formatMessages,
@@ -4656,6 +4657,33 @@ export class Store {
         projectId: d.project_id,
       }));
     return resourceGraph(held, wanted);
+  }
+
+  /**
+   * M9.16 agent-traversal map: file-touch heat across sessions.
+   *
+   * Reads the same `tool.requested` rows the collision graph does, but over a window rather than
+   * over the live sessions — the question here is where attention goes across the fleet, not who
+   * is colliding right now.
+   */
+  fileHeat(projectId?: string, days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.tool') AS tool,
+                json_extract(payload,'$.toolInput.file_path') AS path
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?
+           AND json_extract(payload,'$.toolInput.file_path') IS NOT NULL${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      tool: string | null;
+      path: string | null;
+    }>;
+    return fileHeat(
+      rows.map((r) => ({ sessionId: r.session_id ?? "", tool: r.tool ?? "", path: r.path ?? "" })),
+    );
   }
 
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */

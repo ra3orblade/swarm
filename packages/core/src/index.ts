@@ -15,6 +15,7 @@ export * from "./forge";
 export * from "./gatehealth";
 export * from "./gates";
 export * from "./graphs";
+export * from "./heat";
 export * from "./hygiene";
 export * from "./ledger";
 export * from "./lessons";
