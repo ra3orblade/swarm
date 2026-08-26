@@ -89,11 +89,31 @@ function applyDrift(
   behind: string | null,
   ancestor: boolean,
   firstParents: string | null,
+  /** `git cherry` output: every line `- <sha>` means that commit is already upstream by patch. */
+  cherry: string | null = null,
 ) {
   const b = behind?.trim();
   w.behind = b === undefined || b === "" ? -1 : Number(b);
   const onLine = firstParents?.split("\n").some((sha) => sha.startsWith(w.head)) ?? true;
-  w.merged = ancestor && !onLine;
+  w.merged = (ancestor || squashed(cherry)) && !onLine;
+}
+
+/**
+ * Was this branch merged by squash or rebase?
+ *
+ * `merge-base --is-ancestor` is the honest test for a merge commit and useless for anything else:
+ * a squash rewrites the branch's commits into one new commit, so the originals never become
+ * ancestors of the base and the branch reads as unmerged forever — which is why a table of
+ * long-finished branches showed "Clean" instead of "Merged".
+ *
+ * `git cherry base HEAD` compares by *patch id* instead: a commit already upstream in any form is
+ * prefixed `-`, one that is not is `+`. No `+` lines and at least one commit means every change on
+ * this branch is already in base, however it got there.
+ */
+export function squashed(cherry: string | null): boolean {
+  if (!cherry) return false;
+  const lines = cherry.split("\n").filter((l) => l.trim());
+  return lines.length > 0 && lines.every((l) => l.startsWith("-"));
 }
 /** How far back along base's first-parent line we look when deciding "merged" vs "behind". */
 const FIRST_PARENT_DEPTH = "5000";
@@ -121,6 +141,7 @@ export function listWorktrees(root: string): Worktree[] {
         git(w.path, ["rev-list", "--count", `HEAD..${base}`]),
         git(w.path, ["merge-base", "--is-ancestor", "HEAD", base]) !== null,
         line,
+        git(w.path, ["cherry", base, "HEAD"]),
       );
   }
   return wts;
@@ -148,14 +169,15 @@ export async function listWorktreesAsync(root: string): Promise<Worktree[]> {
   await Promise.all(
     wts.map(async (w) => {
       const drift = base && !w.main;
-      const [st, ah, be, mg] = await Promise.all([
+      const [st, ah, be, mg, ch] = await Promise.all([
         gitAsync(w.path, ["status", "--porcelain", "--untracked-files=no"]),
         gitAsync(w.path, ["rev-list", "--count", "@{upstream}..HEAD"]),
         drift ? gitAsync(w.path, ["rev-list", "--count", `HEAD..${base}`]) : null,
         drift ? gitAsync(w.path, ["merge-base", "--is-ancestor", "HEAD", base]) : null,
+        drift ? gitAsync(w.path, ["cherry", base, "HEAD"]) : null,
       ]);
       applyStatus(w, st, ah);
-      if (drift) applyDrift(w, be, mg !== null, line);
+      if (drift) applyDrift(w, be, mg !== null, line, ch);
     }),
   );
   return wts;

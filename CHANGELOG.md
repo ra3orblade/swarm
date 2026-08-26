@@ -2,6 +2,36 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.12.1] — 2026-08-26
+
+**If you are on 0.12.0, update.** Its Board view was blank — see below.
+
+The rest of this release is about hygiene finally doing something. It has been reporting 50 GB held across 32 worktrees on my machine and offering nothing to reclaim, which reads as broken rather than as cautious. Two reasons, both fixed.
+
+### Fixed
+
+- **The Board was dead in 0.12.0.** A function added for the new resource graph had the same name as the one that renders the Board's runtime resources; the later declaration won, so the view threw before drawing anything and took the worktree list with it. Renamed, and there is now a check that no two top-level view functions share a name.
+
+- **Copy never worked in the desktop app.** The webview has no async clipboard API and the helper quietly gave up. It falls back now, tells you whether it worked, and when it cannot copy it puts the text on screen selected rather than flashing "copied" at you.
+
+- **Error reports in the desktop app were missing the error.** Chrome puts the message at the top of a stack trace and Safari does not, so the one line saying what went wrong was absent — in the app, which is where you would be reading it.
+
+### Added
+
+- **Clearing build output.** 31 GB of the 50 GB my worktrees hold is `node_modules`, Rust `target` and `dist` — things a rebuild recreates. Hygiene measures that per worktree now, shows it as its own column, and offers to clear it.
+
+  This is deliberately not the same as removing a worktree: the checkout, the branch and anything uncommitted all survive, so a dirty tree is fine to clear. What it refuses is the main checkout, a worktree somebody holds a claim on, and one with a live session in it — those mean a build is probably running. A nested worktree's output belongs to that worktree and is offered there, not swept up by whatever contains it.
+
+### Changed
+
+- **A branch merged by squash now reads as merged.** Swarm decided this with `merge-base --is-ancestor`, which is the right test for a merge commit and useless for anything else: a squash rewrites the branch's commits into one new commit, so the originals never become ancestors of the base and the branch stays "Clean" forever. It also asks `git cherry` now, which compares by patch instead — if every change on the branch is already in the base, however it got there, it is merged.
+
+- **The worktree table says which project each one is in.** With thirty-odd worktrees across a dozen repos, a branch name on its own does not tell you where it lives.
+
+- **A worktree counts as stale after two days, not seven.** Seven never elapsed: on a machine where work lands daily you reuse or notice a merged worktree long before a week of silence. Nothing about *safety* changed — the ledger still refuses to offer anything with uncommitted or unpushed work, whatever its age. On my machine the offer went from nothing at all to 8 worktrees and 1.7 GB.
+
+- Task cards no longer carry a thick coloured stripe down their left edge; state colours the whole outline. Heading badges match the ones in tables. Inline icons sit on the centre of the text beside them rather than a pixel and a half below it.
+
 ## [0.12.0] — 2026-08-26
 
 The Observatory is finished. Swarm has spent this milestone answering questions about your fleet that used to need a person reading logs; this release adds the last five and, just as importantly, makes the dashboard admit when something has gone wrong instead of quietly showing you a stale screen.

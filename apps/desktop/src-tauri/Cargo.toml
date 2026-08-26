@@ -1,6 +1,6 @@
 [package]
 name = "swarm-desktop"
-version = "0.12.0"
+version = "0.12.1"
 description = "Swarm — local control plane for AI-agent development"
 edition = "2021"
 

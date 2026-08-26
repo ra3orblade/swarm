@@ -1909,6 +1909,8 @@ function renderHygiene() {
   ];
   const wcols = [
     { key: "issue", label: "state", width: 106, get: (w) => w.issue ?? "", cell: (w) => issueBadge(w.issue) },
+    // 32 worktrees across a dozen repos: a branch name alone does not say which repo it is in.
+    { key: "project", label: "project", width: 122, get: (w) => projName(w.projectId), cell: (w) => `<span class="clip">${esc(projName(w.projectId))}</span>` },
     { key: "branch", label: "branch", width: 190, get: (w) => w.branch ?? w.path, cell: (w) => `<b>${esc(w.branch ?? "(detached)")}</b>${w.main ? ' <span class="badge">main</span>' : ""}` },
     { key: "disk", label: "disk", width: 78, num: true, get: (w) => w.diskKb ?? -1, cell: (w) => mb(w.diskKb) },
     { key: "build", label: "build output", width: 100, num: true, get: (w) => w.buildKb ?? -1, cell: (w) => (w.buildKb === null ? '<span class="dim">—</span>' : `<span title="node_modules, target, dist — a rebuild recreates these">${mb(w.buildKb)}</span>`) },
