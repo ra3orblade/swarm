@@ -30,6 +30,8 @@
     /* type scale (px) — use these, never literals */
     --fs-2xs:11px; --fs-xs:11.5px; --fs-sm:12px; --fs-mono:12.5px; --fs-md:13px;
     --fs-menu:13.5px; --fs-lg:14px; --fs-xl:15px; --fs-2xl:24px;
+    /* pill height = its line box + its vertical padding; see .badge */
+    --pill-h:calc(var(--fs-xs) * 1.2 + 8px);
     /* elevation */
     --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
     --shadow-pop:0 8px 24px rgba(16,24,40,.14),0 1px 3px rgba(16,24,40,.08);
@@ -290,7 +292,9 @@
     overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
   tbody tr:last-child td{border-bottom:0}
   /* edge tool cell: never ellipsize (the browser's "…" showed as a stray dot on every row) */
-  tbody td.td-tools{text-overflow:clip;padding-left:0;padding-right:0;text-align:center}
+  /* The cell holds one button and no words, so its line box should be exactly that button: with a
+     text line-height still in force the strut sat under the icon and pushed it ~1px off the row. */
+  tbody td.td-tools{text-overflow:clip;padding-left:0;padding-right:0;text-align:center;line-height:0}
   /* badge-only cells: the pill has its own margin, so the cell never needs an ellipsis */
   tbody td.td-badge{text-overflow:clip}tbody td.td-badge .badge{margin-right:0}
   /* Only rows that actually open something get the pointer — a right-click menu (data-ctx alone)
@@ -304,6 +308,32 @@
      as `td:first-child` it also un-clipped the first *content* column of every grid, so long
      values (branch names on Outcomes) painted straight over the next column. */
   tbody td.td-lead{overflow:visible}
+  /* Inline icons in a cell, centred on the text the way the eye reads it.
+     The optical middle of a line is the centre of its capitals, half a cap-height above the
+     baseline — 0.352em here, this stack's cap measuring 0.70em. So a box of height H belongs at
+     `cap - H/2` off the baseline, a *negative* vertical-align: a positive one raises the box and
+     every one of these needs to come down. Neither default managed it — the project glyph sat on
+     the baseline and rode 3px high, and `vertical-align: middle` centres on the baseline plus half
+     the *x*-height, which left the session icon 1px low in every row of every grid. Keyed on each
+     SVG's own width attribute so every size gets its exact offset.
+
+     Only boxes that share their line with words get this. A badge alone in a cell, or the lone icon
+     of a `.td-tools` cell, has nothing to line up with and is already centred by the cell — lifting
+     those would push them off the row instead. Direct children only, for the same reason: an icon
+     inside `.pg` is a flex item whose own alignment is the wrapper's business, and setting
+     vertical-align on it shifted the whole inline-flex box's baseline instead. */
+  tbody td{--cap:calc(var(--fs-lg) * 0.352)}
+  tbody td .pg{vertical-align:calc(var(--cap) - 8px)}
+  /* An inline-flex box takes its baseline from its first flex item, so the wrapper sat 2px lower
+     when its glyph was a 12px icon than when it was a 16px image — the same project column, two
+     different alignments depending on which project. This zero-width strut is always the first
+     item and always the full height, so every `.pg` reports the same baseline whatever is in it. */
+  tbody td .pg::before{content:"";display:block;width:0;height:16px}
+  tbody td > * + .badge{vertical-align:calc(var(--cap) - var(--pill-h) / 2)}
+  tbody td:not(.td-tools) > svg.ph[width="12"]{vertical-align:calc(var(--cap) - 6px)}
+  tbody td:not(.td-tools) > svg.ph[width="13"]{vertical-align:calc(var(--cap) - 6.5px)}
+  tbody td:not(.td-tools) > svg.ph[width="14"]{vertical-align:calc(var(--cap) - 7px)}
+  tbody td:not(.td-tools) > svg.ph[width="16"]{vertical-align:calc(var(--cap) - 8px)}
   /* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
   .dt thead th{position:relative;user-select:none;-webkit-user-select:none}
   /* visible column dividers in the header: the "these columns are adjustable" cue */
@@ -352,7 +382,10 @@
   @keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--ok-soft)}50%{box-shadow:0 0 0 5px transparent}}
 
   /* badges */
-  .badge{display:inline-block;font:500 var(--fs-xs) var(--sans);padding:4px 8px;border-radius:var(--r-pill);
+  /* `line-height` is pinned rather than left at `normal` so the pill's height is a number this
+     stylesheet knows — `normal` is whatever the font's metrics say, which made the badge a
+     different height from the identical-looking `.navcount` and left its alignment underivable. */
+  .badge{display:inline-block;font:500 var(--fs-xs)/1.2 var(--sans);padding:4px 8px;border-radius:var(--r-pill);
     background:var(--panel-2);color:var(--dim);margin-right:4px;vertical-align:middle}
   .badge.warn{color:var(--warn);background:var(--warn-soft)}
   .badge.acc{color:var(--acc);background:var(--acc-soft)}
@@ -568,7 +601,7 @@
   header #settings{margin-left:10px}
   .proj .ph{color:var(--faint)}
   .proj.sel .ph{color:var(--acc)}
-  .kind{color:var(--faint);margin-right:6px;vertical-align:middle}
+  .kind{color:var(--faint);margin-right:6px}
   td .more{opacity:0;color:var(--faint);padding:2px;border-radius:var(--r-xs);transition:opacity var(--t-fast),background var(--t-fast);line-height:0;display:inline-flex;vertical-align:middle}
   tr:hover td .more,.proj:hover .more,tr.menu-open td .more,.menu-open>.more,.more.menu-open{opacity:1}
   td .more:hover{background:var(--line);color:var(--fg)}
