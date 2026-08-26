@@ -15,6 +15,7 @@ export const AUDIT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   "claim.expired",
   "claim.orphaned",
   "claim.denied",
+  "rules.changed",
   "worktree.created",
   "worktree.removed",
   "worktree.bootstrapped",

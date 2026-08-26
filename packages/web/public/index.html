@@ -317,6 +317,13 @@
   body.col-resizing{cursor:col-resize}
   body.col-resizing .dt thead th{cursor:col-resize}
   .dt .th-tools{text-align:right}
+  /* Pin the edge column. When the grid is wider than its card the card scrolls, and whatever sits
+     at the right edge is what gets cut — which made the whole table read as broken rather than as
+     scrollable. The tools column stays put and stays clickable instead. */
+  .dt .th-tools,.dt .td-tools{position:sticky;right:0;z-index:1}
+  .dt .th-tools{background:var(--panel-2)}
+  .dt .td-tools{background:var(--panel)}
+  tbody tr:hover .td-tools{background:var(--panel-2)}
   .dt .th-cols{cursor:pointer;color:var(--faint);display:inline-flex}
   .dt .th-cols:hover{color:var(--fg-2)}
   .dt tr.filters th{padding:4px 8px;background:var(--panel)}

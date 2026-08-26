@@ -206,6 +206,14 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  app.get("/v1/rules/effect", (c) =>
+    c.json(
+      store.ruleEffect(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(365, Number(c.req.query("days") ?? 30) || 30)),
+      ),
+    ),
+  );
   app.get("/v1/security", (c) =>
     c.json(
       store.security(

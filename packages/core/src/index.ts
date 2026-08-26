@@ -33,6 +33,7 @@ export * from "./questions";
 export * from "./resourcegraph";
 export * from "./resources";
 export * from "./review";
+export * from "./ruleeffect";
 export * from "./rules";
 export * from "./security";
 export * from "./stall";

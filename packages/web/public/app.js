@@ -378,6 +378,13 @@ async function refresh() {
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
   }
+  let reChanged = false;
+  if (state.view === "rules" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const re = (await api(`/v1/rules/effect${q}`)) ?? state.ruleEffect;
+    reChanged = JSON.stringify(re) !== JSON.stringify(state.ruleEffect);
+    state.ruleEffect = re;
+  }
   let secChanged = false;
   if (state.view === "security" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -435,7 +442,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || secChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || secChanged || reChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -459,6 +466,7 @@ const VIEW_DEFS = [
   { id: "security", label: "Security", icon: "shield", group: "Guard", render: () => renderSecurity(), badge: () => state.security?.totals?.secrets ?? 0 },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard", render: () => renderProvenance(), badge: () => state.provenance?.totals?.untracked ?? 0 },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard", render: () => renderIncidentsView(), badge: () => state.openIncidents ?? 0 },
+  { id: "rules", label: "Rules", icon: "shield", group: "Guard", render: () => renderRuleEffect(), badge: () => state.ruleEffect?.totals?.unchanged ?? 0 },
 ];
 const viewDef = (id) => VIEW_DEFS.find((v) => v.id === id);
 const VIEWS = VIEW_DEFS.map((v) => v.id);
@@ -2141,6 +2149,55 @@ function renderSecurity() {
        </div>
      </div>
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>This is a lint, not a sandbox.</b> Everything here is matched against the recorded command text, so an obfuscated command will not match and a comment mentioning <code>.env</code> will. It is here to tell you what your fleet does, so you can decide what to write an <code>ask</code> rule about.</p>`;
+}
+
+// M9.10: a rule that fires once and never again taught somebody something. A rule that fires forty
+// times on the same shaped command is friction — the habit needs changing, or the rule does.
+function renderRuleEffect() {
+  const r = state.ruleEffect;
+  const head = (sub) => `<h2>Rules <span>${sub}</span></h2>`;
+  if (!r) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/rules/"));
+    if (skew) return renderErrorPanel(null, "rules");
+    $("#main").innerHTML = head("is a rule teaching anyone anything?") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  if (!r.rules.length) {
+    $("#main").innerHTML = head("is a rule teaching anyone anything?") + `<div class="empty">${PX.idle()}No rule has fired${state.sel ? " in this project" : ""} in the last 30 days.<br>That is the good outcome: rules exist to be learned and then never hit again.</div>`;
+    return;
+  }
+  const t = r.totals;
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const TREND = { rising: ["bad", "rising"], falling: ["ok", "falling"], steady: ["", "steady"] };
+  const kpis = `<div class="kpis">
+    ${kpi("Incidents", t.incidents, "last 30 days")}
+    ${kpi("Rules firing", t.rules, `${t.acked} incident${t.acked === 1 ? "" : "s"} acknowledged`)}
+    ${kpi("Not settling", t.unchanged, t.unchanged ? "firing as much as ever, or more" : "every rule is quieting down", t.unchanged ? "hot" : "")}
+    ${kpi("Change history", r.noChangeHistory ? "none" : "yes", r.noChangeHistory ? "no before/after yet" : "before/after available")}</div>`;
+
+  const cards = r.rules.map((x) => {
+    const [cls, word] = TREND[x.trend];
+    const spark = viz.sparkline(x.perDay.map((d) => d.n));
+    const worst = x.clusters[0];
+    return `<div class="chart-card" style="margin:0">
+      <h3>${esc(x.rule)} <span><b class="${cls}">${word}</b> · ${x.total} incident${x.total === 1 ? "" : "s"} · ${x.acked} acked</span></h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">${spark}
+        <span class="dim" style="font-size:var(--fs-sm)">${ago(x.lastAt)} since the last one</span></div>
+      ${worst && x.total > 1
+        ? `<p style="margin:0 0 8px;font-size:var(--fs-md)">${Math.round(x.concentration * 100)}% of these are the same shape: <code>${esc(worst.signature)}</code></p>
+           <ul class="plainlist">${x.clusters.map((c) => `<li><b>${esc(c.signature)}</b><span class="dim">${c.hits}×</span><span class="clip dim" title="${esc(c.example)}">${esc(c.example.slice(0, 70))}</span></li>`).join("")}</ul>`
+        : '<p class="dim" style="margin:0;font-size:var(--fs-md)">Fired once. Whatever it was, it has not come back.</p>'}
+      ${x.landed
+        ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Since it landed ${ago(x.landed.at)} ago: <b>${x.landed.afterPerDay.toFixed(1)}/day</b>, against ${x.landed.beforePerDay.toFixed(1)}/day before.</p>`
+        : ""}
+    </div>`;
+  }).join("");
+
+  $("#main").innerHTML = head(`${t.incidents} incidents · ${t.rules} rule${t.rules === 1 ? "" : "s"} · last 30 days`) + kpis +
+    `<div class="cols">${cards}</div>` +
+    (r.noChangeHistory
+      ? `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>No before-and-after yet.</b> Comparing a rule's rate before and after it landed needs to know when it landed, and nothing recorded that until now — the daemon writes <code>rules.changed</code> from this version on, so the comparison fills in for edits made from here.</p>`
+      : "");
 }
 
 function renderTimeline() {

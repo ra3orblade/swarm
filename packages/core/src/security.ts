@@ -78,7 +78,7 @@ export function hostsIn(text: string): string[] {
     // Cut at the first colon rather than stripping a trailing `:\d+`: real commands write
     // `127.0.0.1:$PORT`, and a numeric-only strip left `127.0.0.1:$p` as its own "host".
     const bracket = /^\[([^\]]+)\]/.exec(hostPort); // [::1]:7777
-    const host = (bracket ? bracket[1] : (hostPort.split(":")[0] as string)).toLowerCase();
+    const host = ((bracket?.[1] ?? hostPort.split(":")[0]) as string).toLowerCase();
     if (host) out.add(host);
   }
   return [...out].sort();

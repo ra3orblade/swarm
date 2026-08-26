@@ -138,6 +138,7 @@ import {
   reviewArgs,
   reviewGateInput,
   reviewPrompt,
+  ruleEffect,
   type Stall,
   type SwarmConfig,
   type SwarmEvent,
@@ -2011,7 +2012,62 @@ export class Store {
     const loaded = loadConfigDetailed({ repoRoot, home: this.home });
     this.policyCache.set(key, { at: Date.now(), loaded });
     this.writePolicyCache(loaded);
+    this.noteRuleChange(key, loaded.config.rules);
     return loaded;
+  }
+
+  /**
+   * M9.10: record when the effective rule set changes, so "incidents before this rule vs after"
+   * becomes answerable later. Nothing recorded when a rule landed, so nothing could be compared.
+   *
+   * The signature is persisted in `meta`, not held in memory: a restart would otherwise look like
+   * a change every time and the timeline would fill with edits nobody made.
+   */
+  /** The project row whose root is this repo, when there is one. */
+  private projectIdForRoot(root: string): string | null {
+    if (!root) return null;
+    const row = this.db.query("SELECT id FROM projects WHERE root = ?").get(root) as
+      | { id: string }
+      | undefined;
+    return row?.id ?? null;
+  }
+
+  private noteRuleChange(key: string, rules: RulesConfig) {
+    const sig = JSON.stringify(Object.entries(rules).sort());
+    const metaKey = `rules.sig:${key}`;
+    const prev = (
+      this.db.query("SELECT value FROM meta WHERE key = ?").get(metaKey) as
+        | { value: string }
+        | undefined
+    )?.value;
+    if (prev === sig) return;
+    this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(metaKey, sig);
+    if (prev === undefined) return; // first sighting is not a change
+    const before = new Map(JSON.parse(prev) as Array<[string, string]>);
+    const after = new Map(Object.entries(rules));
+    const added = [...after.keys()].filter((r) => !before.has(r)).sort();
+    const removed = [...before.keys()].filter((r) => !after.has(r)).sort();
+    const retuned = [...after.entries()]
+      .filter(([r, mode]) => before.has(r) && before.get(r) !== mode)
+      .map(([r, mode]) => `${r}=${mode}`)
+      .sort();
+    if (!added.length && !removed.length && !retuned.length) return;
+    this.append({
+      ts: new Date().toISOString(),
+      type: "rules.changed",
+      // Rules are configured per repo, not per project row, and a change can land before any
+      // project for that repo exists — so it is attributed to the repo and left project-less.
+      projectId: this.projectIdForRoot(key) ?? "",
+      sessionId: null,
+      payload: {
+        repo: key || null,
+        added,
+        removed,
+        retuned,
+        rules: [...after.keys()].sort(),
+        summary: `rules changed${added.length ? ` +${added.join(",")}` : ""}${removed.length ? ` -${removed.join(",")}` : ""}${retuned.length ? ` ~${retuned.join(",")}` : ""}`,
+      },
+    });
   }
 
   /**
@@ -4720,6 +4776,48 @@ export class Store {
         path: r.path,
         at: r.ts,
       })),
+    );
+  }
+
+  /**
+   * M9.10 rule effectiveness: how often each rule fires, on what, and whether that is falling.
+   *
+   * Acks come from `incident_acks` keyed by the event `seq`, the same join the Incidents view uses,
+   * so "seen" means the same thing in both places.
+   */
+  ruleEffect(projectId?: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT e.seq, e.ts,
+                json_extract(e.payload,'$.rule') AS rule,
+                COALESCE(json_extract(e.payload,'$.command'), '') AS command,
+                (a.seq IS NOT NULL) AS acked
+         FROM events e LEFT JOIN incident_acks a ON a.seq = e.seq
+         WHERE e.type = 'incident.opened' AND e.ts >= ?${projectId ? " AND e.project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      ts: string;
+      rule: string | null;
+      command: string | null;
+      acked: number;
+    }>;
+    const changes = this.db
+      .query(
+        `SELECT ts, COALESCE(json_extract(payload,'$.added'), '[]') AS added
+         FROM events WHERE type = 'rules.changed' AND ts >= ?`,
+      )
+      .all(since) as Array<{ ts: string; added: string }>;
+    return ruleEffect(
+      rows.map((r) => ({
+        rule: r.rule ?? "",
+        command: r.command ?? "",
+        at: r.ts,
+        acked: Boolean(r.acked),
+      })),
+      changes.map((c) => ({ at: c.ts, added: JSON.parse(c.added) as string[] })),
+      Date.now(),
+      days,
     );
   }
 
