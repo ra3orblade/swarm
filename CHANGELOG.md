@@ -4,36 +4,49 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [0.11.0] — 2026-08-26
 
-The observatory release: the dashboard stops reporting what your agents *did* and starts telling you what it *cost* — in money, in waiting, in context, and in work nobody can trace. Nine M9 tasks, five new views, and a design pass that fixed things which had been quietly wrong for several releases.
+Swarm could already tell you what your agents did. This release is about what it cost you — in money, in waiting around, in context burned re-reading the same file, and in work that shipped with nothing linking it back to a ticket.
+
+I pointed the new provenance view at my own machine and found 22 branches that had landed with no task behind them. One was a merged PR carrying $255 and 16 agent sessions. I had no idea it existed.
 
 ### Added
-- **Waiting-on-human** — how long a session sat blocked on a person, and how long the person took. Three kinds of wait, all from events already recorded: a permission prompt, a question the agent asked, and a notification — the last has no closing event, so it is closed by the session's *next activity*, which is exactly when the human unblocked it. A wait still open when its session ended is capped at that end, so a laptop closed on a pending prompt cannot report a week of blocked time. A **Waiting 12m** badge on Fleet names what is blocking, and a **Waiting on you** section on Stats ranks by kind, median and longest (M9.4).
-- **Context composition** — where the window actually goes. Tool-result volume is exact (every response is stored), and the waste metric is re-reads: a file read N times costs the window N copies, the first is work and the rest are the price of having forgotten. New **Context** view: what fills the window by tool, cache-hit rate, and the sessions that wasted most with their worst files. *MCP schemas and the system prompt are deliberately absent — Swarm sees calls, never the schemas, so they are left out rather than estimated* (M9.5).
-- **MCP server health** — per-server latency, error rate, and the wall-clock the fleet spent waiting on each. No duration is recorded anywhere, so latency is measured hook-to-hook and labelled as such: a call held behind a permission prompt carries that wait too, which is why the view leads with p50/p95. New **MCP** view (M9.6).
-- **Gate flakiness** — a gate is flaky when it returns **both** verdicts on the **same task**; failing on one task and passing on another is the gate doing its job. Gate wall-clock became a real number: schema **v2** adds `gates.duration_ms` and back-fills historic rows from the rubric prose it used to hide in. New **Gates** view — pass/fail strip, pass rate, flips, p50/p95/slowest, ranked flaky-first (M9.7).
-- **Machine hygiene** — what the fleet left behind: processes still holding a port after their session ended, registry rows whose pid is gone, worktrees that merged days ago and still occupy disk. "Safe to remove" defers to the ledger's own `canRemoveWorktree` rather than re-deriving it, so the view can never offer a removal the ledger would refuse. New **Hygiene** view with the existing Stop / Remove actions inline (M9.8).
-- **Graph engine** — a deterministic layered DAG layout with no chart library. The maths lives in `core` and is unit-tested, so it is reproducible (every tie broken by node id), stable across live updates, and cycle-safe — two agents messaging each other is a legitimate loop, and the closing edge is drawn bowed rather than hanging the layout (M9.11).
-- **Session lineage** — who started whom, who told whom, who picked up whose work: subagent, dispatch, message and handoff edges, all from recorded state. A sibling fan above a threshold collapses into a click-to-expand pill, because the thing that makes these graphs unreadable is fan-out, not the renderer. New **Lineage** tab on Graphs (M9.13).
-- **Provenance chain** — issue → task → claim → session → branch → PR → merged, as one row per piece of work, with six link dots filled to where the trail goes cold. Walked from **both ends**, so *work that landed with no task behind it* shows up — which a task-keyed walk can never surface. New **Provenance** view under Guard (M9.14).
-- **A/B dispatch** — the same task run by N models side by side, compared on cost, wall time, gates and diff size. The ledger is not bent to do it: a claim is one holder per task and the runner refuses a second live run, so an arm is its own task id `<task>#<arm>` with its own claim and worktree. An arm wins only if it finished and passed every gate it ran; among those the cheapest wins. A cheap arm that failed a gate never wins. New **Trials** view (M9.18).
+
+- **Waiting on you.** Agents spend real time stuck waiting for a human — a permission prompt, a question, a notification — and none of it was measured. Now it is. Fleet shows a *Waiting 12m* badge saying what's blocking, and Stats breaks it down by kind. If you close your laptop on a pending prompt, the clock stops when the session ended, not days later when you open it again.
+
+- **Where your context goes.** A breakdown of what actually fills the window, by tool. The waste number is re-reads: read a file once and that's work, read it ten times and nine copies are just the cost of forgetting. One of my sessions had spent 11% of its window re-reading the same diff.
+
+- **MCP server health.** Which servers are slow, which fail, and how long your agents sat waiting on each. Timing is measured between the hooks either side of a call, so a call stuck behind a permission prompt carries that wait too — which is why the view leads with p50 and p95 rather than the worst case.
+
+- **Gate flakiness.** A gate is flaky when it gives *both* answers about the *same* task. Failing one task and passing another isn't flaky, that's the gate working. Gates now record how long they took, and old runs get their duration recovered from the text they used to hide it in.
+
+- **Machine hygiene.** What your fleet left lying around: processes still holding a port after their session ended, dead entries in the registry, worktrees that merged days ago and still take up disk. It only offers to remove something the ledger itself would agree to remove, so nothing with uncommitted or unpushed work is ever on the list.
+
+- **Session lineage.** Who spawned whom, who messaged whom, who picked up whose task — as a graph. When one session has 37 subagents they collapse into a single pill you can click open, because 37 lines fanning across the screen is a mess, not a picture.
+
+- **Provenance.** Follow any piece of work backwards: ticket, claim, session, branch, pull request, merge. Six dots per row, filled up to the point the trail goes cold. It reads the chain from both ends, which is how it finds work that shipped with no ticket at all.
+
+- **A/B trials.** Give one task to several models at once and see what each produced: cost, wall time, gates, how much they changed. A model only wins if it finished *and* passed every gate — a cheap wrong answer isn't an answer. Each model works in its own worktree, so nothing about the claim rules had to be relaxed to run the experiment.
+
+- **A robot.** The empty states have a proper one now, and its head is the site's logo and favicon. There's one drawing, shared, with a test that stops the two copies drifting apart.
 
 ### Fixed
-- **Table cells overprinted their neighbour.** `td:first-child{overflow:visible}` existed so the status dot's pulsing glow would not be sheared off, but it also un-clipped the first *content* column of every grid — a long branch name painted straight over the `outcome` badge next to it.
-- **The Board's incident count could never exceed 20.** It counted the snapshot's 20-row window while the Guard badge counted the truth; the two now read the same number.
-- **The header never said which view you were on** — ten views behind four group menus, all reading "Observe". The active group now carries its view's own name.
-- **A menu's current item and its hovered item were the same green**, so neither read as current. The highlight is neutral again and the accent is reserved for where you are.
-- **Numbers ellipsized in numeric columns** (`134….`): the token formatter had no billions step, so 2.8B rendered as "2820.0M". Nothing numeric can overflow its column now.
-- **The ⋯ vanished under its own menu** and the row jumped as it appeared — it was revealed by `:hover` alone and toggled as a flex item.
-- **Pixel art had no contrast in light mode.** The palette's shade and its face had a luminance separation of **0.002** — the outline was mathematically invisible. All three tones now derive from the accent.
-- **Replay resized on every step**, moving Prev/Next under the cursor mid-click. The dialog is a fixed height and the body scrolls inside it.
-- **The transcript spent 204px per row on chrome** before a character of content, most of it on raw hook names like `pretooluse` that repeat every row and say nothing the row does not.
-- Destructive menu rows had a grey icon beside red text; `hbars` value columns wrapped onto three lines and tripled row height.
 
-- **A robot.** The empty-state art is now a full drawing — head, ear modules, antennae, torso panel, arms and legs — and its head is the site's mark, hero and favicon, replacing the abstract pixel glyph. One grid in `core/src/art.ts` is the single source: the site imports it, the dashboard keeps an inline copy, and a test asserts the two are identical so they cannot drift. Same-colour runs merge into one rect, so the inlined mark is 2.6 KB rather than 8.8 KB. The hero blinks the antenna tips instead of pulsing every pixel.
+Mostly things that had been quietly wrong for a while:
+
+- Long branch names painted straight over the badge next to them.
+- The Board said 20 incidents while the Guard badge said 57. The Board was wrong — it was counting a 20-row window.
+- The header never told you which of the ten views you were looking at.
+- Opening a menu highlighted the row under your cursor in the same green as the row you were already on, so neither read as current.
+- Big numbers were truncated to things like `134….` in columns that had room for them.
+- The ⋯ button vanished the moment you clicked it, and the row jumped as it went.
+- Pixel art was nearly invisible in light mode — the outline and the face it sat on were the same brightness to within 0.002.
+- Replay resized itself on every step, so Prev/Next slid out from under the cursor mid-click.
+- The transcript gave 204px of every row to a timestamp and a label like `pretooluse`, which repeats on every line and tells you nothing.
 
 ### Notes
-- Schema **v2** applies automatically on first start and back-fills gate durations; `swarm doctor` reports the version.
-- M9 is 13 of 18. Security audit (M9.9), rule effectiveness (M9.10), the tool-transition digraph (M9.15), the traversal map (M9.16) and the resource-holding graph (M9.17) remain open.
+
+- The database upgrades itself on first start. `swarm doctor` will tell you the schema version.
+- This is 13 of the 18 planned observatory features. Security auditing, rule effectiveness and three more graphs are still to come.
+- Two things are deliberately missing rather than guessed: how many tokens your MCP schemas cost, and how much of the window the system prompt takes. Swarm can see tool calls but not schemas or the prompt itself, so it doesn't pretend to know.
 
 ## [0.10.0] — 2026-08-24
 
