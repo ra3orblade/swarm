@@ -20,6 +20,7 @@ import { swarmHome } from "@swarm/client";
 import {
   type Actor,
   type AiderCarry,
+  type Arm,
   AUDIT_TYPES_SQL,
   absolutePath,
   acquireRefusalMessage,
@@ -137,8 +138,10 @@ import {
   type Stall,
   type SwarmConfig,
   type SwarmEvent,
+  scoreTrial,
   sessionDoc,
   shouldAutoRenew,
+  splitArmTask,
   suggestFromIncident,
   summarizeBootstrap,
   type Task,
@@ -4312,6 +4315,134 @@ export class Store {
         agent: meta.get(s.sessionId)?.agent ?? "claude-code",
       })),
     };
+  }
+
+  /** Every task in a project that has arms — i.e. every A/B trial that was ever started. */
+  abTrials(projectId?: string) {
+    const projects = projectId ? [projectId] : this.projects().map((p) => p.id);
+    const out: Array<ReturnType<Store["abTrial"]> & { projectId: string }> = [];
+    for (const pid of projects) {
+      const tasks = [
+        ...new Set(
+          this.claims(pid)
+            .map((c) => splitArmTask(c.task))
+            .filter((x) => x.arm)
+            .map((x) => x.task),
+        ),
+      ];
+      for (const t of tasks.sort()) out.push({ ...this.abTrial(pid, t), projectId: pid });
+    }
+    // Undecided trials first — a trial still running is the one you are waiting on.
+    const rank = { undecided: 0, "all-failed": 1, winner: 2 } as const;
+    return out.sort(
+      (a, b) => rank[a.verdict] - rank[b.verdict] || b.totals.costUsd - a.totals.costUsd,
+    );
+  }
+
+  /** `git diff --shortstat` for a worktree against its base, cached — git stays off the request path. */
+  private diffCache = new Map<string, { v: [number, number, number] | null; t: number }>();
+  private diffInflight: Promise<void> | null = null;
+  private refreshDiffs(worktrees: string[], base: string, ttlMs = 30_000): void {
+    if (this.diffInflight) return;
+    const stale = worktrees.filter((w) => {
+      const hit = this.diffCache.get(w);
+      return !hit || Date.now() - hit.t >= ttlMs;
+    });
+    if (!stale.length) return;
+    this.diffInflight = (async () => {
+      for (const wt of stale) {
+        let v: [number, number, number] | null = null;
+        try {
+          const proc = Bun.spawn(["git", "diff", "--shortstat", `${base}...HEAD`], {
+            cwd: wt,
+            stdout: "pipe",
+            stderr: "ignore",
+          });
+          const out = await new Response(proc.stdout).text();
+          if ((await proc.exited) === 0) {
+            const f = /(\d+) files? changed/.exec(out)?.[1];
+            const i = /(\d+) insertions?/.exec(out)?.[1];
+            const d = /(\d+) deletions?/.exec(out)?.[1];
+            v = [Number(f ?? 0), Number(i ?? 0), Number(d ?? 0)];
+          }
+        } catch {
+          /* worktree gone, or not a repo */
+        }
+        this.diffCache.set(wt, { v, t: Date.now() });
+      }
+    })().finally(() => {
+      this.diffInflight = null;
+    });
+  }
+
+  /**
+   * A/B trial (M9.18): every arm of one task, assembled from the ledger.
+   *
+   * An arm is its own task id (`<task>#<label>`) with its own claim and worktree — the one-holder
+   * claim and the runner's one-live-run-per-task rule are both left intact, because weakening a
+   * fail-closed invariant to run an experiment would be exactly the wrong trade.
+   */
+  abTrial(projectId: string, task: string) {
+    const claims = this.claims(projectId).filter((c) => splitArmTask(c.task).task === task);
+    const all = this.sessions();
+    const sessions = new Map(all.map((s) => [s.id, s]));
+    // An arm's session is the one running *in its worktree*. The claim's actor is the run's owner
+    // string ("ab:opus"), which is a person as far as the ledger is concerned, so it never names the
+    // session — but every arm has a worktree of its own, which makes cwd an exact join.
+    const byCwd = new Map<string, (typeof all)[number]>();
+    for (const s of all) if (s.cwd && !byCwd.has(s.cwd)) byCwd.set(s.cwd, s); // newest first
+    const gateRuns = this.gateRuns(projectId, undefined, 2000);
+
+    const arms: Arm[] = [];
+    for (const c of claims) {
+      const label = splitArmTask(c.task).arm;
+      if (!label) continue; // the bare task itself is not an arm
+      const sess =
+        (c.worktree ? byCwd.get(c.worktree) : undefined) ??
+        (c.sessionId ? sessions.get(c.sessionId) : undefined);
+      const sid = sess?.id ?? c.sessionId;
+      const g = gateRuns.filter((x) => x.task === c.task);
+      const latest = new Map<string, GateRun>();
+      for (const run of [...g].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)))
+        latest.set(run.gate, run);
+      const verdicts = [...latest.values()];
+      const diff = c.worktree ? this.diffCache.get(c.worktree)?.v : null;
+      arms.push({
+        label,
+        task: c.task,
+        model: sess?.model ?? null,
+        agent: sess?.agent ?? "claude-code",
+        sessionId: sid,
+        worktree: c.worktree || null,
+        startedAt: c.acquiredAt,
+        endedAt: sess?.endedAt ?? null,
+        // No session yet is not a crash — an arm whose claim is still held is starting up. Only a
+        // released claim with nothing behind it counts as failed.
+        state:
+          sess && sess.state !== "ended"
+            ? "running"
+            : sess
+              ? "done"
+              : c.state === "held"
+                ? "running"
+                : "failed",
+        costUsd: sess?.costUsd ?? 0,
+        turns: sess?.turns ?? 0,
+        gatesPassed: verdicts.filter((v) => v.verdict === "pass").length,
+        gatesFailed: verdicts.filter((v) => v.verdict === "fail").length,
+        filesChanged: diff ? diff[0] : null,
+        insertions: diff ? diff[1] : null,
+        deletions: diff ? diff[2] : null,
+      });
+    }
+    // The base to diff against is whatever the project's main checkout is on — there is no
+    // "default branch" field, and guessing "main" would measure nothing on a repo using another.
+    const base = this.worktrees(projectId).find((w) => w.main)?.branch ?? "main";
+    this.refreshDiffs(
+      arms.map((a) => a.worktree).filter((w): w is string => !!w),
+      base,
+    );
+    return scoreTrial(task, arms);
   }
 
   collisions(projectId?: string) {

@@ -1468,6 +1468,75 @@ describe("event storage and wire shape (perf)", () => {
     ).toBe(1);
   });
 
+  it("an A/B trial gives each arm its own claim and worktree, and scores them (M9.18)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-ab-repo-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    fs.writeFileSync(join(dir, "README.md"), "ab");
+    for (const cmd of [
+      ["git", "add", "-A"],
+      ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+    ])
+      Bun.spawnSync(cmd, { cwd: dir });
+    const pid = (store.resolveProject(dir, true) as { id: string }).id;
+
+    // Two arms of one task. Each claims its own derived id, so the one-holder claim still holds.
+    const a = store.claim(pid, "M9.18#opus", "ab:opus");
+    const b = store.claim(pid, "M9.18#sonnet", "ab:sonnet");
+    expect(a).toMatchObject({ ok: true });
+    expect(b).toMatchObject({ ok: true });
+    // ...and the bare task is still claimable by someone else — the arms did not take it.
+    expect(store.claim(pid, "M9.18", "someone").ok).toBe(true);
+
+    // Each arm's run lives in its own worktree; that cwd is how a session ties back to its arm.
+    for (const [armId, sid] of [
+      ["M9.18#opus", "s-opus"],
+      ["M9.18#sonnet", "s-sonnet"],
+    ] as const) {
+      const wt = store.claims(pid).find((c) => c.task === armId)?.worktree as string;
+      store.preregisterSpawnedSession(sid, pid, wt, armId);
+      store.endSpawnedSession(sid);
+    }
+
+    store.recordGate(pid, {
+      task: "M9.18#opus",
+      gate: "tests",
+      verdict: "pass",
+      rubric: "ran the suite — all green",
+    });
+    store.recordGate(pid, {
+      task: "M9.18#sonnet",
+      gate: "tests",
+      verdict: "fail",
+      rubric: "ran the suite — two failures",
+    });
+
+    const trial = store.abTrial(pid, "M9.18");
+    expect(trial.arms.map((x) => x.label).sort()).toEqual(["opus", "sonnet"]);
+    const sonnet = trial.arms.find((x) => x.label === "sonnet");
+    expect(sonnet?.gatesFailed).toBe(1);
+    expect(sonnet?.eligible).toBe(false);
+    expect(sonnet?.ineligibleFor).toBe("failed a gate");
+    // Distinct worktrees — the arms are not sharing a tree.
+    expect(new Set(trial.arms.map((x) => x.worktree)).size).toBe(2);
+
+    const r = await app.request(`/v1/ab?project=${pid}&task=M9.18`);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { totals: { arms: number } }).totals.arms).toBe(2);
+
+    const list = await app.request("/v1/ab");
+    expect(((await list.json()) as { trials: unknown[] }).trials.length).toBe(1);
+
+    // A trial needs more than one arm to be a trial.
+    const bad = await app.request("/v1/ab", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: pid, task: "X", arms: [{ model: "only-one" }] }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

@@ -291,6 +291,13 @@ async function refresh() {
     ctxChanged = JSON.stringify(cx) !== JSON.stringify(state.context);
     state.context = cx;
   }
+  let trialsChanged = false;
+  if (state.view === "trials" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const tr = await fetch(`/v1/ab${q}`).then((r) => r.json()).then((r) => r.trials ?? []).catch(() => state.trials);
+    trialsChanged = JSON.stringify(tr) !== JSON.stringify(state.trials);
+    state.trials = tr;
+  }
   let provChanged = false;
   if (state.view === "provenance" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -319,7 +326,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -329,6 +336,7 @@ const VIEW_DEFS = [
   { id: "graphs", label: "Graphs", icon: "tree-structure", group: "Observe", render: () => renderGraphs(), badge: () => state.collisions?.contested ?? 0 },
   { id: "board", label: "Board", icon: "stack", group: "Work", render: () => renderBoard() },
   { id: "prs", label: "PRs", icon: "git-pull-request", group: "Work", render: () => renderPRs() },
+  { id: "trials", label: "Trials", icon: "robot", group: "Work", render: () => renderTrials(), badge: () => (state.trials ?? []).filter((t) => t.verdict === "undecided").length },
   { id: "hygiene", label: "Hygiene", icon: "trash", group: "Work", render: () => renderHygiene(), badge: () => state.hygiene?.totals?.issues ?? 0 },
   // not "check": inside a menu a tick reads as "this item is selected" rather than as an icon
   { id: "outcomes", label: "Outcomes", icon: "git-branch", group: "Insight", render: () => renderOutcomes() },
@@ -1455,6 +1463,40 @@ function renderContext() {
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">Character counts are exact — every tool response is stored. Token figures are a flat 4:1 estimate. <b>MCP tool schemas and the system prompt are not included</b>: Swarm sees tool calls, never the schemas or the prompt preamble, so they are left out rather than guessed at.</p>`;
 }
 
+// M9.18: the same task run by N models side by side. An arm is its own task id, so each has its
+// own claim and worktree and the ledger's one-holder rule is untouched — see core/abtrial.ts.
+const VERDICT = { winner: ["ok", "Decided"], undecided: ["acc", "Running"], "all-failed": ["bad", "No winner"] };
+function renderTrials() {
+  const trials = state.trials;
+  const head = (sub) => `<h2>Trials <span>${sub}</span>${state.sel ? `<span class="grow"></span><span class="chip" id="abNew">${ic("plus", 12)} New trial</span>` : ""}</h2>`;
+  if (!trials) { $("#main").innerHTML = head("same task, different models") + `<div class="empty">${PX.clock()}Loading…</div>`; return; }
+  if (!trials.length) {
+    $("#main").innerHTML = head("same task, different models") + `<div class="empty">${PX.idle()}No trials yet${state.sel ? "" : " — pick a project to start one"}.<br>A trial runs one task on several models at once and compares what each produced: cost, wall time, gates, diff size.</div>`;
+    return;
+  }
+  const secs = (v) => (v === null ? '<span class="dim">—</span>' : dur(v));
+  const cols = [
+    { key: "arm", label: "arm", width: 130, get: (a) => a.label, cell: (a) => `<b>${esc(a.label)}</b>${a.winner ? ' <span class="badge ok">Winner</span>' : ""}` },
+    { key: "state", label: "state", width: 116, get: (a) => a.ineligibleFor ?? "", cell: (a) => (a.eligible ? '<span class="badge ok">Passed</span>' : `<span class="badge ${a.state === "running" ? "acc" : "warn"}" title="This arm cannot win: ${esc(a.ineligibleFor ?? "")}">${esc(a.ineligibleFor ?? "—")}</span>`) },
+    { key: "cost", label: "cost", width: 74, num: true, get: (a) => a.costUsd, cell: (a) => usd(a.costUsd) },
+    { key: "wall", label: "wall", width: 74, num: true, get: (a) => a.wallMs ?? -1, cell: (a) => secs(a.wallMs) },
+    { key: "turns", label: "turns", width: 64, num: true, get: (a) => a.turns, cell: (a) => a.turns },
+    { key: "gates", label: "gates", width: 84, num: true, get: (a) => a.gatesFailed * -1 + a.gatesPassed, cell: (a) => `${a.gatesPassed ? `<span class="badge ok">${a.gatesPassed}</span>` : ""}${a.gatesFailed ? ` <span class="badge bad">${a.gatesFailed}</span>` : ""}${!a.gatesPassed && !a.gatesFailed ? '<span class="dim">none</span>' : ""}` },
+    { key: "diff", label: "diff", width: 108, num: true, get: (a) => a.churn ?? -1, cell: (a) => (a.churn === null ? '<span class="dim">measuring…</span>' : `<span title="${a.filesChanged} file${a.filesChanged === 1 ? "" : "s"} · +${a.insertions} −${a.deletions}">${a.churn} lines</span>`) },
+    { key: "sess", label: "session", flex: true, get: (a) => a.sessionId ?? "", cell: (a) => (a.sessionId ? `<a href="#" data-s="${esc(a.sessionId)}">${esc(a.model ?? a.sessionId.slice(0, 8))}</a>` : '<span class="dim">—</span>') },
+  ];
+  const block = (t) => {
+    const v = VERDICT[t.verdict] ?? VERDICT.undecided;
+    const sub = `${t.totals.arms} arm${t.totals.arms === 1 ? "" : "s"} · ${t.totals.finished} finished · ${usd(t.totals.costUsd)} spent${t.winner ? ` · <b>${esc(t.winner)}</b> won${t.totals.savedUsd > 0.005 ? `, ${usd(t.totals.savedUsd)} cheaper than the dearest` : ""}` : ""}`;
+    return `<h2 class="mt-sec">${esc(t.task)} <span class="badge ${v[0]}">${v[1]}</span> <span>${sub}</span></h2>` +
+      dataTable({ id: `ab-${t.task}`, columns: cols, rows: t.arms, rerender: touch });
+  };
+  const running = trials.filter((t) => t.verdict === "undecided").length;
+  $("#main").innerHTML = head(`${trials.length} trial${trials.length === 1 ? "" : "s"}${running ? ` · ${running} still running` : ""}`) +
+    trials.map(block).join("") +
+    `<p class="dim" style="margin-top:12px;font-size:var(--fs-sm)">An arm wins only if it finished and passed every gate it ran; among those, the cheapest wins and wall time breaks ties. A cheap arm that failed a gate never wins — the cheap wrong answer is not the answer. Each arm claims <code>task#arm</code>, so it gets its own worktree and the one-holder claim is never bent.</p>`;
+}
+
 // M9.14: issue → task → claim → session → branch → PR → merged, as one row per piece of work.
 // The six link dots are the graph: a filled run that stops is exactly where the trail goes cold.
 const LINK_ORDER = ["task", "claim", "session", "branch", "pr", "merged"];
@@ -2334,7 +2376,7 @@ document.addEventListener("contextmenu", (ev) => {
 // unreachable (closest() returns null and the click dies silently) — that is how Replay,
 // Resume-where-it-died and the dry-run Re-run button all shipped dead.
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-graphtab],[data-group],[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-graphtab],[data-group],#abNew,[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -2420,6 +2462,23 @@ document.addEventListener("click", async (ev) => {
   if (t.id === "dryrun") { ev.preventDefault(); return openDryRun(); }
   if (t.dataset.skind !== undefined) { ev.preventDefault(); srch.kind = t.dataset.skind; return runSearch().then(renderSearch); }
   if (t.id === "drRun") { ev.preventDefault(); return runDryRun(); }
+  if (t.id === "abNew") {
+    ev.preventDefault();
+    if (!state.sel) return;
+    const task = prompt("Task id to trial (each arm claims task#model, so each gets its own worktree):");
+    if (!task) return;
+    const models = prompt("Models to compare, comma separated:", "opus-5, sonnet-5");
+    const arms = (models ?? "").split(",").map((m) => m.trim()).filter(Boolean).map((m) => ({ model: m, label: m }));
+    if (arms.length < 2) { alert("A trial needs at least two models."); return; }
+    const r = await fetch("/v1/ab", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: state.sel, task: task.trim(), arms }),
+    }).then((x) => x.json()).catch(() => null);
+    if (!r) return alert("Could not reach the daemon.");
+    if (r?.failed?.length) alert(`Started ${r.started.length}. Could not start: ${r.failed.map((f) => `${f.arm} — ${f.reason}`).join("; ")}`);
+    return refresh();
+  }
   if (t.dataset.group) {
     ev.preventDefault();
     const open = new Set(state.lineageOpen ?? []);
