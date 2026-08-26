@@ -19,6 +19,7 @@ import { ART_PALETTE, artSvg, HEAD, MARK, trimArt } from "../packages/core/src/a
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "apps/desktop/src-tauri/icons");
 const site = join(root, "site");
+const web = join(root, "packages/web/public");
 
 const rgb = (hex: string): [number, number, number] => [
   Number.parseInt(hex.slice(1, 3), 16),
@@ -326,8 +327,23 @@ writeFileSync(
   }),
 );
 
+// ── the dashboard's own favicon ─────────────────────────────────────────────
+// It used to be a data: URL pasted into index.html, which is exactly the kind of second copy that
+// goes stale — it was still the pre-redraw robot long after everything else had changed. The
+// dashboard now links these two files and the daemon serves them.
+writeFileSync(join(web, "favicon.ico"), ico([16, 32, 48]));
+writeFileSync(
+  join(web, "favicon.svg"),
+  artSvg(SMALL.rows, ART_PALETTE, {
+    title: "Swarm",
+    cell: 1,
+    tile: { fill: "#0e1013", pad: 2, radius: 4 },
+  }),
+);
+
 console.log(
   `icons: ${files.length} png + icon.ico + tray.png${icns ? " + icon.icns" : ""} → ${out}\n` +
+    "       favicon.ico, favicon.svg → packages/web/public\n" +
     `       head.png, mark.png, apple-touch-icon.png, favicon.ico, favicon.svg → ${site}` +
     (icns ? "" : "\n       (icon.icns needs macOS iconutil)"),
 );
