@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1157,8 +1157,17 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     const f = c.req.param("file");
     const p = join(WEB_DIR, f);
     if (!existsSync(p)) return c.text(`${f} not built — run: bun run build:web`, 404);
+    // These files change with every upgrade, and they carried no cache headers at all — so a
+    // browser was free to keep the previous build's app.js and release-notes.js after the daemon
+    // restarted into a new version. `no-cache` still stores the file, it just forces a
+    // revalidation, so the common case is a cheap 304 and the upgrade case is always correct.
+    const st = statSync(p);
+    const etag = `W/"${st.size.toString(16)}-${st.mtimeMs.toString(16)}"`;
+    if (c.req.header("if-none-match") === etag) return c.body(null, 304, { etag });
     return c.body(readFileSync(p, "utf8"), 200, {
       "content-type": MIME[f.split(".").pop() ?? ""] ?? "text/plain",
+      "cache-control": "no-cache",
+      etag,
     });
   });
 
