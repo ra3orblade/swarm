@@ -59,7 +59,7 @@
   .hero::after{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
     background:radial-gradient(ellipse 55% 50% at 50% 28%,var(--acc-soft),transparent 65%)}
   .hero>*{position:relative;z-index:1}
-  .hero .mark{width:292px;height:auto;image-rendering:pixelated;margin-bottom:24px}
+  .hero .mark{width:282px;height:auto;image-rendering:pixelated;margin-bottom:24px}
   h1{font-size:40px;margin:0 0 10px;letter-spacing:-.01em}
   .tag{color:var(--dim);font-size:18px;max-width:620px;margin:0 auto 30px}
   .cta{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:12px}
@@ -184,7 +184,7 @@
 <body>
 <div class="wrap">
   <header>
-    <img class="mark" src="/mark.png" width="32" height="26" alt="Swarm" decoding="async">
+    <img class="mark" src="/mark.png" width="24" height="24" alt="Swarm" decoding="async">
     <b>Swarm</b>
     <nav>
       <a href="#features">Features</a>
@@ -196,7 +196,7 @@
   </header>
 
   <div class="hero">
-    <div class="sky" aria-hidden="true"><canvas id="rain"></canvas></div><img class="mark" src="/robot.png" width="292" height="348" alt="Swarm" fetchpriority="high" decoding="async">
+    <div class="sky" aria-hidden="true"><canvas id="rain"></canvas></div><img class="mark" src="/head.png" width="282" height="222" alt="Swarm" fetchpriority="high" decoding="async">
     <h1>See every agent. Stop the collisions.</h1>
     <p class="tag">One daemon watches every agent session on your machine, keeps the ledger of who holds which task, worktree and port, spawns and gates agents of its own — and turns “never do X” from a line in <code>CLAUDE.md</code> into a permission decision.</p>
     <p class="tag" style="font-size:15px;margin-top:-18px">Local-first. No account, no telemetry, nothing added to your repositories.</p>

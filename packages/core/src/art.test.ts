@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ART_PALETTE, ART_THEME, artSvg, MARK, ROBOT, trimArt } from "./art";
+import { ART_PALETTE, ART_THEME, artSvg, HEAD, MARK, ROBOT, trimArt } from "./art";
 
 describe("ROBOT", () => {
   test("every row is the same width — a short row shears the drawing", () => {
@@ -31,9 +31,14 @@ describe("ROBOT", () => {
     expect(ROBOT.some((r) => r !== [...r].reverse().join(""))).toBe(true);
   });
 
+  test("HEAD is the top of the same drawing, not a second copy", () => {
+    expect([...HEAD]).toEqual([...ROBOT.slice(0, HEAD.length)]);
+    expect(HEAD.at(-1)?.trim()).not.toBe(""); // ends on the jaw, not on blank rows
+  });
+
   test("MARK is its own drawing, not a crop that would turn to mush at 16px", () => {
     expect(MARK.length).toBeLessThan(ROBOT.length);
-    expect((MARK[0] as string).length).toBeLessThan((ROBOT[0] as string).length);
+    expect((MARK[0] as string).length).toBeLessThan((HEAD[0] as string).length);
     expect(new Set(MARK.map((r) => r.length)).size).toBe(1);
     expect(MARK.every((r) => r === [...r].reverse().join(""))).toBe(true);
   });

@@ -103,25 +103,32 @@ export const ROBOT: readonly string[] = [
 ];
 
 /**
- * The head alone, drawn separately rather than cropped: ROBOT is 73 cells wide, which is under a
- * quarter of a pixel per cell in a 16px favicon. Fewer tones, no inner panel border, and features
- * spaced so nothing merges when it is two pixels tall.
+ * Antennae down to the jaw — the top of the same drawing, not a second copy. This is what the
+ * icons and the site's marks use: the whole robot has arms, claws, a vent grille and four buttons,
+ * and squeezed into a tile none of it survives, so it reads as clutter rather than as a robot.
+ */
+export const HEAD: readonly string[] = ROBOT.slice(0, 37);
+
+/**
+ * A simpler head again, drawn separately rather than cropped: HEAD is 47 cells wide, which is under a third of
+ * a pixel per cell in a 16px favicon. Twelve cells is also what keeps the small sizes crisp: the
+ * renderer only ever uses whole-pixel cells, and 12 divides into 16, 32 and 64 without a remainder
+ * worth caring about, where 16 or 20 would leave the art stranded at half the tile. Fewer tones, no inner panel border, and features spaced so
+ * nothing merges when it is two pixels tall.
  */
 export const MARK: readonly string[] = [
-  "    L      L    ",
-  "    M      M    ",
-  "  OOOOOOOOOOOO  ",
-  "  OMMMMMMMMMMO  ",
-  "  OEEEEEEEEEEO  ",
-  "  OELLLLLLLLEO  ",
-  "OOOEMMMMMMMMEOOO",
-  "OSOEMSSMMSSMEOSO",
-  "OSOEMSSMMSSMEOSO",
-  "OOOEMMMMMMMMEOOO",
-  "  OEMMSSSSMMEO  ",
-  "  ODDDDDDDDDDO  ",
-  "  OOOOOOOOOOOO  ",
-  "                ",
+  "   L    L   ",
+  "   M    M   ",
+  " OOOOOOOOOO ",
+  " OMMMMMMMMO ",
+  " OELLLLLLEO ",
+  " OEMMMMMMEO ",
+  "DOESSMMSSEOD",
+  "DOESSMMSSEOD",
+  "DOEMMMMMMEOD",
+  " OEMSSSSMEO ",
+  " ODDDDDDDDO ",
+  " OOOOOOOOOO ",
 ];
 
 /**

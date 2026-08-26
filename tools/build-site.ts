@@ -122,7 +122,7 @@ const css = `
 // The header mark, written by `bun tools/icons.ts` from MARK in core/art.ts (one drawing, one
 // source). A PNG rather than inline SVG so every page links the same file instead of carrying a
 // copy of the drawing in its own markup.
-const mark = `<img class="mark" src="/mark.png" width="32" height="26" alt="Swarm" decoding="async">`;
+const mark = `<img class="mark" src="/mark.png" width="24" height="24" alt="Swarm" decoding="async">`;
 
 // the same icon files the landing page links (site/favicon.svg, favicon.ico, apple-touch-icon.png)
 const favicon =
