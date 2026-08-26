@@ -2,6 +2,37 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.11.0] — 2026-08-26
+
+The observatory release: the dashboard stops reporting what your agents *did* and starts telling you what it *cost* — in money, in waiting, in context, and in work nobody can trace. Nine M9 tasks, five new views, and a design pass that fixed things which had been quietly wrong for several releases.
+
+### Added
+- **Waiting-on-human** — how long a session sat blocked on a person, and how long the person took. Three kinds of wait, all from events already recorded: a permission prompt, a question the agent asked, and a notification — the last has no closing event, so it is closed by the session's *next activity*, which is exactly when the human unblocked it. A wait still open when its session ended is capped at that end, so a laptop closed on a pending prompt cannot report a week of blocked time. A **Waiting 12m** badge on Fleet names what is blocking, and a **Waiting on you** section on Stats ranks by kind, median and longest (M9.4).
+- **Context composition** — where the window actually goes. Tool-result volume is exact (every response is stored), and the waste metric is re-reads: a file read N times costs the window N copies, the first is work and the rest are the price of having forgotten. New **Context** view: what fills the window by tool, cache-hit rate, and the sessions that wasted most with their worst files. *MCP schemas and the system prompt are deliberately absent — Swarm sees calls, never the schemas, so they are left out rather than estimated* (M9.5).
+- **MCP server health** — per-server latency, error rate, and the wall-clock the fleet spent waiting on each. No duration is recorded anywhere, so latency is measured hook-to-hook and labelled as such: a call held behind a permission prompt carries that wait too, which is why the view leads with p50/p95. New **MCP** view (M9.6).
+- **Gate flakiness** — a gate is flaky when it returns **both** verdicts on the **same task**; failing on one task and passing on another is the gate doing its job. Gate wall-clock became a real number: schema **v2** adds `gates.duration_ms` and back-fills historic rows from the rubric prose it used to hide in. New **Gates** view — pass/fail strip, pass rate, flips, p50/p95/slowest, ranked flaky-first (M9.7).
+- **Machine hygiene** — what the fleet left behind: processes still holding a port after their session ended, registry rows whose pid is gone, worktrees that merged days ago and still occupy disk. "Safe to remove" defers to the ledger's own `canRemoveWorktree` rather than re-deriving it, so the view can never offer a removal the ledger would refuse. New **Hygiene** view with the existing Stop / Remove actions inline (M9.8).
+- **Graph engine** — a deterministic layered DAG layout with no chart library. The maths lives in `core` and is unit-tested, so it is reproducible (every tie broken by node id), stable across live updates, and cycle-safe — two agents messaging each other is a legitimate loop, and the closing edge is drawn bowed rather than hanging the layout (M9.11).
+- **Session lineage** — who started whom, who told whom, who picked up whose work: subagent, dispatch, message and handoff edges, all from recorded state. A sibling fan above a threshold collapses into a click-to-expand pill, because the thing that makes these graphs unreadable is fan-out, not the renderer. New **Lineage** tab on Graphs (M9.13).
+- **Provenance chain** — issue → task → claim → session → branch → PR → merged, as one row per piece of work, with six link dots filled to where the trail goes cold. Walked from **both ends**, so *work that landed with no task behind it* shows up — which a task-keyed walk can never surface. New **Provenance** view under Guard (M9.14).
+- **A/B dispatch** — the same task run by N models side by side, compared on cost, wall time, gates and diff size. The ledger is not bent to do it: a claim is one holder per task and the runner refuses a second live run, so an arm is its own task id `<task>#<arm>` with its own claim and worktree. An arm wins only if it finished and passed every gate it ran; among those the cheapest wins. A cheap arm that failed a gate never wins. New **Trials** view (M9.18).
+
+### Fixed
+- **Table cells overprinted their neighbour.** `td:first-child{overflow:visible}` existed so the status dot's pulsing glow would not be sheared off, but it also un-clipped the first *content* column of every grid — a long branch name painted straight over the `outcome` badge next to it.
+- **The Board's incident count could never exceed 20.** It counted the snapshot's 20-row window while the Guard badge counted the truth; the two now read the same number.
+- **The header never said which view you were on** — ten views behind four group menus, all reading "Observe". The active group now carries its view's own name.
+- **A menu's current item and its hovered item were the same green**, so neither read as current. The highlight is neutral again and the accent is reserved for where you are.
+- **Numbers ellipsized in numeric columns** (`134….`): the token formatter had no billions step, so 2.8B rendered as "2820.0M". Nothing numeric can overflow its column now.
+- **The ⋯ vanished under its own menu** and the row jumped as it appeared — it was revealed by `:hover` alone and toggled as a flex item.
+- **Pixel art had no contrast in light mode.** The palette's shade and its face had a luminance separation of **0.002** — the outline was mathematically invisible. All three tones now derive from the accent, and the empty-state robot was redrawn with ear modules, a brow, a grille and a tapered body.
+- **Replay resized on every step**, moving Prev/Next under the cursor mid-click. The dialog is a fixed height and the body scrolls inside it.
+- **The transcript spent 204px per row on chrome** before a character of content, most of it on raw hook names like `pretooluse` that repeat every row and say nothing the row does not.
+- Destructive menu rows had a grey icon beside red text; `hbars` value columns wrapped onto three lines and tripled row height.
+
+### Notes
+- Schema **v2** applies automatically on first start and back-fills gate durations; `swarm doctor` reports the version.
+- M9 is 13 of 18. Security audit (M9.9), rule effectiveness (M9.10), the tool-transition digraph (M9.15), the traversal map (M9.16) and the resource-holding graph (M9.17) remain open.
+
 ## [0.10.0] — 2026-08-24
 
 The team release: Swarm outgrows one laptop. A self-hosted team daemon gives a group one view — machines, cluster-wide claims, spend by person — while every laptop stays local-first and keeps working offline. Two more agent brands land (six total), and the dashboard starts reading the fleet's behaviour, not just its numbers: outcomes, stalls, collisions.
