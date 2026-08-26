@@ -2012,25 +2012,61 @@ function renderHeat(head) {
     ${kpi("Re-reads", t.rereads.toLocaleString(), t.touches ? `${Math.round((t.rereads / t.touches) * 100)}% of every touch` : "none")}
     ${kpi("Touched once", t.cold.toLocaleString(), "cold — read and never returned to")}
     ${kpi("CLAUDE.md candidates", h.candidates.length, h.candidates.length ? "re-read by several sessions" : "nothing worth writing down", h.candidates.length ? "warm" : "")}</div>`;
-  // Every path starts with the same home prefix, so truncating from the right hides the only part
-  // that differs. Keep the last few segments instead.
-  const segs = (p, n) => { const parts = short(p).split("/"); return parts.length <= n ? short(p) : `…/${parts.slice(-n).join("/")}`; };
-  const fileRows = h.files.slice(0, 14).map((f) => `<tr>
-      <td class="clip" title="${esc(short(f.path))}">${esc(segs(f.path, 3))}</td>
+  // Paths here are long and the column is narrow, and neither end can simply be cut: the head is
+  // a home prefix every row shares, and the tail is the filename — which is the only part worth
+  // reading. Three worktrees each have a packages/web/public/app.js, so the name alone is not
+  // enough either. Name first, then just enough of its directory to tell them apart, dimmed and
+  // free to truncate.
+  const nameOf = (p) => short(p).split("/").pop() || short(p);
+  const ctxOf = (p, n = 2) => {
+    const parts = short(p).split("/");
+    parts.pop();
+    return parts.length <= n ? parts.join("/") : `…/${parts.slice(-n).join("/")}`;
+  };
+  /**
+   * Two segments of context is usually enough, but three worktrees each holding a
+   * packages/web/public/app.js all render identically — the list then reads as one file listed
+   * three times. Widen the context only for the rows that actually collide, and only as far as it
+   * takes to tell them apart.
+   */
+  const labelPaths = (paths) => {
+    const out = new Map();
+    for (const p of paths) {
+      let n = 2;
+      let label = `${nameOf(p)}|${ctxOf(p, n)}`;
+      while (n < 6 && paths.some((q) => q !== p && `${nameOf(q)}|${ctxOf(q, n)}` === label)) {
+        n++;
+        label = `${nameOf(p)}|${ctxOf(p, n)}`;
+      }
+      out.set(p, ctxOf(p, n));
+    }
+    return out;
+  };
+  const pathCell = (p, ctx) =>
+    `<b>${esc(nameOf(p))}</b> <span class="dim">${esc(ctx.get(p) ?? ctxOf(p))}</span>`;
+
+  const shownFiles = h.files.slice(0, 14);
+  const fileCtx = labelPaths(shownFiles.map((f) => f.path));
+  const fileRows = shownFiles.map((f) => `<tr>
+      <td class="clip path" title="${esc(short(f.path))}">${pathCell(f.path, fileCtx)}</td>
       <td class="num"><b>${f.touches.toLocaleString()}</b></td>
       <td class="num">${f.sessions}</td>
       <td class="num">${f.rereads.toLocaleString()}</td>
       <td class="num">${f.writes.toLocaleString()}</td>
     </tr>`).join("");
   const top = h.dirs[0]?.touches || 1;
-  const dirRows = h.dirs.slice(0, 10).map((d) => `<li>
+  const shownDirs = h.dirs.slice(0, 10);
+  const dirCtx = labelPaths(shownDirs.map((d) => d.dir));
+  const dirRows = shownDirs.map((d) => `<li>
       <span class="bar" style="--w:${Math.max(2, Math.round((d.touches / top) * 100))}%"></span>
-      <span class="clip" title="${esc(short(d.dir))}">${esc(segs(d.dir, 4))}</span>
+      <span class="clip path" title="${esc(short(d.dir))}">${pathCell(d.dir, dirCtx)}</span>
       <b>${d.touches.toLocaleString()}</b>
       <span class="dim">${d.files} file${d.files === 1 ? "" : "s"} · ${d.sessions} session${d.sessions === 1 ? "" : "s"}</span>
     </li>`).join("");
-  const cand = h.candidates.slice(0, 10).map((f) => `<tr>
-      <td class="clip" title="${esc(f.path)}">${esc(f.path)}</td>
+  const shownCand = h.candidates.slice(0, 10);
+  const candCtx = labelPaths(shownCand.map((f) => f.path));
+  const cand = shownCand.map((f) => `<tr>
+      <td class="clip path" title="${esc(short(f.path))}">${pathCell(f.path, candCtx)}</td>
       <td class="num"><b>${f.rereads.toLocaleString()}</b></td>
       <td class="num">${f.sessions}</td>
     </tr>`).join("");
@@ -2039,14 +2075,16 @@ function renderHeat(head) {
        <div class="chart-card" style="margin:0"><h3>Hottest files <span>every touch, across sessions</span></h3>
          <table class="mini"><colgroup><col style="width:46%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:13%"></colgroup>
          <thead><tr><th>path</th><th class="num">touches</th><th class="num">sessions</th><th class="num">re-reads</th><th class="num">writes</th></tr></thead><tbody>${fileRows}</tbody></table></div>
+       <div style="display:flex;flex-direction:column;gap:var(--gap-sec);min-width:0">
        <div class="chart-card" style="margin:0"><h3>Worth writing down <span>read again and again, rarely written</span></h3>
          ${cand
            ? `<table class="mini"><colgroup><col style="width:58%"><col style="width:22%"><col style="width:20%"></colgroup><thead><tr><th>path</th><th class="num">re-reads</th><th class="num">sessions</th></tr></thead><tbody>${cand}</tbody></table>
               <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Several sessions keep reading these and rarely change them — the conclusion is being re-derived every time. Put it in <code>CLAUDE.md</code> once instead.</p>`
            : '<div class="dim">Nothing here is worth extracting. Every file several sessions re-read is also one they edit — that is where the work is, not a reference being re-learned.</div>'}</div>
+       <div class="chart-card" style="margin:0"><h3>By directory <span>where the work sits</span></h3>
+         <ul class="heatlist">${dirRows}</ul></div>
+       </div>
      </div>
-     <div class="chart-card"><h3>By directory <span>where the work sits</span></h3>
-       <ul class="heatlist">${dirRows}</ul></div>
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>Incidents are not correlated here.</b> An incident records the rule, the action and the command — not a path — so tying a rule that fired on a shell command to a file would mean parsing paths out of command strings and guessing.</p>`;
 }
 

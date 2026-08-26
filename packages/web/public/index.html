@@ -367,6 +367,10 @@
     padding:5px 0;border-bottom:1px solid var(--line-2)}
   .plainlist li:last-child{border-bottom:0}
   .plainlist li b{font-family:var(--mono);font-size:var(--fs-mono);font-weight:600;color:var(--fg)}
+  /* filename first and legible, its directory after it and free to be cut */
+  td.path,span.path{font-family:var(--mono);font-size:var(--fs-mono)}
+  td.path b,span.path b{color:var(--fg);font-weight:600}
+  td.path .dim,span.path .dim{font-size:var(--fs-xs)}
 
   /* Ranked rows with the magnitude behind the text — a four-column table for this stretches the
      directory across the page and floats the numbers a screen away from what they describe. */
@@ -374,7 +378,8 @@
   .heatlist li{position:relative;display:flex;align-items:center;gap:10px;padding:6px 10px;
     font-size:var(--fs-md);color:var(--fg-2);border-radius:var(--r-sm);overflow:hidden}
   .heatlist li .bar{position:absolute;inset:0 auto 0 0;width:var(--w);background:var(--acc-soft);border-radius:var(--r-sm)}
-  .heatlist li > span.clip{position:relative;flex:1;min-width:0;font-family:var(--mono);font-size:var(--fs-mono)}
+  .heatlist li > span.clip{position:relative;flex:1;min-width:0;font-family:var(--mono);font-size:var(--fs-mono);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .heatlist li b{position:relative;font-variant-numeric:tabular-nums;color:var(--fg)}
   .heatlist li .dim{position:relative;font-size:var(--fs-sm);white-space:nowrap}
 
