@@ -353,7 +353,10 @@
   @media (max-width:980px){.sess{grid-template-columns:1fr}.sess>*{height:auto;max-height:calc(100vh - 140px)}}
   #log{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
     padding:6px 0;overflow:auto}
-  .ev{display:grid;grid-template-columns:68px 112px 1fr;gap:12px;padding:5px 14px;align-items:baseline}
+  /* 68 + 112 + two 12px gaps was 204px of chrome before a single character of transcript. The
+     kind labels are short now (see EV_LABEL), so the columns fit what they hold and the text
+     gets the width back. */
+  .ev{display:grid;grid-template-columns:56px 54px 1fr;gap:10px;padding:5px 14px;align-items:baseline}
   .ev:hover{background:var(--panel-2)}
   .ev .t{color:var(--faint);font:var(--fs-sm) var(--mono)}
   .ev .k{color:var(--dim);font:500 var(--fs-sm) var(--mono);text-transform:lowercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -492,6 +495,10 @@
     padding:2px 9px;font-size:var(--fs-sm);font-weight:500;text-decoration:none;transition:color var(--t-fast),border-color var(--t-fast)}
   .mini-act:hover{color:var(--acc);border-color:var(--acc)}
   .mini-act.bad:hover{color:var(--bad);border-color:var(--bad)}
+  /* provenance link track: six dots, filled to where the trail goes cold */
+  .track{display:inline-flex;gap:3px;align-items:center}
+  .track i{width:7px;height:7px;border-radius:50%;background:var(--line);border:1px solid var(--line-2)}
+  .track i.on{background:var(--acc);border-color:var(--acc)}
   .stat .ph{color:var(--faint);margin-right:7px}
   .empty .ph{display:block;margin:0 auto 10px;color:var(--faint)}
   .empty .px{display:block;margin:0 auto 14px;image-rendering:pixelated}
