@@ -97,6 +97,31 @@ export class ForgeService {
    * `git log --grep` on the local default branch — forge-independent, works offline.
    */
   private outcomeCache = new Map<string, { at: number; merged: MergedPR[]; reverted: string[] }>();
+  private outcomeInflight = new Map<string, Promise<unknown>>();
+
+  /**
+   * What is already known about a project's merged PRs, without waiting for the forge.
+   *
+   * `merged()` shells out to `gh`/`glab`, so asking for every project at once cost ~9s on a machine
+   * with 21 of them — once every 10 minutes, whoever opened Provenance first paid it. Views that
+   * would rather paint now and fill in later call this instead: it returns the cached answer (empty
+   * on a cold start), and kicks a refresh in the background so the next poll has it.
+   */
+  mergedCached(
+    projectId: string,
+    root: string,
+  ): { merged: MergedPR[]; reverted: string[]; fresh: boolean } {
+    const hit = this.outcomeCache.get(projectId);
+    const fresh = !!hit && Date.now() - hit.at < 600_000;
+    if (!fresh && !this.outcomeInflight.has(projectId)) {
+      const run = this.merged(projectId, root).finally(() =>
+        this.outcomeInflight.delete(projectId),
+      );
+      this.outcomeInflight.set(projectId, run);
+    }
+    return { merged: hit?.merged ?? [], reverted: hit?.reverted ?? [], fresh };
+  }
+
   async merged(
     projectId: string,
     root: string,

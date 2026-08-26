@@ -2,6 +2,18 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.11.1] — 2026-08-26
+
+Mostly the look of the thing, plus one page that was genuinely slow.
+
+### Added
+- **The robot is the logo.** It replaces the abstract pixel glyph in the dashboard header, on the site, and in the favicons. The header mark also follows your theme now — it was hardcoded to one green and ignored light mode entirely.
+- **Matrix rain in the hero.** Pixel columns falling at their own speeds, brightest at the leading edge, fading out of the middle so they never sit behind anything you have to read.
+
+### Fixed
+- **Provenance took nine seconds to open.** It was asking your forge about every project before drawing anything — on a machine with 21 of them that is 21 round trips, and whoever opened the page first every ten minutes paid for all of them. It now draws from what it already knows and lets the pull request state catch up a moment later, which took it from **8.9s to 0.7s**. It also pages 50 rows at a time instead of sending all 116.
+- **The landing page read like documentation.** Config snippets, exit codes and words like "fail-closed" and "orphaned" in the middle of sentences meant to sell. Rewritten to say what the thing does for you; the syntax lives in the docs, where someone is looking for it.
+
 ## [0.11.0] — 2026-08-26
 
 Swarm could already tell you what your agents did. This release is about what it cost you — in money, in waiting around, in context burned re-reading the same file, and in work that shipped with nothing linking it back to a ticket.

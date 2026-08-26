@@ -1557,6 +1557,29 @@ describe("event storage and wire shape (perf)", () => {
     expect((await stale.text()).length).toBeGreaterThan(0);
   });
 
+  it("provenance pages its chains and never blocks on the forge (M9.14)", async () => {
+    const { app } = createApp(new Store(tmpHome()));
+    const r = await app.request("/v1/provenance?limit=2&offset=0");
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      chains: unknown[];
+      page: { limit: number; offset: number; total: number };
+      stale: boolean;
+    };
+    expect(j.page.limit).toBe(2);
+    expect(j.page.offset).toBe(0);
+    expect(j.chains.length).toBeLessThanOrEqual(2);
+    // `total` is the whole set, so the view can say what it is not showing.
+    expect(j.page.total).toBeGreaterThanOrEqual(j.chains.length);
+    expect(typeof j.stale).toBe("boolean");
+
+    // Absurd paging values are clamped rather than trusted.
+    const wild = await app.request("/v1/provenance?limit=99999&offset=-5");
+    const w = (await wild.json()) as { page: { limit: number; offset: number } };
+    expect(w.page.limit).toBeLessThanOrEqual(500);
+    expect(w.page.offset).toBe(0);
+  });
+
   it("prunes old events but keeps incidents", () => {
     const store = new Store(tmpHome());
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();

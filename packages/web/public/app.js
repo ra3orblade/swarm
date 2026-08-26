@@ -315,7 +315,8 @@ async function refresh() {
   let provChanged = false;
   if (state.view === "provenance" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
-    const pv = await fetch(`/v1/provenance${q}`).then((r) => r.json()).catch(() => state.provenance);
+    const off = state.provOffset ?? 0;
+    const pv = await fetch(`/v1/provenance${q ? `${q}&` : "?"}limit=50&offset=${off}`).then((r) => r.json()).catch(() => state.provenance);
     provChanged = JSON.stringify(pv) !== JSON.stringify(state.provenance);
     state.provenance = pv;
   }
@@ -1559,8 +1560,22 @@ function renderProvenance() {
     { key: "cost", label: "cost", width: 74, num: true, get: (c) => c.costUsd, cell: (c) => usd(c.costUsd) },
     { key: "lead", label: "lead", width: 68, num: true, get: (c) => c.leadHours ?? -1, cell: (c) => (c.leadHours === null ? '<span class="dim">—</span>' : leadTime(c.leadHours)) },
   ];
-  $("#main").innerHTML = head(`${t.tasks} chain${t.tasks === 1 ? "" : "s"} · ${t.untracked ? `<b class="navcount">${t.untracked} untracked</b>` : "every branch has a task"}`) + kpis +
-    dataTable({ id: "provenance", columns: cols, rows: p.chains, rerender: touch }) +
+  const pg = p.page ?? { limit: p.chains.length, offset: 0, total: p.chains.length };
+  const from = pg.total ? pg.offset + 1 : 0;
+  const to = Math.min(pg.offset + pg.limit, pg.total);
+  const pager = pg.total > pg.limit
+    ? `<div class="chips" style="margin-top:10px">
+         <span class="chip ${pg.offset ? "" : "off"}" data-provpage="${Math.max(0, pg.offset - pg.limit)}">${ic("arrow-left", 12)} Newer</span>
+         <span class="dim" style="align-self:center;font-size:var(--fs-sm)">${from}–${to} of ${pg.total}</span>
+         <span class="chip ${to >= pg.total ? "off" : ""}" data-provpage="${pg.offset + pg.limit}">Older ${ic("arrow-right", 12)}</span>
+       </div>`
+    : "";
+  // A cold start has no forge data yet, so PR columns would read as "no PR" for everything.
+  const catching = p.stale
+    ? `<p class="dim" style="margin-top:8px;font-size:var(--fs-sm)">${ic("arrows-clockwise", 12)} Pull request state is still loading from the forge — it fills in on the next refresh.</p>`
+    : "";
+  $("#main").innerHTML = head(`${pg.total} chain${pg.total === 1 ? "" : "s"} · ${t.untracked ? `<b class="navcount">${t.untracked} untracked</b>` : "every branch has a task"}`) + kpis +
+    dataTable({ id: "provenance", columns: cols, rows: p.chains, rerender: touch }) + pager + catching +
     `<p class="dim" style="margin-top:10px;font-size:var(--fs-sm)">The six dots are task · claim · session · branch · PR · merged — a filled run that stops is where the trail goes cold. Chains are walked from both ends: from tasks forward, and from branches back, so <b>work that landed with no task behind it</b> shows up too. Task rows carry no issue link because the task source records ids and titles, not URLs.</p>`;
 }
 
@@ -2394,7 +2409,7 @@ document.addEventListener("contextmenu", (ev) => {
 // unreachable (closest() returns null and the click dies silently) — that is how Replay,
 // Resume-where-it-died and the dry-run Re-run button all shipped dead.
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-graphtab],[data-group],#abNew,[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
+  const t = ev.target.closest("[data-menu],#settings,#feedback,[data-id],[data-s],#back,[data-view],.chip,[data-tl],[data-days],[data-sdays],[data-release],[data-forcerelease],[data-resrelease],[data-merge],[data-ack],[data-ackall],[data-inc],[data-graphtab],[data-group],[data-provpage],#abNew,[data-task-filter],[data-claim],[data-procstop],[data-run],[data-runstop],[data-wtopen],[data-wtrm],[data-wtdiff],[data-wtpr],[data-dffile],#prGo,#sessDiff,#replay,#resumeDead,#drRun,#wtnew,#wtgc,[data-gaterun],[data-codify],[data-wfstop],[data-bmode],[data-emoji],#psAllEmoji,.swatch,#psSave,#msgSend,#dispatch,#dispatchGo,#dispatchClear");
   if (!t) return;
   if (t.dataset.menu) { ev.preventDefault(); ev.stopPropagation(); return openMenu(t.dataset.menu, t, t.dataset); }
   if (t.id === "settings") { ev.preventDefault(); return openMenu("settings", t, {}); }
@@ -2495,6 +2510,12 @@ document.addEventListener("click", async (ev) => {
     }).then((x) => x.json()).catch(() => null);
     if (!r) return alert("Could not reach the daemon.");
     if (r?.failed?.length) alert(`Started ${r.started.length}. Could not start: ${r.failed.map((f) => `${f.arm} — ${f.reason}`).join("; ")}`);
+    return refresh();
+  }
+  if (t.dataset.provpage) {
+    ev.preventDefault();
+    if (t.classList.contains("off")) return;
+    state.provOffset = Number(t.dataset.provpage);
     return refresh();
   }
   if (t.dataset.group) {

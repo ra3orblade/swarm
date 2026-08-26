@@ -65,6 +65,8 @@ export function artSvg(
     title?: string;
     /** Per-cell class, so one part can animate without the whole drawing pulsing. */
     classOf?: (glyph: string, x: number, y: number) => string | undefined;
+    /** Per-cell inline style, e.g. a custom property the stylesheet staggers an animation by. */
+    styleOf?: (glyph: string, x: number, y: number) => string | undefined;
   } = {},
 ): string {
   const cell = opts.cell ?? 6;
@@ -83,14 +85,16 @@ export function artSvg(
         continue;
       }
       const cls = opts.classOf?.(glyph, x, y);
+      const style = opts.styleOf?.(glyph, x, y);
       let run = 1;
       while (
         x + run < row.length &&
         row[x + run] === glyph &&
-        opts.classOf?.(glyph, x + run, y) === cls
+        opts.classOf?.(glyph, x + run, y) === cls &&
+        opts.styleOf?.(glyph, x + run, y) === style
       )
         run++;
-      out += `<rect${cls ? ` class="${cls}"` : ""} x="${x * cell}" y="${y * cell}" width="${run * cell}" height="${cell}" fill="${fill}"/>`;
+      out += `<rect${cls ? ` class="${cls}"` : ""}${style ? ` style="${style}"` : ""} x="${x * cell}" y="${y * cell}" width="${run * cell}" height="${cell}" fill="${fill}"/>`;
       x += run;
     }
   });

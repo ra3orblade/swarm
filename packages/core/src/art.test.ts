@@ -103,3 +103,17 @@ describe("artSvg run-merging", () => {
     expect((svg.match(/<rect/g) ?? []).length).toBe(2);
   });
 });
+
+describe("artSvg styleOf", () => {
+  test("attaches a per-cell style and never merges cells that differ", () => {
+    const svg = artSvg(["XX"], { X: "#0f0" }, { styleOf: (_g: string, x: number) => `--r:${x}` });
+    expect((svg.match(/<rect/g) ?? []).length).toBe(2);
+    expect(svg).toContain('style="--r:0"');
+    expect(svg).toContain('style="--r:1"');
+  });
+
+  test("cells sharing a style still merge into one rect", () => {
+    const svg = artSvg(["XXX"], { X: "#0f0" }, { styleOf: () => "--r:0" });
+    expect((svg.match(/<rect/g) ?? []).length).toBe(1);
+  });
+});
