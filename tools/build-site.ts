@@ -78,7 +78,9 @@ const css = `
   a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
   .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
   header{padding:18px 0;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line-2)}
-  header .mark{width:32px;height:auto;image-rendering:pixelated}
+  /* 24px is the file's own size — a 12-cell grid shown at 32 is 2.67px a cell and blurs. The
+     nudge is optical: two of the twelve rows are antennae, so the head sits low in the box. */
+  header .mark{width:24px;height:auto;image-rendering:pixelated;transform:translateY(-2px)}
   header b{font-size:16px;letter-spacing:.02em}header b a{color:var(--fg)}
   header nav{margin-left:auto;display:flex;gap:18px;font-size:14px}
   header nav a{color:var(--fg-2)}header nav a:hover,header nav a.on{color:var(--acc);text-decoration:none}

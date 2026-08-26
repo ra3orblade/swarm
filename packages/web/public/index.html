@@ -118,7 +118,11 @@
      the Tauri window drag. Interactive controls keep the default cursor. */
   html.chrome-inset header{cursor:default}
   header .logo{font-weight:700;letter-spacing:.02em;font-size:var(--fs-xl);margin-right:14px;display:flex;align-items:center;gap:8px}
-  header .logo svg{width:22px;height:auto;image-rendering:pixelated;image-rendering:crisp-edges}
+  /* Centred by box, but not by eye: two of the mark's twelve rows are antennae, so its visual
+     mass — the head — sits about 2px below the middle of the wordmark. Nudged with a transform
+     rather than a margin so the flex line's own centring is left alone. */
+  header .logo svg{width:22px;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;
+    transform:translateY(-2px)}
   header .nav{color:var(--dim);padding:6px 11px;border-radius:var(--r-sm);font-weight:500;transition:color var(--t-fast),background var(--t-fast)}
   header .nav:hover{color:var(--fg-2)}
   header .nav.on{color:var(--fg);background:var(--panel-2)}
@@ -369,6 +373,18 @@
 
   /* A short list of two or three facts per row. A table stretches three columns across the whole
      card and reads as mostly gap; this keeps the words next to each other. */
+  /* Three columns that must each stay on one line: the shape, how often, and a real example.
+     Left to themselves the shape wraps after `git add` and the example runs to two lines, and the
+     row stops being a row. Fixed grid, nowrap, ellipsis. */
+  .clusters{list-style:none;margin:0;padding:0}
+  .clusters li{display:grid;grid-template-columns:minmax(0,13em) 3.2em minmax(0,1fr);gap:10px;
+    align-items:center;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:var(--fs-md)}
+  .clusters li:last-child{border-bottom:0}
+  .clusters li > *{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .clusters li b{font-family:var(--mono);font-size:var(--fs-mono);color:var(--fg)}
+  .clusters li .n{color:var(--fg-2);text-align:right;font-variant-numeric:tabular-nums}
+  .clusters li > span:last-child{color:var(--dim);font-family:var(--mono);font-size:var(--fs-mono)}
+
   .plainlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
   .plainlist li{display:flex;align-items:center;gap:8px;font-size:var(--fs-md);color:var(--fg-2);
     padding:5px 0;border-bottom:1px solid var(--line-2)}
@@ -428,7 +444,11 @@
   .stat small{color:var(--faint);font-weight:400}
   .side h4{margin:16px 0 6px;color:var(--faint);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
   table.mini{border:0;table-layout:fixed;width:100%}
-  table.mini td{padding:3px 0;border:0;font-size:var(--fs-md)}
+  /* Cells default to baseline alignment, so a mono path and a sans number in the same row sit at
+     different heights and the row reads as untidy. Centre them, and give the row enough height
+     that the text is not hard against its neighbours. */
+  table.mini td{padding:6px 0;border:0;font-size:var(--fs-md);vertical-align:middle}
+  table.mini th{padding-top:6px;padding-bottom:6px;vertical-align:middle}
   /* Columns need a gutter of their own: a right-aligned number sits flush against whatever
      follows it, which put "4%" and "app.js" hard up against each other. */
   table.mini th + th,table.mini td + td{padding-left:14px}
@@ -527,7 +547,11 @@
   .kpi .d{font-size:var(--fs-mono);color:var(--faint)}
 
   /* icons (Phosphor regular, inline) */
-  .ph{display:inline-block;vertical-align:middle;flex:none}
+  /* `vertical-align: middle` is not the middle: it aligns the icon's centre to the baseline plus
+     half the x-height, which left inline icons ~1.5px below the centre of the text beside them.
+     Measured against 13-14px text, -0.09em lands within a tenth of a pixel. It is ignored inside
+     a flex line, which is exactly right — those are already centred by `align-items`. */
+  .ph{display:inline-block;vertical-align:-0.09em;flex:none}
   header .nav{display:inline-flex;align-items:center;gap:6px}
   .navcount{font:600 var(--fs-xs) var(--mono);color:var(--warn);background:var(--warn-soft);border-radius:var(--r-pill);padding:1px 6px;line-height:1.4}
   header .nav .ph{opacity:.75}

@@ -1320,12 +1320,16 @@ function renderSpend() {
      <div class="kpis">${kpi("today", usd(todayCost), `${todayTurns} turns`)}${kpi(`${N}-day total`, usd(total14), `${activeDays} active day${activeDays === 1 ? "" : "s"}`)}${kpi("today vs avg", prevDays ? `${todayCost >= avg ? "+" : ""}${(((todayCost - avg) / avg) * 100).toFixed(0)}%` : "—", prevDays ? `vs ${usd(avg)} / active day` : "no earlier days to compare")}${kpi("agents", agents.length, agents.map(agentLabel).join(" · ") || "—")}${budgetKpi(kpi)}</div>
      <div class="chart-card"><h3>Daily cost · last ${N} days <span>stacked by agent</span></h3>${viz.stackedColumns(days, series)}${agents.length > 1 ? viz.legend(agents) : ""}</div>
      <div class="cols">
-       <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
-       <div>${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}</div>
+       <div>
+         <div class="chart-card" style="margin:0"><h3>When the agents work <span>cost by weekday × hour · last 4 weeks · local time</span></h3>${viz.heatmap(hm)}</div>
+         <h2 class="mt-sec">By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
+         <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}
+       </div>
+       <div>
+         ${byAgentToday ? `<h2>By agent · today <span>${usd(sumBy(byAgentToday, (x) => x.cost))}</span></h2>${tbl(byAgentToday, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By agent · all time</h2>${tbl(sp.byAgentAll, "agent", agentLabel, viz.agentColor)}<h2 class="mt-sec">By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}`}
+         <h2 class="mt-sec">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}
+       </div>
      </div>
-     <div class="cols mt-sec"><div><h2>By project · today <span>${usd(sumBy(filt(sp.byProjectToday), (x) => x.cost))}</span></h2>${tbl(filt(sp.byProjectToday), "project", projName)}
-     <h2 class="mt-sec">By project · all time</h2>${tbl(filt(sp.byProjectAll), "project", projName)}</div>
-     <div>${byAgentToday ? `<h2>By model · today</h2>${tbl(sp.byModelToday, "model", model)}` : ""}<h2 style="${byAgentToday ? "margin-top:18px" : ""}">By model · all time</h2>${tbl(sp.byModelAll, "model", model)}</div></div>
      ${renderAttribution()}
      <p class="dim" style="margin-top:var(--gap-sec)">Costs use list prices (static table, refreshed from LiteLLM when online; override in <code>~/.swarm/pricing.json</code>). Cache reads are the bulk of "ctx". Sessions on a subscription plan still show what the tokens would cost at API rates.</p>`;
 }
@@ -2185,7 +2189,7 @@ function renderRuleEffect() {
         <span class="dim" style="font-size:var(--fs-sm)">${ago(x.lastAt)} since the last one</span></div>
       ${worst && x.total > 1
         ? `<p style="margin:0 0 8px;font-size:var(--fs-md)">${Math.round(x.concentration * 100)}% of these are the same shape: <code>${esc(worst.signature)}</code></p>
-           <ul class="plainlist">${x.clusters.map((c) => `<li><b>${esc(c.signature)}</b><span class="dim">${c.hits}×</span><span class="clip dim" title="${esc(c.example)}">${esc(c.example.slice(0, 70))}</span></li>`).join("")}</ul>`
+           <ul class="clusters">${x.clusters.map((c) => `<li><b title="${esc(c.signature)}">${esc(c.signature)}</b><span class="n">${c.hits}×</span><span title="${esc(c.example)}">${esc(c.example)}</span></li>`).join("")}</ul>`
         : '<p class="dim" style="margin:0;font-size:var(--fs-md)">Fired once. Whatever it was, it has not come back.</p>'}
       ${x.landed
         ? `<p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Since it landed ${ago(x.landed.at)} ago: <b>${x.landed.afterPerDay.toFixed(1)}/day</b>, against ${x.landed.beforePerDay.toFixed(1)}/day before.</p>`
