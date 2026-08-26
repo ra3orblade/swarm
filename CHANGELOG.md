@@ -2,6 +2,20 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [0.11.3] — 2026-08-26
+
+A proper robot.
+
+### Changed
+- **The robot is redrawn.** The old one was 23×28 in three tones and looked it — a blocky approximation of the thing it was meant to be. This one is 73×87 in seven, with a bevelled head, ear pods, a chest screen, a vent grille, segmented arms and claws. It is not hand-copied: the grid is recovered from the reference art itself, and its colours are re-derived as a straight scale of `#a3e635`, so every tone is the brand hue and the whole drawing recolours from one value.
+- **Icons and the site's marks are the head alone.** The whole robot in a 512px tile is clutter — arms, claws, a vent grille and four buttons, none of which survives being an icon. The head is the top of the same drawing, and below about 128px an even simpler head takes over, because 47 columns of bevel and eye socket rendered a pixel each is noise rather than a robot.
+
+### Fixed
+- **Small icons were mushy.** They were scaled by canvas ÷ grid, which at 32px is 1.6 pixels a cell — so cells landed on two pixels or one depending where they fell, and the eyes came out different sizes. Cells are now always a whole number of pixels, at every size Swarm ships.
+- **The macOS icon ignored Apple's icon grid.** It bled to the edge of its canvas, which makes an icon sit visibly larger in the Dock than everything beside it. The rounded square now takes about 80% of the canvas, as Apple specifies — except below 128px, where there are not enough pixels to spend on a margin.
+- **The robot had holes in it.** Transparent cells showed through where the drawing should be solid: a blank row between the head and the neck, a hole in the neck itself, and hairline slits detaching each arm at the shoulder. The gaps that are meant to be there — the claw notch, between the legs, between the antennae — are untouched.
+- **`trimArt` deleted blank rows wherever they fell**, not only at the edges, so the drawing's one interior blank row was being dropped from every generated icon and the figure came out a cell short.
+
 ## [0.11.2] — 2026-08-26
 
 Two things 0.11.1 said it did and didn't.
