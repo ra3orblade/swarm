@@ -278,6 +278,41 @@ try {
 // out lopsided. So the scale lives here, next to the CSS width it has to agree with.
 const HERO = 6; //   site/index.html  .hero .mark  { width: 282px }  = 47 cells x 6
 const HEADER = 2; // site/index.html  header .mark { width:  32px }  = 16 cells x 2
+
+/**
+ * macOS menu-bar icon. The bar draws template images itself — it takes the alpha channel and
+ * paints it in whatever colour the bar is currently using, inverting on dark and dimming when the
+ * app is inactive. So this carries no colour at all: the head is opaque black and the eyes and
+ * mouth are punched out of it, which is what makes it read as a face once the bar fills it in.
+ *
+ * 44px is 22pt at 2x, the exact height of the menu bar on a retina display, so the cells land on
+ * whole device pixels rather than being resampled.
+ */
+function template(a: Art, size: number): Buffer {
+  const cell = Math.floor(size / Math.max(a.cols, a.h));
+  const ox = Math.round((size - a.cols * cell) / 2);
+  const oy = Math.round((size - a.h * cell) / 2);
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  let p = 0;
+  for (let y = 0; y < size; y++) {
+    raw[p++] = 0;
+    for (let x = 0; x < size; x++) {
+      const gx = Math.floor((x - ox) / cell);
+      const gy = Math.floor((y - oy) / cell);
+      const g =
+        gy >= 0 && gy < a.h && gx >= 0 && gx < a.cols ? (a.rows[gy] as string)[gx] : undefined;
+      // "S" is the eyes and the mouth: holes, not ink.
+      const on = g !== undefined && g !== " " && g !== "S";
+      raw[p++] = 0;
+      raw[p++] = 0;
+      raw[p++] = 0;
+      raw[p++] = on ? 255 : 0;
+    }
+  }
+  return encode(size, size, raw);
+}
+writeFileSync(join(out, "tray.png"), template(SMALL, 44));
+
 writeFileSync(join(site, "head.png"), sprite(BIG, HERO));
 writeFileSync(join(site, "mark.png"), sprite(SMALL, HEADER));
 writeFileSync(join(site, "apple-touch-icon.png"), png(180, { art: SMALL }));
@@ -292,7 +327,7 @@ writeFileSync(
 );
 
 console.log(
-  `icons: ${files.length} png + icon.ico${icns ? " + icon.icns" : ""} → ${out}\n` +
+  `icons: ${files.length} png + icon.ico + tray.png${icns ? " + icon.icns" : ""} → ${out}\n` +
     `       head.png, mark.png, apple-touch-icon.png, favicon.ico, favicon.svg → ${site}` +
     (icns ? "" : "\n       (icon.icns needs macOS iconutil)"),
 );

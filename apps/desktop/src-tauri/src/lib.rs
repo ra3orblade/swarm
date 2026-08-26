@@ -353,8 +353,17 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let menu = Menu::with_items(app, &[&open, &whats_new_tray, &update, &sep, &quit])?;
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // The menu bar wants a template image — monochrome plus alpha, which macOS tints to
+            // match the bar and dims while the app is inactive. The colour app icon sits visibly
+            // apart from every system glyph beside it. Elsewhere there is no such convention, and
+            // a black-on-alpha icon would disappear into a dark taskbar, so those keep the app one.
+            #[cfg(target_os = "macos")]
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = app.default_window_icon().unwrap().clone();
+
+            let tray = TrayIconBuilder::new()
+                .icon(tray_icon)
                 .tooltip("Swarm")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -363,8 +372,10 @@ pub fn run() {
                     "update" => check_for_updates(app.clone()),
                     "quit" => app.exit(0),
                     _ => {}
-                })
-                .build(app)?;
+                });
+            #[cfg(target_os = "macos")]
+            let tray = tray.icon_as_template(true);
+            let _tray = tray.build(app)?;
 
             Ok(())
         })
