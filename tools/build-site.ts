@@ -88,9 +88,9 @@ const css = `
   @media (max-width:820px){.layout{grid-template-columns:1fr;gap:24px}}
   .side{font-size:14px;position:sticky;top:24px;align-self:start}
   .side h3{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin:0 0 10px}
-  .side a{display:block;color:var(--fg-2);padding:5px 10px;border-radius:var(--r-sm);border-left:2px solid transparent}
+  .side a{display:block;color:var(--fg-2);padding:5px 10px;border-radius:var(--r-sm)}
   .side a:hover{background:var(--panel);text-decoration:none;color:var(--fg)}
-  .side a.on{color:var(--acc);background:var(--acc-soft);border-left-color:var(--acc)}
+  .side a.on{color:var(--acc);background:var(--acc-soft)}
   .side a small{color:var(--faint);margin-right:6px;font-variant-numeric:tabular-nums}
   .doc{min-width:0}
   .doc h1{font-size:32px;letter-spacing:-.01em;margin:0 0 6px}
@@ -102,7 +102,7 @@ const css = `
   .doc pre{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;overflow-x:auto}
   .doc pre{line-height:1.3;font-variant-ligatures:none}
   .doc pre code{background:none;border:0;padding:0;font-size:13px;line-height:inherit;font-family:var(--mono)}
-  .doc blockquote{margin:16px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 var(--r-sm) var(--r-sm) 0}
+  .doc blockquote{margin:16px 0;padding:12px 16px;border:1px solid var(--line);background:var(--panel);border-radius:var(--r-sm)}
   .doc blockquote p{margin:0}
   .doc .tbl{overflow-x:auto;margin:16px 0}
   .doc table{border-collapse:collapse;width:100%;font-size:14px}

@@ -214,6 +214,13 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  /** Clear a worktree's build output. `dry=1` returns the plan without touching anything. */
+  app.post("/v1/hygiene/reclaim", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { path?: string; dry?: boolean };
+    if (!body.path) return c.json({ ok: false, error: "path required" }, 400);
+    const r = store.reclaimBuild(body.path, { dryRun: Boolean(body.dry) });
+    return c.json(r, r.ok ? 200 : 409);
+  });
   app.get("/v1/security", (c) =>
     c.json(
       store.security(

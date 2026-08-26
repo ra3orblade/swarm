@@ -41,6 +41,11 @@ export interface WorktreeSample {
   /** Age of the most recent write inside the worktree, in ms; null when unknown. */
   idleMs: number | null;
   diskKb: number | null;
+  /**
+   * Of `diskKb`, how much is regenerable build output — `node_modules`, a Rust `target`, `dist`.
+   * Null until measured. This is the part that can be freed without losing a branch or a commit.
+   */
+  buildKb?: number | null;
   /** Task of the claim holding it, if any. */
   heldByClaim: string | null;
   liveSessions: number;
@@ -95,7 +100,11 @@ export interface HygieneOptions {
 }
 
 export const HYGIENE_DEFAULTS: HygieneOptions = {
-  staleDays: 7,
+  // Seven days was too conservative to ever fire: on a machine where work lands daily, a merged
+  // worktree is noticed and reused long before a week of silence, so the view reported 50 GB and
+  // offered nothing. Two days still means "you have moved on from it", and the ledger's own
+  // `canRemoveWorktree` remains the thing that decides whether removal is safe at all.
+  staleDays: 2,
   abandonedDays: 30,
   hungryRssKb: 1024 * 1024, // 1 GiB
   heavyKb: 2 * 1024 * 1024, // 2 GiB
@@ -130,6 +139,61 @@ export function classifyProcess(p: ProcSample, opts: Partial<HygieneOptions> = {
       reclaimable: false,
     };
   return { ...p, issue: null, note: null, reclaimable: false };
+}
+
+/**
+ * Directory names whose contents a build can recreate. Deleting one costs a rebuild and nothing
+ * else — no branch, no commit, no uncommitted edit, since every one of these is gitignored.
+ */
+export const BUILD_DIRS: readonly string[] = ["node_modules", "target", "dist", ".next", ".turbo"];
+
+export interface ReclaimPlan {
+  path: string;
+  /** Absolute paths of the build directories that would be removed. */
+  dirs: string[];
+  kb: number;
+  /** Empty when it is safe to proceed; otherwise why not. */
+  refusals: string[];
+}
+
+/**
+ * Whether a worktree's build output may be cleared, and what clearing it would remove.
+ *
+ * Deliberately narrower than removing the worktree: this keeps the checkout, the branch and any
+ * uncommitted work, so a dirty tree is fine. What it will not do is pull the floor out from under
+ * something that is running — a live session or a held claim means somebody is mid-build.
+ */
+export function reclaimPlan(
+  w: WorktreeSample,
+  dirs: Array<{ path: string; kb: number }>,
+  /** Other tracked worktrees, so a nested one's build output is not reclaimed with its parent. */
+  others: readonly string[] = [],
+): ReclaimPlan {
+  const refusals: string[] = [];
+  // The main checkout is where the person actually works. Its build output is regenerable like any
+  // other, but pulling it out from under them mid-session is not hygiene's business.
+  if (w.main) refusals.push("this is the main checkout");
+  if (w.liveSessions > 0)
+    refusals.push(`${w.liveSessions} live session${w.liveSessions === 1 ? "" : "s"} in it`);
+  if (w.heldByClaim) refusals.push(`claimed by ${w.heldByClaim}`);
+  // Every candidate must sit inside the worktree; a path outside it is not ours to touch.
+  const inside = dirs.filter((d) => d.path.startsWith(`${w.path}/`));
+  if (inside.length !== dirs.length) refusals.push("a candidate lay outside the worktree");
+  const named = inside.filter((d) =>
+    BUILD_DIRS.includes((d.path.split("/").pop() ?? "") as string),
+  );
+  if (named.length !== inside.length) refusals.push("a candidate was not a build directory");
+  // A worktree can contain another (`.claude/worktrees/…` under a checkout). Its build output
+  // belongs to that worktree and is offered there, on its own terms — not swept up by the parent,
+  // which would also double-count the size in both rows.
+  const nested = others.filter((o) => o !== w.path && o.startsWith(`${w.path}/`));
+  const mine = named.filter((d) => !nested.some((n) => d.path.startsWith(`${n}/`)));
+  return {
+    path: w.path,
+    dirs: mine.map((d) => d.path),
+    kb: mine.reduce((n, d) => n + d.kb, 0),
+    refusals,
+  };
 }
 
 /** What is wrong with one worktree, if anything. */

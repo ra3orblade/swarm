@@ -10,6 +10,7 @@ import {
   readSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -28,6 +29,7 @@ import {
   actorFromColumns,
   auditRow,
   BUDGET_ASK_TOOLS,
+  BUILD_DIRS,
   type BudgetStatus,
   budgetMessage,
   budgetStatus,
@@ -131,6 +133,7 @@ import {
   type RuleId,
   type RulesConfig,
   reapAction,
+  reclaimPlan,
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
@@ -3971,7 +3974,39 @@ export class Store {
    * get whatever the last sweep found, and `null` until the first one lands.
    */
   private duCache = new Map<string, { v: number | null; t: number }>();
+  /** worktree path -> the build directories inside it and their size, from the same sweep. */
+  private buildCache = new Map<string, { dirs: Array<{ path: string; kb: number }>; t: number }>();
   private duInflight: Promise<void> | null = null;
+
+  /**
+   * Build output inside a worktree — the part of its footprint a rebuild can recreate. Measured
+   * with one `find` per worktree, pruned at the match so a `node_modules` is not walked into.
+   */
+  private async measureBuild(path: string): Promise<Array<{ path: string; kb: number }>> {
+    const args = ["-maxdepth", "4", "("];
+    BUILD_DIRS.forEach((d: string, i: number) => {
+      if (i) args.push("-o");
+      args.push("-name", d);
+    });
+    args.push(")", "-type", "d", "-prune");
+    const out: Array<{ path: string; kb: number }> = [];
+    try {
+      const find = Bun.spawn(["find", path, ...args], { stdout: "pipe", stderr: "ignore" });
+      const found = (await new Response(find.stdout).text()).split("\n").filter(Boolean);
+      await find.exited;
+      for (const dir of found) {
+        const du = Bun.spawn(["du", "-sk", "-x", dir], { stdout: "pipe", stderr: "ignore" });
+        const text = await new Response(du.stdout).text();
+        if ((await du.exited) === 0) {
+          const kb = Number.parseInt(text.trim().split(/\s+/)[0] ?? "", 10);
+          if (Number.isFinite(kb)) out.push({ path: dir, kb });
+        }
+      }
+    } catch {
+      /* no find/du, or the tree went away mid-sweep */
+    }
+    return out;
+  }
   private refreshDisk(paths: string[], ttlMs: number): void {
     if (this.duInflight) return;
     const stale = paths.filter((p) => {
@@ -3993,6 +4028,7 @@ export class Store {
           /* removed mid-sweep, or no du */
         }
         this.duCache.set(path, { v, t: Date.now() });
+        this.buildCache.set(path, { dirs: await this.measureBuild(path), t: Date.now() });
       }
     })().finally(() => {
       this.duInflight = null;
@@ -4073,6 +4109,12 @@ export class Store {
           merged: w.merged,
           idleMs: Store.worktreeIdleMs(w.path),
           diskKb: this.duCache.get(w.path)?.v ?? null,
+          buildKb: this.buildCache.has(w.path)
+            ? (this.buildCache.get(w.path) as { dirs: Array<{ kb: number }> }).dirs.reduce(
+                (n, d) => n + d.kb,
+                0,
+              )
+            : null,
           heldByClaim: held?.task ?? null,
           liveSessions: this.sessions().filter(
             (s) => s.cwd?.startsWith(w.path) && !s.endedAt && s.state !== "ended",
@@ -4819,6 +4861,61 @@ export class Store {
       Date.now(),
       days,
     );
+  }
+
+  /**
+   * Clear a worktree's build output. Keeps the checkout, the branch and every uncommitted edit —
+   * this only removes directories a rebuild recreates, and only ones the sweep actually found
+   * inside that worktree.
+   *
+   * `dryRun` returns the plan without touching anything, which is what the view shows before the
+   * button is pressed. Refuses while a session is live in the tree or a claim holds it.
+   */
+  reclaimBuild(path: string, { dryRun = false } = {}) {
+    const report = this.hygiene();
+    const w = report.worktrees.find((x) => x.path === path);
+    if (!w) return { ok: false as const, error: `not a tracked worktree: ${path}` };
+    const cached = this.buildCache.get(path);
+    if (!cached) return { ok: false as const, error: "not measured yet — try again in a moment" };
+
+    const plan = reclaimPlan(
+      w,
+      cached.dirs,
+      report.worktrees.map((x) => x.path),
+    );
+    if (plan.refusals.length) return { ok: false as const, error: plan.refusals.join("; "), plan };
+    if (dryRun) return { ok: true as const, plan, removed: 0, freedKb: 0 };
+
+    let removed = 0;
+    let freedKb = 0;
+    for (const dir of plan.dirs) {
+      // Re-check containment at the moment of deletion, not only when the plan was made.
+      if (!dir.startsWith(`${path}/`)) continue;
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        removed++;
+        freedKb += cached.dirs.find((d) => d.path === dir)?.kb ?? 0;
+      } catch {
+        /* already gone, or no permission — the count reflects what actually went */
+      }
+    }
+    // The measurements are now wrong; drop them so the next sweep re-reads the truth.
+    this.duCache.delete(path);
+    this.buildCache.delete(path);
+    this.append({
+      ts: new Date().toISOString(),
+      type: "worktree.reclaimed",
+      projectId: w.projectId,
+      sessionId: null,
+      payload: {
+        path,
+        branch: w.branch,
+        dirs: removed,
+        freedKb,
+        summary: `reclaimed ${Math.round(freedKb / 1024)} MB of build output from ${w.branch ?? path}`,
+      },
+    });
+    return { ok: true as const, plan, removed, freedKb };
   }
 
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */

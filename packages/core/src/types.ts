@@ -19,6 +19,7 @@ export type EventType =
   | "claim.orphaned"
   | "claim.denied"
   | "rules.changed"
+  | "worktree.reclaimed"
   | "worktree.bootstrapped"
   | "worktree.created"
   | "worktree.removed"

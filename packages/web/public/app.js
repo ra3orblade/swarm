@@ -1885,11 +1885,16 @@ function renderHygiene() {
   const sampled = h.worktrees.filter((w) => w.diskKb !== null).length;
   const diskPending = h.worktrees.length > 0 && sampled === 0;
   const totalDisk = diskPending ? "measuring…" : mb(t.diskKb);
+  const buildKb = h.worktrees.reduce((n, w) => n + (w.buildKb ?? 0), 0);
+  const clearable = h.worktrees
+    .filter((w) => !w.main && !w.heldByClaim && w.liveSessions === 0)
+    .reduce((n, w) => n + (w.buildKb ?? 0), 0);
   const kpis = `<div class="kpis">${
     kpi("Needs a look", t.issues, t.issues ? "processes + worktrees" : "all clean", t.issues ? "hot" : "")
   }${kpi("Processes", t.processes, t.orphanedProcesses || t.deadProcesses ? `${t.orphanedProcesses} orphaned · ${t.deadProcesses} dead` : "all healthy", t.orphanedProcesses || t.deadProcesses ? "hot" : "")
   }${kpi("Worktrees", t.worktrees, t.staleWorktrees ? `${t.staleWorktrees} stale` : "none stale", t.staleWorktrees ? "warm" : "")
-  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")}</div>`;
+  }${kpi("Reclaimable", diskPending ? '<span class="dim">—</span>' : mb(t.reclaimableKb), diskPending ? `measuring ${h.worktrees.length} worktrees…` : `of ${mb(t.diskKb)} on disk`, !diskPending && t.reclaimableKb ? "warm" : "")
+  }${kpi("Build output", diskPending ? '<span class="dim">—</span>' : mb(buildKb), clearable ? `${mb(clearable)} clearable now` : "nothing to clear", clearable ? "warm" : "")}</div>`;
 
   const pcols = [
     { key: "issue", label: "state", width: 96, get: (p) => p.issue ?? "", cell: (p) => issueBadge(p.issue) },
@@ -1906,11 +1911,16 @@ function renderHygiene() {
     { key: "issue", label: "state", width: 106, get: (w) => w.issue ?? "", cell: (w) => issueBadge(w.issue) },
     { key: "branch", label: "branch", width: 190, get: (w) => w.branch ?? w.path, cell: (w) => `<b>${esc(w.branch ?? "(detached)")}</b>${w.main ? ' <span class="badge">main</span>' : ""}` },
     { key: "disk", label: "disk", width: 78, num: true, get: (w) => w.diskKb ?? -1, cell: (w) => mb(w.diskKb) },
+    { key: "build", label: "build output", width: 100, num: true, get: (w) => w.buildKb ?? -1, cell: (w) => (w.buildKb === null ? '<span class="dim">—</span>' : `<span title="node_modules, target, dist — a rebuild recreates these">${mb(w.buildKb)}</span>`) },
     { key: "idle", label: "untouched", width: 88, num: true, get: (w) => w.idleMs ?? -1, cell: (w) => (w.idleMs === null ? '<span class="dim">—</span>' : dur(w.idleMs)) },
     { key: "state2", label: "work", width: 130, get: (w) => w.dirty * 1000 + w.ahead, cell: (w) => `${badge(w.dirty, "Dirty", "warn")}${badge(w.ahead, "Unpushed", "acc")}${w.dirty === 0 && w.ahead <= 0 ? (w.merged ? '<span class="badge ok">Merged</span>' : '<span class="badge">Clean</span>') : ""}` },
     { key: "held", label: "in use", width: 110, get: (w) => w.heldByClaim ?? "", cell: (w) => (w.heldByClaim ? `<span class="br" title="Claimed">${esc(w.heldByClaim)}</span>` : w.liveSessions ? `<span class="badge acc">${w.liveSessions} live</span>` : '<span class="dim">—</span>') },
     { key: "note", label: "why", flex: true, get: (w) => w.note ?? "", cell: (w) => (w.note ? `<span class="now" title="${esc(w.note)}">${esc(w.note)}</span>` : '<span class="dim">—</span>') },
-    { key: "act", label: "", width: 80, sortable: false, filterable: false, get: () => null, cell: (w) => (w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : "") },
+    { key: "act", label: "", width: 196, sortable: false, filterable: false, get: () => null, cell: (w) => {
+      // Two different things: clearing build output keeps the branch, removing the worktree does not.
+      const canClear = !w.main && !w.heldByClaim && w.liveSessions === 0 && (w.buildKb ?? 0) > 0;
+      return `${canClear ? `<a href="#" class="mini-act" data-wtclear="${esc(w.path)}" title="Delete node_modules, target and dist here — a rebuild recreates them; the branch and any uncommitted work are untouched">Clear ${mb(w.buildKb)}</a>` : ""}${w.reclaimable ? `<a href="#" class="mini-act bad" data-wtrm="${esc(w.projectId)}:${esc(w.path)}" title="Remove this worktree">Remove</a>` : ""}`;
+    } },
   ];
   const sub = t.issues ? `<b class="navcount">${t.issues} need${t.issues === 1 ? "s" : ""} a look</b>` : "nothing to clean up";
   $("#main").innerHTML = head(sub) + kpis +
@@ -3041,6 +3051,24 @@ document.addEventListener("click", async (ev) => {
     fetch("/v1/daemon/restart", { method: "POST" })
       .catch(() => {})
       .then(() => setTimeout(() => location.reload(), 1500));
+    return;
+  }
+  if (t.dataset.wtclear) {
+    ev.preventDefault();
+    const path = t.dataset.wtclear;
+    const label = t.textContent;
+    t.textContent = "clearing…";
+    fetch("/v1/hygiene/reclaim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    })
+      .then((r) => r.json())
+      .then((r) => {
+        t.textContent = r.ok ? `freed ${mb(r.freedKb)}` : (r.error ?? "failed");
+        setTimeout(() => { t.textContent = label; refresh(); }, 1600);
+      })
+      .catch(() => { t.textContent = label; });
     return;
   }
   if (t.dataset.graphtab) { state.graphTab = t.dataset.graphtab; localStorage.setItem("swarm.graphTab", state.graphTab); return refresh(); }
