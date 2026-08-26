@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonCommand, readToken } from "@swarm/client";
 import {
+  armTask,
   formatAudit,
   formatHandoff,
   hookCoverage,
@@ -18,6 +19,7 @@ import {
   type RuleId,
   type SwarmEvent,
   sinceToIso,
+  taskPrompt,
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -288,6 +290,68 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // M9.14 provenance: issue → task → claim → session → worktree → branch → PR → outcome. The
   // branch→PR half is `outcomesFor` above; this adds the task board and the claim ledger in front
   // of it. The useful output is the chains that stop early.
+  // M9.18 A/B dispatch. An arm is its own task id (`<task>#<label>`) so each gets its own claim and
+  // worktree — the one-holder claim and the runner's one-live-run-per-task rule stay intact.
+  app.get("/v1/ab", (c) => {
+    const project = c.req.query("project") || undefined;
+    const task = c.req.query("task");
+    // With a task, one trial in detail; without, every trial there is.
+    if (task) {
+      if (!project) return c.json({ error: "project is required with task" }, 400);
+      return c.json(store.abTrial(project, task));
+    }
+    return c.json({ trials: store.abTrials(project) });
+  });
+  app.post("/v1/ab", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      projectId?: string;
+      task?: string;
+      title?: string;
+      arms?: Array<{ label?: string; model?: string }>;
+    };
+    if (!b.projectId || !b.task) return c.json({ error: "projectId and task are required" }, 400);
+    const arms = (b.arms ?? []).filter((a) => a.model || a.label);
+    if (arms.length < 2) return c.json({ error: "a trial needs at least two arms" }, 400);
+    const cfg = store.config(b.projectId);
+    const started: string[] = [];
+    const failed: Array<{ arm: string; reason: string }> = [];
+    for (const a of arms) {
+      const label = (a.label ?? a.model ?? "").replace(/[^a-zA-Z0-9._-]+/g, "-");
+      const id = armTask(b.task, label);
+      const r = await runner.start({
+        projectId: b.projectId,
+        task: id,
+        // Every arm gets the identical prompt — the whole point is that only the model differs.
+        prompt: taskPrompt(
+          { id: b.task, title: b.title ?? b.task },
+          {
+            requiredGates: cfg.gates.required,
+            executableGates: cfg.gates.required.filter((g) => cfg.gates.defs[g]),
+            openPr: false,
+          },
+        ),
+        owner: `ab:${label}`,
+        permissionMode: (cfg.dispatch.permission_mode ?? "acceptEdits") as PermissionMode,
+        ...(a.model ? { model: a.model } : {}),
+        ...(cfg.dispatch.max_turns ? { maxTurns: cfg.dispatch.max_turns } : {}),
+      });
+      if (r.ok) started.push(label);
+      else failed.push({ arm: label, reason: r.reason });
+    }
+    store.append({
+      ts: new Date().toISOString(),
+      type: "dispatch.queued",
+      projectId: b.projectId,
+      sessionId: null,
+      payload: {
+        task: b.task,
+        arms: arms.map((a) => a.label ?? a.model),
+        summary: `A/B ${b.task}: ${started.length} arm${started.length === 1 ? "" : "s"} started`,
+      },
+    });
+    return c.json({ ok: failed.length === 0, started, failed }, failed.length ? 207 : 200);
+  });
+
   app.get("/v1/provenance", async (c) => {
     const project = c.req.query("project") || undefined;
     const { branches } = await outcomesFor(project);
