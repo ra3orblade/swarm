@@ -34,6 +34,7 @@ export * from "./resourcegraph";
 export * from "./resources";
 export * from "./review";
 export * from "./rules";
+export * from "./security";
 export * from "./stall";
 export * from "./tasks";
 export * from "./team";

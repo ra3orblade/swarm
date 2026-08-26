@@ -378,6 +378,13 @@ async function refresh() {
     hygChanged = JSON.stringify(hy) !== JSON.stringify(state.hygiene);
     state.hygiene = hy;
   }
+  let secChanged = false;
+  if (state.view === "security" && !state.session) {
+    const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
+    const sec = (await api(`/v1/security${q}`)) ?? state.security;
+    secChanged = JSON.stringify(sec) !== JSON.stringify(state.security);
+    state.security = sec;
+  }
   let heatChanged = false;
   if (state.view === "heat" && !state.session) {
     const q = state.sel ? `?project=${encodeURIComponent(state.sel)}` : "";
@@ -428,7 +435,7 @@ async function refresh() {
     outChanged = JSON.stringify(o) !== JSON.stringify(state.outcomes);
     state.outcomes = o;
   }
-  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
+  if (!same || prsChanged || incChanged || tasksChanged || runsChanged || attrChanged || colChanged || trChanged || resChanged || linChanged || outChanged || waitChanged || ghChanged || mcpChanged || ctxChanged || heatChanged || secChanged || provChanged || trialsChanged || hygChanged || state.dirty || Date.now() - lastRenderAt > 30_000) schedule();
 }
 // M9.1: the view registry — the one source of truth that the sidebar nav, render dispatch,
 // deep links and the ⌘K palette all derive from. Adding a view = one entry here + its render fn.
@@ -449,6 +456,7 @@ const VIEW_DEFS = [
   { id: "spend", label: "Spend", icon: "coins", group: "Insight", render: () => renderSpend() },
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight", render: () => { loadStats(); renderStats(); } }, // loadStats is a no-op while the cache is fresh
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight", render: () => renderSearch() },
+  { id: "security", label: "Security", icon: "shield", group: "Guard", render: () => renderSecurity(), badge: () => state.security?.totals?.secrets ?? 0 },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard", render: () => renderProvenance(), badge: () => state.provenance?.totals?.untracked ?? 0 },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard", render: () => renderIncidentsView(), badge: () => state.openIncidents ?? 0 },
 ];
@@ -2086,6 +2094,53 @@ function renderHeat(head) {
        </div>
      </div>
      <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>Incidents are not correlated here.</b> An incident records the rule, the action and the command — not a path — so tying a rule that fired on a shell command to a file would mean parsing paths out of command strings and guessing.</p>`;
+}
+
+// M9.9: what agents reached for. Observation only — nothing here denies anything, and the point of
+// looking is to learn what your fleet actually does before writing an `ask` rule about it.
+function renderSecurity() {
+  const r = state.security;
+  const head = (sub) => `<h2>Security <span>${sub}</span></h2>`;
+  if (!r) {
+    const skew = failures.find((f) => f.kind === "missing-route" && f.url.includes("/security"));
+    if (skew) return renderErrorPanel(null, "security");
+    $("#main").innerHTML = head("what agents reached for") + `<div class="empty">${PX.clock()}Loading…</div>`;
+    return;
+  }
+  const t = r.totals;
+  if (!t.scanned) {
+    $("#main").innerHTML = head("what agents reached for") + `<div class="empty">${PX.idle()}No commands recorded${state.sel ? " in this project" : ""} in the last 14 days.</div>`;
+    return;
+  }
+  const kpi = (l, v, d, cls = "") => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const remote = r.egress.filter((h) => !h.local);
+  const kpis = `<div class="kpis">
+    ${kpi("Hosts reached", t.remoteHosts, `${r.egress.length - t.remoteHosts} more were local`)}
+    ${kpi("Packages installed", t.installs, `${new Set(r.installs.map((i) => i.ecosystem)).size} ecosystem${new Set(r.installs.map((i) => i.ecosystem)).size === 1 ? "" : "s"}`)}
+    ${kpi("Credential files opened", t.secrets, t.secrets ? "by name — contents are never read" : "none", t.secrets ? "hot" : "")}
+    ${kpi("Commands scanned", t.scanned.toLocaleString(), "last 14 days")}</div>`;
+  const rows = (list, cells) => list.map((x) => `<tr>${cells(x)}</tr>`).join("");
+  $("#main").innerHTML = head(`${t.scanned.toLocaleString()} commands · last 14 days`) + kpis +
+    `<div class="cols">
+       <div class="chart-card" style="margin:0"><h3>Hosts reached <span>named in a command or a fetch</span></h3>
+         ${remote.length
+           ? `<table class="mini"><colgroup><col style="width:60%"><col style="width:20%"><col style="width:20%"></colgroup><thead><tr><th>host</th><th class="num">times</th><th class="num">sessions</th></tr></thead><tbody>
+              ${rows(remote.slice(0, 14), (h) => `<td class="clip path"><b>${esc(h.host)}</b></td><td class="num">${h.hits}</td><td class="num">${h.sessions}</td>`)}</tbody></table>`
+           : '<div class="dim">Nothing but localhost.</div>'}
+         <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">A host here means an agent <em>named</em> it. Whether bytes left is not something Swarm can see without running the command, so it over-reports rather than under-reports.</p></div>
+       <div style="display:flex;flex-direction:column;gap:var(--gap-sec);min-width:0">
+         <div class="chart-card" style="margin:0"><h3>Credential files <span>opened by name</span></h3>
+           ${r.secrets.length
+             ? `<ul class="plainlist">${r.secrets.map((sx) => `<li><span class="badge warn">${esc(sx.what)}</span><b>${sx.hits}×</b><span class="dim">${sx.sessions} session${sx.sessions === 1 ? "" : "s"}</span></li>`).join("")}</ul>
+                <p class="dim" style="margin:10px 0 0;font-size:var(--fs-sm)">Swarm reads the <em>path</em>, never the contents — this says something opened the file and nothing about what was in it.</p>`
+             : '<div class="dim">No credential file was opened by name.</div>'}</div>
+         <div class="chart-card" style="margin:0"><h3>Packages installed <span>what the machine will run later</span></h3>
+           ${r.installs.length
+             ? `<ul class="plainlist">${r.installs.slice(0, 12).map((i) => `<li><span class="badge">${esc(i.ecosystem)}</span><b>${esc(i.pkg)}</b><span class="dim">${i.hits}×</span></li>`).join("")}</ul>`
+             : '<div class="dim">Nothing was installed.</div>'}</div>
+       </div>
+     </div>
+     <p class="dim" style="margin-top:10px;font-size:var(--fs-sm)"><b>This is a lint, not a sandbox.</b> Everything here is matched against the recorded command text, so an obfuscated command will not match and a comment mentioning <code>.env</code> will. It is here to tell you what your fleet does, so you can decide what to write an <code>ask</code> rule about.</p>`;
 }
 
 function renderTimeline() {

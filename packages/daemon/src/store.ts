@@ -142,6 +142,7 @@ import {
   type SwarmConfig,
   type SwarmEvent,
   scoreTrial,
+  securityScan,
   sessionDoc,
   shouldAutoRenew,
   splitArmTask,
@@ -4683,6 +4684,42 @@ export class Store {
     }>;
     return fileHeat(
       rows.map((r) => ({ sessionId: r.session_id ?? "", tool: r.tool ?? "", path: r.path ?? "" })),
+    );
+  }
+
+  /**
+   * M9.9 security audit: egress hosts, package installs and credential-file reads.
+   *
+   * Reads what was *requested*, so a command that was denied by a rule still shows up — which is
+   * the point of an audit. The command and the URL live under different keys depending on the
+   * tool, so both are pulled and concatenated by the scanner.
+   */
+  security(projectId?: string, days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT session_id, ts, json_extract(payload,'$.tool') AS tool,
+                COALESCE(json_extract(payload,'$.toolInput.command'),
+                         json_extract(payload,'$.toolInput.url'), '') AS command,
+                json_extract(payload,'$.toolInput.file_path') AS path
+         FROM events
+         WHERE type = 'tool.requested' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      ts: string;
+      tool: string | null;
+      command: string | null;
+      path: string | null;
+    }>;
+    return securityScan(
+      rows.map((r) => ({
+        sessionId: r.session_id ?? "",
+        tool: r.tool ?? "",
+        command: r.command ?? "",
+        path: r.path,
+        at: r.ts,
+      })),
     );
   }
 

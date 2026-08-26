@@ -206,6 +206,14 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       ),
     ),
   );
+  app.get("/v1/security", (c) =>
+    c.json(
+      store.security(
+        c.req.query("project") || undefined,
+        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+      ),
+    ),
+  );
   app.get("/v1/heat", (c) =>
     c.json(
       store.fileHeat(
