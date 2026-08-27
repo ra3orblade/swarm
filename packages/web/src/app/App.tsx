@@ -12,6 +12,7 @@
 import { useEffect } from "react";
 import { startSnapshotFeed } from "../state/snapshot";
 import { applyDeepLink, useUiStore } from "../state/ui";
+import { Board } from "../views/Board";
 import { Context } from "../views/Context";
 import { Files } from "../views/Files";
 import { Fleet } from "../views/Fleet";
@@ -23,7 +24,9 @@ import { Outcomes } from "../views/Outcomes";
 import { PRs } from "../views/PRs";
 import { Provenance } from "../views/Provenance";
 import { Rules } from "../views/Rules";
+import { Search } from "../views/Search";
 import { Security } from "../views/Security";
+import { Spend } from "../views/Spend";
 import { Trials } from "../views/Trials";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Header } from "./Header";
@@ -31,8 +34,11 @@ import { NotPorted } from "./NotPorted";
 import { Sidebar } from "./Sidebar";
 import type { ViewId } from "./views";
 
-/** Views that have a React implementation. Everything else falls through to the old renderer. */
-const VIEWS: Partial<Record<ViewId, () => React.JSX.Element>> = {
+/**
+ * Views that have a React implementation; everything else falls through to `NotPorted`.
+ * `| null` because a view may legitimately render nothing while its data is absent.
+ */
+const VIEWS: Partial<Record<ViewId, () => React.JSX.Element | null>> = {
   fleet: Fleet,
   prs: PRs,
   hygiene: Hygiene,
@@ -46,6 +52,9 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element>> = {
   rules: Rules,
   incidents: Incidents,
   trials: Trials,
+  board: Board,
+  spend: Spend,
+  search: Search,
 };
 
 export function App() {

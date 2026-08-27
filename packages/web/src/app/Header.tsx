@@ -31,7 +31,7 @@ export function Header() {
         {icon(collapsed ? "arrow-bar-right" : "arrow-bar-left", 16)}
       </button>
       <span className="logo">
-        <Mark className="" />
+        <Mark />
         Swarm
       </span>
       <Nav />
