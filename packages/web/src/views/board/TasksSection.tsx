@@ -11,6 +11,7 @@ import { claimTask, runGates } from "../../api/actions";
 import { type Column, DataGrid } from "../../components/DataGrid";
 import { RowMenuButton } from "../../components/RowMenuButton";
 import { Badge, Section } from "../../components/ui";
+import { copyText } from "../../lib/copy";
 import { menuSection, openMenu } from "../../lib/menus";
 import { RunDrawer } from "../session/RunDrawer";
 
@@ -143,7 +144,7 @@ function openTaskMenu(
   projectId: string,
   onRun: (task: TaskView) => void,
 ): void {
-  const copy = (text: string) => () => void navigator.clipboard.writeText(text).catch(() => {});
+  const copy = (text: string) => () => void copyText(text);
   const actions =
     task.ready || task.claimedBy
       ? [
