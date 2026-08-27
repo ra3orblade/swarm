@@ -40,13 +40,19 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   `body > aside` rule quietly stopped matching. `bun run check:classes` now fails on that selector
   shape rather than letting it go quiet again.
 
-- **A GitHub or Linear backlog showed as no backlog at all.** The first request for an external
-  tracker arrives before the fetch comes back, and the daemon answered `{ tasks: [] }` — so the
-  Board rendered no Tasks section, identical to a repo that configures no source. On a repo with
-  300 open issues it stayed that way until something happened to poll it again. The response now
-  says whether it is still fetching, and the Board says so too. The same section also swallowed the
-  daemon's reason when a source *failed*: `gh not installed` and `LINEAR_API_KEY not set` both
-  rendered as silence. Both are now shown.
+- **The Trials view threw on every visit.** `/v1/ab` answers `{ trials: [...] }`, and the view was
+  annotated as receiving a bare array — so it walked past its own empty check and called `.filter`
+  on an object. Route builders now carry their response type, so `useResource` infers it and an
+  annotation that disagrees with the endpoint is a compile error instead of a blank view.
+
+- **A configured backlog could render as no backlog at all.** An external tracker is fetched in the
+  background and the first request arrives before it answers, so the daemon returned `{ tasks: [] }`
+  and the Board drew no Tasks section — identical to a repo that configures no source. On a repo
+  with 300 open issues it stayed that way until something happened to poll it again. Three other
+  routes into the same silence are closed with it: a source that *failed* (`gh not installed`,
+  `LINEAR_API_KEY not set` — messages written to be acted on, and previously discarded), a markdown
+  source naming a file that is not there, and a backlog that really is empty. A configured source
+  now always renders, and always says which of those it is.
 
 - **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
   the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.

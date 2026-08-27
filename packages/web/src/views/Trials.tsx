@@ -23,7 +23,7 @@ const VERDICT: Readonly<Record<TrialReport["verdict"], [BadgeTone, string]>> = {
 export function Trials() {
   const project = useUiStore((s) => s.project);
   const openSession = useUiStore((s) => s.openSession);
-  const { data, error, reload } = useResource<TrialReport[]>(routes.trials(project));
+  const { data, error, reload } = useResource(routes.trials(project));
 
   const columns: Column<ScoredArm>[] = [
     {
@@ -126,7 +126,8 @@ export function Trials() {
   if (error && !data) return <Failed error={error} onRetry={reload} />;
   if (!data) return <Loading />;
 
-  if (data.length === 0) {
+  const trials = data.trials;
+  if (trials.length === 0) {
     return (
       <Section title="Trials" hint="same task, different models">
         <Empty>
@@ -138,16 +139,16 @@ export function Trials() {
     );
   }
 
-  const running = data.filter((t) => t.verdict === "undecided").length;
+  const running = trials.filter((t) => t.verdict === "undecided").length;
 
   return (
     <>
       <Section
         title="Trials"
-        hint={`${data.length} trial${data.length === 1 ? "" : "s"}${running ? ` · ${running} still running` : ""}`}
+        hint={`${trials.length} trial${trials.length === 1 ? "" : "s"}${running ? ` · ${running} still running` : ""}`}
       />
 
-      {data.map((trial) => {
+      {trials.map((trial) => {
         const [tone, word] = VERDICT[trial.verdict];
         const totals = trial.totals;
         return (
