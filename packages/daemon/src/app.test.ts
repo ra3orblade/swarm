@@ -1539,20 +1539,20 @@ describe("event storage and wire shape (perf)", () => {
 
   it("dashboard assets revalidate, so an upgrade cannot serve the old build (M-launch)", async () => {
     const { app } = createApp(new Store(tmpHome()));
-    const r = await app.request("/app.js");
+    const r = await app.request("/dashboard.js");
     expect(r.status).toBe(200);
-    // Without these a browser may keep the previous version's app.js and release-notes.js after
+    // Without these a browser may keep the previous version's dashboard.js and icons.js after
     // the daemon restarts into a new build — which is how "What's New" showed the old release.
     expect(r.headers.get("cache-control")).toBe("no-cache");
     const etag = r.headers.get("etag");
     expect(etag).toBeTruthy();
 
     // A matching etag is a cheap 304 rather than the whole file again.
-    const again = await app.request("/app.js", { headers: { "if-none-match": etag as string } });
+    const again = await app.request("/dashboard.js", { headers: { "if-none-match": etag as string } });
     expect(again.status).toBe(304);
 
     // A stale etag still gets the real file.
-    const stale = await app.request("/app.js", { headers: { "if-none-match": 'W/"0-0"' } });
+    const stale = await app.request("/dashboard.js", { headers: { "if-none-match": 'W/"0-0"' } });
     expect(stale.status).toBe(200);
     expect((await stale.text()).length).toBeGreaterThan(0);
   });

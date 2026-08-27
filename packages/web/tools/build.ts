@@ -2,7 +2,7 @@
 //   menus.js  — React island: fancy-menus provider + Swarm's menu configs (window.menus)
 //   fm.css    — fancy-menus runtime stylesheet
 //   icons.js  — pixelarticons as inline SVG, window.icon(name, size)
-// Hand-written files (index.html, app.js, viz.js) stay as they are; no bundler touches them.
+// index.html is hand-written and stays as it is; everything else here is generated.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -249,9 +249,8 @@ const bundle = async (entry: string, naming: string) => {
 };
 
 await bundle("../src/menus.tsx", "menus.js");
-// `dashboard`, never `app`: `public/app.js` is the hand-written vanilla dashboard and emitting
-// over it would delete the thing this is replacing before the replacement is finished. The React
-// build is served at /next.html until it takes over (M11.12).
+// `dashboard`, not `app`: the name is now only a convention, but `index.html` and every packaged
+// build reference it, so it stays put.
 await bundle("../src/main.tsx", "dashboard.[ext]");
 
 console.log(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ART_PALETTE, ART_THEME, artSvg, HEAD, MARK, ROBOT, trimArt } from "./art";
 
@@ -50,42 +50,30 @@ describe("ROBOT", () => {
   });
 
   /**
-   * app.js cannot import from core — it is a plain script served to the browser — so it keeps an
-   * inline copy. This is the guard that the copy still matches; without it the dashboard and the
-   * site would drift apart the next time either is edited.
+   * The dashboard used to keep an *inline copy* of this drawing and its palette, because `app.js`
+   * was a plain script that could not import from core. Three tests guarded that copy against
+   * drift. The React dashboard imports `MARK` and `ART_THEME` and generates the SVG at render time
+   * (`web/src/components/Mark.tsx`), so there is nothing left to drift — and this is what keeps it
+   * that way. A pasted copy is how the splash and the header once wore different robots.
    */
-  test("the dashboard's inline copy is identical to this one", () => {
-    const app = readFileSync(join(import.meta.dir, "../../web/public/app.js"), "utf8");
-    const start = app.indexOf("idle: () =>");
-    expect(start).toBeGreaterThan(-1);
-    const block = app.slice(start, app.indexOf("],", start));
-    const rows = [...block.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
-    expect(rows).toEqual([...ROBOT]);
-  });
+  test("the dashboard keeps no pasted copy of the drawing", () => {
+    const longestRow = [...ROBOT, ...MARK]
+      .map((r) => r.trim())
+      .reduce((a, b) => (b.length > a.length ? b : a));
+    expect(longestRow.length).toBeGreaterThan(4);
 
-  /** Same reason as the grid: a drifted palette paints the drawing in the wrong tones. */
-  test("the dashboard's inline palette is identical to ART_THEME", () => {
-    const app = readFileSync(join(import.meta.dir, "../../web/public/app.js"), "utf8");
-    const block = app.slice(
-      app.indexOf("const C = {"),
-      app.indexOf("};", app.indexOf("const C = {")),
-    );
-    const pal = Object.fromEntries(
-      [...block.matchAll(/(\w+): "([^"]*)"/g)].map((m) => [m[1], m[2]]),
-    );
-    expect(pal).toEqual({ ...ART_THEME });
-  });
-
-  test("every glyph the dashboard can paint has a colour", () => {
-    const app = readFileSync(join(import.meta.dir, "../../web/public/app.js"), "utf8");
-    const grids = [...app.matchAll(/pixmap\(\s*\[([\s\S]*?)\]/g)].map((m) => m[1] as string);
-    const used = new Set(
-      grids
-        .join("")
-        .replace(/[^A-Z]/g, "")
-        .split(""),
-    );
-    expect([...used].every((g) => g in ART_THEME)).toBe(true);
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.tsx?$/.test(entry.name) && readFileSync(path, "utf8").includes(longestRow)) {
+          offenders.push(entry.name);
+        }
+      }
+    };
+    walk(join(import.meta.dir, "../../web/src"));
+    expect(offenders).toEqual([]);
   });
 });
 

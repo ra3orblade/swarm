@@ -1,4 +1,7 @@
-// Inline-SVG chart helpers. No dependencies, no build step.
+// Inline-SVG chart helpers for the **team dashboard** (packages/team), which is still a vanilla
+// page and loads this file from here (see packages/team/src/app.ts). The main dashboard's charts
+// are React components in packages/web/src/components — this file is no longer served to it.
+//
 // Colour rules: agents get a fixed categorical slot (never cycled); part-to-whole of one thing
 // (token composition) uses one hue stepped light→dark; heatmap is one hue by opacity.
 

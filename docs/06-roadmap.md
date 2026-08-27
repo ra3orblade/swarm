@@ -202,8 +202,8 @@ converted, so no commit ships a half-migrated app.
 | M11.8 | Views — Work: Board, PRs, Trials, Hygiene | M11.7 | ✅ 2026-08-27 Board, PRs, Trials, Hygiene — Hygiene with its three actions wired through `api/actions.ts` |
 | M11.9 | Views — Insight: Outcomes, Gates, MCP, Context, Files, Spend, Stats, Search | M11.7 | ✅ 2026-08-27 Outcomes, Gates, MCP, Context, Files, Spend, Stats, Search |
 | M11.10 | Views — Guard: Security, Provenance, Incidents, Rules | M11.7 | ✅ 2026-08-27 Security, Provenance, Incidents, Rules |
-| M11.11 | Session detail + Replay, run control and the stdin box | M11.7 | 🟡 Session detail (header, merged event/turn stream, stats sidebar) ported; Replay, the diff view, run control and the stdin box still open |
-| M11.12 | Retire `app.js` / `table.js` / `viz.js`; drop the legacy adapter; component tests | M11.8–M11.11 | 🟡 All 19 views render from React at `/next`; retiring `app.js` / `viz.js` / `table.js` and cutting `/` over waits on M11.11 and the row context menus |
+| M11.11 | Session detail + Replay, run control and the stdin box | M11.7 | 🟡 Session detail (header, merged event/turn stream, stats sidebar, row menus) ported; Replay, the diff view, run control and the stdin box still open |
+| M11.12 | Retire `app.js` / `table.js` / `viz.js`; drop the legacy adapter; component tests | M11.8–M11.11 | ✅ 2026-08-27 React serves `/`; `app.js` retired and `/next` 308s to `/`. `viz.js` and `table.js` stay in `web/public` because the **team** dashboard is still a vanilla page and loads them from there. The three art-drift tests are replaced by one that fails if any component pastes a copy of the drawing |
 
 ## Later (not scheduled)
 Hosted (SaaS) team daemon wrapping the M8.3 binary · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule.
