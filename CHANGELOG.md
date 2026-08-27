@@ -54,6 +54,12 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   source naming a file that is not there, and a backlog that really is empty. A configured source
   now always renders, and always says which of those it is.
 
+- **Branch names rendered in the wrong font, and badges sat flush against them.** `.br` — the
+  monospace treatment for a machine-readable name — was only ever written as `td.br`, matching when
+  the class sat on the table cell. React puts it on a `<span>` inside the cell, and uses it outside
+  tables too, so the rule matched nothing: every branch, rule, tool and task ref quietly rendered as
+  14px body sans, wide enough to crowd the badge beside it.
+
 - **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
   the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
 

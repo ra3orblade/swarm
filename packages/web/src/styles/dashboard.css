@@ -1363,11 +1363,24 @@ td b {
   font-weight: 600;
   color: var(--fg);
 }
-td.now,
-td.br {
+td.now {
   font-family: var(--mono);
   font-size: var(--fs-mono);
   color: var(--fg-2);
+}
+/* A branch, rule, tool or task ref — the monospace treatment for a machine-readable name.
+   This was `td.br`, matching only when the class sat on the cell itself. React puts it on a
+   <span> inside the cell (and uses it outside tables too: Search, Graphs, Incidents), so the
+   selector matched nothing and every branch name silently rendered as 14px body sans. */
+.br {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  color: var(--fg-2);
+}
+/* A badge that annotates the name beside it needs air; `.badge` only carries a right margin,
+   which put "Main tree" flush against the branch. */
+.br + .badge {
+  margin-left: 6px;
 }
 td.now {
   color: var(--dim);
