@@ -28,7 +28,6 @@ import type {
   SecurityReport,
 } from "@swarm/core";
 import type { TrialReport } from "@swarm/core/abtrial";
-
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import { query } from "./client";
@@ -73,22 +72,3 @@ export const routes = {
    */
   stats: (project: string | null): string => byProject("/v1/stats", project),
 } as const;
-
-/**
- * The response type for each route above. A view writes
- * `useResource<ResponseOf["outcomes"]>(routes.outcomes(project))` and gets the domain type the
- * daemon actually returns.
- */
-export interface ResponseOf {
-  incidents: IncidentEvent[];
-  trials: TrialReport[];
-  outcomes: OutcomeReport;
-  hygiene: HygieneReport;
-  gateHealth: GateHealthReport;
-  mcpHealth: McpHealthReport;
-  context: ContextReport;
-  heat: HeatReport;
-  security: SecurityReport;
-  provenance: ProvenanceReport;
-  ruleEffect: RuleEffectReport;
-}
