@@ -83,3 +83,25 @@ export function percent(value: number | null | undefined): string {
 export function sumBy<T>(items: readonly T[], of: (item: T) => number | null | undefined): number {
   return items.reduce((total, item) => total + (of(item) ?? 0), 0);
 }
+
+/** A span of wall-clock in the unit that reads: 42m, 4.2h, 3.1d. */
+export function duration(ms: number): string {
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${(ms / 3_600_000).toFixed(1)}h`;
+  return `${(ms / 86_400_000).toFixed(1)}d`;
+}
+
+/** A latency, where sub-second precision matters. Null is "never measured". */
+export function latency(ms: number | null): string | null {
+  if (ms === null) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return duration(ms);
+}
+
+/** Disk, given in kilobytes. */
+export function megabytes(kb: number | null | undefined): string | null {
+  if (kb === null || kb === undefined) return null;
+  if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)} GB`;
+  return `${Math.round(kb / 1024)} MB`;
+}

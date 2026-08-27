@@ -13,6 +13,11 @@ import { useEffect } from "react";
 import { startSnapshotFeed } from "../state/snapshot";
 import { applyDeepLink, useUiStore } from "../state/ui";
 import { Fleet } from "../views/Fleet";
+import { Gates } from "../views/Gates";
+import { Hygiene } from "../views/Hygiene";
+import { Mcp } from "../views/Mcp";
+import { Outcomes } from "../views/Outcomes";
+import { PRs } from "../views/PRs";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Header } from "./Header";
 import { NotPorted } from "./NotPorted";
@@ -22,6 +27,11 @@ import type { ViewId } from "./views";
 /** Views that have a React implementation. Everything else falls through to the old renderer. */
 const VIEWS: Partial<Record<ViewId, () => React.JSX.Element>> = {
   fleet: Fleet,
+  prs: PRs,
+  hygiene: Hygiene,
+  outcomes: Outcomes,
+  gates: Gates,
+  mcp: Mcp,
 };
 
 export function App() {

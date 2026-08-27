@@ -3333,3 +3333,30 @@ body.nosb .nudge {
   grid-column: 2;
   grid-row: 2;
 }
+
+/* Explanatory footnote under a view's table (M11.9). The vanilla views inlined these numbers as a
+   style attribute on a <p>; naming the class keeps the type scale in one place. */
+.note {
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+}
+
+/* Controls that were <div>/<span>/<a> in the vanilla dashboard and are <button> here, so they can
+   be reached by keyboard (M11.6). The styling above was written for elements with no chrome of
+   their own, so strip the button's — a <button> brings its own border, background, centred text,
+   shrink-to-fit width and font, none of which these rules expect. */
+.proj,
+.chip,
+.h4-act,
+.nav-group,
+.mini-act {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.proj {
+  width: 100%;
+}

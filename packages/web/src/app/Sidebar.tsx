@@ -1,10 +1,16 @@
 /**
  * The project sidebar (M11.6): pinned projects with a spend sparkline and a live-session count,
  * then the ones Swarm has seen but you have not pinned.
+ *
+ * The markup mirrors the vanilla one class for class — `.proj`, `.st`, `.nm` — because the
+ * stylesheet is the original and every rule in it was arrived at by fixing a real defect. Rows are
+ * `<button>`s so they can be tabbed to, which the old `<div>`s could not; `.proj` therefore also
+ * resets the browser's button chrome (see dashboard.css).
  */
 import type { Project, SessionView } from "@swarm/core/types";
 import { useMemo } from "react";
 import { Sparkline } from "../components/Sparkline";
+import { sumBy } from "../lib/format";
 import { icon } from "../lib/icon";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
@@ -13,76 +19,74 @@ export function Sidebar() {
   const selected = useUiStore((s) => s.project);
   const selectProject = useUiStore((s) => s.selectProject);
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
-  const sparks = useSnapshot((s) => s?.spendSparks ?? EMPTY_SPARKS);
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY_SESSIONS);
+  const sparks = useSnapshot((s) => s?.spendSparks ?? EMPTY_SPARKS);
+
   // Derived with useMemo, never inside the selector: a selector that builds a fresh object returns
   // a new reference every call, so the store's identity check always says "changed" and the render
-  // loops forever (React #185). Selectors must return something already in the snapshot.
-  const liveByProject = useMemo(() => {
+  // loops forever (React #185).
+  const live = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const session of sessions) {
-      if (session.state !== "ended") {
+      if (session.state === "active" || session.state === "waiting") {
         counts[session.projectId] = (counts[session.projectId] ?? 0) + 1;
       }
     }
     return counts;
   }, [sessions]);
 
+  /** Two projects can share a name; the parent directory is the cheapest way to tell them apart. */
+  const duplicated = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const p of projects) seen.set(p.name, (seen.get(p.name) ?? 0) + 1);
+    return seen;
+  }, [projects]);
+
   const pinned = projects.filter((p) => !p.discovered);
   const unpinned = projects.filter((p) => p.discovered);
-  const liveTotal = Object.values(liveByProject).reduce((a, b) => a + b, 0);
+  const liveAll = Object.values(live).reduce((a, b) => a + b, 0);
+
+  const row = (project: Project) => (
+    <ProjectRow
+      key={project.id}
+      project={project}
+      selected={selected === project.id}
+      live={live[project.id] ?? 0}
+      spark={sparks[project.id] ?? EMPTY_SPARK}
+      ambiguous={(duplicated.get(project.name) ?? 0) > 1}
+      onSelect={selectProject}
+    />
+  );
 
   return (
     <aside>
       <div id="projects">
-        <div className="side-h">
+        <h4>
           Projects
-          <button
-            type="button"
-            className="icon-btn"
-            title="Add a project"
-            aria-label="Add a project"
-          >
+          <button type="button" className="h4-act" title="Add project" aria-label="Add project">
             {icon("plus", 14)}
           </button>
-        </div>
+        </h4>
 
         <button
           type="button"
-          className={selected === null ? "proj on" : "proj"}
+          className={selected === null ? "proj sel" : "proj"}
           onClick={() => selectProject(null)}
         >
-          <span className="pg">{icon("folders", 14)}</span>
-          <span className="proj-n">All projects</span>
-          {liveTotal > 0 && <span className="proj-c">{liveTotal}</span>}
+          <span className={liveAll > 0 ? "st live" : "st"} />
+          {icon("folders", 14)}
+          <span className="nm">All projects</span>
+          <small>{liveAll || ""}</small>
         </button>
 
-        {pinned.map((project) => (
-          <ProjectRow
-            key={project.id}
-            project={project}
-            selected={selected === project.id}
-            live={liveByProject[project.id] ?? 0}
-            spark={sparks[project.id] ?? EMPTY_SPARK}
-            onSelect={selectProject}
-          />
-        ))}
+        <div id="pinned">{pinned.map(row)}</div>
 
         {unpinned.length > 0 && (
           <>
-            <div className="side-h side-h-sub">
-              Unpinned <span>· seen, not pinned</span>
-            </div>
-            {unpinned.map((project) => (
-              <ProjectRow
-                key={project.id}
-                project={project}
-                selected={selected === project.id}
-                live={liveByProject[project.id] ?? 0}
-                spark={EMPTY_SPARK}
-                onSelect={selectProject}
-              />
-            ))}
+            <h4>
+              Unpinned <span className="faint h4-note">· seen, not pinned</span>
+            </h4>
+            {unpinned.map(row)}
           </>
         )}
       </div>
@@ -95,22 +99,34 @@ interface ProjectRowProps {
   selected: boolean;
   live: number;
   spark: readonly number[];
+  ambiguous: boolean;
   onSelect: (id: string) => void;
 }
 
-function ProjectRow({ project, selected, live, spark, onSelect }: ProjectRowProps) {
+function ProjectRow({ project, selected, live, spark, ambiguous, onSelect }: ProjectRowProps) {
+  // Under half a dollar over a fortnight is a flat line pretending to be information.
+  const spend = sumBy(spark, (n) => n);
+  const parent = ambiguous ? project.root.split("/").filter(Boolean).at(-2) : undefined;
+
   return (
     <button
       type="button"
-      className={selected ? "proj on" : "proj"}
+      className={selected ? "proj sel" : "proj"}
       onClick={() => onSelect(project.id)}
       title={project.root}
     >
-      <i className={live > 0 ? "dot on" : "dot"} />
+      <span className={live > 0 ? "st live" : "st"} />
       <ProjectGlyph project={project} />
-      <span className="proj-n">{project.name}</span>
-      {spark.length > 0 && <Sparkline points={spark} className="proj-spark" />}
-      {live > 0 && <span className="proj-c">{live}</span>}
+      <span className="nm">
+        {parent && <span className="pdir">{parent}/</span>}
+        {project.name}
+      </span>
+      {spend >= 0.5 && (
+        <span className="proj-spark" title={`last 14 days · $${spend.toFixed(0)}`}>
+          <Sparkline points={spark} color="var(--c1)" />
+        </span>
+      )}
+      <small>{live || ""}</small>
     </button>
   );
 }

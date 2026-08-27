@@ -14,7 +14,8 @@ export interface SectionProps {
   hint?: ReactNode;
   /** Pushed to the right of the heading: filters, toggles, actions. */
   actions?: ReactNode;
-  children: ReactNode;
+  /** Omit for a heading that only introduces the sections below it. */
+  children?: ReactNode;
   /** Extra top margin, for a section that follows another. */
   spaced?: boolean;
 }
@@ -61,27 +62,42 @@ export function Empty({ art, children }: EmptyProps) {
   );
 }
 
-/** A single headline number with its label. */
+/**
+ * One headline number: label, value, and a line of detail under it.
+ *
+ * The class names (`.kpi`, `.l`, `.v`, `.d`) and the two tones are the stylesheet's, not invented
+ * here — `hot` for something that needs a person, `warm` for something merely worth noticing.
+ */
+export type StatTone = "hot" | "warm";
+
 export function Stat({
   label,
   value,
+  detail,
   tone,
 }: {
   label: string;
   value: ReactNode;
-  tone?: BadgeTone;
+  detail?: ReactNode;
+  // `| undefined` explicitly: `exactOptionalPropertyTypes` is on, so an omitted prop and one passed
+  // as `undefined` are different types, and callers compute this conditionally.
+  tone?: StatTone | undefined;
 }) {
   return (
-    <div className="kpi">
-      <div className={tone ? `kpi-v ${tone}` : "kpi-v"}>{value}</div>
-      <div className="kpi-l">{label}</div>
+    <div className={tone ? `kpi ${tone}` : "kpi"}>
+      <div className="l">{label}</div>
+      <div className="v">{value}</div>
+      {detail !== undefined && <div className="d">{detail}</div>}
     </div>
   );
 }
 
-/** A row of stats above a view's tables. */
-export function StatRow({ children }: { children: ReactNode }) {
-  return <div className="kpis">{children}</div>;
+/**
+ * A row of stats. Four to a row by default; `wide` switches to the auto-fit grid the five-up
+ * strips use, so a fifth card does not wrap onto a lonely second row.
+ */
+export function StatRow({ children, wide }: { children: ReactNode; wide?: boolean }) {
+  return <div className={wide ? "kpis kpis-5" : "kpis"}>{children}</div>;
 }
 
 /** An icon-only button. `name` is a key in the generated pixelarticons subset. */
