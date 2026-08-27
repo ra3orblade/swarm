@@ -80,10 +80,13 @@ export interface TasksSectionProps {
 /**
  * The Tasks section, or nothing when the repo configures no task source.
  *
- * A source that is configured but empty is *not* nothing: it is either still being fetched or it
- * failed, and both used to render as an absent section. On a repo with 300 open issues the Board
- * showed no Tasks at all until something happened to poll it again, and a missing `gh` looked
- * exactly the same as a tracker with nothing in it.
+ * A source that is configured but empty is *not* nothing: it is still fetching, or it failed, or
+ * the backlog really is empty — and all three used to render as an absent section. On a repo with
+ * 300 open issues the Board showed no Tasks at all until something happened to poll it again, and
+ * a missing `gh` looked exactly the same as a tracker with nothing in it.
+ *
+ * Only the absence of a *source* renders nothing, because that is the one case where the user has
+ * not asked for a backlog at all.
  */
 export function TasksSection({
   source,
@@ -99,26 +102,26 @@ export function TasksSection({
 
   if (!source) return null;
 
+  // A configured source always renders, and always says why it has nothing — that a source is set
+  // at all is the user's statement that they expect a backlog here.
   if (tasks.length === 0) {
-    if (error) {
-      return (
-        <Section title="Tasks" hint={source}>
-          <Empty>
-            <b>Could not read tasks from {source}.</b>
-            <br />
-            {error}
-          </Empty>
-        </Section>
-      );
-    }
-    if (loading) {
-      return (
-        <Section title="Tasks" hint={source}>
-          <Empty>Fetching tasks from {source}…</Empty>
-        </Section>
-      );
-    }
-    return null;
+    return (
+      <Section title="Tasks" hint={source}>
+        <Empty>
+          {error ? (
+            <>
+              <b>Could not read tasks from {source}.</b>
+              <br />
+              {error}
+            </>
+          ) : loading ? (
+            <>Fetching tasks from {source}…</>
+          ) : (
+            <>No tasks in {source}.</>
+          )}
+        </Empty>
+      </Section>
+    );
   }
 
   const ready = tasks.filter((t) => t.ready);

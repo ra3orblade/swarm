@@ -595,6 +595,22 @@ describe("external task sources (M4.8)", () => {
     expect(j.error).toBeNull();
   });
 
+  it("names a markdown source that points at nothing", async () => {
+    // Same silence, different source: `.swarm.toml` naming a file that is not there rendered an
+    // empty board, indistinguishable from a file that genuinely lists no tasks.
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-taskmissing-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[tasks]\nsource = "docs/nope.md"\n`);
+    const p = store.resolveProject(dir, true);
+    const r = await app.request(`/v1/tasks?project=${p.id}`);
+    const j = (await r.json()) as { source: string; error: string | null; loading?: boolean };
+    expect(j.source).toBe("docs/nope.md");
+    expect(j.error).toContain("not found");
+    expect(j.loading).toBe(false);
+  });
+
   it("is not 'loading' once the source has answered, even with nothing to show", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const fs = require("node:fs");

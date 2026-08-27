@@ -1950,7 +1950,16 @@ export class Store {
       loading = e.at === 0 && e.error === null;
     } else {
       const path = join(p.root, source);
-      if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
+      // A source that points at nothing is a misconfiguration worth saying out loud. Returning an
+      // empty board made it indistinguishable from a file that genuinely lists no tasks.
+      if (!existsSync(path))
+        return {
+          source,
+          required: this.requiredGates(projectId),
+          tasks: [],
+          error: `${source} not found in this repository`,
+          loading: false,
+        };
       const mtime = statSync(path).mtimeMs;
       let md = this.taskCache.get(projectId);
       if (!md || md.path !== path || md.mtime !== mtime) {

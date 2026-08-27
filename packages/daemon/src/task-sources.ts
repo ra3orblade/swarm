@@ -30,8 +30,13 @@ export interface TaskSourceEntry {
   error: string | null;
 }
 
-/** Nothing fetched yet — not "no tasks". The distinction is the whole point of `loading`. */
-const PENDING: TaskSourceEntry = { at: 0, tasks: [], error: null };
+/**
+ * Nothing fetched yet — not "no tasks". The distinction is the whole point of `loading`.
+ *
+ * Frozen because it is handed out by reference to every caller that misses the cache; a single
+ * `entry.tasks.push` anywhere would poison the sentinel for the whole process.
+ */
+const PENDING: TaskSourceEntry = Object.freeze({ at: 0, tasks: [] as Task[], error: null });
 
 export class TaskSources {
   private cache = new Map<string, TaskSourceEntry>();
