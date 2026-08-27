@@ -10,7 +10,7 @@ import { useState } from "react";
 import { claimTask, runGates } from "../../api/actions";
 import { type Column, DataGrid } from "../../components/DataGrid";
 import { RowMenuButton } from "../../components/RowMenuButton";
-import { Badge, Section } from "../../components/ui";
+import { Badge, Empty, Section } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { menuSection, openMenu } from "../../lib/menus";
 import { RunDrawer } from "../session/RunDrawer";
@@ -68,17 +68,61 @@ export interface TasksSectionProps {
   /** The configured source's name, or null when the repo has none. */
   source: string | null;
   tasks: TaskView[];
+  /** True while an external tracker's first fetch is still in flight. */
+  loading?: boolean;
+  /** Why the list is empty — `gh not installed`, `LINEAR_API_KEY not set`, an API error. */
+  error?: string | null;
   /** Required to claim or run; the Board only renders this section with a project selected. */
   projectId: string;
   onOpenSession: (id: string) => void;
 }
 
-/** The Tasks section, or nothing when the repo configures no task source. */
-export function TasksSection({ source, tasks, projectId, onOpenSession }: TasksSectionProps) {
+/**
+ * The Tasks section, or nothing when the repo configures no task source.
+ *
+ * A source that is configured but empty is *not* nothing: it is still fetching, or it failed, or
+ * the backlog really is empty — and all three used to render as an absent section. On a repo with
+ * 300 open issues the Board showed no Tasks at all until something happened to poll it again, and
+ * a missing `gh` looked exactly the same as a tracker with nothing in it.
+ *
+ * Only the absence of a *source* renders nothing, because that is the one case where the user has
+ * not asked for a backlog at all.
+ */
+export function TasksSection({
+  source,
+  tasks,
+  loading = false,
+  error = null,
+  projectId,
+  onOpenSession,
+}: TasksSectionProps) {
   const [filter, setFilter] = useState<Filter>("ready");
   /** The task whose Run drawer is open, if any. */
   const [running, setRunning] = useState<TaskView | null>(null);
-  if (!source || tasks.length === 0) return null;
+
+  if (!source) return null;
+
+  // A configured source always renders, and always says why it has nothing — that a source is set
+  // at all is the user's statement that they expect a backlog here.
+  if (tasks.length === 0) {
+    return (
+      <Section title="Tasks" hint={source}>
+        <Empty>
+          {error ? (
+            <>
+              <b>Could not read tasks from {source}.</b>
+              <br />
+              {error}
+            </>
+          ) : loading ? (
+            <>Fetching tasks from {source}…</>
+          ) : (
+            <>No tasks in {source}.</>
+          )}
+        </Empty>
+      </Section>
+    );
+  }
 
   const ready = tasks.filter((t) => t.ready);
   const open = tasks.filter((t) => t.status !== "done");

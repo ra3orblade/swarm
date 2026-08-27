@@ -23,11 +23,20 @@ import {
 import { findBin } from "./forge";
 
 export interface TaskSourceEntry {
+  /** When this entry was filled. `0` means the first fetch has not come back yet. */
   at: number;
   tasks: Task[];
   /** Why the list is empty/stale, for the UI (`gh not installed`, `LINEAR_API_KEY not set`, …). */
   error: string | null;
 }
+
+/**
+ * Nothing fetched yet — not "no tasks". The distinction is the whole point of `loading`.
+ *
+ * Frozen because it is handed out by reference to every caller that misses the cache; a single
+ * `entry.tasks.push` anywhere would poison the sentinel for the whole process.
+ */
+const PENDING: TaskSourceEntry = Object.freeze({ at: 0, tasks: [] as Task[], error: null });
 
 export class TaskSources {
   private cache = new Map<string, TaskSourceEntry>();
@@ -45,7 +54,7 @@ export class TaskSources {
   ): TaskSourceEntry {
     const hit = this.cache.get(projectId);
     if (!hit || Date.now() - hit.at >= ttlMs) void this.refresh(projectId, kind, root, opts);
-    return hit ?? { at: 0, tasks: [], error: null };
+    return hit ?? PENDING;
   }
 
   async refresh(
@@ -54,8 +63,7 @@ export class TaskSources {
     root: string,
     opts: { labels: string[]; team: string | null },
   ): Promise<TaskSourceEntry> {
-    if (this.inflight.has(projectId))
-      return this.cache.get(projectId) ?? { at: 0, tasks: [], error: null };
+    if (this.inflight.has(projectId)) return this.cache.get(projectId) ?? PENDING;
     this.inflight.add(projectId);
     const prev = this.cache.get(projectId);
     let entry: TaskSourceEntry;

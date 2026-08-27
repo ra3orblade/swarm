@@ -1918,9 +1918,14 @@ export class Store {
   /** The project's backlog from its `.swarm.toml` `[tasks] source`, decorated with claim state.
    *  null when the project declares no source. Re-parsed when the file's mtime moves. */
   readonly taskSources = new TaskSources();
-  tasks(
-    projectId: string,
-  ): { source: string; required: string[]; tasks: TaskBoardRow[]; error?: string | null } | null {
+  tasks(projectId: string): {
+    source: string;
+    required: string[];
+    tasks: TaskBoardRow[];
+    error?: string | null;
+    /** True while an external tracker's first fetch is in flight — not the same as "no tasks". */
+    loading?: boolean;
+  } | null {
     const p = this.project(projectId);
     if (!p) return null;
     const cfg = loadConfig({ repoRoot: p.root, home: this.home }).tasks;
@@ -1928,6 +1933,8 @@ export class Store {
     if (!source) return null;
     let hit: { tasks: Task[] };
     let error: string | null = null;
+    /** True while an external tracker's first fetch is still in flight. */
+    let loading = false;
     const kind = taskSourceKind(source);
     if (kind === "github" || kind === "linear") {
       // M4.8: external tracker — cached, refreshed in the background, never blocks the Board.
@@ -1937,9 +1944,22 @@ export class Store {
       });
       hit = { tasks: e.tasks };
       error = e.error;
+      // `at === 0` means the first fetch is still in flight. Reporting that as an empty board is
+      // indistinguishable from a tracker with nothing in it — on a repo with 300 open issues the
+      // Board said "No tasks" until something happened to poll it again.
+      loading = e.at === 0 && e.error === null;
     } else {
       const path = join(p.root, source);
-      if (!existsSync(path)) return { source, required: this.requiredGates(projectId), tasks: [] };
+      // A source that points at nothing is a misconfiguration worth saying out loud. Returning an
+      // empty board made it indistinguishable from a file that genuinely lists no tasks.
+      if (!existsSync(path))
+        return {
+          source,
+          required: this.requiredGates(projectId),
+          tasks: [],
+          error: `${source} not found in this repository`,
+          loading: false,
+        };
       const mtime = statSync(path).mtimeMs;
       let md = this.taskCache.get(projectId);
       if (!md || md.path !== path || md.mtime !== mtime) {
@@ -1967,7 +1987,7 @@ export class Store {
         gated: gatesSatisfied(tr, required),
       };
     });
-    return { source, required, tasks: board, error };
+    return { source, required, tasks: board, error, loading };
   }
 
   rulesFor(repoRoot: string | null): RulesConfig {

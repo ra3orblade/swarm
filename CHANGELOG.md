@@ -45,6 +45,21 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   on an object. Route builders now carry their response type, so `useResource` infers it and an
   annotation that disagrees with the endpoint is a compile error instead of a blank view.
 
+- **A configured backlog could render as no backlog at all.** An external tracker is fetched in the
+  background and the first request arrives before it answers, so the daemon returned `{ tasks: [] }`
+  and the Board drew no Tasks section — identical to a repo that configures no source. On a repo
+  with 300 open issues it stayed that way until something happened to poll it again. Three other
+  routes into the same silence are closed with it: a source that *failed* (`gh not installed`,
+  `LINEAR_API_KEY not set` — messages written to be acted on, and previously discarded), a markdown
+  source naming a file that is not there, and a backlog that really is empty. A configured source
+  now always renders, and always says which of those it is.
+
+- **Branch names rendered in the wrong font, and badges sat flush against them.** `.br` — the
+  monospace treatment for a machine-readable name — was only ever written as `td.br`, matching when
+  the class sat on the table cell. React puts it on a `<span>` inside the cell, and uses it outside
+  tables too, so the rule matched nothing: every branch, rule, tool and task ref quietly rendered as
+  14px body sans, wide enough to crowd the badge beside it.
+
 - **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
   the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
 
