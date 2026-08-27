@@ -45,6 +45,7 @@ import {
   gateHealth as computeGateHealth,
   contextReport,
   costUsd,
+  type DashboardSnapshot,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
   type DryRunReport,
@@ -142,6 +143,7 @@ import {
   reviewGateInput,
   reviewPrompt,
   ruleEffect,
+  type SessionView,
   type Stall,
   type SwarmConfig,
   type SwarmEvent,
@@ -173,6 +175,9 @@ import {
   WRITE_TOOLS,
   waitingReport,
 } from "@swarm/core";
+
+export type { SessionView };
+
 import { runBootstrap } from "./bootstrap";
 import { findBin } from "./forge";
 import {
@@ -189,44 +194,6 @@ import {
   worktreeRemove,
 } from "./git";
 import { TaskSources } from "./task-sources";
-
-export interface SessionView {
-  id: string;
-  projectId: string;
-  kind: "interactive" | "spawned" | "subagent";
-  agent: string;
-  parentId: string | null;
-  cwd: string;
-  branch: string | null;
-  transcriptPath: string | null;
-  title: string | null;
-  model: string | null;
-  models: number;
-  version: string | null;
-  startedAt: string;
-  endedAt: string | null;
-  lastSeenAt: string;
-  last: string;
-  lastType: string;
-  lastText: string | null;
-  state: "active" | "waiting" | "idle" | "ended";
-  /** M9.3: stall reason when the loop heuristics flag this live session, else null. */
-  stuck: string | null;
-  toolCalls: number;
-  subagents: number;
-  turns: number;
-  tokens: {
-    input: number;
-    output: number;
-    cacheWrite: number;
-    cacheRead: number;
-    thinking: number;
-  };
-  costUsd: number | null;
-  toolCounts: Record<string, number>;
-  /** Last ≤24 top-level turns, oldest first: [outputTokens, costUsd]. */
-  spark: Array<[number, number | null]>;
-}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, root TEXT, common_dir TEXT, name TEXT, discovered INTEGER, created_at TEXT);
@@ -6502,7 +6469,8 @@ export class Store {
     return out;
   }
 
-  snapshot() {
+  /** Everything the dashboard polls on a tick. The return type is the dashboard's contract. */
+  snapshot(): DashboardSnapshot {
     const worktrees: Record<string, Worktree[]> = {};
     // Auto-discovered repos under the OS temp dir are test fixtures and scratch clones (spawned
     // runs' hooks still reach this daemon) — keep their history, keep them off the sidebar.

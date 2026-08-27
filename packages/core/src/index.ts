@@ -9,6 +9,7 @@ export * from "./budget";
 export * from "./config";
 export * from "./context";
 export * from "./dag";
+export * from "./dashboard";
 export * from "./dispatch";
 export * from "./dryrun";
 export * from "./forge";

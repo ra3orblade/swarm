@@ -74,6 +74,16 @@ export interface WorktreeFacts {
   merged: boolean;
 }
 
+/**
+ * A worktree as the daemon reports it over the wire: the facts the ledger reasons about, plus the
+ * commit it points at. It lives here rather than in the daemon so the dashboard can name the shape
+ * without importing server code.
+ */
+export interface Worktree extends WorktreeFacts {
+  /** Commit SHA at HEAD. */
+  head: string;
+}
+
 export type RemoveRefusal = "main" | "held" | "dirty" | "unpushed";
 
 /**

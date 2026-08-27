@@ -96,6 +96,50 @@ export interface Session {
   lastSeenAt: string;
 }
 
+/**
+ * A session as the dashboard reads it: the stored row joined with everything derived from its
+ * transcript — token tiers, cost, what it is doing now, and a sparkline of recent turns. The
+ * daemon builds it; it lives here so the dashboard can name the shape without importing the store.
+ */
+export interface SessionView {
+  id: string;
+  projectId: string;
+  kind: SessionKind;
+  agent: string;
+  parentId: string | null;
+  cwd: string;
+  branch: string | null;
+  transcriptPath: string | null;
+  title: string | null;
+  model: string | null;
+  /** How many distinct models this session has used; drives the `+N` badge. */
+  models: number;
+  version: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  lastSeenAt: string;
+  last: string;
+  lastType: string;
+  lastText: string | null;
+  state: "active" | "waiting" | "idle" | "ended";
+  /** M9.3: stall reason when the loop heuristics flag this live session, else null. */
+  stuck: string | null;
+  toolCalls: number;
+  subagents: number;
+  turns: number;
+  tokens: {
+    input: number;
+    output: number;
+    cacheWrite: number;
+    cacheRead: number;
+    thinking: number;
+  };
+  costUsd: number | null;
+  toolCounts: Record<string, number>;
+  /** Last ≤24 top-level turns, oldest first: [outputTokens, costUsd]. */
+  spark: [number, number | null][];
+}
+
 export type ClaimState = "held" | "expired" | "released" | "reaped" | "orphaned";
 
 export interface Claim {

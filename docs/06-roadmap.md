@@ -182,5 +182,28 @@ Goal: hygiene reported 50 GB held across 32 worktrees and offered nothing to do 
 | M10.1 | Build-output reclamation: measure `node_modules` / `target` / `dist` per worktree, offer to clear it, keep the branch | M9.8 | ✅ 2026-08-26 `core/src/hygiene.ts` `reclaimPlan` + `BUILD_DIRS` + 10 tests. Clearing build output is a different act from removing a worktree: it keeps the checkout, the branch and every uncommitted edit, so a **dirty tree is fine** — what it refuses is the main checkout, a held claim, or a live session, because those mean somebody is mid-build. Containment is checked twice, when the plan is made and again at the moment of deletion, and a **nested worktree's output belongs to that worktree** rather than being swept up by its parent (which would also double-count the bytes in both rows). Measured in the same off-request sweep as `du`, with one pruned `find` per worktree. `store.reclaimBuild()` + `POST /v1/hygiene/reclaim` (`dry` returns the plan); Hygiene gains a **build output** column, a total, and a per-row Clear. Verified end to end on a real worktree: 222 MB → 9 MB, 213 MB freed across 7 directories, branch and git state intact. On this machine: **31 GB of the 50 GB held is build output** |
 | M10.2 | Stale threshold that fires: seven days never elapsed on a machine where work lands daily | M9.8 | ✅ 2026-08-26 `staleDays` 7 → 2. The report said 50 GB held and 0 reclaimable, which reads as broken rather than cautious; the ledger's `canRemoveWorktree` is still what decides whether removal is *safe*, so this only changes when a merged, unoccupied tree is worth mentioning. On this machine it took the offer from 0 to 8 worktrees and 1.7 GB |
 
+## M11 — React dashboard (readable, reactive) ← direction set 2026-08-27
+
+Goal: the dashboard stops being 3,551 lines of one file that repaints by replacing its own DOM.
+Componentised React + TypeScript, types imported from `@swarm/core`, Google TS style. See the OQ-6
+decision for why React and why still no Vite. **The dashboard must work at every commit** — the
+shell lands first and unported views keep rendering through a legacy adapter until each is
+converted, so no commit ships a half-migrated app.
+
+| ID | Task | Depends | Status |
+|---|---|---|---|
+| M11.1 | Toolchain: multi-entry `Bun.build`, CSS pipeline, app `tsconfig`, Biome rules encoding the Google TS guide | — | ⚪ |
+| M11.2 | Data layer: typed endpoints over `@swarm/core` types; `useSnapshot` (poll + SSE) and view-scoped `useResource` replacing 21 `xChanged` booleans | M11.1 | ⚪ |
+| M11.3 | Design tokens + UI primitives (`Card`, `Badge`, `Empty`, `StatTile`, `Section`) extracted from the 775 CSS lines in `index.html` | M11.1 | ⚪ |
+| M11.4 | `<DataGrid>`: port `table.js` (262 lines) to typed generic columns, keeping sort / resize / reorder / filter / column menu / per-table persistence | M11.3 | ⚪ |
+| M11.5 | Charts: port `viz.js` (446 lines) — sparkline, bipartite, layered DAG, bars | M11.3 | ⚪ |
+| M11.6 | Shell: header, nav, project sidebar, router (`?view=` deep links), error boundary, legacy-view adapter | M11.2, M11.3 | ⚪ |
+| M11.7 | Views — Observe: Fleet, Timeline, Graphs | M11.4, M11.5, M11.6 | ⚪ |
+| M11.8 | Views — Work: Board, PRs, Trials, Hygiene | M11.7 | ⚪ |
+| M11.9 | Views — Insight: Outcomes, Gates, MCP, Context, Files, Spend, Stats, Search | M11.7 | ⚪ |
+| M11.10 | Views — Guard: Security, Provenance, Incidents, Rules | M11.7 | ⚪ |
+| M11.11 | Session detail + Replay, run control and the stdin box | M11.7 | ⚪ |
+| M11.12 | Retire `app.js` / `table.js` / `viz.js`; drop the legacy adapter; component tests | M11.8–M11.11 | ⚪ |
+
 ## Later (not scheduled)
 Hosted (SaaS) team daemon wrapping the M8.3 binary · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule.

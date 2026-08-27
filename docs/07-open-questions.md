@@ -11,6 +11,23 @@ Status: living
 - **OQ-5 Task source for M1.6.** Markdown tables only, or also a `tasks.json`? Keep markdown-table only until a second format is actually needed.
   > **Decision (2026-08-22):** markdown tables only. `[tasks] source` in `.swarm.toml` names one markdown file; every `ID | Task | … | Status` table in it is parsed (✅ done / 🟡 active / ⚪ todo, `Depends` may name a task or a milestone prefix). A second format waits for a real request.
 - **OQ-6 Web stack.** Vite+React+shadcn (familiar, batteries-included) vs plain HTML/htmx over SSE (no build, smaller). Dashboard will get interactive (stdin, run control); React.
+  > **Decision (2026-08-27, M11):** **React + TypeScript, bundled by `Bun.build`. Still no Vite.**
+  > The vanilla dashboard reached 3,551 lines in one `app.js` with 40 render functions, and its
+  > update model was one HTML string per view assigned to `#main.innerHTML`. Measured on Fleet, a
+  > single idle repaint destroyed and rebuilt **1,059 elements — 99 `<svg>` and 27 `<img>` — to
+  > change 11 text nodes**. That is the visible flicker, and it forced three workarounds into
+  > `render()`: hold the frame while a menu is open, save/restore the caret in filter inputs, skip
+  > the project list mid-drag. `refresh()` had grown to 21 hand-tracked `xChanged` booleans compared
+  > by `JSON.stringify`. None of that is a bug to fix; it is the cost of hand-rolling reconciliation.
+  >
+  > React rather than Solid because the menus island is **already React 19** and the toolchain
+  > already compiles TSX — this widens an existing seam instead of adding a second framework. No
+  > Vite because `Bun.build` already produces the bundle, and a dev server buys nothing over the
+  > daemon's static serving. Views import their domain types straight from `@swarm/core`, so the
+  > API layer is typed by the same code that produces the responses.
+  >
+  > Style: Google's TypeScript style guide, enforced by Biome where a rule exists (named exports
+  > only, no `any`, no non-null assertions, `const` by default) and by review where it does not.
 - **OQ-7 Schema drift.** How to pin tested Claude Code versions and detect new hook/stream event types — `doctor` warning plus `raw` passthrough is the proposal.
 - **OQ-8 Non-Claude agents.** Out of scope for v1; keep the adapter seam but do not design for it.
 - **OQ-9 Memory search.** ✅ RESOLVED (2026-08-22): **SQLite FTS5 (BM25) first, no embedding model.** `bun:sqlite` ships FTS5, so memory search needs no native extension, no model download and no network — it works on a fresh install, offline, and stays in the one `swarm.db`. Indexed: handoffs, incidents (the stopped command + reason), gate runs (rubric + evidence) and what each session last said; never the monitored codebase. Queries are sanitised into MATCH expressions that cannot error (`core/memory.ts`). sqlite-vec + local embeddings stay on the table as a second ranker *if* keyword recall proves insufficient on real use — revisit with evidence, not upfront. Original note: Vector search over Swarm's *own* data only (handoffs, incidents, gate evidence, notes, denied commands), local embeddings via sqlite-vec, never over the monitored codebase (Claude Code greps better than RAG). Scheduled under M4; decide embedding model then.
