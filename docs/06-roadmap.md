@@ -192,8 +192,8 @@ converted, so no commit ships a half-migrated app.
 
 | ID | Task | Depends | Status |
 |---|---|---|---|
-| M11.1 | Toolchain: multi-entry `Bun.build`, CSS pipeline, app `tsconfig`, Biome rules encoding the Google TS guide | — | ⚪ |
-| M11.2 | Data layer: typed endpoints over `@swarm/core` types; `useSnapshot` (poll + SSE) and view-scoped `useResource` replacing 21 `xChanged` booleans | M11.1 | ⚪ |
+| M11.1 | Toolchain: multi-entry `Bun.build`, CSS pipeline, app `tsconfig`, Biome rules encoding the Google TS guide | — | 🟡 Biome rules + the `DashboardSnapshot` contract landed; `SessionView` and `Worktree` moved to core. Multi-entry build + CSS pipeline still open |
+| M11.2 | Data layer: typed endpoints over `@swarm/core` types; `useSnapshot` (poll + SSE) and view-scoped `useResource` replacing 21 `xChanged` booleans | M11.1 | ✅ 2026-08-27 `api/client.ts` (one fetch path, token attached once, typed `ApiError`), `api/useSnapshot.ts` (`useSyncExternalStore`; SSE nudges a re-poll; identical body does not notify), `api/useResource.ts` (view-scoped, keeps the last value across refetches), `api/endpoints.ts` (routes typed by core report types) |
 | M11.3 | Design tokens + UI primitives (`Card`, `Badge`, `Empty`, `StatTile`, `Section`) extracted from the 775 CSS lines in `index.html` | M11.1 | ⚪ |
 | M11.4 | `<DataGrid>`: port `table.js` (262 lines) to typed generic columns, keeping sort / resize / reorder / filter / column menu / per-table persistence | M11.3 | ⚪ |
 | M11.5 | Charts: port `viz.js` (446 lines) — sparkline, bipartite, layered DAG, bars | M11.3 | ⚪ |
