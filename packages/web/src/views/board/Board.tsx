@@ -11,13 +11,14 @@
  */
 
 import type { TaskView } from "@swarm/core/tasks";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { query } from "../../api/client";
 import { useResource } from "../../api/useResource";
 import { useMenuContext } from "../../app/useMenuContext";
 import { Empty } from "../../components/ui";
 import { useSnapshot } from "../../state/snapshot";
 import { useUiStore } from "../../state/ui";
+import { DiffDrawer } from "../session/DiffDrawer";
 import { BoardStats } from "./BoardStats";
 import { ClaimsSection } from "./ClaimsSection";
 import { ProcessesSection } from "./ProcessesSection";
@@ -38,7 +39,13 @@ export function Board() {
   const data = useBoardData(project);
   const processes = useSnapshot((s) => s?.processes ?? EMPTY);
   const resources = useSnapshot((s) => s?.resources ?? EMPTY);
-  const menu = useMenuContext();
+  /** The worktree whose diff is open, if any. */
+  const [diff, setDiff] = useState<{ projectId: string; worktree: string } | null>(null);
+  const showDiff = useCallback(
+    (projectId: string, worktree: string) => setDiff({ projectId, worktree }),
+    [],
+  );
+  const menu = useMenuContext(undefined, showDiff);
   // A worktree a claim holds is not offered for removal — the ledger would refuse it anyway.
   const heldPaths = useMemo(
     () => new Set(data.heldClaims.filter((c) => c.state === "held").map((c) => c.worktree)),
@@ -81,7 +88,14 @@ export function Board() {
             : null
         }
       />
-      <TasksSection source={taskSet?.source ?? null} tasks={tasks} />
+      {project && (
+        <TasksSection
+          source={taskSet?.source ?? null}
+          tasks={tasks}
+          projectId={project}
+          onOpenSession={openSession}
+        />
+      )}
       <ProcessesSection
         processes={processes.filter((p) => data.inScope(p.projectId))}
         projectName={data.projectName}
@@ -110,6 +124,13 @@ export function Board() {
         menu={menu}
         heldPaths={heldPaths}
       />
+      {diff && (
+        <DiffDrawer
+          projectId={diff.projectId}
+          worktree={diff.worktree}
+          onClose={() => setDiff(null)}
+        />
+      )}
     </>
   );
 }

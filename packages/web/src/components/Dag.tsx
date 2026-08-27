@@ -59,16 +59,6 @@ export function Dag({ graph, onOpenSession, onExpand }: DagProps) {
   const width = graph.width + NODE_W + PAD * 2;
   const height = graph.height + ROW_H + PAD * 2;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const cx = (n: LineageNode) => PAD + n.x + 7;
-  const cy = (n: LineageNode) => PAD + n.y + ROW_H / 2;
-
-  /** Where a node's label ends — an edge must leave from beyond it. */
-  const labelEnd = (n: LineageNode) => {
-    const text = labelOf(n);
-    const w = n.groupSize ? text.length * CHAR_W + 26 : radiusOf(n) + 6 + text.length * CHAR_W;
-    return cx(n) + w + 6;
-  };
-
   return (
     // Natural size, not `width: 100%`. A hub-and-spoke graph is tall and narrow, and scaling it to
     // the container magnifies the height into thousands of pixels; the card scrolls instead.
@@ -108,102 +98,134 @@ export function Dag({ graph, onOpenSession, onExpand }: DagProps) {
         );
       })}
 
-      {graph.nodes.map((node) => {
-        const label = labelOf(node);
-        const live = node.state === "active" || node.state === "waiting";
-
+      {graph.nodes.map((node) =>
         // A collapsed sibling fan draws as a pill you can open, not as another dot.
-        if (node.groupSize) {
-          const w = label.length * CHAR_W + 26;
-          return (
-            <g
-              key={node.id}
-              data-tip={`${label} — click to expand`}
-              className="dag-node"
-              role="button"
-              tabIndex={0}
-              aria-label={`Expand ${label}`}
-              onClick={() => node.groupOf && onExpand(node.groupOf)}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === " ") && node.groupOf) onExpand(node.groupOf);
-              }}
-            >
-              <rect
-                x={cx(node) - 7}
-                y={cy(node) - 10}
-                width={w}
-                height={20}
-                rx={10}
-                fill="var(--acc-soft)"
-                stroke={agentColor(node.agent ?? "")}
-                strokeWidth={1}
-                opacity={0.95}
-              />
-              <text
-                x={cx(node) + 6}
-                y={cy(node) + 4}
-                fontSize={11.5}
-                fontWeight={600}
-                fill="var(--acc)"
-              >
-                {label}
-              </text>
-              <text x={cx(node) + w - 16} y={cy(node) + 4} fontSize={11} fill="var(--acc)">
-                +
-              </text>
-            </g>
-          );
-        }
-
-        const r = radiusOf(node);
-        const ring = node.outcome ? OUTCOME_RING[node.outcome] : null;
-        return (
-          <g
-            key={node.id}
-            className="dag-node"
-            data-tip={`${node.title ?? node.id.slice(0, 8)}<br><span class='dim'>${agentName(node.agent ?? "")} · ${node.kind}${node.costUsd ? ` · $${node.costUsd.toFixed(2)}` : ""} · ${node.degree} link${node.degree === 1 ? "" : "s"}</span>`}
-            role="button"
-            tabIndex={0}
-            aria-label={`Open ${label}`}
-            onClick={() => onOpenSession(node.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") onOpenSession(node.id);
-            }}
-          >
-            {ring && (
-              <circle
-                cx={cx(node)}
-                cy={cy(node)}
-                r={r + 3}
-                fill="none"
-                stroke={ring}
-                strokeWidth={1.5}
-                opacity={0.8}
-              />
-            )}
-            <circle
-              cx={cx(node)}
-              cy={cy(node)}
-              r={r}
-              fill={agentColor(node.agent ?? "")}
-              stroke={live ? "var(--fg)" : undefined}
-              strokeWidth={live ? 1 : undefined}
-            />
-            <text
-              x={cx(node) + r + 6}
-              y={cy(node) + 4}
-              fontSize={11.5}
-              fill="var(--fg-2)"
-              stroke="var(--panel)"
-              strokeWidth={3}
-              paintOrder="stroke"
-              strokeLinejoin="round"
-            >
-              {label}
-            </text>
-          </g>
-        );
-      })}
+        node.groupSize ? (
+          <GroupPill key={node.id} node={node} onExpand={onExpand} />
+        ) : (
+          <SessionNode key={node.id} node={node} onOpen={onOpenSession} />
+        ),
+      )}
     </svg>
+  );
+}
+
+/** A node's centre. The layout gives a top-left corner; everything here draws from the middle. */
+function cx(n: LineageNode): number {
+  return PAD + n.x + 7;
+}
+
+function cy(n: LineageNode): number {
+  return PAD + n.y + ROW_H / 2;
+}
+
+/** Where a node's label ends — an edge must leave from beyond it, or it strikes through the text. */
+function labelEnd(n: LineageNode): number {
+  const text = labelOf(n);
+  const w = n.groupSize ? text.length * CHAR_W + 26 : radiusOf(n) + 6 + text.length * CHAR_W;
+  return cx(n) + w + 6;
+}
+
+/**
+ * A fan of siblings the layout collapsed into one pill. Clicking it expands the fan; it is drawn as
+ * a pill rather than a dot so it never reads as a session you could open.
+ */
+function GroupPill({ node, onExpand }: { node: LineageNode; onExpand: (id: string) => void }) {
+  const label = labelOf(node);
+  const w = label.length * CHAR_W + 26;
+  const expand = () => node.groupOf && onExpand(node.groupOf);
+  return (
+    <g
+      data-tip={`${label} — click to expand`}
+      className="dag-node"
+      role="button"
+      tabIndex={0}
+      aria-label={`Expand ${label}`}
+      onClick={expand}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") expand();
+      }}
+    >
+      <rect
+        x={cx(node) - 7}
+        y={cy(node) - 10}
+        width={w}
+        height={20}
+        rx={10}
+        fill="var(--acc-soft)"
+        stroke={agentColor(node.agent ?? "")}
+        strokeWidth={1}
+        opacity={0.95}
+      />
+      <text x={cx(node) + 6} y={cy(node) + 4} fontSize={11.5} fontWeight={600} fill="var(--acc)">
+        {label}
+      </text>
+      <text x={cx(node) + w - 16} y={cy(node) + 4} fontSize={11} fill="var(--acc)">
+        +
+      </text>
+    </g>
+  );
+}
+
+/** What the tooltip says about a session: who ran it, how, what it cost, how connected it is. */
+function nodeTip(node: LineageNode): string {
+  const cost = node.costUsd ? ` · $${node.costUsd.toFixed(2)}` : "";
+  const links = `${node.degree} link${node.degree === 1 ? "" : "s"}`;
+  const meta = `${agentName(node.agent ?? "")} · ${node.kind}${cost} · ${links}`;
+  return `${node.title ?? node.id.slice(0, 8)}<br><span class='dim'>${meta}</span>`;
+}
+
+/** One session: a dot sized by cost, ringed by its outcome, outlined while it is still running. */
+function SessionNode({ node, onOpen }: { node: LineageNode; onOpen: (id: string) => void }) {
+  const label = labelOf(node);
+  const live = node.state === "active" || node.state === "waiting";
+  const r = radiusOf(node);
+  const ring = node.outcome ? OUTCOME_RING[node.outcome] : null;
+  return (
+    <g
+      className="dag-node"
+      data-tip={nodeTip(node)}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${label}`}
+      onClick={() => onOpen(node.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen(node.id);
+      }}
+    >
+      {ring && (
+        <circle
+          cx={cx(node)}
+          cy={cy(node)}
+          r={r + 3}
+          fill="none"
+          stroke={ring}
+          strokeWidth={1.5}
+          opacity={0.8}
+        />
+      )}
+      <circle
+        cx={cx(node)}
+        cy={cy(node)}
+        r={r}
+        fill={agentColor(node.agent ?? "")}
+        stroke={live ? "var(--fg)" : undefined}
+        strokeWidth={live ? 1 : undefined}
+      />
+      {/* `paint-order: stroke` puts the panel-coloured halo behind the glyphs, so a label stays
+          legible where it crosses an edge. */}
+      <text
+        x={cx(node) + r + 6}
+        y={cy(node) + 4}
+        fontSize={11.5}
+        fill="var(--fg-2)"
+        stroke="var(--panel)"
+        strokeWidth={3}
+        paintOrder="stroke"
+        strokeLinejoin="round"
+      >
+        {label}
+      </text>
+    </g>
   );
 }

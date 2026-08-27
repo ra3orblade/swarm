@@ -31,26 +31,10 @@ export function Hygiene() {
   if (!data) return <Loading />;
 
   if (data.processes.length === 0 && data.worktrees.length === 0) {
-    return (
-      <Section title="Hygiene" hint="what the fleet left behind">
-        <Empty>
-          Nothing tracked{project ? " in this project" : ""}.
-          <br />
-          Processes started through <code>swarm serve</code> / <code>proc</code> and this machine's
-          worktrees appear here.
-        </Empty>
-      </Section>
-    );
+    return <NothingTracked scoped={project !== null} />;
   }
 
   const t = data.totals;
-  // Disk is sampled in the background, so "0 MB" before the first sweep would be a lie — say so.
-  const sampled = data.worktrees.filter((w) => w.diskKb !== null).length;
-  const pending = data.worktrees.length > 0 && sampled === 0;
-  const _buildKb = data.worktrees.reduce((n, w) => n + (w.buildKb ?? 0), 0);
-  const _clearable = data.worktrees
-    .filter((w) => !w.main && !w.heldByClaim && w.liveSessions === 0)
-    .reduce((n, w) => n + (w.buildKb ?? 0), 0);
 
   return (
     <>
@@ -79,11 +63,7 @@ export function Hygiene() {
         )}
       </Section>
 
-      <Section
-        title="Worktrees"
-        hint={`${data.worktrees.length} on this machine · ${pending ? "measuring…" : `${megabytes(t.diskKb)} on disk`}${sampled && sampled < data.worktrees.length ? ` · ${sampled}/${data.worktrees.length} measured` : ""}`}
-        spaced
-      >
+      <Section title="Worktrees" hint={worktreeHint(data.worktrees, t.diskKb)} spaced>
         {data.worktrees.length > 0 ? (
           <DataGrid
             id="hyg-trees"
@@ -102,6 +82,33 @@ export function Hygiene() {
       </Section>
     </>
   );
+}
+
+/** Nothing has been started through Swarm here yet, and no worktree exists to clean up. */
+function NothingTracked({ scoped }: { scoped: boolean }) {
+  return (
+    <Section title="Hygiene" hint="what the fleet left behind">
+      <Empty>
+        Nothing tracked{scoped ? " in this project" : ""}.
+        <br />
+        Processes started through <code>swarm serve</code> / <code>proc</code> and this machine's
+        worktrees appear here.
+      </Empty>
+    </Section>
+  );
+}
+
+/**
+ * The worktree section's hint. Disk is sampled in the background, so "0 MB" before the first sweep
+ * would be a lie: say "measuring…" until something has been measured, and show the shortfall while
+ * the sweep is only part way through.
+ */
+function worktreeHint(worktrees: HygieneReport["worktrees"], diskKb: number): string {
+  const sampled = worktrees.filter((w) => w.diskKb !== null).length;
+  const size =
+    worktrees.length > 0 && sampled === 0 ? "measuring…" : `${megabytes(diskKb)} on disk`;
+  const partial = sampled > 0 && sampled < worktrees.length;
+  return `${worktrees.length} on this machine · ${size}${partial ? ` · ${sampled}/${worktrees.length} measured` : ""}`;
 }
 
 const EMPTY: never[] = [];

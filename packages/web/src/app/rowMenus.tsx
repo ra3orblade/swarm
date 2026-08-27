@@ -48,6 +48,8 @@ export interface MenuContext {
   openView: (view: "fleet" | "timeline" | "spend" | "stats") => void;
   /** Re-fetch the view's own data after an action that is not in the snapshot. */
   reload?: () => void;
+  /** Open the diff drawer for a worktree. Absent in views that have nowhere to put it. */
+  showDiff?: (projectId: string, worktree: string) => void;
 }
 
 /** Project row: where to look at it, whether it is pinned, and how to stop tracking it. */
@@ -174,6 +176,16 @@ export function worktreeMenu(
           if (!r.ok && r.error) alert(r.error);
         },
       },
+      ...(ctx.showDiff && !worktree.main
+        ? [
+            {
+              label: "Diff",
+              icon: "folders",
+              caption: "vs main",
+              run: () => ctx.showDiff?.(worktree.projectId, worktree.path),
+            },
+          ]
+        : []),
       ...(sessions.length > 0
         ? [
             divider,

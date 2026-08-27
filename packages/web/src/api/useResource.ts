@@ -34,6 +34,26 @@ function isAbort(cause: unknown): boolean {
 }
 
 /**
+ * What one request came back with. `dropped` means the caller was torn down mid-flight — neither a
+ * value nor a failure, and nothing the view should be told about.
+ */
+type Outcome<T> =
+  | { kind: "value"; value: T }
+  | { kind: "error"; error: Error }
+  | { kind: "dropped" };
+
+/** Perform one request and classify it. Kept outside the hook so it can be read on its own. */
+async function fetchOnce<T>(path: string, signal: AbortSignal): Promise<Outcome<T>> {
+  try {
+    const value = await get<T>(path, signal);
+    return signal.aborted ? { kind: "dropped" } : { kind: "value", value };
+  } catch (cause) {
+    if (signal.aborted || isAbort(cause)) return { kind: "dropped" };
+    return { kind: "error", error: cause instanceof Error ? cause : new Error(String(cause)) };
+  }
+}
+
+/**
  * Fetch `path` and keep it fresh while the component is mounted.
  *
  * Passing `null` disables the resource, which is how a view skips a request it does not need yet
@@ -53,18 +73,16 @@ export function useResource<T>(path: string | null, pollMs: number = POLL_MS): R
   const load = useCallback(
     async (signal: AbortSignal): Promise<void> => {
       if (path === null) return;
-      try {
-        const next = await get<T>(path, signal);
-        if (signal.aborted) return;
+      const outcome = await fetchOnce<T>(path, signal);
+      if (outcome.kind === "dropped") return;
+      if (outcome.kind === "value") {
         shownPath.current = path;
-        setData(next);
+        setData(outcome.value);
         setError(null);
-      } catch (cause) {
-        if (signal.aborted || isAbort(cause)) return;
-        setError(cause instanceof Error ? cause : new Error(String(cause)));
-      } finally {
-        if (!signal.aborted) setLoading(false);
+      } else {
+        setError(outcome.error);
       }
+      setLoading(false);
     },
     [path],
   );

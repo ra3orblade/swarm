@@ -186,59 +186,72 @@ export function Matrix({
             {label(tool)}
           </text>
         ))}
-        {tools.map((from, r) => {
-          const y = COL_LABEL_H + r * CELL;
-          return (
-            <g key={from}>
-              <text
-                x={ROW_LABEL_W - 8}
-                y={y + CELL / 2 + 3.5}
-                fontSize={11}
-                fill="var(--fg-2)"
-                textAnchor="end"
-              >
-                {label(from)}
-              </text>
-              {tools.map((to, c) => {
-                const edge = at.get(`${from} ${to}`);
-                const x = ROW_LABEL_W + c * CELL;
-                const diagonal = from === to;
-                if (!edge) {
-                  return (
-                    <rect
-                      key={to}
-                      x={x}
-                      y={y}
-                      width={CELL - 2}
-                      height={CELL - 2}
-                      rx={2}
-                      fill="var(--panel-2)"
-                      opacity={diagonal ? 0.9 : 0.45}
-                    />
-                  );
-                }
-                // Log scale: one hot pair (Bash→Bash, in the thousands) would flatten the rest.
-                const t = Math.min(1, Math.log1p(edge.weight) / Math.log1p(heaviest || 1));
-                const step = t > 0.8 ? 5 : t > 0.6 ? 4 : t > 0.4 ? 3 : t > 0.2 ? 2 : 1;
-                return (
-                  <rect
-                    key={to}
-                    x={x}
-                    y={y}
-                    width={CELL - 2}
-                    height={CELL - 2}
-                    rx={2}
-                    fill={`var(--acc-${step})`}
-                    stroke={diagonal ? "var(--acc-fill)" : undefined}
-                    strokeWidth={diagonal ? 1 : undefined}
-                    data-tip={`${label(from)} → ${label(to)} · ${edge.weight.toLocaleString()}× · ${edge.sessions} session${edge.sessions === 1 ? "" : "s"}`}
-                  />
-                );
-              })}
-            </g>
-          );
-        })}
+        {tools.map((from, r) => (
+          <g key={from}>
+            <text
+              x={ROW_LABEL_W - 8}
+              y={COL_LABEL_H + r * CELL + CELL / 2 + 3.5}
+              fontSize={11}
+              fill="var(--fg-2)"
+              textAnchor="end"
+            >
+              {label(from)}
+            </text>
+            {tools.map((to, c) => (
+              <Cell
+                key={to}
+                x={ROW_LABEL_W + c * CELL}
+                y={COL_LABEL_H + r * CELL}
+                edge={at.get(`${from} ${to}`)}
+                heaviest={heaviest}
+                diagonal={from === to}
+                tip={`${label(from)} → ${label(to)}`}
+              />
+            ))}
+          </g>
+        ))}
       </svg>
     </div>
+  );
+}
+
+/**
+ * One transition in the matrix. Log scale, because one hot pair (Bash→Bash, routinely in the
+ * thousands) on a linear ramp flattens every other cell to the same pale square.
+ */
+function shade(weight: number, heaviest: number): number {
+  const t = Math.min(1, Math.log1p(weight) / Math.log1p(heaviest || 1));
+  if (t > 0.8) return 5;
+  if (t > 0.6) return 4;
+  if (t > 0.4) return 3;
+  if (t > 0.2) return 2;
+  return 1;
+}
+
+interface CellProps {
+  x: number;
+  y: number;
+  /** Undefined when the pair never occurred — drawn as an empty well, not as a zero-weight cell. */
+  edge: MatrixEdge | undefined;
+  heaviest: number;
+  /** A tool following itself. Outlined, because the diagonal is read as a band, not as cells. */
+  diagonal: boolean;
+  tip: string;
+}
+
+function Cell({ x, y, edge, heaviest, diagonal, tip }: CellProps) {
+  const common = { x, y, width: CELL - 2, height: CELL - 2, rx: 2 };
+  if (!edge) {
+    return <rect {...common} fill="var(--panel-2)" opacity={diagonal ? 0.9 : 0.45} />;
+  }
+  const sessions = `${edge.sessions} session${edge.sessions === 1 ? "" : "s"}`;
+  return (
+    <rect
+      {...common}
+      fill={`var(--acc-${shade(edge.weight, heaviest)})`}
+      stroke={diagonal ? "var(--acc-fill)" : undefined}
+      strokeWidth={diagonal ? 1 : undefined}
+      data-tip={`${tip} · ${edge.weight.toLocaleString()}× · ${sessions}`}
+    />
   );
 }

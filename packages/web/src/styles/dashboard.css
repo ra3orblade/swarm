@@ -3542,3 +3542,34 @@ tr.clickable {
   font: inherit;
   color: inherit;
 }
+
+/* The dialog's subtitle takes the remaining width of the header row (M11.11). */
+.pk-sub {
+  flex: 1;
+  margin-left: 8px;
+}
+
+/* Replay (M11.11) — inline styles in the vanilla, named here. */
+.rp-summary {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  margin-bottom: 8px;
+}
+.rp-range {
+  flex: 1;
+  max-width: 280px;
+}
+
+/* Diff drawer (M11.11). The file list is <button>s here where the vanilla used <a href="#">. */
+.df-commits {
+  font-size: var(--fs-sm);
+}
+.df-files button {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  text-align: left;
+}

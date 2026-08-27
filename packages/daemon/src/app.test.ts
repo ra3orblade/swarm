@@ -1548,7 +1548,9 @@ describe("event storage and wire shape (perf)", () => {
     expect(etag).toBeTruthy();
 
     // A matching etag is a cheap 304 rather than the whole file again.
-    const again = await app.request("/dashboard.js", { headers: { "if-none-match": etag as string } });
+    const again = await app.request("/dashboard.js", {
+      headers: { "if-none-match": etag as string },
+    });
     expect(again.status).toBe(304);
 
     // A stale etag still gets the real file.

@@ -7,8 +7,12 @@
  */
 import type { TaskView } from "@swarm/core/tasks";
 import { useState } from "react";
+import { claimTask, runGates } from "../../api/actions";
 import { type Column, DataGrid } from "../../components/DataGrid";
+import { RowMenuButton } from "../../components/RowMenuButton";
 import { Badge, Section } from "../../components/ui";
+import { menuSection, openMenu } from "../../lib/menus";
+import { RunDrawer } from "../session/RunDrawer";
 
 type Filter = "ready" | "open" | "all";
 
@@ -63,11 +67,16 @@ export interface TasksSectionProps {
   /** The configured source's name, or null when the repo has none. */
   source: string | null;
   tasks: TaskView[];
+  /** Required to claim or run; the Board only renders this section with a project selected. */
+  projectId: string;
+  onOpenSession: (id: string) => void;
 }
 
 /** The Tasks section, or nothing when the repo configures no task source. */
-export function TasksSection({ source, tasks }: TasksSectionProps) {
+export function TasksSection({ source, tasks, projectId, onOpenSession }: TasksSectionProps) {
   const [filter, setFilter] = useState<Filter>("ready");
+  /** The task whose Run drawer is open, if any. */
+  const [running, setRunning] = useState<TaskView | null>(null);
   if (!source || tasks.length === 0) return null;
 
   const ready = tasks.filter((t) => t.ready);
@@ -93,7 +102,94 @@ export function TasksSection({ source, tasks }: TasksSectionProps) {
           </button>
         ))}
       </div>
-      <DataGrid id="tasks" columns={COLUMNS} rows={shown} rowKey={(t) => t.id} />
+      <DataGrid
+        id="tasks"
+        columns={COLUMNS}
+        rows={shown}
+        rowKey={(t) => t.id}
+        trailing={{
+          width: 34,
+          cell: (t) => (
+            <RowMenuButton
+              title="Task actions"
+              onOpen={(anchor) => openTaskMenu(anchor, t, projectId, setRunning)}
+            />
+          ),
+        }}
+      />
+      {running && (
+        <RunDrawer
+          projectId={projectId}
+          task={{ id: running.id, title: running.title }}
+          onClose={() => setRunning(null)}
+          onStarted={(sessionId) => {
+            setRunning(null);
+            onOpenSession(sessionId);
+          }}
+        />
+      )}
     </Section>
+  );
+}
+
+/**
+ * A task's actions depend on where it is: a ready task can be claimed or run, a held one can be run
+ * in the worktree it already has or have its gates run, and a done or blocked one has nothing to
+ * offer but its id.
+ */
+function openTaskMenu(
+  anchor: Element,
+  task: TaskView,
+  projectId: string,
+  onRun: (task: TaskView) => void,
+): void {
+  const copy = (text: string) => () => void navigator.clipboard.writeText(text).catch(() => {});
+  const actions =
+    task.ready || task.claimedBy
+      ? [
+          {
+            label: task.claimedBy ? "Run in worktree" : "Run",
+            icon: "play",
+            ...(task.claimedBy ? {} : { caption: "claim + claude -p" }),
+            run: () => onRun(task),
+          },
+          ...(task.ready
+            ? [
+                {
+                  label: "Claim",
+                  icon: "folders",
+                  caption: "fresh worktree",
+                  run: async () => {
+                    const r = await claimTask(projectId, task.id);
+                    if (!r.ok && r.error) alert(r.error);
+                  },
+                },
+              ]
+            : [
+                {
+                  label: "Run gates",
+                  icon: "check",
+                  run: async () => {
+                    const r = await runGates(projectId, task.id);
+                    const ran = (r.runs ?? [])
+                      .map((x) => `${x.verdict === "pass" ? "✓" : "✗"} ${x.gate} — ${x.rubric}`)
+                      .join("\n");
+                    alert(ran || r.error || r.skipped?.[0]?.reason || "nothing ran");
+                  },
+                },
+              ]),
+        ]
+      : [{ label: task.status === "done" ? "Done" : "Blocked", disabled: true }];
+
+  openMenu(
+    anchor,
+    [
+      ...actions,
+      { label: "", divider: true },
+      menuSection("Copy"),
+      { label: "Task id", icon: "copy", caption: task.id, run: copy(task.id) },
+      { label: "Title", icon: "file-text", run: copy(`${task.id} — ${task.title}`) },
+    ],
+    { title: task.id },
   );
 }
