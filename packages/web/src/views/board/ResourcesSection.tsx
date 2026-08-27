@@ -3,7 +3,9 @@
  * migration lock, a port. A held port is auto-protected by the rules, so nothing else binds it.
  */
 import type { Resource } from "@swarm/core/resources";
+import { type MenuContext, resourceMenu } from "../../app/rowMenus";
 import { type Column, DataGrid } from "../../components/DataGrid";
+import { RowMenuButton } from "../../components/RowMenuButton";
 import { Absent, Badge, Section } from "../../components/ui";
 import { ago, leaseLeft } from "../../lib/format";
 
@@ -56,13 +58,19 @@ const COLUMNS = (projectName: (id: string) => string): Column<Resource>[] => [
 
 /** Held resources in scope. */
 export interface ResourcesSectionProps {
+  menu: MenuContext;
   resources: Resource[];
   projectName: (id: string) => string;
   showProject: boolean;
 }
 
 /** The Resources section, or nothing when nothing is held. */
-export function ResourcesSection({ resources, projectName, showProject }: ResourcesSectionProps) {
+export function ResourcesSection({
+  resources,
+  projectName,
+  showProject,
+  menu,
+}: ResourcesSectionProps) {
   if (resources.length === 0) return null;
   const columns = COLUMNS(projectName).filter((c) => showProject || c.key !== "project");
   return (
@@ -73,6 +81,12 @@ export function ResourcesSection({ resources, projectName, showProject }: Resour
         rows={resources}
         rowKey={(r) => `${r.projectId ?? "global"}:${r.name}`}
         leading={{ width: 24, cell: () => <span className="s active" /> }}
+        trailing={{
+          width: 34,
+          cell: (r) => (
+            <RowMenuButton title="Resource actions" onOpen={(a) => resourceMenu(a, r, menu)} />
+          ),
+        }}
       />
     </Section>
   );

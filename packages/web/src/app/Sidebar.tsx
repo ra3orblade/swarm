@@ -15,6 +15,8 @@ import { icon } from "../lib/icon";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
 import { ProjectsHeading } from "./AddProject";
+import { projectMenu } from "./rowMenus";
+import { useMenuContext } from "./useMenuContext";
 
 export function Sidebar() {
   const selected = useUiStore((s) => s.project);
@@ -22,6 +24,7 @@ export function Sidebar() {
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY_SESSIONS);
   const sparks = useSnapshot((s) => s?.spendSparks ?? EMPTY_SPARKS);
+  const menu = useMenuContext();
 
   // Derived with useMemo, never inside the selector: a selector that builds a fresh object returns
   // a new reference every call, so the store's identity check always says "changed" and the render
@@ -56,6 +59,7 @@ export function Sidebar() {
       spark={sparks[project.id] ?? EMPTY_SPARK}
       ambiguous={(duplicated.get(project.name) ?? 0) > 1}
       onSelect={selectProject}
+      onMenu={(anchor) => projectMenu(anchor, project, live[project.id] ?? 0, menu)}
     />
   );
 
@@ -97,18 +101,33 @@ interface ProjectRowProps {
   spark: readonly number[];
   ambiguous: boolean;
   onSelect: (id: string) => void;
+  onMenu: (anchor: Element) => void;
 }
 
-function ProjectRow({ project, selected, live, spark, ambiguous, onSelect }: ProjectRowProps) {
+function ProjectRow({
+  project,
+  selected,
+  live,
+  spark,
+  ambiguous,
+  onSelect,
+  onMenu,
+}: ProjectRowProps) {
   // Under half a dollar over a fortnight is a flat line pretending to be information.
   const spend = sumBy(spark, (n) => n);
   const parent = ambiguous ? project.root.split("/").filter(Boolean).at(-2) : undefined;
 
+  // A <div role="button">, not a <button>: the row contains the `⋯` menu button, and nesting one
+  // button inside another is invalid HTML — the browser hoists it out and the click is swallowed.
   return (
-    <button
-      type="button"
+    <div
       className={selected ? "proj sel" : "proj"}
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(project.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onSelect(project.id);
+      }}
       title={project.root}
     >
       <span className={live > 0 ? "st live" : "st"} />
@@ -123,7 +142,20 @@ function ProjectRow({ project, selected, live, spark, ambiguous, onSelect }: Pro
         </span>
       )}
       <small>{live || ""}</small>
-    </button>
+      <button
+        type="button"
+        className="act more"
+        title="Project actions"
+        aria-label="Project actions"
+        aria-haspopup="menu"
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenu(e.currentTarget);
+        }}
+      >
+        {icon("dots-three", 15)}
+      </button>
+    </div>
   );
 }
 

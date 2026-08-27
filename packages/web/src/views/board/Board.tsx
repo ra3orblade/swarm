@@ -11,8 +11,10 @@
  */
 
 import type { TaskView } from "@swarm/core/tasks";
+import { useMemo } from "react";
 import { query } from "../../api/client";
 import { useResource } from "../../api/useResource";
+import { useMenuContext } from "../../app/useMenuContext";
 import { Empty } from "../../components/ui";
 import { useSnapshot } from "../../state/snapshot";
 import { useUiStore } from "../../state/ui";
@@ -36,6 +38,12 @@ export function Board() {
   const data = useBoardData(project);
   const processes = useSnapshot((s) => s?.processes ?? EMPTY);
   const resources = useSnapshot((s) => s?.resources ?? EMPTY);
+  const menu = useMenuContext();
+  // A worktree a claim holds is not offered for removal — the ledger would refuse it anyway.
+  const heldPaths = useMemo(
+    () => new Set(data.heldClaims.filter((c) => c.state === "held").map((c) => c.worktree)),
+    [data.heldClaims],
+  );
 
   // Tasks are the one thing not in the snapshot: the source is configured per repo.
   const { data: taskSet } = useResource<TaskSet>(project ? `/v1/tasks${query({ project })}` : null);
@@ -78,17 +86,20 @@ export function Board() {
         processes={processes.filter((p) => data.inScope(p.projectId))}
         projectName={data.projectName}
         showProject={showProject}
+        menu={menu}
       />
       <ResourcesSection
         resources={resources.filter((r) => data.inScope(r.projectId))}
         projectName={data.projectName}
         showProject={showProject}
+        menu={menu}
       />
       <ClaimsSection
         claims={data.heldClaims}
         orphaned={data.orphaned}
         projectName={data.projectName}
         showProject={showProject}
+        menu={menu}
       />
       <WorktreesSection
         worktrees={data.worktrees}
@@ -96,6 +107,8 @@ export function Board() {
         projectName={data.projectName}
         onOpenSession={openSession}
         showProject={showProject}
+        menu={menu}
+        heldPaths={heldPaths}
       />
     </>
   );

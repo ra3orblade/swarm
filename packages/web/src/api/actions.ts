@@ -135,3 +135,51 @@ export async function addProject(path: string): Promise<WriteResult> {
     throw cause;
   }
 }
+
+/** Pin a discovered project to the sidebar, or unpin it back into the seen-but-not-pinned list. */
+export async function pinProject(id: string, pinned: boolean): Promise<void> {
+  await send(`/v1/projects/${id}`, "PATCH", { pinned });
+  await refreshSnapshot();
+}
+
+/** Stop tracking a project. Its history stays in the database; only the sidebar entry goes. */
+export async function removeProject(id: string): Promise<void> {
+  await send(`/v1/projects/${id}`, "DELETE");
+  await refreshSnapshot();
+}
+
+/** Open a worktree in the configured editor. The daemon runs the command; this only reports. */
+export async function openWorktree(projectId: string, worktree: string): Promise<WriteResult> {
+  return asResult(await send("/v1/worktrees/open", "POST", { projectId, worktree }));
+}
+
+/** Squash-merge a pull request through the locally-authenticated `gh` / `glab`. */
+export async function mergePr(projectId: string, number: number): Promise<WriteResult> {
+  const result = asResult(await send("/v1/prs/merge", "POST", { projectId, number }));
+  await refreshSnapshot();
+  return result;
+}
+
+/** Take a claim on a task, which creates its worktree. Fails closed if someone else holds it. */
+export async function claimTask(projectId: string, task: string): Promise<WriteResult> {
+  const result = asResult(
+    await send("/v1/claims", "POST", { projectId, task, owner: "dashboard" }),
+  );
+  await refreshSnapshot();
+  return result;
+}
+
+/** What a gate run reported: what ran, what passed, and what was skipped and why. */
+export interface GateRunResult {
+  started?: string[];
+  runs?: { gate: string; verdict: string; rubric: string }[];
+  skipped?: { gate: string; reason: string }[];
+  error?: string;
+}
+
+/** Run a task's executable gates. They run as detached processes; the daemon never blocks. */
+export async function runGates(projectId: string, task: string): Promise<GateRunResult> {
+  const result = await send<GateRunResult>("/v1/gates/run", "POST", { projectId, task });
+  await refreshSnapshot();
+  return result;
+}

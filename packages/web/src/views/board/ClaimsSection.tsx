@@ -5,7 +5,9 @@
  * work nobody is doing, and that is the only row here that needs a person.
  */
 import type { ClaimRow } from "@swarm/core/dashboard";
+import { claimMenu, type MenuContext } from "../../app/rowMenus";
 import { type Column, DataGrid } from "../../components/DataGrid";
+import { RowMenuButton } from "../../components/RowMenuButton";
 import { Badge, Section } from "../../components/ui";
 import { leaseLeft, shortPath } from "../../lib/format";
 
@@ -61,6 +63,7 @@ const COLUMNS = (projectName: (id: string) => string): Column<ClaimRow>[] => [
 
 /** Outstanding claims and how to name their projects. */
 export interface ClaimsSectionProps {
+  menu: MenuContext;
   claims: ClaimRow[];
   orphaned: number;
   projectName: (id: string) => string;
@@ -69,7 +72,13 @@ export interface ClaimsSectionProps {
 }
 
 /** The Claims section, or nothing when no claim is outstanding. */
-export function ClaimsSection({ claims, orphaned, projectName, showProject }: ClaimsSectionProps) {
+export function ClaimsSection({
+  claims,
+  orphaned,
+  projectName,
+  showProject,
+  menu,
+}: ClaimsSectionProps) {
   if (claims.length === 0) return null;
   const columns = COLUMNS(projectName).filter((c) => showProject || c.key !== "project");
   return (
@@ -89,6 +98,12 @@ export function ClaimsSection({ claims, orphaned, projectName, showProject }: Cl
             <span
               className={`s ${c.state === "orphaned" ? "waiting" : c.state === "expired" ? "idle" : "active"}`}
             />
+          ),
+        }}
+        trailing={{
+          width: 34,
+          cell: (c) => (
+            <RowMenuButton title="Claim actions" onOpen={(a) => claimMenu(a, c, menu)} />
           ),
         }}
       />

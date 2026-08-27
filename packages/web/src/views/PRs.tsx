@@ -4,29 +4,32 @@
  * The daemon shells out to the locally-authenticated `gh`/`glab`, so no tokens are stored and the
  * list is whatever you can already see from the terminal.
  */
-import type { ForgePR } from "@swarm/core/forge";
+import type { ProjectPR } from "@swarm/core/forge";
 import { useMemo } from "react";
 import { routes } from "../api/endpoints";
 import { useResource } from "../api/useResource";
+import { prMenu } from "../app/rowMenus";
+import { useMenuContext } from "../app/useMenuContext";
 import { type Column, DataGrid } from "../components/DataGrid";
+import { RowMenuButton } from "../components/RowMenuButton";
 import { Absent, Badge, Empty, Failed, Loading, Section } from "../components/ui";
 import { ago } from "../lib/format";
 import { icon } from "../lib/icon";
 
-function checksBadge(state: ForgePR["checks"]) {
+function checksBadge(state: ProjectPR["checks"]) {
   if (state === "pass") return <Badge tone="ok">Checks ✓</Badge>;
   if (state === "fail") return <Badge tone="warn">Checks ✗</Badge>;
   if (state === "pending") return <Badge>Running…</Badge>;
   return <Absent />;
 }
 
-function reviewBadge(state: ForgePR["review"]) {
+function reviewBadge(state: ProjectPR["review"]) {
   if (state === "approved") return <Badge tone="ok">Approved</Badge>;
   if (state === "changes") return <Badge tone="warn">Changes</Badge>;
   return <Absent />;
 }
 
-const COLUMNS: Column<ForgePR>[] = [
+const COLUMNS: Column<ProjectPR>[] = [
   {
     key: "repo",
     label: "repo",
@@ -86,12 +89,13 @@ const COLUMNS: Column<ForgePR>[] = [
 ];
 
 /** The dot mirrors CI: a failing check is the one thing worth spotting without reading. */
-const checkDot = (p: ForgePR) =>
+const checkDot = (p: ProjectPR) =>
   p.checks === "fail" ? "waiting" : p.checks === "pass" ? "active" : "idle";
 
 export function PRs() {
-  const { data, loading, error, reload } = useResource<ForgePR[]>(routes.prs());
+  const { data, loading, error, reload } = useResource<ProjectPR[]>(routes.prs());
   const rows = useMemo(() => data ?? [], [data]);
+  const menu = useMenuContext(reload);
 
   if (error && !data) return <Failed error={error} onRetry={reload} />;
   if (loading && !data) return <Loading />;
@@ -105,6 +109,12 @@ export function PRs() {
           rows={rows}
           rowKey={(p) => `${p.repo}#${p.number}`}
           leading={{ width: 24, cell: (p) => <span className={`s ${checkDot(p)}`} /> }}
+          trailing={{
+            width: 34,
+            cell: (p) => (
+              <RowMenuButton title="Pull request actions" onOpen={(a) => prMenu(a, p, menu)} />
+            ),
+          }}
         />
       ) : (
         <Empty>

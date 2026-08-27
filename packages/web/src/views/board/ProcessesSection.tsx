@@ -5,7 +5,9 @@
  * an implementation detail: killing by pattern is how you stop somebody else's editor.
  */
 import type { TrackedProcess } from "@swarm/core/processes";
+import { type MenuContext, processMenu } from "../../app/rowMenus";
 import { type Column, DataGrid } from "../../components/DataGrid";
+import { RowMenuButton } from "../../components/RowMenuButton";
 import { Absent, Badge, Section } from "../../components/ui";
 import { ago, shortPath } from "../../lib/format";
 
@@ -63,13 +65,19 @@ const COLUMNS = (projectName: (id: string) => string): Column<TrackedProcess>[] 
 
 /** Registered processes in scope. */
 export interface ProcessesSectionProps {
+  menu: MenuContext;
   processes: TrackedProcess[];
   projectName: (id: string) => string;
   showProject: boolean;
 }
 
 /** The Processes section, or nothing when the registry is empty. */
-export function ProcessesSection({ processes, projectName, showProject }: ProcessesSectionProps) {
+export function ProcessesSection({
+  processes,
+  projectName,
+  showProject,
+  menu,
+}: ProcessesSectionProps) {
   if (processes.length === 0) return null;
   const columns = COLUMNS(projectName).filter((c) => showProject || c.key !== "project");
   return (
@@ -84,6 +92,12 @@ export function ProcessesSection({ processes, projectName, showProject }: Proces
         rows={processes}
         rowKey={(p) => `${p.projectId}:${p.pid}`}
         leading={{ width: 24, cell: () => <span className="s active" /> }}
+        trailing={{
+          width: 34,
+          cell: (p) => (
+            <RowMenuButton title="Process actions" onOpen={(a) => processMenu(a, p, menu)} />
+          ),
+        }}
       />
     </Section>
   );

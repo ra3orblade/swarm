@@ -3533,3 +3533,12 @@ tr.clickable {
   margin: 8px 0 0;
   padding-left: 18px;
 }
+
+/* The row-actions button is a <button> here where the vanilla used a <span> (M11.8). */
+.more {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+}

@@ -9,9 +9,12 @@
 import type { Question } from "@swarm/core/questions";
 import type { SessionView } from "@swarm/core/types";
 import { useMemo, useState } from "react";
+import { sessionMenu } from "../app/rowMenus";
 import { ProjectGlyph } from "../app/Sidebar";
+import { useMenuContext } from "../app/useMenuContext";
 import { AgentBadge } from "../components/AgentBadge";
 import { type Column, DataGrid } from "../components/DataGrid";
+import { RowMenuButton } from "../components/RowMenuButton";
 import { Sparkline } from "../components/Sparkline";
 import { Absent, Badge, Empty, Section } from "../components/ui";
 import { agentColor, agentName, agentSort } from "../lib/agents";
@@ -49,6 +52,7 @@ export function Fleet() {
     [questions],
   );
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const menu = useMenuContext();
 
   const scoped = useMemo(
     () => sessions.filter((s) => !selected || s.projectId === selected),
@@ -205,6 +209,12 @@ export function Fleet() {
       rowKey={(s) => s.id}
       onRowClick={(s) => openSession(s.id)}
       leading={{ width: 24, cell: (s) => <span className={`s ${s.state}`} /> }}
+      trailing={{
+        width: 34,
+        cell: (s) => (
+          <RowMenuButton title="Session actions" onOpen={(a) => sessionMenu(a, s, menu)} />
+        ),
+      }}
     />
   );
 

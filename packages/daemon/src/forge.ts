@@ -13,6 +13,7 @@ import {
   type ForgePR,
   normalizeGithub,
   normalizeGitlab,
+  type ProjectPR,
   parseRemote,
   parseReverts,
 } from "@swarm/core";
@@ -39,10 +40,7 @@ export function findBin(name: string | undefined): string | null {
   return null;
 }
 
-export interface ProjectPR extends ForgePR {
-  projectId: string;
-  projectRoot: string;
-}
+export type { ProjectPR };
 
 /** A merged PR/MR as the outcomes join needs it (M9.2). */
 export interface MergedPR {

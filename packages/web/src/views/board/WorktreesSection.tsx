@@ -4,7 +4,9 @@
  */
 
 import type { SessionView } from "@swarm/core/types";
+import { type MenuContext, worktreeMenu } from "../../app/rowMenus";
 import { type Column, DataGrid } from "../../components/DataGrid";
+import { RowMenuButton } from "../../components/RowMenuButton";
 import { Absent, Badge, Section } from "../../components/ui";
 import { shortPath } from "../../lib/format";
 import type { OwnedWorktree } from "./useBoardData";
@@ -118,10 +120,19 @@ const COLUMNS = ({
 export interface WorktreesSectionProps extends ColumnDeps {
   worktrees: OwnedWorktree[];
   showProject: boolean;
+  menu: MenuContext;
+  /** Worktree paths a claim currently holds — removal is not offered for those. */
+  heldPaths?: ReadonlySet<string>;
 }
 
 /** The Worktrees section, or nothing when the machine has none. */
-export function WorktreesSection({ worktrees, showProject, ...deps }: WorktreesSectionProps) {
+export function WorktreesSection({
+  worktrees,
+  showProject,
+  menu,
+  heldPaths,
+  ...deps
+}: WorktreesSectionProps) {
   if (worktrees.length === 0) return null;
   const columns = COLUMNS(deps).filter((c) => showProject || c.key !== "project");
   return (
@@ -137,6 +148,25 @@ export function WorktreesSection({ worktrees, showProject, ...deps }: WorktreesS
             const busy = (deps.sessionsInside.get(w.path)?.length ?? 0) > 0;
             return <span className={`s ${busy ? "active" : w.dirty > 0 ? "waiting" : "ended"}`} />;
           },
+        }}
+        trailing={{
+          width: 34,
+          cell: (w) => (
+            <RowMenuButton
+              title="Worktree actions"
+              onOpen={(a) =>
+                worktreeMenu(
+                  a,
+                  w,
+                  {
+                    held: heldPaths?.has(w.path) ?? false,
+                    sessions: deps.sessionsInside.get(w.path) ?? [],
+                  },
+                  menu,
+                )
+              }
+            />
+          ),
         }}
       />
     </Section>

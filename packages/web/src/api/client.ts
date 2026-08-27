@@ -105,7 +105,11 @@ async function request(path: string, init: RequestInit): Promise<Response> {
  *
  * Genuine failures still throw: an unreachable daemon, a 5xx, a route that is not there.
  */
-export async function send<T>(path: string, method: "POST" | "DELETE", body?: unknown): Promise<T> {
+export async function send<T>(
+  path: string,
+  method: "POST" | "DELETE" | "PATCH",
+  body?: unknown,
+): Promise<T> {
   const init: RequestInit = { method, headers: headers() };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
