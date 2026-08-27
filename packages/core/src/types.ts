@@ -1,52 +1,60 @@
 import type { Actor } from "./actor";
-/** Normalized Swarm event types (docs/04-protocol.md). */
-export type EventType =
-  | "session.started"
-  | "session.ended"
-  | "prompt.submitted"
-  | "tool.requested"
-  | "tool.allowed"
-  | "tool.denied"
-  | "tool.completed"
-  | "agent.text"
-  | "agent.delta"
-  | "subagent.started"
-  | "subagent.stopped"
-  | "claim.acquired"
-  | "claim.renewed"
-  | "claim.released"
-  | "claim.expired"
-  | "claim.orphaned"
-  | "claim.denied"
-  | "rules.changed"
-  | "worktree.reclaimed"
-  | "worktree.bootstrapped"
-  | "worktree.created"
-  | "worktree.removed"
-  | "pr.opened"
-  | "question.asked"
-  | "question.answered"
-  | "dispatch.queued"
-  | "dispatch.started"
-  | "dispatch.finished"
-  | "resource.acquired"
-  | "resource.released"
-  | "resource.reaped"
-  | "process.started"
-  | "process.exited"
-  | "gate.recorded"
-  | "handoff.recorded"
-  | "permission.requested"
-  | "permission.resolved"
-  | "session.notification"
-  | "session.stuck"
-  | "workflow.started"
-  | "workflow.step"
-  | "workflow.finished"
-  | "message.sent"
-  | "incident.opened"
-  | "incident.acked"
-  | "run.result";
+/** Normalized Swarm event types (docs/04-protocol.md).
+ *
+ * A runtime list, not a bare union: the dashboard subscribes to the SSE stream by event name,
+ * and a second hand-maintained copy of these strings would silently miss whichever one was
+ * added last. `EventType` is derived from it, so the two cannot drift.
+ */
+export const EVENT_TYPES = [
+  "session.started",
+  "session.ended",
+  "prompt.submitted",
+  "tool.requested",
+  "tool.allowed",
+  "tool.denied",
+  "tool.completed",
+  "agent.text",
+  "agent.delta",
+  "subagent.started",
+  "subagent.stopped",
+  "claim.acquired",
+  "claim.renewed",
+  "claim.released",
+  "claim.expired",
+  "claim.orphaned",
+  "claim.denied",
+  "rules.changed",
+  "worktree.reclaimed",
+  "worktree.bootstrapped",
+  "worktree.created",
+  "worktree.removed",
+  "pr.opened",
+  "question.asked",
+  "question.answered",
+  "dispatch.queued",
+  "dispatch.started",
+  "dispatch.finished",
+  "resource.acquired",
+  "resource.released",
+  "resource.reaped",
+  "process.started",
+  "process.exited",
+  "gate.recorded",
+  "handoff.recorded",
+  "permission.requested",
+  "permission.resolved",
+  "session.notification",
+  "session.stuck",
+  "workflow.started",
+  "workflow.step",
+  "workflow.finished",
+  "message.sent",
+  "incident.opened",
+  "incident.acked",
+  "run.result",
+] as const;
+
+export type EventType = (typeof EVENT_TYPES)[number];
 
 export type SessionKind = "interactive" | "spawned" | "subagent";
 

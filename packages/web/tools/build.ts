@@ -226,19 +226,34 @@ copyFileSync(
   join(pub, "fm.css"),
 );
 
-// ---- React island
-const r = await Bun.build({
-  entrypoints: [join(here, "../src/menus.tsx")],
-  outdir: pub,
-  target: "browser",
-  format: "iife",
-  minify: true,
-  sourcemap: "none",
-  naming: "menus.js",
-  define: { "process.env.NODE_ENV": '"production"' },
-});
-if (!r.success) {
-  for (const m of r.logs) console.error(m);
-  process.exit(1);
-}
-console.log(`web: built icons.js (${ICONS.length} icons), fm.css, menus.js`);
+// ---- React bundles
+// Two entrypoints, not one: `menus.js` is the imperative dropdown island the app talks to through
+// `window.menus`, and `app.js` is the dashboard itself (M11.6). They stay separate roots because
+// fancy-menus renders into its own host outside the app tree.
+const bundle = async (entry: string, naming: string) => {
+  const r = await Bun.build({
+    entrypoints: [join(here, entry)],
+    outdir: pub,
+    target: "browser",
+    format: "iife",
+    minify: true,
+    sourcemap: "none",
+    naming,
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  if (!r.success) {
+    for (const m of r.logs) console.error(m);
+    process.exit(1);
+  }
+  return r;
+};
+
+await bundle("../src/menus.tsx", "menus.js");
+// `dashboard`, never `app`: `public/app.js` is the hand-written vanilla dashboard and emitting
+// over it would delete the thing this is replacing before the replacement is finished. The React
+// build is served at /next.html until it takes over (M11.12).
+await bundle("../src/main.tsx", "dashboard.[ext]");
+
+console.log(
+  `web: built icons.js (${ICONS.length} icons), fm.css, menus.js, dashboard.js + dashboard.css`,
+);

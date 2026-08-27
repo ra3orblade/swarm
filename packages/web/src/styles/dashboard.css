@@ -1,0 +1,3335 @@
+/*
+ * The dashboard's stylesheet, lifted verbatim out of index.html (M11.3).
+ *
+ * Extracted rather than rewritten on purpose: the tokens, the grid rules and the icon
+ * alignment in here were each arrived at by fixing a real defect, so the React migration
+ * inherits them byte for byte and the design cannot regress while the markup changes.
+ * Splitting it into tokens/base/components is a later pass.
+ */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
+  --line: #e4e7ec;
+  --line-2: #eef0f3;
+  --fg: #1a1d21;
+  --fg-2: #3d4650;
+  --dim: #8b929c;
+  --faint: #aab1bb;
+  /* Darkening a yellow-green in sRGB drains its chroma and leaves khaki, which is what the
+       old #4d7c0f was. These are darkened in OKLCH instead, which holds the hue: --acc clears
+       AA on both white panels (4.86:1) and the page ground (4.54:1) for text and buttons, while
+       --acc-fill is the brighter one for chart marks, where WCAG asks 3:1 rather than 4.5 and
+       the extra light is what stops the charts looking muddy. Dark mode needs no such split —
+       the accent is already bright there. */
+  --acc: #388114;
+  --acc-fill: #559b1b;
+  --acc-soft: rgba(85, 155, 27, 0.15);
+  --ok: #1f9d55;
+  --ok-soft: rgba(31, 157, 85, 0.12);
+  --warn: #c77800;
+  --warn-soft: rgba(199, 120, 0, 0.12);
+  --bad: #d1352b;
+  --bad-soft: rgba(209, 53, 43, 0.12);
+  --violet: #7857c9;
+  /* categorical (fixed agent slots; validated adjacent-pair CVD-safe) + one-hue steps for part-to-whole */
+  --c0: #8b929c;
+  --c1: #4d9e2a;
+  --c2: #1b9e77;
+  --c3: #9ab828;
+  --c4: #2f7d4f;
+  --c5: #7fb069;
+  --c6: #0f5c3a;
+  --c7: #c3d84a;
+  --acc-1: #e2f6d8;
+  --acc-2: #b8e4a1;
+  --acc-3: #8bc866;
+  --acc-4: #5aa12e;
+  --acc-5: #35741f;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  /* type scale (px) — use these, never literals */
+  --fs-2xs: 11px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12px;
+  --fs-mono: 12.5px;
+  --fs-md: 13px;
+  --fs-menu: 13.5px;
+  --fs-lg: 14px;
+  --fs-xl: 15px;
+  --fs-2xl: 24px;
+  /* pill height = its line box + its vertical padding; see .badge */
+  --pill-h: calc(var(--fs-xs) * 1.2 + 8px);
+  /* elevation */
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-pop: 0 8px 24px rgba(16, 24, 40, 0.14), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --overlay: rgba(0, 0, 0, 0.45);
+  /* radii */
+  --r: 9px;
+  --r-sm: 6px;
+  --r-xs: 4px;
+  --r-pill: 20px;
+  /* motion */
+  --t-fast: 0.12s;
+  --t-med: 0.2s;
+  --t-in: 0.32s;
+  --t-pulse: 2s;
+  /* layout constants */
+  --hdr-h: 48px;
+  --sb-w: 240px;
+  --inset-tl: 96px;
+  /* text on an accent-filled surface */
+  --acc-contrast: #ffffff;
+  /* recurring spacing */
+  --pad-cell: 9px 12px;
+  --pad-page: 20px 22px;
+  --pad-ctl: 7px 11px;
+  --pad-row: 7px 10px;
+  --gap-sec: 18px;
+}
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    --bg: #0c0e12;
+    --panel: #14171d;
+    --panel-2: #1a1e26;
+    --line: #242932;
+    --line-2: #1e222a;
+    --fg: #e6e9ee;
+    --fg-2: #c2c8d0;
+    --dim: #7c8592;
+    --faint: #5a626e;
+    --acc: #a3e635;
+    --acc-fill: #a3e635;
+    --acc-soft: rgba(163, 230, 53, 0.14);
+    --ok: #3fb571;
+    --ok-soft: rgba(63, 181, 113, 0.14);
+    --warn: #d9a441;
+    --warn-soft: rgba(217, 164, 65, 0.14);
+    --bad: #f0655a;
+    --bad-soft: rgba(240, 101, 90, 0.14);
+    --violet: #a68bec;
+    --c0: #7c8592;
+    --c1: #6bbf3a;
+    --c2: #2bb78f;
+    --c3: #b0cf3a;
+    --c4: #3f9d63;
+    --c5: #93c47d;
+    --c6: #2f8f5a;
+    --c7: #d3e88a;
+    --acc-1: #1c3311;
+    --acc-2: #2f5a18;
+    --acc-3: #4d8a24;
+    --acc-4: #7cc02f;
+    --acc-5: #bfef7a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.25);
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --acc-contrast: #0e1013;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c0e12;
+  --panel: #14171d;
+  --panel-2: #1a1e26;
+  --line: #242932;
+  --line-2: #1e222a;
+  --fg: #e6e9ee;
+  --fg-2: #c2c8d0;
+  --dim: #7c8592;
+  --faint: #5a626e;
+  --acc: #a3e635;
+  --acc-fill: #a3e635;
+  --acc-soft: rgba(163, 230, 53, 0.14);
+  --ok: #3fb571;
+  --ok-soft: rgba(63, 181, 113, 0.14);
+  --warn: #d9a441;
+  --warn-soft: rgba(217, 164, 65, 0.14);
+  --bad: #f0655a;
+  --bad-soft: rgba(240, 101, 90, 0.14);
+  --violet: #a68bec;
+  --c0: #7c8592;
+  --c1: #6bbf3a;
+  --c2: #2bb78f;
+  --c3: #b0cf3a;
+  --c4: #3f9d63;
+  --c5: #93c47d;
+  --c6: #2f8f5a;
+  --c7: #d3e88a;
+  --acc-1: #1c3311;
+  --acc-2: #2f5a18;
+  --acc-3: #4d8a24;
+  --acc-4: #7cc02f;
+  --acc-5: #bfef7a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --acc-contrast: #0e1013;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+/* UI zoom (desktop app: ⌘/Ctrl +, −, 0) — scales the whole page, persisted by app.js */
+html {
+  zoom: var(--ui-zoom, 1);
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--fs-lg) / 1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  display: grid;
+  grid-template-rows: var(--hdr-h) 1fr;
+  grid-template-columns: var(--sb-w) 1fr;
+  overflow: hidden;
+  animation: appin var(--t-in) ease both;
+  user-select: none;
+  -webkit-user-select: none;
+}
+@keyframes appin {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Chrome (header, sidebar, controls) isn't selectable; real data stays selectable/copyable. */
+input,
+textarea,
+tbody td,
+.mono,
+code,
+kbd {
+  user-select: text;
+  -webkit-user-select: text;
+}
+::selection {
+  background: var(--acc-soft);
+}
+a {
+  color: var(--acc);
+  text-decoration: none;
+}
+.dim {
+  color: var(--dim);
+}
+.faint {
+  color: var(--faint);
+}
+.mono {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+kbd {
+  font: var(--fs-mono) var(--mono);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+  color: var(--fg-2);
+}
+code {
+  font: var(--fs-md) var(--mono);
+  color: var(--fg-2);
+}
+
+/* collapsed sidebar = icon rail (M9.1): views stay one click away; projects via ⌘K */
+body.nosb {
+  grid-template-columns: 46px 1fr;
+}
+body.nosb > aside {
+  padding: 12px 5px;
+  overflow: hidden;
+}
+body.nosb #projects {
+  display: none;
+}
+body > aside {
+  grid-column: 1;
+  grid-row: 2;
+}
+body > main {
+  grid-column: 2;
+  grid-row: 2;
+}
+#projects h4 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.h4-act {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--faint);
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-xs);
+}
+.h4-act:hover {
+  color: var(--acc);
+}
+.pk-h input {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  font: var(--fs-mono) var(--mono);
+  outline: none;
+  min-width: 0;
+}
+.pk-h input:focus {
+  border-color: var(--acc);
+}
+
+/* header */
+header {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  z-index: 5;
+}
+/* macOS desktop app: overlay title bar — pad the header clear of the traffic lights,
+     but reclaim the space in fullscreen where the lights are hidden. */
+html.chrome-inset header {
+  padding-left: var(--inset-tl);
+}
+html.chrome-inset.fs header {
+  padding-left: 16px;
+}
+/* Overlay title bar hides the native drag region; app.js wires header mousedown to
+     the Tauri window drag. Interactive controls keep the default cursor. */
+html.chrome-inset header {
+  cursor: default;
+}
+header .logo {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: var(--fs-xl);
+  margin-right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Centred by box, but not by eye: two of the mark's twelve rows are antennae, so its visual
+     mass — the head — sits about 2px below the middle of the wordmark. Nudged with a transform
+     rather than a margin so the flex line's own centring is left alone. */
+header .logo svg {
+  width: 22px;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform: translateY(-2px);
+}
+header .nav {
+  color: var(--dim);
+  padding: 6px 11px;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  transition:
+    color var(--t-fast),
+    background var(--t-fast);
+}
+header .nav:hover {
+  color: var(--fg-2);
+}
+header .nav.on {
+  color: var(--fg);
+  background: var(--panel-2);
+}
+header .sp {
+  flex: 1;
+}
+header #today {
+  margin-right: 18px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+header #today b {
+  color: var(--fg-2);
+  font-weight: 600;
+}
+#daemon {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--dim);
+  font-size: var(--fs-md);
+}
+#daemon .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bad);
+  transition: background var(--t-med);
+}
+#daemon .dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+/* sidebar */
+body > aside {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px 10px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* view nav (M9.1): grouped views in the sidebar, generated from VIEW_DEFS; header holds only chrome */
+/* View nav lives in the header: one button per group, click opens a fancy-menus dropdown. */
+#viewnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+#viewnav .navgrp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color var(--t-fast),
+    background var(--t-fast);
+}
+#viewnav .navgrp:hover {
+  color: var(--fg-2);
+  background: var(--panel-2);
+}
+#viewnav .navgrp.on {
+  color: var(--fg);
+  background: var(--panel-2);
+}
+/* the active view's own name, so the header answers "where am I" without opening a menu */
+#viewnav .navview {
+  color: var(--acc);
+  font-weight: 600;
+}
+#viewnav .navview::before {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 11px;
+  margin: 0 7px -1px;
+  background: var(--line);
+}
+/* while this button's menu is open: held-down state, so the trigger reads as the open one */
+#viewnav .navgrp.open {
+  color: var(--fg);
+  background: var(--line);
+}
+#viewnav .navgrp.open .chev {
+  opacity: 0.9;
+  transform: rotate(180deg);
+}
+#viewnav .navgrp .chev {
+  opacity: 0.5;
+  flex: none;
+}
+#viewnav .navcount {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-radius: 99px;
+  padding: 0 5px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+body > aside h4 {
+  margin: 14px 8px 6px;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+body > aside h4:first-child {
+  margin-top: 2px;
+}
+.proj {
+  position: relative;
+  padding: var(--pad-row);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--fg-2);
+  transition: background var(--t-fast);
+  user-select: none;
+}
+.proj:hover {
+  background: var(--panel-2);
+}
+.proj.sel {
+  background: var(--acc-soft);
+  color: var(--fg);
+}
+.proj.sel .nm {
+  font-weight: 600;
+}
+.proj .st {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+  transition: background var(--t-med);
+}
+.proj .st.live {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+.proj .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.proj small {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  flex: none;
+  min-width: 15px;
+  text-align: right;
+}
+/* The ⋯ still takes no space in the row, but it is lifted out of flow rather than display:none'd:
+     toggling a flex item on hover reflowed everything before it, so the sparkline visibly jumped.
+     `small` only loses visibility, keeping its box. `.menu-open` holds the ⋯ while its menu is
+     open — the pointer is over the menu by then, so :hover alone made the trigger vanish. */
+.proj .act {
+  position: absolute;
+  right: var(--pad-row-x, 7px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  opacity: 0;
+  pointer-events: none;
+  color: var(--faint);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  padding: 2px;
+  border-radius: var(--r-xs);
+  transition:
+    color var(--t-fast),
+    background var(--t-fast),
+    opacity var(--t-fast);
+}
+.proj:hover .act,
+.proj.menu-open .act,
+.proj .act:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.proj:hover small,
+.proj.menu-open small {
+  visibility: hidden;
+}
+.proj .act:hover {
+  color: var(--fg);
+  background: var(--line);
+}
+.proj .act.rm:hover {
+  color: var(--bad);
+}
+.srch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.srch input {
+  flex: 1;
+  max-width: 640px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font: var(--fs-md) var(--sans);
+}
+.srch input:focus {
+  border-color: var(--acc);
+  outline: none;
+}
+.hit {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  margin-bottom: 8px;
+}
+.hit .ht {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.hit .hs {
+  font-size: var(--fs-sm);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+}
+.hit mark {
+  background: var(--warn-soft);
+  color: var(--fg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.dr-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 10px 0;
+}
+.dr-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+.dr-rule select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px 4px;
+}
+.dr-flaky {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  margin: 6px 0;
+  background: var(--panel-2);
+}
+table.plain {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+table.plain td {
+  padding: 3px 6px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+/* ⌘K palette (M9.1): top-anchored .pk variant; rows reuse .pk-row */
+.pk.pal {
+  align-self: start;
+  margin-top: 9vh;
+}
+.pal .pk-list {
+  min-height: 120px;
+  max-height: min(440px, 62vh);
+}
+.pal .pk-row.on {
+  background: var(--acc-soft);
+  color: var(--fg);
+}
+.pal .pk-row .grp {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+#picker:empty {
+  display: none;
+}
+#picker {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.pk {
+  width: min(560px, 92vw);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.pk-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-list {
+  overflow: auto;
+  padding: 6px;
+}
+.pk-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: var(--pad-row);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--fg-2);
+}
+.pk-row:hover {
+  background: var(--panel-2);
+}
+.pk-row .nm {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-row.up {
+  color: var(--dim);
+}
+.pk-row .badge {
+  margin: 0;
+}
+.pk-b {
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.pk-b label {
+  display: grid;
+  gap: 4px;
+  font: 500 var(--fs-sm) var(--sans);
+  color: var(--dim);
+}
+.pk-b input,
+.pk-b textarea,
+.pk-b select {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+  font: var(--fs-md) var(--sans);
+  outline: none;
+}
+.pk-b textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.pk-b input:focus,
+.pk-b textarea:focus,
+.pk-b select:focus {
+  border-color: var(--acc);
+}
+.pk-b .row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+/* Worktree diff drawer (M7.3) */
+.pk.wide {
+  width: min(960px, 96vw);
+}
+.df-files {
+  display: grid;
+  gap: 1px;
+  max-height: 22vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.df-files a {
+  display: flex;
+  gap: 10px;
+  padding: 4px 8px;
+  color: var(--fg-2);
+  text-decoration: none;
+  font: var(--fs-sm) var(--mono);
+}
+.df-files a:hover,
+.df-files a.on {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+.df-files .st {
+  width: 12px;
+  color: var(--dim);
+}
+.df-files .pl {
+  color: var(--ok);
+}
+.df-files .mi {
+  color: var(--warn);
+}
+.df-files .pa {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.df-patch {
+  max-height: 44vh;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font: var(--fs-sm) var(--mono);
+  line-height: 1.45;
+  white-space: pre;
+}
+.df-patch .a {
+  color: var(--ok);
+}
+.df-patch .d {
+  color: var(--warn);
+}
+.df-patch .h {
+  color: var(--acc);
+}
+.df-patch .m {
+  color: var(--dim);
+}
+/* What's New (release notes) */
+.wn .pk-b {
+  max-height: 64vh;
+  overflow: auto;
+  gap: 2px;
+}
+.wn h3 {
+  margin: 0 0 2px;
+  font: 600 var(--fs-lg) var(--sans);
+  color: var(--fg);
+}
+.wn .date {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  margin-bottom: 12px;
+}
+.wn h4 {
+  margin: 14px 0 4px;
+  font: 600 var(--fs-md) var(--sans);
+  color: var(--acc);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wn ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.wn li {
+  margin: 5px 0;
+  line-height: 1.55;
+  color: var(--fg-2);
+}
+.wn p {
+  margin: 0 0 10px;
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+.wn code {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  background: var(--panel-2);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+.wn a {
+  color: var(--acc);
+}
+.wn b {
+  color: var(--fg);
+}
+.wn .snip {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 2px 0 12px;
+  color: var(--fg-2);
+}
+.wn .cbtn {
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  color: var(--acc);
+  margin-left: 8px;
+}
+/* Replay steps through calls whose payloads differ wildly in size. With the dialog free to grow
+     to `.pk`'s max-height, every step resized it — and because it is centred, Prev/Next moved
+     vertically under the cursor mid-click. The dialog is a fixed height and the body scrolls
+     inside it, so only the content changes as you step. One scroll region, not nested ones. */
+.rp {
+  height: 78vh;
+}
+.rp .pk-b {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  gap: 2px;
+}
+.rp .snip {
+  max-height: none;
+  overflow: visible;
+}
+.rp .pk-f input[type="range"] {
+  accent-color: var(--acc);
+}
+/* pending permission prompts (M3.2) */
+.perm {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+.perm-t {
+  font: 500 var(--fs-md) var(--sans);
+  color: var(--fg);
+}
+.perm-c {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--fg-2);
+  margin: 6px 0 8px;
+  word-break: break-all;
+  background: var(--panel-2);
+  border-radius: var(--r-xs);
+  padding: 6px 8px;
+}
+.perm-b {
+  display: flex;
+  gap: 8px;
+}
+.perm-b .ok {
+  color: var(--acc);
+  border-color: var(--acc-soft);
+}
+.perm-b .danger {
+  color: var(--warn);
+  border-color: var(--warn-soft);
+}
+/* stdin box for spawned sessions (M3.3) */
+.stdin {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+.stdin input {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font: var(--fs-md) var(--sans);
+  outline: none;
+}
+.stdin input:focus {
+  border-color: var(--acc);
+}
+.stdin button.danger {
+  color: var(--warn);
+  border-color: var(--warn-soft);
+}
+.stdin .hint {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+.pk-f {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.pk-f button {
+  flex: none;
+}
+/* a flex spacer, anywhere (the picker header relied on this being global and it wasn't) */
+.grow {
+  flex: 1;
+}
+.pk-f .primary {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: var(--acc-contrast);
+}
+.pk-f .primary:hover {
+  filter: brightness(1.06);
+  color: var(--acc-contrast);
+}
+.proj .nm .pdir {
+  opacity: 0.5;
+  font-weight: 400;
+}
+/* drag-to-reorder (pinned rows only) */
+.proj[draggable] {
+  cursor: grab;
+}
+.proj.dragging {
+  opacity: 0.35;
+  background: var(--panel-2);
+  outline: 1px dashed var(--acc);
+}
+button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  padding: var(--pad-ctl);
+  border-radius: var(--r-sm);
+  font: 600 var(--fs-md) var(--sans);
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast),
+    color var(--t-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+}
+/* icon-only buttons (the picker's ×): square, the glyph dead-centre */
+.pk-h button {
+  padding: 6px;
+  line-height: 0;
+}
+button:hover {
+  border-color: var(--acc);
+  color: var(--fg);
+}
+
+/* main */
+main {
+  overflow: auto;
+  padding: var(--pad-page);
+}
+h2.hrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+h2.hrow .s {
+  margin: 0;
+}
+h2 {
+  font-size: var(--fs-md);
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+h2 span {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--faint);
+  font-size: var(--fs-md);
+}
+/* section-header actions (New worktree, Collect stale, Dispatch clear, timeline ranges):
+     small buttons, not shouting header text — normal case, centered icon, hover chip */
+h2 .nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 var(--fs-md) var(--sans);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--acc);
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+h2 .nav:hover {
+  background: var(--acc-soft);
+}
+h2 .nav.on {
+  background: var(--acc-soft);
+}
+h2 .nav .ph {
+  display: block;
+}
+h2 .back {
+  color: var(--fg-2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  transition:
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+
+/* tables */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.card table {
+  background: var(--panel);
+}
+thead th {
+  text-align: left;
+  padding: var(--pad-cell);
+  color: var(--dim);
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+tbody td {
+  padding: var(--pad-cell);
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* edge tool cell: never ellipsize (the browser's "…" showed as a stray dot on every row) */
+/* The cell holds one button and no words, so its line box should be exactly that button: with a
+     text line-height still in force the strut sat under the icon and pushed it ~1px off the row. */
+tbody td.td-tools {
+  text-overflow: clip;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+  line-height: 0;
+}
+/* badge-only cells: the pill has its own margin, so the cell never needs an ellipsis */
+tbody td.td-badge {
+  text-overflow: clip;
+}
+tbody td.td-badge .badge {
+  margin-right: 0;
+}
+/* Only rows that actually open something get the pointer — a right-click menu (data-ctx alone)
+     is not a click affordance, and promising one on nine grids that ignore left-clicks reads as
+     a dead row. */
+tbody tr {
+  transition: background var(--t-fast);
+}
+tbody tr[data-s] {
+  cursor: pointer;
+}
+tbody tr:hover {
+  background: var(--panel-2);
+}
+/* The status-dot cell alone opts out of clipping: `.s.active` paints a pulsing box-shadow
+     that a 24px `overflow:hidden` cell would shear off. Scoped to that cell on purpose --
+     as `td:first-child` it also un-clipped the first *content* column of every grid, so long
+     values (branch names on Outcomes) painted straight over the next column. */
+tbody td.td-lead {
+  overflow: visible;
+}
+/* Inline icons in a cell, centred on the text the way the eye reads it.
+     The optical middle of a line is the centre of its capitals, half a cap-height above the
+     baseline — 0.352em here, this stack's cap measuring 0.70em. So a box of height H belongs at
+     `cap - H/2` off the baseline, a *negative* vertical-align: a positive one raises the box and
+     every one of these needs to come down. Neither default managed it — the project glyph sat on
+     the baseline and rode 3px high, and `vertical-align: middle` centres on the baseline plus half
+     the *x*-height, which left the session icon 1px low in every row of every grid. Keyed on each
+     SVG's own width attribute so every size gets its exact offset.
+
+     Only boxes that share their line with words get this. A badge alone in a cell, or the lone icon
+     of a `.td-tools` cell, has nothing to line up with and is already centred by the cell — lifting
+     those would push them off the row instead. Direct children only, for the same reason: an icon
+     inside `.pg` is a flex item whose own alignment is the wrapper's business, and setting
+     vertical-align on it shifted the whole inline-flex box's baseline instead. */
+tbody td {
+  --cap: calc(var(--fs-lg) * 0.352);
+}
+tbody td .pg {
+  vertical-align: calc(var(--cap) - 8px);
+}
+/* An inline-flex box takes its baseline from its first flex item, so the wrapper sat 2px lower
+     when its glyph was a 12px icon than when it was a 16px image — the same project column, two
+     different alignments depending on which project. This zero-width strut is always the first
+     item and always the full height, so every `.pg` reports the same baseline whatever is in it. */
+tbody td .pg::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 16px;
+}
+tbody td > * + .badge {
+  vertical-align: calc(var(--cap) - var(--pill-h) / 2);
+}
+tbody td:not(.td-tools) > svg.ph[width="12"] {
+  vertical-align: calc(var(--cap) - 6px);
+}
+tbody td:not(.td-tools) > svg.ph[width="13"] {
+  vertical-align: calc(var(--cap) - 6.5px);
+}
+tbody td:not(.td-tools) > svg.ph[width="14"] {
+  vertical-align: calc(var(--cap) - 7px);
+}
+tbody td:not(.td-tools) > svg.ph[width="16"] {
+  vertical-align: calc(var(--cap) - 8px);
+}
+/* data-grid (table.js): sortable/resizable/reorderable headers + filter row */
+.dt thead th {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* visible column dividers in the header: the "these columns are adjustable" cue */
+.dt thead tr:first-child th[data-col]:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 25%;
+  height: 50%;
+  border-right: 1px solid var(--line);
+}
+.dt thead th[data-sort] {
+  cursor: pointer;
+}
+.dt thead th[data-sort]:hover {
+  color: var(--fg-2);
+}
+.dt thead th.dragging {
+  opacity: 0.4;
+}
+.dt .th-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dt th.num .th-l {
+  justify-content: flex-end;
+  width: 100%;
+}
+.dt .sort {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  display: inline-block;
+}
+.dt .sort.asc {
+  border-bottom: 5px solid var(--acc);
+}
+.dt .sort.desc {
+  border-top: 5px solid var(--acc);
+}
+.dt .th-grip {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.dt .th-grip:hover {
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--acc) 3px,
+    var(--acc) 5px,
+    transparent 5px
+  );
+}
+/* The grip straddles the boundary it drags, so it hangs 4px past its column. On the *last* column
+   that boundary is the table's own right edge, and those 4px made `scrollWidth` exceed
+   `clientWidth` — a grid that fit its card still scrolled sideways. Same fix as PR #130, which
+   landed on index.html; this stylesheet is a separate copy and would not inherit it. */
+.dt thead th:last-child .th-grip {
+  right: 0;
+}
+.dt thead th:last-child .th-grip:hover {
+  background: linear-gradient(to left, var(--acc) 0, var(--acc) 2px, transparent 2px);
+}
+body.col-resizing {
+  cursor: col-resize;
+}
+body.col-resizing .dt thead th {
+  cursor: col-resize;
+}
+.dt .th-tools {
+  text-align: right;
+}
+/* Pin the edge column. When the grid is wider than its card the card scrolls, and whatever sits
+     at the right edge is what gets cut — which made the whole table read as broken rather than as
+     scrollable. The tools column stays put and stays clickable instead. */
+.dt .th-tools,
+.dt .td-tools {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+}
+.dt .th-tools {
+  background: var(--panel-2);
+}
+.dt .td-tools {
+  background: var(--panel);
+}
+tbody tr:hover .td-tools {
+  background: var(--panel-2);
+}
+.dt .th-cols {
+  cursor: pointer;
+  color: var(--faint);
+  display: inline-flex;
+}
+.dt .th-cols:hover {
+  color: var(--fg-2);
+}
+.dt tr.filters th {
+  padding: 4px 8px;
+  background: var(--panel);
+}
+.dt tr.filters input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  font: var(--fs-sm) var(--mono);
+  outline: none;
+}
+.dt tr.filters input:focus {
+  border-color: var(--acc);
+}
+.dt .tbl-empty td {
+  color: var(--dim);
+  text-align: center;
+  padding: 18px;
+  cursor: default;
+}
+td b {
+  font-weight: 600;
+  color: var(--fg);
+}
+td.now,
+td.br {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  color: var(--fg-2);
+}
+td.now {
+  color: var(--dim);
+}
+td a {
+  color: var(--acc);
+}
+.num {
+  text-align: right;
+}
+th.num {
+  text-align: right;
+}
+
+/* status dots */
+.s {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+}
+.s.active {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+  animation: pulse var(--t-pulse) ease-in-out infinite;
+}
+.s.waiting {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+.s.idle {
+  background: var(--faint);
+}
+.s.ended {
+  background: var(--line);
+  border: 1px solid var(--faint);
+  box-shadow: none;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--ok-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+/* badges */
+/* `line-height` is pinned rather than left at `normal` so the pill's height is a number this
+     stylesheet knows — `normal` is whatever the font's metrics say, which made the badge a
+     different height from the identical-looking `.navcount` and left its alignment underivable. */
+.badge {
+  display: inline-block;
+  font: 500 var(--fs-xs) / 1.2 var(--sans);
+  padding: 4px 8px;
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--dim);
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.badge.warn {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.badge.acc {
+  color: var(--acc);
+  background: var(--acc-soft);
+}
+.badge.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.badge.bad {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.badge.agent {
+  color: var(--violet);
+  background: color-mix(in srgb, var(--violet) 14%, transparent);
+  font-weight: 600;
+}
+
+/* error state: red enough to be unmistakable, not so red the stack is hard to read */
+/* h2 is a flex row aligned on the baseline, and an SVG has no baseline to align to — which is
+     what left the icon sitting above the text. Centre this one instead. */
+.err-h {
+  color: var(--bad);
+  align-items: center;
+}
+.err-h .err-ic {
+  color: var(--bad);
+  flex: none;
+}
+.err-card {
+  padding: 18px;
+  max-width: 760px;
+  border: 1px solid var(--bad);
+}
+/* One border, on the outside. Nothing inside the card is outlined — a second rule within a
+     bordered card reads as two problems rather than one. */
+.err-detail {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  font: var(--fs-mono) / 1.5 var(--mono);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 220px;
+}
+
+/* A short list of two or three facts per row. A table stretches three columns across the whole
+     card and reads as mostly gap; this keeps the words next to each other. */
+/* Three columns that must each stay on one line: the shape, how often, and a real example.
+     Left to themselves the shape wraps after `git add` and the example runs to two lines, and the
+     row stops being a row. Fixed grid, nowrap, ellipsis. */
+.clusters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.clusters li {
+  display: grid;
+  grid-template-columns: minmax(0, 13em) 3.2em minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--fs-md);
+}
+.clusters li:last-child {
+  border-bottom: 0;
+}
+.clusters li > * {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clusters li b {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  color: var(--fg);
+}
+.clusters li .n {
+  color: var(--fg-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.clusters li > span:last-child {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+}
+
+.plainlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plainlist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  color: var(--fg-2);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.plainlist li:last-child {
+  border-bottom: 0;
+}
+.plainlist li b {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  font-weight: 600;
+  color: var(--fg);
+}
+/* filename first and legible, its directory after it and free to be cut */
+td.path,
+span.path {
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+}
+td.path b,
+span.path b {
+  color: var(--fg);
+  font-weight: 600;
+}
+td.path .dim,
+span.path .dim {
+  font-size: var(--fs-xs);
+}
+
+/* Ranked rows with the magnitude behind the text — a four-column table for this stretches the
+     directory across the page and floats the numbers a screen away from what they describe. */
+.heatlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.heatlist li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: var(--fs-md);
+  color: var(--fg-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.heatlist li .bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--w);
+  background: var(--acc-soft);
+  border-radius: var(--r-sm);
+}
+.heatlist li > span.clip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.heatlist li b {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.heatlist li .dim {
+  position: relative;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* empty */
+.empty {
+  color: var(--dim);
+  padding: 44px 24px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  line-height: 1.7;
+}
+
+/* session detail */
+.sess {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+.sess > * {
+  height: calc(100vh - 140px);
+  min-height: 320px;
+}
+.sess.has-stdin > * {
+  height: calc(100vh - 196px);
+}
+@media (max-width: 980px) {
+  .sess {
+    grid-template-columns: 1fr;
+  }
+  .sess > * {
+    height: auto;
+    max-height: calc(100vh - 140px);
+  }
+}
+#log {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 6px 0;
+  overflow: auto;
+}
+/* 68 + 112 + two 12px gaps was 204px of chrome before a single character of transcript. The
+     kind labels are short now (see EV_LABEL), so the columns fit what they hold and the text
+     gets the width back. */
+.ev {
+  display: grid;
+  grid-template-columns: 56px 54px 1fr;
+  gap: 10px;
+  padding: 5px 14px;
+  align-items: baseline;
+}
+.ev:hover {
+  background: var(--panel-2);
+}
+.ev .t {
+  color: var(--faint);
+  font: var(--fs-sm) var(--mono);
+}
+.ev .k {
+  color: var(--dim);
+  font: 500 var(--fs-sm) var(--mono);
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev .m {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-2);
+  font-size: var(--fs-menu);
+}
+.ev.assistant .k {
+  color: var(--violet);
+}
+.ev.assistant .m {
+  color: var(--fg);
+}
+.ev.tool\.requested .k {
+  color: var(--acc);
+}
+.ev.tool\.requested .m {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+}
+.ev.incident\.opened .k,
+.ev.incident\.opened .m {
+  color: var(--warn);
+}
+.ev.session\.ended .k {
+  color: var(--bad);
+}
+.ev.prompt\.submitted .k {
+  color: var(--ok);
+}
+.ev.prompt\.submitted .m {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.side {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 14px 18px;
+  overflow: auto;
+}
+.side .stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 28px;
+}
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.stat:last-of-type {
+  border-bottom: 0;
+}
+.stat span {
+  color: var(--dim);
+}
+.stat b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stat small {
+  color: var(--faint);
+  font-weight: 400;
+}
+.side h4 {
+  margin: 16px 0 6px;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+table.mini {
+  border: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+/* Cells default to baseline alignment, so a mono path and a sans number in the same row sit at
+     different heights and the row reads as untidy. Centre them, and give the row enough height
+     that the text is not hard against its neighbours. */
+table.mini td {
+  padding: 6px 0;
+  border: 0;
+  font-size: var(--fs-md);
+  vertical-align: middle;
+}
+table.mini th {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: middle;
+}
+/* Columns need a gutter of their own: a right-aligned number sits flush against whatever
+     follows it, which put "4%" and "app.js" hard up against each other. */
+table.mini th + th,
+table.mini td + td {
+  padding-left: 14px;
+}
+table.mini td:first-child {
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.mini td.num {
+  color: var(--dim);
+  width: 34px;
+}
+table.mini td.clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* spend */
+.bars {
+  display: flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 110px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 14px 16px 26px;
+  margin-bottom: var(--gap-sec);
+}
+.bar {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+.bar > div {
+  width: 100%;
+  background: linear-gradient(180deg, var(--acc), color-mix(in srgb, var(--acc) 70%, transparent));
+  border-radius: var(--r-xs) var(--r-xs) 0 0;
+  min-height: 2px;
+  transition: opacity var(--t-fast);
+}
+.bar:hover > div {
+  opacity: 0.75;
+}
+.bar span {
+  position: absolute;
+  bottom: -20px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: var(--fs-2xs) var(--mono);
+  color: var(--faint);
+}
+/* align-items:start — a short card (the heatmap) must not stretch to the taller column beside it */
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-sec);
+  align-items: start;
+}
+
+/* charts */
+.chart {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.chart .grid {
+  stroke: var(--line-2);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.chart .base {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.chart .ax {
+  fill: var(--faint);
+  font: var(--fs-2xs) var(--mono);
+  text-anchor: start;
+}
+.chart .ax.mid {
+  text-anchor: middle;
+}
+.chart .col:hover path {
+  filter: brightness(1.12);
+}
+.chart-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 14px 16px 10px;
+  margin-bottom: var(--gap-sec);
+}
+.chart-card h3 {
+  margin: 0 0 10px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--fg-2);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.chart-card h3 span {
+  color: var(--faint);
+  font-weight: 400;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  font-size: var(--fs-mono);
+  color: var(--fg-2);
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.legend em {
+  font-style: normal;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.legend.small {
+  font-size: var(--fs-sm);
+  margin-top: 6px;
+}
+#tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: none;
+  z-index: 50;
+  pointer-events: none;
+  background: var(--fg);
+  color: var(--bg);
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font: var(--fs-mono) / 1.5 var(--sans);
+  box-shadow: var(--shadow-pop);
+  max-width: 280px;
+  font-variant-numeric: tabular-nums;
+}
+#tip b {
+  font-weight: 600;
+}
+#tip span {
+  opacity: 0.7;
+}
+#tip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-right: 6px;
+}
+.spark {
+  width: 88px;
+  height: 20px;
+  display: block;
+  overflow: visible;
+}
+.spark path {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.comp {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.comp i {
+  display: block;
+  min-width: 2px;
+  transition: filter var(--t-fast);
+}
+.comp i:hover {
+  filter: brightness(1.15);
+}
+.hbars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* The value column was a fixed 30px with no nowrap, so anything wider than "999" wrapped onto
+     three lines and tripled the row height. It sizes to its content now and never wraps; the
+     label gets a little more room before it has to ellipsize. */
+.hb {
+  display: grid;
+  grid-template-columns: minmax(0, 120px) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--fs-md);
+}
+.hb .k {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.hb .t {
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.hb .t i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+}
+.hb .n {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-mono);
+}
+.cal {
+  position: relative;
+  padding-top: 16px;
+}
+.cal-months {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
+.cal-months span {
+  position: absolute;
+  font: var(--fs-2xs) var(--mono);
+  color: var(--faint);
+}
+.cal-grid {
+  display: grid;
+  gap: 2px;
+}
+.cal-col {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  gap: 2px;
+  aspect-ratio: 1 / 7;
+}
+.cal-col i {
+  display: block;
+  border-radius: 2px;
+  background: var(--acc);
+  outline: 1px solid var(--line-2);
+  outline-offset: -1px;
+}
+.cal-col i:hover {
+  outline-color: var(--fg);
+}
+.chart.line .pt circle {
+  opacity: 0;
+}
+.chart.line .pt:hover circle {
+  opacity: 1;
+}
+.records {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.rec {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rec .l {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.rec .v {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.rec .d {
+  font-size: var(--fs-mono);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 3px 8px;
+  align-items: center;
+}
+.hm-lbl {
+  font: var(--fs-xs) var(--mono);
+  color: var(--faint);
+}
+.hm-row {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+  height: 16px;
+}
+.hm-row i {
+  display: block;
+  border-radius: 2px;
+  background: var(--acc);
+  outline: 1px solid var(--line-2);
+  outline-offset: -1px;
+}
+.hm-row i:hover {
+  outline-color: var(--fg);
+}
+.hm-hours {
+  position: relative;
+  height: 14px;
+  font: var(--fs-2xs) var(--mono);
+  color: var(--faint);
+}
+.hm-hours span {
+  position: absolute;
+  top: 0;
+}
+/* timeline */
+.tl {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 8px 16px 12px;
+}
+.tl-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 12px;
+  align-items: center;
+  height: 24px;
+  cursor: pointer;
+  border-radius: var(--r-xs);
+}
+.tl-row.claimlane {
+  cursor: default;
+} /* the claims lane opens nothing — don't promise a click */
+.tl-row:hover {
+  background: var(--panel-2);
+}
+.tl-row.head {
+  height: 22px;
+  cursor: default;
+  margin-bottom: 4px;
+  position: sticky;
+  top: -20px;
+  background: var(--panel);
+  z-index: 2;
+}
+.tl-row.head:hover {
+  background: var(--panel);
+}
+.tl-name {
+  font-size: var(--fs-md);
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 10px;
+}
+.tl-track {
+  position: relative;
+  height: 100%;
+}
+.tl-track > i {
+  position: absolute;
+  top: 6px;
+  height: 12px;
+  border-radius: 3px;
+  min-width: 3px;
+  opacity: 0.9;
+}
+.tl-track > i.live {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 3px currentColor;
+  animation: none;
+}
+.tl-track > i:hover {
+  opacity: 1;
+  filter: brightness(1.1);
+}
+.tl-track > i:not([data-tip]) {
+  top: 0;
+  height: 100%;
+  width: 1px;
+  background: var(--line-2);
+  border-radius: 0;
+  opacity: 1;
+  min-width: 0;
+  pointer-events: none;
+}
+.tl-axis {
+  position: absolute;
+  inset: 0;
+  font: var(--fs-2xs) var(--mono);
+  color: var(--faint);
+}
+.tl-axis span {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+}
+.tl-now {
+  position: absolute;
+  top: 0;
+  bottom: -2000px;
+  width: 1px;
+  background: var(--bad);
+  z-index: 1;
+  pointer-events: none;
+}
+.tl-group {
+  position: relative;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+.tl-proj {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px 2px;
+}
+.tl-proj small {
+  margin-left: 8px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--faint);
+}
+.tl {
+  overflow: hidden;
+}
+.tl-group {
+  overflow: hidden;
+}
+.sw {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 7px;
+  vertical-align: baseline;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: var(--gap-sec);
+}
+.kpi {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+}
+.kpi .l {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.kpi .v {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+  color: var(--fg);
+}
+.kpi .d {
+  font-size: var(--fs-mono);
+  color: var(--faint);
+}
+
+/* icons (Phosphor regular, inline) */
+/* `vertical-align: middle` is not the middle: it aligns the icon's centre to the baseline plus
+     half the x-height, which left inline icons ~1.5px below the centre of the text beside them.
+     Measured against 13-14px text, -0.09em lands within a tenth of a pixel. It is ignored inside
+     a flex line, which is exactly right — those are already centred by `align-items`. */
+.ph {
+  display: inline-block;
+  vertical-align: -0.09em;
+  flex: none;
+}
+header .nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Same pill as `.badge` in a table — it was mono with 1px of padding, so the identical count
+     looked like a different component depending on whether it sat in a heading or a row. Only the
+     colour differs, because it always means "this needs attention". */
+.navcount {
+  display: inline-block;
+  font: 500 var(--fs-xs) var(--sans);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-pill);
+  padding: 4px 8px;
+  line-height: 1.2;
+}
+header .nav .ph {
+  opacity: 0.75;
+}
+header .nav.on .ph {
+  opacity: 1;
+  color: var(--acc);
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--dim);
+}
+.icon-btn:hover {
+  background: var(--panel-2);
+  color: var(--fg);
+  border-color: transparent;
+}
+.icon-btn.on {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+header #settings {
+  margin-left: 10px;
+}
+.proj .ph {
+  color: var(--faint);
+}
+.proj.sel .ph {
+  color: var(--acc);
+}
+.kind {
+  color: var(--faint);
+  margin-right: 6px;
+}
+td .more {
+  opacity: 0;
+  color: var(--faint);
+  padding: 2px;
+  border-radius: var(--r-xs);
+  transition:
+    opacity var(--t-fast),
+    background var(--t-fast);
+  line-height: 0;
+  display: inline-flex;
+  vertical-align: middle;
+}
+tr:hover td .more,
+.proj:hover .more,
+tr.menu-open td .more,
+.menu-open > .more,
+.more.menu-open {
+  opacity: 1;
+}
+td .more:hover {
+  background: var(--line);
+  color: var(--fg);
+}
+/* the one action a hygiene row offers, inline in its grid cell */
+.mini-act {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px 9px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    color var(--t-fast),
+    border-color var(--t-fast);
+}
+.mini-act:hover {
+  color: var(--acc);
+  border-color: var(--acc);
+}
+.mini-act.bad:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+/* provenance link track: six dots, filled to where the trail goes cold */
+.track {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.track i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+  border: 1px solid var(--line-2);
+}
+.track i.on {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+/* a paging chip with nowhere to go: visible, so the range stays readable, but plainly inert */
+.chip.off {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.stat .ph {
+  color: var(--faint);
+  margin-right: 7px;
+}
+.empty .ph {
+  display: block;
+  margin: 0 auto 10px;
+  color: var(--faint);
+}
+.empty .px {
+  display: block;
+  margin: 0 auto 14px;
+  image-rendering: pixelated;
+}
+h2 .back:hover {
+  border-color: var(--acc);
+  color: var(--fg);
+}
+/* fancy-menus theme → Swarm tokens */
+:root {
+  --fm-surface-bg: var(--panel);
+  --fm-surface-fg: var(--fg);
+  --fm-surface-border: var(--line);
+  --fm-surface-radius: var(--r);
+  --fm-surface-shadow: var(--shadow-pop);
+  --fm-accent: var(--acc);
+  --fm-accent-fg: var(--acc-contrast);
+  --fm-destructive: var(--bad);
+  --fm-muted-fg: var(--dim);
+  --fm-divider-color: var(--line-2);
+  /* The row under the cursor must not look like the row you are already on: the highlight is a
+       neutral raised background, and the accent is reserved for the pressed/current item below. */
+  --fm-row-hover-bg: var(--panel-2);
+  --fm-row-active-bg: var(--panel-2);
+  --fm-row-active-fg: var(--fg);
+  --fm-font-size-row: var(--fs-menu);
+  --fm-font-size-caption: var(--fs-sm);
+  --fm-font-size-section: var(--fs-xs);
+  --fm-row-min-h: 30px;
+  --fm-row-radius: var(--r-sm);
+}
+
+.fm-row--danger {
+  color: var(--bad);
+}
+/* fm.css gives .fm-row__icon its own `color: var(--fm-muted-fg)`, which beats the row colour it
+     would otherwise inherit — so a destructive row's glyph stayed grey next to red text. */
+.fm-row--danger .fm-row__icon {
+  color: var(--bad);
+}
+.fm-row--danger:hover {
+  background: var(--bad-soft);
+}
+/* pressed/active rows: soft accent tint, not the solid accent block */
+.fm-row[data-pressed="true"] {
+  background: var(--acc-soft);
+  color: var(--acc);
+  font-weight: 600;
+  position: relative;
+}
+/* the marker is what still says "current" while the highlight is sitting on top of it */
+.fm-row[data-pressed="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 58%;
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  background: var(--acc);
+}
+.fm-row[data-pressed="true"] .fm-ico {
+  color: var(--acc);
+}
+/* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
+.fm-row__icon,
+.fm-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* labels are the point of a menu: never ellipsize them — the caption yields instead */
+.fm-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fm-row__caption {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fm-ico .ph {
+  vertical-align: 0;
+}
+main > h2:not(:first-child) {
+  margin-top: var(--gap-sec);
+}
+.mt-sec {
+  margin-top: var(--gap-sec);
+}
+/* project glyphs (icon/color settings) */
+/* No margin nudge and no vertical-align: the row is a centred flex line, so a negative margin
+     only drags the icon off centre and vertical-align does nothing at all in flex. */
+.pg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  font-size: var(--fs-md);
+  line-height: 1;
+  color: var(--dim);
+  overflow: visible;
+}
+.pg-c1 {
+  color: var(--c1);
+}
+.pg-c2 {
+  color: var(--c2);
+}
+.pg-c3 {
+  color: var(--c3);
+}
+.pg-c4 {
+  color: var(--c4);
+}
+.pg-c5 {
+  color: var(--c5);
+}
+.pg-c6 {
+  color: var(--c6);
+}
+.pg-c7 {
+  color: var(--c7);
+}
+.pg-img {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: var(--r-xs);
+  display: block;
+}
+.pg-lg {
+  width: 34px;
+  height: 34px;
+  font-size: var(--fs-2xl);
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.pg-lg .pg-img {
+  width: 34px;
+  height: 34px;
+  border-radius: 0;
+}
+.icon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-row input {
+  flex: 1;
+}
+.icon-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: var(--pad-ctl);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--fg-2);
+  cursor: pointer;
+  font: 500 var(--fs-sm) var(--sans);
+  white-space: nowrap;
+}
+.icon-row .btn:hover {
+  border-color: var(--acc);
+}
+.emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.emoji-all {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+.emoji-sec {
+  font-size: var(--fs-2xs);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.more-emoji {
+  color: var(--fg-2);
+  font-weight: 700;
+}
+.emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: var(--fs-xl);
+  line-height: 1;
+  background: var(--panel-2);
+  color: var(--dim);
+  overflow: hidden;
+}
+.emoji .ph {
+  width: 14px;
+  height: 14px;
+}
+.emoji:hover {
+  border-color: var(--acc);
+}
+.emoji.on {
+  border-color: var(--acc);
+  background: var(--acc-soft);
+}
+.swatches {
+  display: flex;
+  gap: 6px;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  background: currentColor;
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+.swatch.none {
+  background: var(--panel-2);
+  color: var(--line);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.swatch:hover {
+  border-color: var(--fg-2);
+}
+.swatch.on {
+  border-color: var(--fg);
+}
+.pk-b label.chk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row;
+}
+.pk-b label.chk input {
+  width: auto;
+}
+/* board: kpi accents, kanban, worktree map */
+.kpis-5 {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.kpi.hot .v {
+  color: var(--warn);
+}
+.kpi.warm .v {
+  color: var(--acc);
+}
+.grow {
+  flex: 1;
+}
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-bottom: var(--gap-sec);
+}
+.lane {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 60px;
+}
+.lane-h {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 2px 4px;
+}
+.lane-h span {
+  color: var(--faint);
+  font-weight: 500;
+}
+.lane-empty {
+  color: var(--faint);
+  text-align: center;
+  padding: 10px 0;
+}
+.lane-more {
+  font-size: var(--fs-xs);
+  padding: 2px 4px;
+}
+.tcard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+}
+.tcard:hover,
+.tcard:focus-visible,
+.wt:focus-visible,
+.more:focus-visible {
+  border-color: var(--acc);
+  outline: none;
+}
+.more:focus-visible {
+  opacity: 1;
+}
+/* State colours the whole outline, not a thick left stripe. */
+.tcard.ready {
+  border-color: var(--ok);
+}
+.tcard.held {
+  border-color: var(--acc);
+}
+.tcard.blocked {
+  border-color: var(--line);
+}
+.tcard.done {
+  opacity: 0.7;
+}
+.tc-h {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--fs-sm);
+  margin-bottom: 3px;
+}
+.tc-h .dim {
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-t {
+  font-size: var(--fs-md);
+  color: var(--fg);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tc-m {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-g {
+  margin-top: 6px;
+}
+.wtmap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: var(--gap-sec);
+}
+.wt-proj {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.wt-proj span {
+  color: var(--faint);
+  font-weight: 500;
+}
+.wt-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+.wt {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color var(--t-fast);
+}
+.wt:hover {
+  border-color: var(--acc);
+}
+.wt.main {
+  background: var(--panel-2);
+}
+.wt.live {
+  border-color: var(--ok);
+}
+.wt.dirty {
+  border-color: var(--warn);
+}
+.wt.merged {
+  opacity: 0.6;
+}
+.wt-b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wt-b .s {
+  margin: 0;
+  flex: none;
+}
+.wt-b .br {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wt-m {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wt-m i {
+  font-style: normal;
+}
+.wt-m i.warn {
+  color: var(--warn);
+}
+.wt-m i.acc {
+  color: var(--acc);
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 var(--fs-md) var(--sans);
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--dim);
+  cursor: pointer;
+  user-select: none;
+}
+.chip:hover {
+  border-color: var(--acc);
+  color: var(--fg-2);
+}
+.chip.on {
+  background: var(--acc-soft);
+  border-color: transparent;
+  color: var(--acc);
+}
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px;
+}
+.seg a {
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+  font: 600 var(--fs-md) var(--sans);
+  color: var(--dim);
+  text-decoration: none;
+  transition:
+    color var(--t-fast),
+    background var(--t-fast);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.seg a:hover {
+  color: var(--fg-2);
+}
+.seg a.on {
+  background: var(--acc-soft);
+  color: var(--acc);
+}
+.chip b {
+  font-weight: 700;
+}
+/* workflow step chips (M7.8) */
+.wf-steps {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wfs {
+  font: 500 var(--fs-sm) var(--sans);
+  color: var(--dim);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.wfs.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: transparent;
+}
+.wfs.run {
+  color: var(--acc);
+  background: var(--acc-soft);
+  border-color: transparent;
+}
+.wfs.bad {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: transparent;
+}
+/* M5.7: timeline ticks, idle-gap thin bars, claim lane; sidebar spend sparks; gate history */
+.tl-track u {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  opacity: 0.95;
+}
+.tl-track i.thin {
+  opacity: 0.25;
+}
+.tl-row.claimlane .tl-name {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tl-track i.claim {
+  top: 7px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--violet);
+  opacity: 0.6;
+}
+.tl-track i.claim.orphaned {
+  background: var(--warn);
+  opacity: 0.9;
+}
+.tl-track i.claim.expired {
+  background: var(--faint);
+}
+.proj-spark {
+  flex: none;
+  width: 44px;
+  display: inline-flex;
+  opacity: 0.7;
+}
+.proj-spark .spark {
+  width: 44px;
+  height: 14px;
+}
+.gh-strip {
+  display: inline-flex;
+  gap: 12px;
+  font-weight: 400;
+}
+.gh {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.gh i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.gh i.ok {
+  background: var(--ok);
+}
+.gh i.bad {
+  background: var(--warn);
+}
+/* session message thread (M7.6) */
+.msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.msg {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 9px;
+  font-size: var(--fs-md);
+  color: var(--fg-2);
+  word-break: break-word;
+}
+.msg.out {
+  background: var(--acc-soft);
+  border-color: transparent;
+}
+.msg-f {
+  display: block;
+  font-size: var(--fs-2xs);
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+.msg-compose {
+  display: flex;
+  gap: 6px;
+}
+.msg-compose input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  font: 400 var(--fs-md) var(--sans);
+}
+.msg-compose input:focus {
+  border-color: var(--acc);
+  outline: none;
+}
+.msg-compose button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  border-radius: var(--r-sm);
+  padding: 7px 11px;
+  cursor: pointer;
+  font: 500 var(--fs-sm) var(--sans);
+}
+.msg-compose button:hover {
+  color: var(--acc);
+  border-color: var(--acc);
+}
+.msg-compose input:disabled,
+.msg-compose button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.msg-compose button:disabled:hover {
+  color: var(--fg-2);
+  border-color: var(--line);
+}
+/* how a message actually reaches the agent — the block is useless without this line */
+.msg-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 7px 0 0;
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.msg-hint .ph {
+  flex: none;
+  color: var(--faint);
+}
+.msg-hint b {
+  color: var(--fg-2);
+  font-weight: 600;
+}
+/* a file path as one copyable row: directory truncates, file name stays */
+.pathrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 9px;
+  color: var(--fg-2);
+  font: 400 var(--fs-sm) var(--mono);
+}
+.pathrow:hover {
+  border-color: var(--acc);
+  color: var(--fg);
+}
+.pathrow .dir {
+  flex: 0 9999 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.pathrow b {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pathrow .cp {
+  flex: none;
+  margin-left: auto;
+  color: var(--faint);
+}
+.pathrow:hover .cp {
+  color: var(--acc);
+}
+.pathrow.copied {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.pathrow.copied .dir,
+.pathrow.copied .cp {
+  color: var(--ok);
+}
+/* The desktop webview can refuse the clipboard; say so rather than flashing success anyway. */
+.pathrow.copy-failed {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.pathrow.copy-failed .dir,
+.pathrow.copy-failed .cp {
+  color: var(--bad);
+}
+/* first-run onboarding card */
+.onboard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 28px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  max-width: 640px;
+  margin: 40px auto;
+}
+.onboard h3 {
+  font-size: var(--fs-xl);
+  color: var(--fg);
+}
+.onboard .px {
+  margin: 0 auto;
+}
+.ob-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ob-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.ob-step.done {
+  color: var(--dim);
+}
+.ob-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 var(--fs-sm) var(--sans);
+  color: var(--dim);
+  margin-top: 1px;
+}
+.ob-step.done .ob-n {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: transparent;
+}
+/* star nudge (once a month, dismissable) */
+.nudge {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  max-width: 400px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-pop);
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font: var(--fs-md) var(--sans);
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.nudge .ic {
+  color: var(--acc);
+  flex: none;
+  margin-top: 1px;
+}
+.nudge b {
+  color: var(--fg);
+  display: block;
+  margin-bottom: 2px;
+}
+.nudge .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+  white-space: nowrap;
+}
+.nudge button.pri {
+  background: var(--acc-soft);
+  border-color: transparent;
+  color: var(--acc);
+}
+.nudge a.dim {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  margin-left: auto;
+}
+body.nosb .nudge {
+  right: 18px;
+}
+
+/* React shell (M11.6). `#root` is transparent to the body grid so header/aside/main stay grid
+     items, but the layout rules above use the child combinator against <body> and no longer match
+     through the mount container — so they are restated for the mounted tree. Deleting `#root` when
+     the vanilla page goes (M11.12) leaves the originals as the only copy. */
+/* `.th-cols` is a <button> in the React grid (it must be focusable) where it used to be a <span>;
+   strip the browser chrome so it still reads as the bare sliders glyph. */
+.dt .th-cols {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+#root {
+  display: contents;
+}
+#root > aside {
+  grid-column: 1;
+  grid-row: 2;
+}
+#root > main {
+  grid-column: 2;
+  grid-row: 2;
+}

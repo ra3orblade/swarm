@@ -25,3 +25,6 @@ site/.env.local
 .obsidian/
 .vercel
 .claude/worktrees/*
+# Built by `bun run build:web` from packages/web/src (M11.6).
+packages/web/public/dashboard.js
+packages/web/public/dashboard.css

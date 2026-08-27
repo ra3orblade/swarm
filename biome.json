@@ -9,6 +9,15 @@
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
   "overrides": [
     {
+      "includes": ["packages/web/src/styles/**"],
+      "linter": {
+        "rules": {
+          "style": { "noDescendingSpecificity": "off" },
+          "suspicious": { "noDuplicateProperties": "off" }
+        }
+      }
+    },
+    {
       "includes": ["packages/web/src/**"],
       "linter": {
         "rules": {
