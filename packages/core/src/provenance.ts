@@ -87,8 +87,22 @@ export interface ProvenanceChain {
   brokenAt: ChainBreak;
 }
 
+/** A slice of a ranked list: rows are worst-first, so a page is the page that matters. */
+export interface Page {
+  limit: number;
+  offset: number;
+  total: number;
+}
+
 export interface ProvenanceReport {
   chains: ProvenanceChain[];
+  /** Present on the HTTP response; the pure builder returns every chain. */
+  page?: Page;
+  /**
+   * True while pull-request state is still loading from the forge. A cold start has none, and
+   * without this the PR column would read as "no PR" for everything and be believed.
+   */
+  stale?: boolean;
   totals: {
     tasks: number;
     complete: number;

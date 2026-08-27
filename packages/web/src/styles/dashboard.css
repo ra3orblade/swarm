@@ -3360,3 +3360,69 @@ body.nosb .nudge {
 .proj {
   width: 100%;
 }
+
+/* Panels inside `.cols` sat on inline `margin:0` / `display:flex` in the vanilla views (M11.3).
+   Named here so a component can carry the class instead of a style attribute. */
+.chart-card.flush {
+  margin: 0;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sec);
+  min-width: 0;
+}
+
+/* Rule cards (M11.10) — inline styles in the vanilla view, named here. */
+.rule-spark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.rule-spark .dim {
+  font-size: var(--fs-sm);
+}
+.rule-shape {
+  margin: 0 0 8px;
+  font-size: var(--fs-md);
+}
+.h4-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Pager under a paged grid (M11.10). */
+.chips.pager {
+  margin-top: 10px;
+}
+.chips.pager .dim {
+  align-self: center;
+  font-size: var(--fs-sm);
+}
+
+/* A table row that opens something (M11.9). */
+tr.clickable {
+  cursor: pointer;
+}
+
+/* A control that reads as a link (M11.6). The vanilla used `<a href="#">` with a click handler;
+   these are `<button>`s, which is what they always were semantically. */
+.link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--acc);
+  cursor: pointer;
+  text-align: left;
+}
+.link:hover {
+  text-decoration: underline;
+}
+/* Actions pushed to the right of a section heading. */
+.h2-actions {
+  margin-left: auto;
+}

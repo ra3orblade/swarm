@@ -154,7 +154,7 @@ writeFileSync(
     `const ICON_PATHS = ${JSON.stringify(paths)};\n` +
     `window.icon = (name, size = 16, cls = "") => { const p = ICON_PATHS[name]; if (!p) return ""; ` +
     `return \`<svg class="ph \${cls}" width="\${size}" height="\${size}" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">\${p}</svg>\`; };\n` +
-    `window.ICON_NAMES = ${JSON.stringify(ICONS)};\n`,
+    `window.ICON_PATHS = ICON_PATHS;\nwindow.ICON_NAMES = ${JSON.stringify(ICONS)};\n`,
 );
 
 // ---- release notes: parse CHANGELOG.md → window.RELEASE_NOTES (version → { date, html }) so the

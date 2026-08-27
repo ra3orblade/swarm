@@ -105,3 +105,16 @@ export function megabytes(kb: number | null | undefined): string | null {
   if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)} GB`;
   return `${Math.round(kb / 1024)} MB`;
 }
+
+/**
+ * Lead time, never wider than five characters.
+ *
+ * It spans minutes to months, and "889.4h" both overflows a numeric column and tells the reader
+ * nothing — past two days it belongs in days, past three months in weeks.
+ */
+export function leadTime(h: number): string {
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h`;
+  const days = h / 24;
+  return days < 100 ? `${days.toFixed(days < 10 ? 1 : 0)}d` : `${Math.round(days / 7)}w`;
+}

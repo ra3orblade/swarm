@@ -12,12 +12,19 @@
 import { useEffect } from "react";
 import { startSnapshotFeed } from "../state/snapshot";
 import { applyDeepLink, useUiStore } from "../state/ui";
+import { Context } from "../views/Context";
+import { Files } from "../views/Files";
 import { Fleet } from "../views/Fleet";
 import { Gates } from "../views/Gates";
 import { Hygiene } from "../views/Hygiene";
+import { Incidents } from "../views/Incidents";
 import { Mcp } from "../views/Mcp";
 import { Outcomes } from "../views/Outcomes";
 import { PRs } from "../views/PRs";
+import { Provenance } from "../views/Provenance";
+import { Rules } from "../views/Rules";
+import { Security } from "../views/Security";
+import { Trials } from "../views/Trials";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Header } from "./Header";
 import { NotPorted } from "./NotPorted";
@@ -32,6 +39,13 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element>> = {
   outcomes: Outcomes,
   gates: Gates,
   mcp: Mcp,
+  context: Context,
+  heat: Files,
+  security: Security,
+  provenance: Provenance,
+  rules: Rules,
+  incidents: Incidents,
+  trials: Trials,
 };
 
 export function App() {

@@ -9,6 +9,7 @@
  * Response types come from `@swarm/core`, so these signatures are checked against the code that
  * produces the responses rather than against what someone read off the network tab.
  */
+
 import type {
   ContextReport,
   GateHealthReport,
@@ -20,6 +21,8 @@ import type {
   RuleEffectReport,
   SecurityReport,
 } from "@swarm/core";
+import type { TrialReport } from "@swarm/core/abtrial";
+import type { IncidentEvent } from "@swarm/core/dashboard";
 import { query } from "./client";
 
 /** Routes scoped to one project, or to the whole machine when no project is selected. */
@@ -36,6 +39,10 @@ export const routes = {
   provenance: (project: string | null) => byProject("/v1/provenance", project),
   ruleEffect: (project: string | null) => byProject("/v1/rules/effect", project),
   prs: () => "/v1/prs",
+  /** The full feed, not the snapshot's most-recent-20 window. */
+  incidents: (project: string | null, openOnly: boolean) =>
+    `/v1/incidents${query({ project, limit: 500, open: openOnly ? 1 : null })}`,
+  trials: (project: string | null) => byProject("/v1/ab", project),
 } as const;
 
 /**
@@ -44,6 +51,8 @@ export const routes = {
  * daemon actually returns.
  */
 export interface ResponseOf {
+  incidents: IncidentEvent[];
+  trials: TrialReport[];
   outcomes: OutcomeReport;
   hygiene: HygieneReport;
   gateHealth: GateHealthReport;
