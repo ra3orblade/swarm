@@ -192,13 +192,13 @@ converted, so no commit ships a half-migrated app.
 
 | ID | Task | Depends | Status |
 |---|---|---|---|
-| M11.1 | Toolchain: multi-entry `Bun.build`, CSS pipeline, app `tsconfig`, Biome rules encoding the Google TS guide | — | 🟡 Biome rules + the `DashboardSnapshot` contract landed; `SessionView` and `Worktree` moved to core. Multi-entry build + CSS pipeline still open |
+| M11.1 | Toolchain: multi-entry `Bun.build`, CSS pipeline, app `tsconfig`, Biome rules encoding the Google TS guide | — | ✅ 2026-08-27 two entrypoints (`menus.js`, `dashboard.js` + `dashboard.css`); Biome rules for the Google TS guide; `DashboardSnapshot` contract; `SessionView`/`Worktree` moved to core; core subpath exports so a browser bundle cannot pull `node:crypto` |
 | M11.2 | Data layer: typed endpoints over `@swarm/core` types; `useSnapshot` (poll + SSE) and view-scoped `useResource` replacing 21 `xChanged` booleans | M11.1 | ✅ 2026-08-27 `api/client.ts` (one fetch path, token attached once, typed `ApiError`), `api/useSnapshot.ts` (`useSyncExternalStore`; SSE nudges a re-poll; identical body does not notify), `api/useResource.ts` (view-scoped, keeps the last value across refetches), `api/endpoints.ts` (routes typed by core report types) |
-| M11.3 | Design tokens + UI primitives (`Card`, `Badge`, `Empty`, `StatTile`, `Section`) extracted from the 775 CSS lines in `index.html` | M11.1 | ⚪ |
-| M11.4 | `<DataGrid>`: port `table.js` (262 lines) to typed generic columns, keeping sort / resize / reorder / filter / column menu / per-table persistence | M11.3 | ⚪ |
-| M11.5 | Charts: port `viz.js` (446 lines) — sparkline, bipartite, layered DAG, bars | M11.3 | ⚪ |
-| M11.6 | Shell: header, nav, project sidebar, router (`?view=` deep links), error boundary, legacy-view adapter | M11.2, M11.3 | ⚪ |
-| M11.7 | Views — Observe: Fleet, Timeline, Graphs | M11.4, M11.5, M11.6 | ⚪ |
+| M11.3 | Design tokens + UI primitives (`Card`, `Badge`, `Empty`, `StatTile`, `Section`) extracted from the 775 CSS lines in `index.html` | M11.1 | 🟡 CSS extracted verbatim to `src/styles/dashboard.css`; `ui.tsx` primitives + `Mark` (generated from core, not pasted). Splitting into tokens/base/components still open |
+| M11.4 | `<DataGrid>`: port `table.js` (262 lines) to typed generic columns, keeping sort / resize / reorder / filter / column menu / per-table persistence | M11.3 | ✅ 2026-08-27 `components/DataGrid.tsx` — generic over its row type; sort / resize / reorder / filter / column menu / per-table persistence kept, plus keyboard sorting and `aria-sort` |
+| M11.5 | Charts: port `viz.js` (446 lines) — sparkline, bipartite, layered DAG, bars | M11.3 | 🟡 `Sparkline` + agent palette ported; bipartite, layered DAG, bars, heatmap still in `viz.js` |
+| M11.6 | Shell: header, nav, project sidebar, router (`?view=` deep links), error boundary, legacy-view adapter | M11.2, M11.3 | ✅ 2026-08-27 Header + nav + Sidebar + view registry + error boundary; zustand `ui` store is the router (`?view=` deep links). Served at `/next` beside the original |
+| M11.7 | Views — Observe: Fleet, Timeline, Graphs | M11.4, M11.5, M11.6 | 🟡 Fleet ported; Timeline and Graphs still on the old dashboard |
 | M11.8 | Views — Work: Board, PRs, Trials, Hygiene | M11.7 | ⚪ |
 | M11.9 | Views — Insight: Outcomes, Gates, MCP, Context, Files, Spend, Stats, Search | M11.7 | ⚪ |
 | M11.10 | Views — Guard: Security, Provenance, Incidents, Rules | M11.7 | ⚪ |
