@@ -569,6 +569,53 @@ describe("external task sources (M4.8)", () => {
       else process.env.LINEAR_API_KEY = saved;
     }
   });
+
+  it("says it is still fetching, rather than reporting an empty board", async () => {
+    // The first request for an external tracker arrives before the fetch comes back. Answering
+    // `{ tasks: [] }` made a repo with 300 open issues look like a repo with none, and the Board
+    // rendered no Tasks section at all — the same as a repo that configures no source.
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-taskload-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[tasks]\nsource = "github"\n`);
+    const p = store.resolveProject(dir, true);
+
+    // No refresh has completed, so this is the cold first read.
+    const r = await app.request(`/v1/tasks?project=${p.id}`);
+    const j = (await r.json()) as {
+      source: string;
+      tasks: unknown[];
+      error: string | null;
+      loading?: boolean;
+    };
+    expect(j.source).toBe("github");
+    expect(j.tasks).toEqual([]);
+    expect(j.loading).toBe(true);
+    expect(j.error).toBeNull();
+  });
+
+  it("is not 'loading' once the source has answered, even with nothing to show", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-taskdone-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[tasks]\nsource = "linear"\n`);
+    const p = store.resolveProject(dir, true);
+    const saved = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "";
+    try {
+      // A failed fetch has still *answered*: the UI must show the reason, not a spinner.
+      await store.taskSources.refresh(p.id, "linear", dir, { labels: [], team: null });
+      const r = await app.request(`/v1/tasks?project=${p.id}`);
+      const j = (await r.json()) as { loading?: boolean; error: string | null };
+      expect(j.loading).toBe(false);
+      expect(j.error).toContain("LINEAR_API_KEY");
+    } finally {
+      if (saved === undefined) delete process.env.LINEAR_API_KEY;
+      else process.env.LINEAR_API_KEY = saved;
+    }
+  });
 });
 
 describe("memory search (M4.5)", () => {

@@ -31,6 +31,10 @@ interface TaskSet {
   /** The configured source's name, or null when the repo has none. */
   source: string | null;
   tasks: TaskView[];
+  /** True while an external tracker's first fetch is still in flight. */
+  loading?: boolean;
+  /** Why the list is empty, when the source could not be read. */
+  error?: string | null;
 }
 
 export function Board() {
@@ -92,6 +96,8 @@ export function Board() {
         <TasksSection
           source={taskSet?.source ?? null}
           tasks={tasks}
+          loading={taskSet?.loading ?? false}
+          error={taskSet?.error ?? null}
           projectId={project}
           onOpenSession={openSession}
         />

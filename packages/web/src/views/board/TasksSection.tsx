@@ -10,7 +10,7 @@ import { useState } from "react";
 import { claimTask, runGates } from "../../api/actions";
 import { type Column, DataGrid } from "../../components/DataGrid";
 import { RowMenuButton } from "../../components/RowMenuButton";
-import { Badge, Section } from "../../components/ui";
+import { Badge, Empty, Section } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { menuSection, openMenu } from "../../lib/menus";
 import { RunDrawer } from "../session/RunDrawer";
@@ -68,17 +68,58 @@ export interface TasksSectionProps {
   /** The configured source's name, or null when the repo has none. */
   source: string | null;
   tasks: TaskView[];
+  /** True while an external tracker's first fetch is still in flight. */
+  loading?: boolean;
+  /** Why the list is empty — `gh not installed`, `LINEAR_API_KEY not set`, an API error. */
+  error?: string | null;
   /** Required to claim or run; the Board only renders this section with a project selected. */
   projectId: string;
   onOpenSession: (id: string) => void;
 }
 
-/** The Tasks section, or nothing when the repo configures no task source. */
-export function TasksSection({ source, tasks, projectId, onOpenSession }: TasksSectionProps) {
+/**
+ * The Tasks section, or nothing when the repo configures no task source.
+ *
+ * A source that is configured but empty is *not* nothing: it is either still being fetched or it
+ * failed, and both used to render as an absent section. On a repo with 300 open issues the Board
+ * showed no Tasks at all until something happened to poll it again, and a missing `gh` looked
+ * exactly the same as a tracker with nothing in it.
+ */
+export function TasksSection({
+  source,
+  tasks,
+  loading = false,
+  error = null,
+  projectId,
+  onOpenSession,
+}: TasksSectionProps) {
   const [filter, setFilter] = useState<Filter>("ready");
   /** The task whose Run drawer is open, if any. */
   const [running, setRunning] = useState<TaskView | null>(null);
-  if (!source || tasks.length === 0) return null;
+
+  if (!source) return null;
+
+  if (tasks.length === 0) {
+    if (error) {
+      return (
+        <Section title="Tasks" hint={source}>
+          <Empty>
+            <b>Could not read tasks from {source}.</b>
+            <br />
+            {error}
+          </Empty>
+        </Section>
+      );
+    }
+    if (loading) {
+      return (
+        <Section title="Tasks" hint={source}>
+          <Empty>Fetching tasks from {source}…</Empty>
+        </Section>
+      );
+    }
+    return null;
+  }
 
   const ready = tasks.filter((t) => t.ready);
   const open = tasks.filter((t) => t.status !== "done");

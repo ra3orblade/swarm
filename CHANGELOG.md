@@ -40,6 +40,14 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   `body > aside` rule quietly stopped matching. `bun run check:classes` now fails on that selector
   shape rather than letting it go quiet again.
 
+- **A GitHub or Linear backlog showed as no backlog at all.** The first request for an external
+  tracker arrives before the fetch comes back, and the daemon answered `{ tasks: [] }` — so the
+  Board rendered no Tasks section, identical to a repo that configures no source. On a repo with
+  300 open issues it stayed that way until something happened to poll it again. The response now
+  says whether it is still fetching, and the Board says so too. The same section also swallowed the
+  daemon's reason when a source *failed*: `gh not installed` and `LINEAR_API_KEY not set` both
+  rendered as silence. Both are now shown.
+
 - **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
   the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
 

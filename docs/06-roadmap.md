@@ -207,4 +207,6 @@ converted, so no commit ships a half-migrated app.
 | M11.13 | App chrome the port dropped: ⌘K palette, theme, zoom, desktop notifications, What's New, update + star nudges, feedback, desktop window drag | M11.12 | ✅ 2026-08-27 The screens were ported; the chrome was not. `?chrome=inset` (the macOS overlay title bar) was the worst of it — no traffic-light padding and a window that could not be dragged. `#root` also broke every `body > aside|main` rule, silently costing the sidebar its padding, border and background; `check:classes` now fails on that selector shape. Clipboard fallback restored (0.12.1's fix had regressed) |
 
 ## Later (not scheduled)
-Hosted (SaaS) team daemon wrapping the M8.3 binary · adapters for other agent CLIs · Linear/GitHub task sources · plan-gate-check (✅ unreachable without passing gate) as a rule.
+Hosted (SaaS) team daemon wrapping the M8.3 binary · adapters for other agent CLIs · plan-gate-check (✅ unreachable without passing gate) as a rule.
+
+*(Linear/GitHub task sources shipped in M4.8 and are verified end to end — this line listed them as unscheduled long after they landed.)*
