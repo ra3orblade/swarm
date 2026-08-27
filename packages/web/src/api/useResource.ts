@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get } from "./client";
+import type { Route } from "./endpoints";
 
 /** How often view data is re-fetched. The snapshot poll uses the same beat. */
 export const POLL_MS = 5000;
@@ -62,7 +63,7 @@ async function fetchOnce<T>(path: string, signal: AbortSignal): Promise<Outcome<
  * The previous value is deliberately kept while a refetch is in flight: the poll runs every five
  * seconds, and blanking the view each time is exactly the flicker this rewrite exists to remove.
  */
-export function useResource<T>(path: string | null, pollMs: number = POLL_MS): Resource<T> {
+export function useResource<T>(path: Route<T> | null, pollMs: number = POLL_MS): Resource<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(path !== null);
