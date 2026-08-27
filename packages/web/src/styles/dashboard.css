@@ -246,18 +246,18 @@ code {
 body.nosb {
   grid-template-columns: 46px 1fr;
 }
-body.nosb > aside {
+body.nosb aside {
   padding: 12px 5px;
   overflow: hidden;
 }
 body.nosb #projects {
   display: none;
 }
-body > aside {
+#root > aside {
   grid-column: 1;
   grid-row: 2;
 }
-body > main {
+#root > main {
   grid-column: 2;
   grid-row: 2;
 }
@@ -383,7 +383,7 @@ header #today b {
 }
 
 /* sidebar */
-body > aside {
+#root > aside {
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: 12px 10px;
@@ -457,7 +457,7 @@ body > aside {
   font-size: var(--fs-2xs);
   font-weight: 600;
 }
-body > aside h4 {
+#root > aside h4 {
   margin: 14px 8px 6px;
   color: var(--faint);
   font-size: var(--fs-xs);
@@ -465,7 +465,7 @@ body > aside h4 {
   text-transform: uppercase;
   letter-spacing: 0.09em;
 }
-body > aside h4:first-child {
+#root > aside h4:first-child {
   margin-top: 2px;
 }
 .proj {
@@ -646,6 +646,11 @@ table.plain td {
 .pal .pk-row.on {
   background: var(--acc-soft);
   color: var(--fg);
+}
+/* The vanilla palette wrote this padding as a style attribute on the empty state; naming it keeps
+   the one-off out of the markup. */
+.pal-empty {
+  padding: 16px;
 }
 .pal .pk-row .grp {
   margin-left: auto;
@@ -3310,10 +3315,10 @@ body.nosb .nudge {
   right: 18px;
 }
 
-/* React shell (M11.6). `#root` is transparent to the body grid so header/aside/main stay grid
-     items, but the layout rules above use the child combinator against <body> and no longer match
-     through the mount container — so they are restated for the mounted tree. Deleting `#root` when
-     the vanilla page goes (M11.12) leaves the originals as the only copy. */
+/* React shell (M11.6). `#root` is `display: contents`, so header/aside/main stay grid items of
+     <body>. It is invisible to *layout* but not to *selectors*: `body > aside` stopped matching the
+     moment the tree gained this wrapper, which silently dropped the sidebar's padding, border and
+     background. The layout rules above therefore address `#root > …` directly rather than <body>. */
 /* `.th-cols` is a <button> in the React grid (it must be focusable) where it used to be a <span>;
    strip the browser chrome so it still reads as the bare sliders glyph. */
 .dt .th-cols {
@@ -3325,15 +3330,6 @@ body.nosb .nudge {
 #root {
   display: contents;
 }
-#root > aside {
-  grid-column: 1;
-  grid-row: 2;
-}
-#root > main {
-  grid-column: 2;
-  grid-row: 2;
-}
-
 /* Explanatory footnote under a view's table (M11.9). The vanilla views inlined these numbers as a
    style attribute on a <p>; naming the class keeps the type scale in one place. */
 .note {
@@ -3572,4 +3568,25 @@ tr.clickable {
   color: inherit;
   width: 100%;
   text-align: left;
+}
+
+/* What's New (M11.13): the footer link out to the full changelog, aligned with the Close button. */
+.wn-full {
+  align-self: center;
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+
+/* A button that has to read as the least of three options ("Don't ask again"). It is a <button>
+   rather than the vanilla's <a href="#"> because it performs an action and navigates nowhere. */
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.linkish:hover {
+  color: var(--fg-2);
 }

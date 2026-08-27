@@ -25,17 +25,9 @@ import {
   removeWorktree,
   stopProcess,
 } from "../api/actions";
+import { copyText as copy } from "../lib/copy";
 import { shortPath } from "../lib/format";
 import { type MenuItem, menuSection, openMenu } from "../lib/menus";
-
-/** Copy to the clipboard, quietly. Nothing here is worth interrupting someone over. */
-async function copy(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Denied clipboard permission, or an insecure origin. The menu simply does nothing.
-  }
-}
 
 /** The tail of a long value, for a menu caption. */
 const tail = (value: string, n: number) => (value.length <= n ? value : `…${value.slice(-n)}`);

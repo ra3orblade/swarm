@@ -92,7 +92,9 @@ export function Search() {
     return (id: string) => byId.get(id) ?? "(removed)";
   }, [projects]);
 
-  const [q, setQ] = useState("");
+  // The query lives in the UI store so the ⌘K palette can seed it; see state/ui.ts.
+  const q = useUiStore((s) => s.search);
+  const setQ = useUiStore((s) => s.setSearch);
   const [kind, setKind] = useState("");
   /** Null until a search has run — "type to search" is a different state from "no matches". */
   const [hits, setHits] = useState<Hit[] | null>(null);

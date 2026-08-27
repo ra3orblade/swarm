@@ -21,10 +21,27 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 - Long grids paginate at 25 rows by default, with the page size remembered per table.
 
+- The ⌘K palette, theme switching, UI zoom, desktop notifications, What's New, the update and star
+  nudges and the feedback link are back. All of them lived in `app.js`; the rewrite ported every
+  screen and none of the chrome around them.
+
 ### Fixed
 
 - A grid's last column had a resize handle hanging four pixels past the table, which put a
   horizontal scrollbar under every wide view.
+
+- **The desktop app lost its window chrome.** On macOS Swarm runs with an overlay title bar, and
+  the page is what pads the header clear of the traffic lights and what makes the header draggable.
+  Both were wired in the old `app.js` and did not survive the rewrite: the mark sat under the
+  traffic lights and the window could not be moved or double-click-zoomed.
+
+- **The sidebar lost its padding, border and background.** React mounts inside a `#root` div.
+  It is `display: contents`, so it disappears from the layout — but not from selectors, and every
+  `body > aside` rule quietly stopped matching. `bun run check:classes` now fails on that selector
+  shape rather than letting it go quiet again.
+
+- **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
+  the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
 
 ## [0.12.1] — 2026-08-26
 

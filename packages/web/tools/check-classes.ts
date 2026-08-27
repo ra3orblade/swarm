@@ -85,6 +85,38 @@ function usedClasses(): Map<string, Set<string>> {
   return used;
 }
 
+/**
+ * The shell elements React mounts inside `#root`.
+ *
+ * `#root` is `display: contents`, so it vanishes from the *layout* — but not from *selectors*.
+ * `body > aside` therefore stopped matching the moment the tree gained the mount container, and
+ * took the sidebar's padding, border and background with it. Nothing failed; the rule just went
+ * quiet. This is the check that would have caught it.
+ */
+const SHELL = ["header", "aside", "main"];
+
+function unmatchableShellRules(css: string): string[] {
+  const bad: string[] = [];
+  for (const element of SHELL) {
+    const pattern = new RegExp(`(^|,)\\s*body[^,{]*>\\s*${element}\\b`, "gm");
+    for (const hit of css.matchAll(pattern)) bad.push(hit[0].trim().replace(/^,\s*/, ""));
+  }
+  return bad;
+}
+
+const sheet = readFileSync(join(srcDir, "styles/dashboard.css"), "utf8");
+const unmatchable = unmatchableShellRules(sheet);
+if (unmatchable.length > 0) {
+  console.error(
+    `web: ${unmatchable.length} rule(s) target a shell element as a direct child of <body>:\n`,
+  );
+  for (const selector of unmatchable) console.error(`  ${selector}`);
+  console.error(
+    "\nReact mounts header/aside/main inside #root, so these never match. Address `#root > …`.",
+  );
+  process.exit(1);
+}
+
 const defined = definedClasses();
 const unknown = [...usedClasses()].filter(
   ([name]) => !defined.has(name) && !UNSTYLED_BY_DESIGN.has(name),

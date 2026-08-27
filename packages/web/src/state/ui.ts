@@ -22,12 +22,19 @@ interface UiState {
   sidebarCollapsed: boolean;
   /** Sub-tab within the Graphs view. */
   graphTab: string;
+  /**
+   * The Search view's query. It lives here rather than in the view because the ⌘K palette seeds it
+   * — "search Swarm for X" has to survive the navigation that shows the results.
+   */
+  search: string;
 
   openView: (view: ViewId) => void;
   selectProject: (project: string | null) => void;
   openSession: (session: string | null) => void;
   toggleSidebar: () => void;
   setGraphTab: (tab: string) => void;
+  /** Set the query and go to Search. */
+  setSearch: (query: string) => void;
 }
 
 /** What the user is looking at. The router, in practice: `view` is the route. */
@@ -39,6 +46,7 @@ export const useUiStore = create<UiState>()(
       session: null,
       sidebarCollapsed: false,
       graphTab: "collisions",
+      search: "",
 
       // Opening a view always leaves the session page: a session is a place, not an overlay.
       openView: (view) => set({ view, session: null }),
@@ -46,6 +54,7 @@ export const useUiStore = create<UiState>()(
       openSession: (session) => set({ session }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setGraphTab: (graphTab) => set({ graphTab }),
+      setSearch: (search) => set({ search, view: "search", session: null }),
     }),
     {
       name: "swarm.ui",

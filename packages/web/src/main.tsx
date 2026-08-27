@@ -8,7 +8,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { applyStoredTheme } from "./lib/theme";
 import "./styles/dashboard.css";
+
+// Before the first render: an effect runs after paint, which would flash light at a dark-theme user.
+applyStoredTheme();
 
 const host = document.getElementById("root");
 if (!host) throw new Error("dashboard: #root is missing from index.html");
