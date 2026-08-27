@@ -47,6 +47,12 @@ from the vanilla dashboard and is the spec. The sidebar wants `.proj` / `.st` / 
 stat cards want `.kpi` with `.l` / `.v` / `.d`. `bun tools/check-classes.ts` fails on a class with
 no rule behind it.
 
+**`role="button"` is allowed in exactly two files.** `Dag.tsx` and `Timeline.tsx` turn
+`useSemanticElements` off, because SVG has no `<button>` (a graph node can only be an operable
+`<g>`), and a timeline row is a pair of CSS-grid cells that a `<button>` would break. Both still
+carry `tabIndex`, an `aria-label` and an Enter/Space handler, so they are reachable by keyboard.
+Nowhere else should need it.
+
 **A control that was a `<div>` and is now a `<button>` needs its chrome reset** — border,
 background, font, text-align, and `width: 100%` for a full-width row.
 

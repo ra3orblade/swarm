@@ -3487,3 +3487,49 @@ tr.clickable {
 .mt-panel {
   margin-top: 14px;
 }
+
+/* Graph drawings (M11.5) — inline styles in the vanilla, named here. */
+.bipartite {
+  max-width: 1100px;
+}
+.matrix-scroll {
+  overflow: auto;
+}
+.card-pad {
+  padding: 14px;
+}
+.card-scroll {
+  padding: 14px;
+  overflow: auto;
+  max-height: 72vh;
+}
+.graph-key {
+  margin-top: 10px;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+.graph-key svg {
+  vertical-align: middle;
+}
+.edge-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A clickable node in the lineage graph (M11.7). */
+.dag-node {
+  cursor: pointer;
+}
+
+/* Contention rings on the resource graph (M11.7). */
+.ring-card {
+  margin-bottom: 12px;
+}
+.ring-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}

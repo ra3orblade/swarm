@@ -18,6 +18,7 @@ import { Context } from "../views/Context";
 import { Files } from "../views/Files";
 import { Fleet } from "../views/Fleet";
 import { Gates } from "../views/Gates";
+import { Graphs } from "../views/Graphs";
 import { Hygiene } from "../views/Hygiene";
 import { Incidents } from "../views/Incidents";
 import { Mcp } from "../views/Mcp";
@@ -30,6 +31,7 @@ import { Security } from "../views/Security";
 import { Session } from "../views/Session";
 import { Spend } from "../views/Spend";
 import { Stats } from "../views/Stats";
+import { TimelineView } from "../views/TimelineView";
 import { Trials } from "../views/Trials";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Header } from "./Header";
@@ -59,6 +61,8 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element | null>> = {
   spend: Spend,
   search: Search,
   stats: Stats,
+  timeline: TimelineView,
+  graphs: Graphs,
 };
 
 export function App() {

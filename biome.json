@@ -9,6 +9,13 @@
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
   "overrides": [
     {
+      "includes": [
+        "packages/web/src/components/Dag.tsx",
+        "packages/web/src/components/Timeline.tsx"
+      ],
+      "linter": { "rules": { "a11y": { "useSemanticElements": "off" } } }
+    },
+    {
       "includes": ["packages/web/src/styles/**"],
       "linter": {
         "rules": {
