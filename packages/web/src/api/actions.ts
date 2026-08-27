@@ -48,6 +48,7 @@ export async function removeWorktree(
   return result;
 }
 
+/** The reclaim response, which reports how much disk actually came back. */
 export interface ReclaimResult extends WriteResult {
   freedKb?: number;
 }

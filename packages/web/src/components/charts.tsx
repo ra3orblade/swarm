@@ -34,6 +34,7 @@ export function localDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Day keys and one series per agent, aligned to those days. */
 export interface StackedColumnsProps {
   /** Day keys, oldest first. */
   days: string[];
@@ -128,6 +129,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Monday first: a working week reads better than a calendar one here. */
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
+/** One weekday × hour bucket. */
 export interface HeatCell {
   dow: number;
   hour: number;

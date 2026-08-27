@@ -8,6 +8,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+/** Which column a grid is sorted by, and which way. */
 export interface SortState {
   key: string;
   dir: "asc" | "desc";
@@ -30,6 +31,7 @@ interface GridLayoutState {
   reset: (id: string) => void;
 }
 
+/** Every grid layout, keyed by table id and persisted. */
 export const useGridLayoutStore = create<GridLayoutState>()(
   persist(
     (set) => ({

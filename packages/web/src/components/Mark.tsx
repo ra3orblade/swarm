@@ -18,6 +18,7 @@
 import { ART_THEME, artSvg, MARK } from "@swarm/core/art";
 import { useMemo } from "react";
 
+/** How large to draw the mark, and whether it needs an accessible name. */
 export interface MarkProps {
   /** Pixel size of one cell in the drawing's grid. */
   cell?: number;

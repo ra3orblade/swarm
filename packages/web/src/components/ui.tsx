@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import { icon } from "../lib/icon";
 
+/** A section heading and what sits under it. */
 export interface SectionProps {
   title: string;
   /** The grey line after the title — what this section is for, in the author's words. */
@@ -34,6 +35,7 @@ export function Section({ title, hint, actions, children, spaced }: SectionProps
   );
 }
 
+/** What a badge means: ok, bad, warn, accent, or no tone at all. */
 export type BadgeTone = "ok" | "bad" | "warn" | "acc" | "plain";
 
 /** A status pill. Tone carries the meaning; never encode state as a coloured left border. */
@@ -46,6 +48,7 @@ export function Absent() {
   return <span className="dim">—</span>;
 }
 
+/** An empty state: optionally an illustration, then why it is empty. */
 export interface EmptyProps {
   /** Pixel-art illustration; views pass one from `PX`. */
   art?: ReactNode;

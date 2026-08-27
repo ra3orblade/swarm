@@ -7,6 +7,7 @@
  */
 import { useMemo } from "react";
 
+/** A series and how to colour it. Fewer than two points draws nothing. */
 export interface SparklineProps {
   points: readonly number[];
   /** Any CSS colour; defaults to the accent fill token. */

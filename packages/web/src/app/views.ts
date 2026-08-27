@@ -9,9 +9,12 @@
  * not open costs nothing to badge.
  */
 
+/** The four nav groups, in the order the header shows them. */
 export const VIEW_GROUPS = ["Observe", "Work", "Insight", "Guard"] as const;
+/** One of the four nav groups. */
 export type ViewGroup = (typeof VIEW_GROUPS)[number];
 
+/** The shape of a registry entry. */
 export interface ViewDef {
   id: string;
   label: string;
@@ -20,6 +23,7 @@ export interface ViewDef {
   group: ViewGroup;
 }
 
+/** Every routable view. Adding one here is what makes it appear in the nav. */
 export const VIEW_DEFS = [
   { id: "fleet", label: "Fleet", icon: "squares-four", group: "Observe" },
   { id: "timeline", label: "Timeline", icon: "clock-counter-clockwise", group: "Observe" },
@@ -46,8 +50,10 @@ export const VIEW_DEFS = [
 /** One registry entry, with its literal `id` preserved so routing stays exhaustive. */
 export type RegisteredView = (typeof VIEW_DEFS)[number];
 
+/** The id of a routable view, narrowed to the registry. */
 export type ViewId = RegisteredView["id"];
 
+/** Where the dashboard opens when nothing is persisted or deep-linked. */
 export const DEFAULT_VIEW: ViewId = "fleet";
 
 const IDS: ReadonlySet<string> = new Set(VIEW_DEFS.map((v) => v.id));
@@ -57,6 +63,7 @@ export function isViewId(value: string): value is ViewId {
   return IDS.has(value);
 }
 
+/** Look up one registry entry. Throws on an id outside the registry, which cannot happen through `ViewId`. */
 export function viewDef(id: ViewId): RegisteredView {
   const found = VIEW_DEFS.find((v) => v.id === id);
   // The set above is derived from the same array, so this cannot miss; the throw documents that.

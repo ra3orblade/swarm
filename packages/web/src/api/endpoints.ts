@@ -28,6 +28,7 @@ import { query } from "./client";
 /** Routes scoped to one project, or to the whole machine when no project is selected. */
 const byProject = (path: string, project: string | null) => `${path}${query({ project })}`;
 
+/** Every `/v1` path the dashboard reads, built once so encoding cannot drift between call sites. */
 export const routes = {
   outcomes: (project: string | null) => byProject("/v1/outcomes", project),
   hygiene: (project: string | null) => byProject("/v1/hygiene", project),

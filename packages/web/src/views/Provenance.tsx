@@ -11,20 +11,12 @@ import { query } from "../api/client";
 import { routes } from "../api/endpoints";
 import { useResource } from "../api/useResource";
 import { type Column, DataGrid } from "../components/DataGrid";
-import {
-  Absent,
-  Badge,
-  type BadgeTone,
-  Empty,
-  Failed,
-  Loading,
-  Section,
-  Stat,
-  StatRow,
-} from "../components/ui";
+import { Absent, Badge, type BadgeTone, Empty, Failed, Loading, Section } from "../components/ui";
 import { leadTime, usd } from "../lib/format";
 import { icon } from "../lib/icon";
 import { useUiStore } from "../state/ui";
+import { Pager } from "./provenance/Pager";
+import { ProvenanceStats } from "./provenance/ProvenanceStats";
 
 const LINK_ORDER = ["task", "claim", "session", "branch", "pr", "merged"] as const;
 
@@ -53,15 +45,15 @@ function Track({ chain }: { chain: ProvenanceChain }) {
 
 const PAGE = 50;
 
-export function Provenance() {
-  const project = useUiStore((s) => s.project);
-  const openSession = useUiStore((s) => s.openSession);
-  const [offset, setOffset] = useState(0);
-  const { data, error, reload } = useResource<ProvenanceReport>(
-    `${routes.provenance(project)}${routes.provenance(project).includes("?") ? "&" : "?"}${query({ limit: PAGE, offset }).slice(1)}`,
-  );
-
-  const columns: Column<ProvenanceChain>[] = [
+/**
+ * The chain grid's columns.
+ *
+ * A factory rather than a constant because two cells act: the session count opens a session, and
+ * the PR number is an external link. Passing the one callback in keeps the column list at module
+ * scope, where it can be read without the view around it.
+ */
+function chainColumns(onOpenSession: (id: string) => void): Column<ProvenanceChain>[] {
+  return [
     {
       key: "what",
       label: "task / branch",
@@ -132,7 +124,7 @@ export function Provenance() {
             type="button"
             className="link"
             title={c.sessions.map((s) => s.title ?? s.id).join(" · ")}
-            onClick={() => openSession(first.id)}
+            onClick={() => onOpenSession(first.id)}
           >
             {c.sessions.length}
           </button>
@@ -171,6 +163,15 @@ export function Provenance() {
       cell: (c) => (c.leadHours === null ? <Absent /> : leadTime(c.leadHours)),
     },
   ];
+}
+
+export function Provenance() {
+  const project = useUiStore((s) => s.project);
+  const openSession = useUiStore((s) => s.openSession);
+  const [offset, setOffset] = useState(0);
+  const { data, error, reload } = useResource<ProvenanceReport>(
+    `${routes.provenance(project)}${routes.provenance(project).includes("?") ? "&" : "?"}${query({ limit: PAGE, offset }).slice(1)}`,
+  );
 
   if (error && !data) return <Failed error={error} onRetry={reload} />;
   if (!data) return <Loading />;
@@ -189,8 +190,8 @@ export function Provenance() {
 
   const t = data.totals;
   const page = data.page ?? { limit: PAGE, offset, total: data.chains.length };
-  const from = page.total ? page.offset + 1 : 0;
-  const to = Math.min(page.offset + page.limit, page.total);
+  const _from = page.total ? page.offset + 1 : 0;
+  const _to = Math.min(page.offset + page.limit, page.total);
 
   return (
     <>
@@ -198,53 +199,16 @@ export function Provenance() {
         title="Provenance"
         hint={`${page.total} chain${page.total === 1 ? "" : "s"} · ${t.untracked ? `${t.untracked} untracked` : "every branch has a task"}`}
       />
-      <StatRow>
-        <Stat
-          label="Traced"
-          value={`${t.complete}/${t.tasks}`}
-          detail="reach a merged PR"
-          tone={t.complete ? undefined : "warm"}
-        />
-        <Stat
-          label="Untracked"
-          value={t.untracked}
-          detail={t.untracked ? "landed with no task" : "all work has a task"}
-          tone={t.untracked ? "hot" : undefined}
-        />
-        <Stat
-          label="Unclaimed"
-          value={t.unclaimed}
-          detail="tasks nobody claimed"
-          tone={t.unclaimed ? "warm" : undefined}
-        />
-        <Stat label="Traced spend" value={usd(t.costUsd) ?? "$0.00"} detail="across every chain" />
-      </StatRow>
+      <ProvenanceStats totals={t} />
 
-      <DataGrid id="provenance" columns={columns} rows={data.chains} rowKey={(c) => c.task} />
+      <DataGrid
+        id="provenance"
+        columns={chainColumns(openSession)}
+        rows={data.chains}
+        rowKey={(c) => c.task}
+      />
 
-      {page.total > page.limit && (
-        <div className="chips pager">
-          <button
-            type="button"
-            className={page.offset ? "chip" : "chip off"}
-            disabled={!page.offset}
-            onClick={() => setOffset(Math.max(0, page.offset - page.limit))}
-          >
-            {icon("arrow-left", 12)} Newer
-          </button>
-          <span className="dim">
-            {from}–{to} of {page.total}
-          </span>
-          <button
-            type="button"
-            className={to >= page.total ? "chip off" : "chip"}
-            disabled={to >= page.total}
-            onClick={() => setOffset(page.offset + page.limit)}
-          >
-            Older {icon("arrow-right", 12)}
-          </button>
-        </div>
-      )}
+      <Pager page={page} onGo={setOffset} />
 
       {data.stale && (
         <p className="dim note">

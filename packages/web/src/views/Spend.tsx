@@ -7,13 +7,14 @@
  */
 import type { SpendBucket } from "@swarm/core/dashboard";
 import { useMemo, useState } from "react";
-import { Heatmap, Legend, localDay, StackedColumns } from "../components/charts";
+import { Heatmap, Legend, StackedColumns } from "../components/charts";
 import { type Column, DataGrid } from "../components/DataGrid";
 import { Absent, Section, Stat, StatRow } from "../components/ui";
-import { agentColor, agentName, agentSort } from "../lib/agents";
+import { agentColor, agentName } from "../lib/agents";
 import { modelName, sumBy, tokens, usd } from "../lib/format";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
+import { useSpendRollup } from "./spend/useSpendRollup";
 
 const RANGES = [7, 14, 30, 90];
 
@@ -28,53 +29,7 @@ export function Spend() {
     return (id: string) => byId.get(id) ?? "(removed)";
   }, [projects]);
 
-  /** The last N local days, zero-filled, so a quiet day is a gap rather than a missing column. */
-  const window = useMemo(() => {
-    const out: string[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      out.push(localDay(d));
-    }
-    return out;
-  }, [days]);
-
-  const rollup = useMemo(() => {
-    const first = window[0] ?? "";
-    const today = window.at(-1) ?? "";
-    const inScope = (p: string) => !project || p === project;
-    const cells = new Map<string, number>();
-    const agents = new Set<string>();
-    const active = new Set<string>();
-    let total = 0;
-    let todayCost = 0;
-    let todayTurns = 0;
-
-    for (const d of spend?.daily ?? []) {
-      if (!inScope(d.projectId) || d.day < first) continue;
-      const cost = d.cost ?? 0;
-      cells.set(`${d.day}|${d.agent}`, (cells.get(`${d.day}|${d.agent}`) ?? 0) + cost);
-      agents.add(d.agent);
-      total += cost;
-      if (cost) active.add(d.day);
-      if (d.day === today) {
-        todayCost += cost;
-        todayTurns += d.turns ?? 0;
-      }
-    }
-
-    const ordered = [...agents].sort(agentSort);
-    const series: Record<string, number[]> = {};
-    for (const a of ordered) series[a] = window.map((day) => cells.get(`${day}|${a}`) ?? 0);
-
-    // "Average" means average of days that had any spend — dividing by calendar days would make a
-    // weekend look like a slowdown.
-    const activeDays = active.size;
-    const earlier = activeDays - (active.has(today) ? 1 : 0);
-    const average = earlier ? (total - todayCost) / earlier : 0;
-
-    return { series, agents: ordered, total, todayCost, todayTurns, activeDays, earlier, average };
-  }, [spend, window, project]);
+  const rollup = useSpendRollup(spend, days, project);
 
   const heat = useMemo(
     () =>
@@ -142,7 +97,7 @@ export function Spend() {
         <h3>
           Daily cost · last {days} days <span>stacked by agent</span>
         </h3>
-        <StackedColumns days={window} series={rollup.series} />
+        <StackedColumns days={rollup.days} series={rollup.series} />
         {rollup.agents.length > 1 && <Legend keys={rollup.agents} />}
       </div>
 

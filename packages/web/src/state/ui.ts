@@ -30,6 +30,7 @@ interface UiState {
   setGraphTab: (tab: string) => void;
 }
 
+/** What the user is looking at. The router, in practice: `view` is the route. */
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({

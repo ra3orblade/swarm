@@ -27,6 +27,7 @@ interface SnapshotState {
 /** The last response body, compared as a string so an unchanged poll notifies nobody. */
 let lastBody = "";
 
+/** The raw snapshot store. Prefer `useSnapshot` with a selector, which subscribes to one slice. */
 export const useSnapshotStore = create<SnapshotState>((set) => ({
   data: null,
   offline: false,

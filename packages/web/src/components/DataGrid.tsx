@@ -13,6 +13,7 @@ import { icon } from "../lib/icon";
 import { menuSection, openMenu } from "../lib/menus";
 import { type GridLayout, useGridLayoutStore } from "../state/gridLayout";
 
+/** One column: how to render a cell, and what value to sort and filter it by. */
 export interface Column<Row> {
   key: string;
   label: string;
@@ -37,6 +38,7 @@ export interface EdgeColumn<Row> {
   cell: (row: Row) => ReactNode;
 }
 
+/** Everything a grid needs. `id` is the identity of the saved layout, so it must be stable. */
 export interface DataGridProps<Row> {
   /** Stable identity for the saved layout. Changing it forgets the user's columns. */
   id: string;

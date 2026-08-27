@@ -46,7 +46,8 @@
     "desktop:dev": "bun tools/desktop.ts && cd apps/desktop/src-tauri && cargo run",
     "desktop:build": "bun tools/desktop.ts --bundle",
     "build:pkg": "bun tools/build-pkg.ts",
-    "version:set": "bun tools/version.ts"
+    "version:set": "bun tools/version.ts",
+    "check:classes": "bun packages/web/tools/check-classes.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",

@@ -16,6 +16,7 @@ import { get } from "./client";
 /** How often view data is re-fetched. The snapshot poll uses the same beat. */
 export const POLL_MS = 5000;
 
+/** What a polled endpoint gives a view: the last good value, whether the first load is still in flight, the last error, and a way to re-fetch. */
 export interface Resource<T> {
   /** Null until the first response lands. Stays populated across refetches — no loading flash. */
   data: T | null;

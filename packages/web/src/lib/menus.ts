@@ -27,6 +27,7 @@ export function openMenu(anchor: Anchor, items: MenuItem[], spec?: Omit<MenuSpec
   window.menus?.open(anchor, { ...spec, items });
 }
 
+/** Close whatever dropdown is open. A no-op when none is. */
 export function closeMenu(): void {
   window.menus?.close();
 }

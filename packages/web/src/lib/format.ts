@@ -80,6 +80,7 @@ export function percent(value: number | null | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
+/** Sum a field across rows, treating null and undefined as zero. */
 export function sumBy<T>(items: readonly T[], of: (item: T) => number | null | undefined): number {
   return items.reduce((total, item) => total + (of(item) ?? 0), 0);
 }

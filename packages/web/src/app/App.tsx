@@ -12,7 +12,7 @@
 import { useEffect } from "react";
 import { startSnapshotFeed } from "../state/snapshot";
 import { applyDeepLink, useUiStore } from "../state/ui";
-import { Board } from "../views/Board";
+import { Board } from "../views/board/Board";
 import { Context } from "../views/Context";
 import { Files } from "../views/Files";
 import { Fleet } from "../views/Fleet";

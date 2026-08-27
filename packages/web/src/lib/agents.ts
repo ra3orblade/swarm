@@ -30,6 +30,7 @@ export function agentColor(agent: string): string {
   return `var(--c${SLOT[agent] ?? 0})`;
 }
 
+/** The agent's display name, or its id when it is one Swarm does not know. */
 export function agentName(agent: string): string {
   return NAME[agent] ?? agent;
 }
@@ -37,6 +38,7 @@ export function agentName(agent: string): string {
 /** Registry order, so legends and chips are stable across views. */
 export const AGENT_ORDER: readonly string[] = Object.keys(SLOT);
 
+/** Registry order, so legends and chips are stable across views. */
 export function agentSort(a: string, b: string): number {
   return (SLOT[a] ?? 99) - (SLOT[b] ?? 99);
 }
