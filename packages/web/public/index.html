@@ -349,6 +349,13 @@
   .dt .sort.desc{border-top:5px solid var(--acc)}
   .dt .th-grip{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2}
   .dt .th-grip:hover{background:linear-gradient(to right,transparent 3px,var(--acc) 3px,var(--acc) 5px,transparent 5px)}
+  /* The grip straddles the boundary it drags, so it hangs 4px past its column. On the *last*
+     column that boundary is the table's own right edge, and those 4px made `scrollWidth` exceed
+     `clientWidth` — a grid that fit its card still scrolled horizontally, with a dead 4px gutter.
+     Grids carrying a trailing tools column never showed it (that column has no grip), which is why
+     only Outcomes did. Pull the last grip inside and draw its hover line flush with the edge. */
+  .dt thead th:last-child .th-grip{right:0}
+  .dt thead th:last-child .th-grip:hover{background:linear-gradient(to left,var(--acc) 0,var(--acc) 2px,transparent 2px)}
   body.col-resizing{cursor:col-resize}
   body.col-resizing .dt thead th{cursor:col-resize}
   .dt .th-tools{text-align:right}
