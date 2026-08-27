@@ -1,10 +1,96 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "includes": ["**", "!**/dist", "!**/node_modules", "!**/*.tsbuildinfo", "!packages/web/public"]
   },
-  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
-  "linter": { "enabled": true, "rules": { "preset": "recommended" } },
-  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } }
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "packages/web/src/components/Dag.tsx",
+        "packages/web/src/components/Timeline.tsx",
+        "packages/web/src/app/Sidebar.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/web/src/styles/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDescendingSpecificity": "off"
+          },
+          "suspicious": {
+            "noDuplicateProperties": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/web/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "error",
+            "noNonNullAssertion": "error",
+            "noParameterAssign": "error",
+            "noNegationElse": "error",
+            "useConst": "error",
+            "useImportType": "error",
+            "useConsistentArrayType": {
+              "level": "error",
+              "options": {
+                "syntax": "shorthand"
+              }
+            },
+            "useShorthandFunctionType": "error",
+            "useTemplate": "error",
+            "useCollapsedElseIf": "error"
+          },
+          "suspicious": {
+            "noExplicitAny": "error"
+          },
+          "correctness": {
+            "noUnusedImports": "error",
+            "noUnusedVariables": "error"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "warn",
+              "options": {
+                "maxAllowedComplexity": 15
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,6 +1,8 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { type DiffFile, parseNumstat } from "@swarm/core";
+import { type DiffFile, parseNumstat, type Worktree } from "@swarm/core";
+
+export type { Worktree };
 
 function git(cwd: string, args: string[]): string | null {
   try {
@@ -29,17 +31,6 @@ export function gitToplevel(cwd: string): string | null {
   } catch {
     return null;
   }
-}
-
-export interface Worktree {
-  path: string;
-  branch: string | null; // null = detached
-  head: string;
-  main: boolean;
-  dirty: number; // changed files; -1 = unknown
-  ahead: number; // commits not on upstream; -1 = no upstream/unknown
-  behind: number; // commits the main checkout's branch has that this one lacks; -1 = unknown (M7.2)
-  merged: boolean; // HEAD already reachable from the main checkout's branch (M7.2)
 }
 
 function parseWorktreeList(out: string): Worktree[] {

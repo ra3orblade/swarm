@@ -1,52 +1,60 @@
 import type { Actor } from "./actor";
-/** Normalized Swarm event types (docs/04-protocol.md). */
-export type EventType =
-  | "session.started"
-  | "session.ended"
-  | "prompt.submitted"
-  | "tool.requested"
-  | "tool.allowed"
-  | "tool.denied"
-  | "tool.completed"
-  | "agent.text"
-  | "agent.delta"
-  | "subagent.started"
-  | "subagent.stopped"
-  | "claim.acquired"
-  | "claim.renewed"
-  | "claim.released"
-  | "claim.expired"
-  | "claim.orphaned"
-  | "claim.denied"
-  | "rules.changed"
-  | "worktree.reclaimed"
-  | "worktree.bootstrapped"
-  | "worktree.created"
-  | "worktree.removed"
-  | "pr.opened"
-  | "question.asked"
-  | "question.answered"
-  | "dispatch.queued"
-  | "dispatch.started"
-  | "dispatch.finished"
-  | "resource.acquired"
-  | "resource.released"
-  | "resource.reaped"
-  | "process.started"
-  | "process.exited"
-  | "gate.recorded"
-  | "handoff.recorded"
-  | "permission.requested"
-  | "permission.resolved"
-  | "session.notification"
-  | "session.stuck"
-  | "workflow.started"
-  | "workflow.step"
-  | "workflow.finished"
-  | "message.sent"
-  | "incident.opened"
-  | "incident.acked"
-  | "run.result";
+/** Normalized Swarm event types (docs/04-protocol.md).
+ *
+ * A runtime list, not a bare union: the dashboard subscribes to the SSE stream by event name,
+ * and a second hand-maintained copy of these strings would silently miss whichever one was
+ * added last. `EventType` is derived from it, so the two cannot drift.
+ */
+export const EVENT_TYPES = [
+  "session.started",
+  "session.ended",
+  "prompt.submitted",
+  "tool.requested",
+  "tool.allowed",
+  "tool.denied",
+  "tool.completed",
+  "agent.text",
+  "agent.delta",
+  "subagent.started",
+  "subagent.stopped",
+  "claim.acquired",
+  "claim.renewed",
+  "claim.released",
+  "claim.expired",
+  "claim.orphaned",
+  "claim.denied",
+  "rules.changed",
+  "worktree.reclaimed",
+  "worktree.bootstrapped",
+  "worktree.created",
+  "worktree.removed",
+  "pr.opened",
+  "question.asked",
+  "question.answered",
+  "dispatch.queued",
+  "dispatch.started",
+  "dispatch.finished",
+  "resource.acquired",
+  "resource.released",
+  "resource.reaped",
+  "process.started",
+  "process.exited",
+  "gate.recorded",
+  "handoff.recorded",
+  "permission.requested",
+  "permission.resolved",
+  "session.notification",
+  "session.stuck",
+  "workflow.started",
+  "workflow.step",
+  "workflow.finished",
+  "message.sent",
+  "incident.opened",
+  "incident.acked",
+  "run.result",
+] as const;
+
+export type EventType = (typeof EVENT_TYPES)[number];
 
 export type SessionKind = "interactive" | "spawned" | "subagent";
 
@@ -94,6 +102,50 @@ export interface Session {
   startedAt: string;
   endedAt: string | null;
   lastSeenAt: string;
+}
+
+/**
+ * A session as the dashboard reads it: the stored row joined with everything derived from its
+ * transcript — token tiers, cost, what it is doing now, and a sparkline of recent turns. The
+ * daemon builds it; it lives here so the dashboard can name the shape without importing the store.
+ */
+export interface SessionView {
+  id: string;
+  projectId: string;
+  kind: SessionKind;
+  agent: string;
+  parentId: string | null;
+  cwd: string;
+  branch: string | null;
+  transcriptPath: string | null;
+  title: string | null;
+  model: string | null;
+  /** How many distinct models this session has used; drives the `+N` badge. */
+  models: number;
+  version: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  lastSeenAt: string;
+  last: string;
+  lastType: string;
+  lastText: string | null;
+  state: "active" | "waiting" | "idle" | "ended";
+  /** M9.3: stall reason when the loop heuristics flag this live session, else null. */
+  stuck: string | null;
+  toolCalls: number;
+  subagents: number;
+  turns: number;
+  tokens: {
+    input: number;
+    output: number;
+    cacheWrite: number;
+    cacheRead: number;
+    thinking: number;
+  };
+  costUsd: number | null;
+  toolCounts: Record<string, number>;
+  /** Last ≤24 top-level turns, oldest first: [outputTokens, costUsd]. */
+  spark: [number, number | null][];
 }
 
 export type ClaimState = "held" | "expired" | "released" | "reaped" | "orphaned";

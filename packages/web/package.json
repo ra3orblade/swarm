@@ -16,7 +16,8 @@
     "@swarm/core": "workspace:*",
     "pixelarticons": "^2.4.1",
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/react": "^19",

@@ -1,4 +1,7 @@
-// Reusable data-grid for the dashboard tables: sortable, resizable, reorderable, filterable
+// Reusable data-grid for the **team dashboard** (packages/team), which still loads it from here.
+// The main dashboard uses packages/web/src/components/DataGrid.tsx.
+//
+// Sortable, resizable, reorderable, filterable
 // columns with a column-visibility menu — all state persisted per-table in localStorage.
 //
 // Usage (app.js):

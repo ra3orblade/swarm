@@ -2,7 +2,7 @@
 //   menus.js  — React island: fancy-menus provider + Swarm's menu configs (window.menus)
 //   fm.css    — fancy-menus runtime stylesheet
 //   icons.js  — pixelarticons as inline SVG, window.icon(name, size)
-// Hand-written files (index.html, app.js, viz.js) stay as they are; no bundler touches them.
+// index.html is hand-written and stays as it is; everything else here is generated.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -154,7 +154,7 @@ writeFileSync(
     `const ICON_PATHS = ${JSON.stringify(paths)};\n` +
     `window.icon = (name, size = 16, cls = "") => { const p = ICON_PATHS[name]; if (!p) return ""; ` +
     `return \`<svg class="ph \${cls}" width="\${size}" height="\${size}" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">\${p}</svg>\`; };\n` +
-    `window.ICON_NAMES = ${JSON.stringify(ICONS)};\n`,
+    `window.ICON_PATHS = ICON_PATHS;\nwindow.ICON_NAMES = ${JSON.stringify(ICONS)};\n`,
 );
 
 // ---- release notes: parse CHANGELOG.md → window.RELEASE_NOTES (version → { date, html }) so the
@@ -226,19 +226,33 @@ copyFileSync(
   join(pub, "fm.css"),
 );
 
-// ---- React island
-const r = await Bun.build({
-  entrypoints: [join(here, "../src/menus.tsx")],
-  outdir: pub,
-  target: "browser",
-  format: "iife",
-  minify: true,
-  sourcemap: "none",
-  naming: "menus.js",
-  define: { "process.env.NODE_ENV": '"production"' },
-});
-if (!r.success) {
-  for (const m of r.logs) console.error(m);
-  process.exit(1);
-}
-console.log(`web: built icons.js (${ICONS.length} icons), fm.css, menus.js`);
+// ---- React bundles
+// Two entrypoints, not one: `menus.js` is the imperative dropdown island the app talks to through
+// `window.menus`, and `app.js` is the dashboard itself (M11.6). They stay separate roots because
+// fancy-menus renders into its own host outside the app tree.
+const bundle = async (entry: string, naming: string) => {
+  const r = await Bun.build({
+    entrypoints: [join(here, entry)],
+    outdir: pub,
+    target: "browser",
+    format: "iife",
+    minify: true,
+    sourcemap: "none",
+    naming,
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  if (!r.success) {
+    for (const m of r.logs) console.error(m);
+    process.exit(1);
+  }
+  return r;
+};
+
+await bundle("../src/menus.tsx", "menus.js");
+// `dashboard`, not `app`: the name is now only a convention, but `index.html` and every packaged
+// build reference it, so it stays put.
+await bundle("../src/main.tsx", "dashboard.[ext]");
+
+console.log(
+  `web: built icons.js (${ICONS.length} icons), fm.css, menus.js, dashboard.js + dashboard.css`,
+);

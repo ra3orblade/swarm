@@ -2,6 +2,30 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Changed
+
+- **The dashboard is a React app now.** It used to be one 4,000-line `app.js` that rebuilt the page
+  on every poll: 1,059 elements thrown away and recreated to update eleven text nodes, five seconds
+  apart, which is the blinking you could see. The same poll now mutates nothing at all when nothing
+  has changed — the tree only moves where the data did. Your sort order, column widths and open
+  menus survive a refresh, because they are no longer destroyed by one.
+
+  Underneath: one poll for the whole app instead of 21 hand-written change flags, `zustand` for
+  state, typed routes over the same `@swarm/core` types the daemon answers with, and views split
+  into components small enough to read. Long tables paginate, so the Board no longer builds three
+  thousand DOM nodes to show you fifty rows.
+
+  Nothing about the interface moved. Every view, every column, every action is where it was.
+
+- Long grids paginate at 25 rows by default, with the page size remembered per table.
+
+### Fixed
+
+- A grid's last column had a resize handle hanging four pixels past the table, which put a
+  horizontal scrollbar under every wide view.
+
 ## [0.12.1] — 2026-08-26
 
 **If you are on 0.12.0, update.** Its Board view was blank — see below.

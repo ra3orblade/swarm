@@ -49,6 +49,17 @@ export interface ForgePR {
   createdAt: string;
 }
 
+/**
+ * A pull request with the project it belongs to — what `GET /v1/prs` actually returns.
+ *
+ * The forge does not know about projects; the daemon joins them. This lives here rather than in the
+ * daemon so the dashboard can name the shape without importing server code.
+ */
+export interface ProjectPR extends ForgePR {
+  projectId: string;
+  projectRoot: string;
+}
+
 /** `gh pr list --json number,title,headRefName,url,author,isDraft,mergeable,reviewDecision,statusCheckRollup,createdAt` */
 export function normalizeGithub(raw: unknown, repo: string): ForgePR[] {
   if (!Array.isArray(raw)) return [];
