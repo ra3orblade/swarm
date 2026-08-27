@@ -75,6 +75,25 @@ const rewriteLinks = (html: string, base: "guide" | "design" | "root") =>
         `href="${REPO}/blob/main/${base === "design" ? "docs/" : base === "guide" ? "docs/guide/" : ""}${p}"`,
     );
 
+/** GitHub-style heading slug, so `](02-dashboard.md#the-board)` links land where they say. */
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/<[^>]+>/g, "")
+    .replace(/[^\w\- ]+/g, "")
+    .trim()
+    .replace(/ /g, "-");
+
+marked.use({
+  renderer: {
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      const id = slugify(this.parser.parseInline(tokens, this.parser.textRenderer));
+      return `<h${depth} id="${id}">${text}</h${depth}>\n`;
+    },
+  },
+});
+
 const md = (src: string) => marked.parse(src, { gfm: true, async: false }) as string;
 
 const css = `

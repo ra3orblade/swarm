@@ -100,7 +100,8 @@ Then remove the package (`bun remove -g @ra3orblade/swarm`) and, if you want a c
 
 ## Next
 
-- [The dashboard](02-dashboard.md)
-- [Rules and configuration](03-rules-and-config.md)
-- [Claims and worktrees](04-claims-and-worktrees.md)
+- [The dashboard](02-dashboard.md) — every view, and what each column means
+- [Rules and configuration](03-rules-and-config.md) — the rules, `.swarm.toml`, budgets, org policy
+- [Claims and worktrees](04-claims-and-worktrees.md) — claims, handoffs, gates, dispatch, workflows
+- [What Swarm can tell you](12-observatory.md) — outcomes, context waste, hygiene, provenance, security
 - [CLI reference](07-cli.md)
