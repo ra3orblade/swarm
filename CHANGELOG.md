@@ -2,7 +2,7 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.13.0] — 2026-08-27
 
 ### Changed
 

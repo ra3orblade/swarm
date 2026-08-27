@@ -25,6 +25,8 @@ site/.env.local
 .obsidian/
 .vercel
 .claude/worktrees/*
+# Claude Code's per-machine overrides — local, never committed
+.claude/settings.local.json
 # Built by `bun run build:web` from packages/web/src (M11.6).
 packages/web/public/dashboard.js
 packages/web/public/dashboard.css
