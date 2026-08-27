@@ -44,6 +44,8 @@ export const routes = {
   incidents: (project: string | null, openOnly: boolean) =>
     `/v1/incidents${query({ project, limit: 500, open: openOnly ? 1 : null })}`,
   trials: (project: string | null) => byProject("/v1/ab", project),
+  stats: (project: string | null) => byProject("/v1/stats", project),
+  waiting: (project: string | null) => byProject("/v1/waiting", project),
 } as const;
 
 /**

@@ -27,7 +27,9 @@ import { Provenance } from "../views/Provenance";
 import { Rules } from "../views/Rules";
 import { Search } from "../views/Search";
 import { Security } from "../views/Security";
+import { Session } from "../views/Session";
 import { Spend } from "../views/Spend";
+import { Stats } from "../views/Stats";
 import { Trials } from "../views/Trials";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Header } from "./Header";
@@ -56,6 +58,7 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element | null>> = {
   board: Board,
   spend: Spend,
   search: Search,
+  stats: Stats,
 };
 
 export function App() {
@@ -84,7 +87,9 @@ export function App() {
       <Sidebar />
       <main id="main">
         <ErrorBoundary resetKey={session ?? view}>
-          {Ported ? <Ported /> : <NotPorted view={view} />}
+          {/* A session is a place you go to and come back from, so it takes over the main pane
+              while the nav stays where it was — `back` restores the view underneath. */}
+          {session ? <Session id={session} /> : Ported ? <Ported /> : <NotPorted view={view} />}
         </ErrorBoundary>
       </main>
     </>

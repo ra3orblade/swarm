@@ -119,3 +119,23 @@ export function leadTime(h: number): string {
   const days = h / 24;
   return days < 100 ? `${days.toFixed(days < 10 ? 1 : 0)}d` : `${Math.round(days / 7)}w`;
 }
+
+/** Big round numbers for a headline: 812, 31.4k, 4.2M, 2.82B. */
+export function big(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(Math.round(n));
+}
+
+/** `a` as a percentage of `b`, or a dash when there is no `b` to be a share of. */
+export function share(a: number, b: number): string {
+  return b ? `${((100 * a) / b).toFixed(0)}%` : "—";
+}
+
+/** A tool id shortened for a label: `mcp__foo__bar` → `foo · bar`. */
+export function toolName(tool: string): string {
+  return String(tool)
+    .replace(/^mcp__([^_]+(?:_[^_]+)*)__/, "$1 · ")
+    .replace(/^plugin_/, "");
+}

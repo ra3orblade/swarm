@@ -3482,3 +3482,8 @@ tr.clickable {
   font-size: var(--fs-sm);
   margin-top: 4px;
 }
+
+/* A second heading inside a panel (M11.9) — the vanilla used an inline margin. */
+.mt-panel {
+  margin-top: 14px;
+}
