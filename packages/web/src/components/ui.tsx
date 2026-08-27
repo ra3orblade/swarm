@@ -132,14 +132,28 @@ export function Loading({ art }: { art?: ReactNode }) {
   );
 }
 
-/** A failed fetch, named rather than swallowed. */
+/**
+ * A failed fetch, named rather than swallowed.
+ *
+ * The view keeps polling behind this, so a daemon that comes back clears it without a click; the
+ * button is for the impatient.
+ */
 export function Failed({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+  const offline = error.name === "OfflineError";
   return (
     <div className="empty">
-      Could not load this view — {error.message}.
+      {offline ? (
+        <>
+          <b>swarmd is not responding.</b>
+          <br />
+          It may be restarting — this clears itself once it answers again.
+        </>
+      ) : (
+        <>Could not load this view — {error.message}.</>
+      )}
       {onRetry && (
         <>
-          {" "}
+          <br />
           <button type="button" className="link" onClick={onRetry}>
             Try again
           </button>

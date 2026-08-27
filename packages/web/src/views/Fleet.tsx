@@ -23,8 +23,18 @@ import { useUiStore } from "../state/ui";
 /** Active or waiting. An idle session is still open but has not spoken in a while. */
 const isLive = (s: SessionView): boolean => s.state === "active" || s.state === "waiting";
 
+/**
+ * How the session was started: typed at a keyboard, spawned by `swarm run`, or a subagent.
+ *
+ * The `kind` class is not decoration — it carries the faint colour and the 6px gap before the
+ * title. Dropping it renders a full-strength icon jammed against the text.
+ */
 const kindIcon = (s: SessionView) =>
-  icon(s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard", 13);
+  icon(
+    s.kind === "subagent" ? "tree-structure" : s.kind === "spawned" ? "play" : "keyboard",
+    13,
+    "kind",
+  );
 
 export function Fleet() {
   const selected = useUiStore((s) => s.project);
@@ -233,7 +243,7 @@ export function Fleet() {
 
       {earlier.length > 0 && (
         <Section title="Earlier" hint={String(earlier.length)} spaced>
-          {grid("fleet-earlier", earlier.slice(0, 30))}
+          {grid("fleet-earlier", earlier)}
         </Section>
       )}
     </>

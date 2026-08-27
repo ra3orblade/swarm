@@ -23,6 +23,8 @@ export interface GridLayout {
   order?: string[];
   filters?: Record<string, string>;
   showFilters?: boolean;
+  /** Rows per page. 0 means "show everything" — an explicit choice, not an absent one. */
+  pageSize?: number;
 }
 
 interface GridLayoutState {

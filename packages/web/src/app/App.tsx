@@ -10,6 +10,7 @@
  * and each converted view deletes one entry from `LEGACY_VIEWS`.
  */
 import { useEffect } from "react";
+import { useClockTick } from "../state/clock";
 import { startSnapshotFeed } from "../state/snapshot";
 import { applyDeepLink, useUiStore } from "../state/ui";
 import { Board } from "../views/board/Board";
@@ -61,6 +62,8 @@ export function App() {
   const view = useUiStore((s) => s.view);
   const session = useUiStore((s) => s.session);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  // Keeps every relative time on screen honest on an idle fleet. See state/clock.ts.
+  useClockTick();
 
   useEffect(() => {
     applyDeepLink();

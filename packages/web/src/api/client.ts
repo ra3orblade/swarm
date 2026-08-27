@@ -7,6 +7,19 @@
  * resolves to whatever `.catch(() => previous)` was holding.
  */
 
+/**
+ * The daemon could not be reached at all — it is restarting, or it stopped.
+ *
+ * Distinct from {@link ApiError}, which means a request *did* arrive and was answered. `fetch`
+ * reports this as a bare `TypeError: Failed to fetch`, which tells a reader nothing.
+ */
+export class OfflineError extends Error {
+  constructor(readonly path: string) {
+    super("swarmd is not responding — it may be restarting");
+    this.name = "OfflineError";
+  }
+}
+
 /** A request that reached the daemon and came back not-OK. */
 export class ApiError extends Error {
   constructor(
@@ -62,20 +75,45 @@ function headers(extra?: HeadersInit): Headers {
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const init: RequestInit = { headers: headers() };
   if (signal) init.signal = signal;
-  const response = await fetch(path, init);
+  const response = await request(path, init);
   if (!response.ok) throw new ApiError(response.status, path);
   return (await response.json()) as T;
 }
 
-/** POST/DELETE a `/v1` path, optionally with a JSON body, and read back JSON. */
+/**
+ * `fetch`, with a network failure named.
+ *
+ * An abort is passed through untouched — it is this caller going away, not the daemon.
+ */
+async function request(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new OfflineError(path);
+  }
+}
+
+/**
+ * POST/DELETE a `/v1` path and read back JSON.
+ *
+ * A refusal is a *result*, not an exception. The ledger answers `409` with `{ ok: false, refused,
+ * error }` when it declines — a dirty worktree, a claim someone else holds — and that is the
+ * normal, expected reply to asking for something it will not do. Throwing on it would mean the
+ * caller could never read the reason, which is how Hygiene's "remove anyway" prompt came to be
+ * unreachable.
+ *
+ * Genuine failures still throw: an unreachable daemon, a 5xx, a route that is not there.
+ */
 export async function send<T>(path: string, method: "POST" | "DELETE", body?: unknown): Promise<T> {
   const init: RequestInit = { method, headers: headers() };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
     (init.headers as Headers).set("content-type", "application/json");
   }
-  const response = await fetch(path, init);
-  if (!response.ok) throw new ApiError(response.status, path);
+  const response = await request(path, init);
+  const refusal = response.status === 409 || response.status === 400;
+  if (!response.ok && !refusal) throw new ApiError(response.status, path);
   return (await response.json()) as T;
 }
 

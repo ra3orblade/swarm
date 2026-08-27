@@ -8,10 +8,11 @@
  * its row type: `columns` are checked against the data they render, so a column reading a field
  * that no longer exists is a compile error rather than an empty cell.
  */
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../lib/icon";
 import { menuSection, openMenu } from "../lib/menus";
 import { type GridLayout, useGridLayoutStore } from "../state/gridLayout";
+import { GridPager } from "./GridPager";
 
 /** One column: how to render a cell, and what value to sort and filter it by. */
 export interface Column<Row> {
@@ -50,6 +51,13 @@ export interface DataGridProps<Row> {
   onRowClick?: (row: Row) => void;
   /** Rendered when there are no rows at all, in place of the built-in line. */
   empty?: ReactNode;
+  /**
+   * Rows per page before the user changes it. 0 shows everything.
+   *
+   * Small, fixed-size tables (a four-row scorecard) pass 0; anything that grows with the fleet
+   * takes the default, because unbounded rows are unbounded DOM.
+   */
+  defaultPageSize?: number;
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -82,6 +90,7 @@ export function DataGrid<Row>({
   rowKey,
   onRowClick,
   empty,
+  defaultPageSize = DEFAULT_PAGE_SIZE,
 }: DataGridProps<Row>) {
   const layout = useGridLayoutStore((s) => s.tables[id]) ?? {};
   const update = useGridLayoutStore((s) => s.update);
@@ -132,6 +141,21 @@ export function DataGrid<Row>({
       else delete filters[key];
       return { ...l, filters };
     });
+
+  const pageSize = layout.pageSize ?? defaultPageSize;
+  const [page, setPage] = useState(0);
+
+  // Filtering or sorting changes what page 1 even means, so land back on it rather than stranding
+  // the reader on a page that no longer exists.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resetting *because* these changed
+  useEffect(() => setPage(0), [layout.filters, layout.sort, rows.length]);
+
+  const pageCount = pageSize > 0 ? Math.max(1, Math.ceil(view.length / pageSize)) : 1;
+  const safePage = Math.min(page, pageCount - 1);
+  const paged = useMemo(
+    () => (pageSize > 0 ? view.slice(safePage * pageSize, (safePage + 1) * pageSize) : view),
+    [view, safePage, pageSize],
+  );
 
   const columnCount = visible.length + (leading ? 1 : 0) + (trailing ? 1 : 0);
   const filtering = Object.values(layout.filters ?? {}).some(Boolean);
@@ -184,7 +208,7 @@ export function DataGrid<Row>({
           )}
         </thead>
         <tbody>
-          {view.map((row) => (
+          {paged.map((row) => (
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -202,7 +226,7 @@ export function DataGrid<Row>({
               {trailing && <td className="td-tools">{trailing.cell(row)}</td>}
             </tr>
           ))}
-          {view.length === 0 && (
+          {paged.length === 0 && (
             <tr className="tbl-empty">
               <td colSpan={columnCount}>
                 {empty ?? `No rows${filtering ? " match the filters" : ""}.`}
@@ -211,9 +235,22 @@ export function DataGrid<Row>({
           )}
         </tbody>
       </table>
+      <GridPager
+        total={view.length}
+        page={safePage}
+        pageSize={pageSize}
+        onPage={setPage}
+        onPageSize={(size) => {
+          setPage(0);
+          update(id, (l) => ({ ...l, pageSize: size }));
+        }}
+      />
     </div>
   );
 }
+
+/** Rows per page before a table is told otherwise. */
+const DEFAULT_PAGE_SIZE = 50;
 
 interface HeaderCellProps<Row> {
   id: string;

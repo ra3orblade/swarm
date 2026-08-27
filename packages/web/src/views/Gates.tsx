@@ -160,7 +160,13 @@ export function Gates() {
 
   return (
     <Section title="Gates" hint={hint}>
-      <DataGrid id="gate-health" columns={COLUMNS} rows={data.gates} rowKey={(g) => g.gate} />
+      <DataGrid
+        id="gate-health"
+        columns={COLUMNS}
+        rows={data.gates}
+        rowKey={(g) => g.gate}
+        defaultPageSize={0}
+      />
       <p className="dim note">
         Flaky = the same gate returned both a pass and a fail on one task. A gate that fails on one
         task and passes on another is doing its job, and is not counted. Durations cover executed

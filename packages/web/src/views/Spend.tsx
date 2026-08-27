@@ -232,7 +232,15 @@ function BucketTable({ id, label, rows, name, color }: BucketTableProps) {
     },
   ];
   const sorted = [...rows].sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
-  return <DataGrid id={`spend-${id}`} columns={columns} rows={sorted} rowKey={(r) => r.key} />;
+  return (
+    <DataGrid
+      id={`spend-${id}`}
+      columns={columns}
+      rows={sorted}
+      rowKey={(r) => r.key}
+      defaultPageSize={0}
+    />
+  );
 }
 
 const EMPTY: never[] = [];

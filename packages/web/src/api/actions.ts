@@ -9,8 +9,9 @@
  * ledger is the truth, and a claim the daemon refused must not flicker as held.
  */
 
+import type { Project } from "@swarm/core/types";
 import { refreshSnapshot } from "../state/snapshot";
-import { query, send } from "./client";
+import { ApiError, OfflineError, query, send } from "./client";
 
 /** The daemon's standard write response. */
 export interface WriteResult {
@@ -20,11 +21,30 @@ export interface WriteResult {
   refused?: string;
 }
 
+/**
+ * Read a write response that may or may not use the `{ ok }` envelope.
+ *
+ * The ledger's routes answer `{ ok: false, error }`; the older ones answer a bare `{ error }` with
+ * a 4xx, and `/v1/projects` answers with the created object and no envelope at all. Success is
+ * therefore "a body with no error in it" rather than any single flag — assuming otherwise reported
+ * an invalid path as success.
+ */
+function asResult(body: unknown): WriteResult {
+  if (typeof body !== "object" || body === null) return { ok: true };
+  const record = body as { ok?: unknown; error?: unknown; refused?: unknown };
+  const error = typeof record.error === "string" ? record.error : undefined;
+  const ok = record.ok === undefined ? error === undefined : record.ok === true;
+  return {
+    ok,
+    ...(error === undefined ? {} : { error }),
+    ...(typeof record.refused === "string" ? { refused: record.refused } : {}),
+  };
+}
+
 /** Stop a registered process by pid. The registry verifies start time, so no pattern matching. */
 export async function stopProcess(pid: number, projectId: string): Promise<WriteResult> {
-  const result = await send<WriteResult>(
-    `/v1/processes/${pid}${query({ project: projectId })}`,
-    "DELETE",
+  const result = asResult(
+    await send(`/v1/processes/${pid}${query({ project: projectId })}`, "DELETE"),
   );
   await refreshSnapshot();
   return result;
@@ -39,11 +59,9 @@ export async function removeWorktree(
   worktree: string,
   force = false,
 ): Promise<WriteResult> {
-  const result = await send<WriteResult>("/v1/worktrees/remove", "POST", {
-    projectId,
-    worktree,
-    force,
-  });
+  const result = asResult(
+    await send("/v1/worktrees/remove", "POST", { projectId, worktree, force }),
+  );
   await refreshSnapshot();
   return result;
 }
@@ -83,7 +101,7 @@ export async function releaseClaim(
   task: string,
   force = false,
 ): Promise<WriteResult> {
-  const result = await send<WriteResult>("/v1/claims/release", "POST", { projectId, task, force });
+  const result = asResult(await send("/v1/claims/release", "POST", { projectId, task, force }));
   await refreshSnapshot();
   return result;
 }
@@ -95,4 +113,25 @@ export async function releaseResource(name: string, projectId: string | null): P
     "DELETE",
   );
   await refreshSnapshot();
+}
+
+/**
+ * Track a folder as a project.
+ *
+ * Unlike the ledger's writes this one answers with the created {@link Project} rather than an
+ * `{ ok }` envelope, so success is the absence of an error rather than a flag. A path inside a
+ * worktree resolves to the repository that owns it, which is why adding one can return a project
+ * you already had.
+ */
+export async function addProject(path: string): Promise<WriteResult> {
+  try {
+    const result = asResult(await send<Project>("/v1/projects", "POST", { path }));
+    if (result.ok) await refreshSnapshot();
+    return result;
+  } catch (cause) {
+    if (cause instanceof ApiError || cause instanceof OfflineError) {
+      return { ok: false, error: cause.message };
+    }
+    throw cause;
+  }
 }

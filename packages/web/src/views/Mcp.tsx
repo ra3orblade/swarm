@@ -147,7 +147,13 @@ export function Mcp() {
       title="MCP"
       hint={`${t.servers} MCP server${t.servers === 1 ? "" : "s"} · ${t.calls.toLocaleString()} call${t.calls === 1 ? "" : "s"} · last 7 days · ${duration(t.mcpMs)} waiting on MCP (${share}% of all tool time)`}
     >
-      <DataGrid id="mcp-health" columns={COLUMNS} rows={data.servers} rowKey={(s) => s.server} />
+      <DataGrid
+        id="mcp-health"
+        columns={COLUMNS}
+        rows={data.servers}
+        rowKey={(s) => s.server}
+        defaultPageSize={0}
+      />
       <p className="dim note">
         Latency is measured hook to hook, so it is the wall-clock an agent actually waited — a call
         held behind a permission prompt carries that wait too, which is why <b>slowest</b> can be

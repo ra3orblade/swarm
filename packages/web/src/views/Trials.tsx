@@ -175,6 +175,7 @@ export function Trials() {
               columns={columns}
               rows={trial.arms}
               rowKey={(a) => a.label}
+              defaultPageSize={0}
             />
           </Section>
         );

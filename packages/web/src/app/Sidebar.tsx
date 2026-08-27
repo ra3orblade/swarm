@@ -14,6 +14,7 @@ import { sumBy } from "../lib/format";
 import { icon } from "../lib/icon";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
+import { ProjectsHeading } from "./AddProject";
 
 export function Sidebar() {
   const selected = useUiStore((s) => s.project);
@@ -61,12 +62,7 @@ export function Sidebar() {
   return (
     <aside>
       <div id="projects">
-        <h4>
-          Projects
-          <button type="button" className="h4-act" title="Add project" aria-label="Add project">
-            {icon("plus", 14)}
-          </button>
-        </h4>
+        <ProjectsHeading />
 
         <button
           type="button"

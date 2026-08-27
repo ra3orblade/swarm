@@ -216,6 +216,7 @@ export function Outcomes() {
       <Section title="By model" hint="who ships work that survives" spaced>
         <DataGrid
           id="outcomes-model"
+          defaultPageSize={0}
           columns={scoreColumns("model")}
           rows={data.byModel}
           rowKey={(r) => r.key}
@@ -226,6 +227,7 @@ export function Outcomes() {
         <Section title="By agent" spaced>
           <DataGrid
             id="outcomes-agent"
+            defaultPageSize={0}
             columns={scoreColumns("agent")}
             rows={data.byAgent}
             rowKey={(r) => r.key}
@@ -237,7 +239,7 @@ export function Outcomes() {
         <DataGrid
           id="outcomes-branches"
           columns={BRANCH_COLUMNS}
-          rows={data.branches.slice(0, 100)}
+          rows={data.branches}
           rowKey={(r) => r.branch}
         />
       </Section>
