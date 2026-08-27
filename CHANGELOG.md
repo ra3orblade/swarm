@@ -40,6 +40,11 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   `body > aside` rule quietly stopped matching. `bun run check:classes` now fails on that selector
   shape rather than letting it go quiet again.
 
+- **The Trials view threw on every visit.** `/v1/ab` answers `{ trials: [...] }`, and the view was
+  annotated as receiving a bare array — so it walked past its own empty check and called `.filter`
+  on an object. Route builders now carry their response type, so `useResource` infers it and an
+  annotation that disagrees with the endpoint is a compile error instead of a blank view.
+
 - **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
   the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
 
