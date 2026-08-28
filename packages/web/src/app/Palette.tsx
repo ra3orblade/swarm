@@ -64,10 +64,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
         icon: "folder-simple",
         label: p.name,
         group: "project",
-        run: () => {
-          selectProject(p.id);
-          openSession(null);
-        },
+        run: () => selectProject(p.id),
       })),
       ...sessions.map((s) => ({
         icon: "terminal-window",

@@ -2,6 +2,16 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Clicking a project in the sidebar did nothing while a session was open.** Picking a project
+  scoped the app but did not leave the session page, so the highlight moved on the left and the
+  same session stayed filling the pane — the click read as broken. Choosing a project now leaves
+  the session page for the same reason choosing a view does, revealing whichever view was
+  underneath, scoped to what you just picked.
+
 ## [0.13.0] — 2026-08-27
 
 ### Changed
