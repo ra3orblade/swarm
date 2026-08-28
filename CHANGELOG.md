@@ -4,6 +4,15 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- **The website's Downloads section reads a cached endpoint instead of calling GitHub from every
+  visitor's browser.** The page made three cross-origin calls per visit — two to `api.github.com`,
+  which is 60 requests/hour per IP unauthenticated, so a visitor who reloaded a few times (or shared
+  an office NAT) got a 403 and an empty Downloads section. The release, its assets and both download
+  counters now come from `/api/releases`, cached at Vercel's CDN and in the warm function instance,
+  which also serves the last good payload if GitHub is rate-limiting or down.
+
 ### Fixed
 
 - **Clicking a project in the sidebar did nothing while a session was open.** Picking a project
