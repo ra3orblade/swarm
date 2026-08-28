@@ -29,6 +29,11 @@ interface UiState {
   search: string;
 
   openView: (view: ViewId) => void;
+  /**
+   * Scope the app to one project, or to all of them. Leaves the session page for the same reason
+   * `openView` does: picking a project is navigation, and the session you were reading belongs to
+   * whichever project you just navigated away from.
+   */
   selectProject: (project: string | null) => void;
   openSession: (session: string | null) => void;
   toggleSidebar: () => void;
@@ -50,7 +55,11 @@ export const useUiStore = create<UiState>()(
 
       // Opening a view always leaves the session page: a session is a place, not an overlay.
       openView: (view) => set({ view, session: null }),
-      selectProject: (project) => set({ project }),
+      // `session: null` matters: without it, clicking a project on a session page moved the
+      // sidebar highlight and left the same session filling the main pane — the click read as
+      // doing nothing at all. Every caller already worked around this by clearing the session
+      // itself; the store is the right place for it.
+      selectProject: (project) => set({ project, session: null }),
       openSession: (session) => set({ session }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setGraphTab: (graphTab) => set({ graphTab }),
