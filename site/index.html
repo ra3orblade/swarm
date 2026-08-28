@@ -405,21 +405,29 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
 
   const os = /Mac/i.test(navigator.platform) ? "mac" : /Win/i.test(navigator.platform) ? "win" : /Linux/i.test(navigator.platform) ? "linux" : null;
   if (os) document.querySelector(`.dl .row[data-os="${os}"]`)?.classList.add("mine");
-  // Download counter: every asset of every GitHub release + npm installs (last 30 days).
+  // Latest release + download counters (every asset of every GitHub release, plus npm
+  // installs over the last 30 days) come from /api/releases — one cached call instead of
+  // three cross-origin ones, so a visit costs GitHub nothing and never hits the 60/hr
+  // unauthenticated limit. If the function is unavailable (a plain static preview), fall
+  // back to the GitHub API so the Downloads section still fills in.
   const fmt = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
-  const counts = Promise.all([
-    fetch("https://api.github.com/repos/ra3orblade/swarm/releases?per_page=100").then((r) => r.json()).then((rels) =>
-      Array.isArray(rels) ? rels.reduce((n, r) => n + (r.assets ?? []).reduce((m, a) => m + (a.download_count ?? 0), 0), 0) : 0).catch(() => 0),
-    fetch("https://api.npmjs.org/downloads/point/last-month/@ra3orblade/swarm").then((r) => r.json()).then((d) => d.downloads ?? 0).catch(() => 0),
-  ]);
-  fetch("https://api.github.com/repos/ra3orblade/swarm/releases/latest")
-    .then((r) => r.json())
-    .then(async (rel) => {
-      if (!rel?.assets) return;
-      const [gh, npm] = await counts;
+  fetch("/api/releases")
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`api/releases ${r.status}`))))
+    .catch(() =>
+      fetch("https://api.github.com/repos/ra3orblade/swarm/releases/latest")
+        .then((r) => r.json())
+        .then((rel) => ({
+          tag: rel.tag_name,
+          published_at: rel.published_at,
+          assets: (rel.assets ?? []).map((a) => ({ name: a.name, url: a.browser_download_url, size: a.size })),
+          downloads: { github: 0, npm: 0 },
+        })))
+    .then((rel) => {
+      if (!rel?.assets?.length) return;
+      const gh = rel.downloads?.github ?? 0, npm = rel.downloads?.npm ?? 0;
       const dl = gh + npm ? ` · ${fmt(gh + npm)} downloads${npm ? ` (${fmt(npm)} via npm, 30d)` : ""}` : "";
-      document.getElementById("ver").textContent = `${rel.tag_name} · ${new Date(rel.published_at).toLocaleDateString()}${dl}`;
-      document.getElementById("rel").textContent = ` · ${rel.tag_name}`;
+      document.getElementById("ver").textContent = `${rel.tag} · ${new Date(rel.published_at).toLocaleDateString()}${dl}`;
+      document.getElementById("rel").textContent = ` · ${rel.tag}`;
       const buckets = { mac: [/\.dmg$/], win: [/-setup\.exe$/, /\.msi$/], linux: [/\.deb$/, /\.rpm$/] };
       const ext = (n) => n.match(/(\.[a-z0-9]+)$/i)?.[1] ?? n;
       const mb = (b) => `${(b / 1048576).toFixed(0)} MB`;
@@ -431,10 +439,10 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
         found.forEach((a, i) => {
           const el = document.createElement("a");
           el.className = `pill${key === os && i === 0 ? " primary" : ""}`;
-          el.href = a.browser_download_url;
+          el.href = a.url;
           el.innerHTML = `${ext(a.name)} <small>${mb(a.size)}</small>`;
           links.appendChild(el);
-          if (key === os && i === 0) mine = a.browser_download_url;
+          if (key === os && i === 0) mine = a.url;
         });
       }
       if (mine) {
