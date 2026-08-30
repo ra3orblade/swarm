@@ -26,6 +26,7 @@ import {
   stopProcess,
 } from "../api/actions";
 import { copyText as copy } from "../lib/copy";
+import { openExternal } from "../lib/external";
 import { shortPath } from "../lib/format";
 import { type MenuItem, menuSection, openMenu } from "../lib/menus";
 
@@ -360,11 +361,10 @@ export function prMenu(anchor: Element, pr: ProjectPR, ctx: MenuContext): void {
       {
         label: `Open on ${forge}`,
         icon: "arrow-square-out",
-        // The desktop webview has no new-window handler, so `window.open` is a no-op there;
-        // the global link handler in the shell routes real anchors through Tauri instead.
-        run: () => {
-          window.open(pr.url, "_blank", "noopener");
-        },
+        // Not `window.open`: this is a menu item, not an anchor, so the shell's link handler never
+        // sees it — and with no new-window handler registered the desktop webview discards the
+        // call outright, which made this entry do nothing there. `openExternal` picks per shell.
+        run: () => openExternal(pr.url),
       },
       { label: "Copy URL", icon: "copy", run: () => void copy(pr.url) },
       divider,

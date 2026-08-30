@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, Store } from "./app";
@@ -12,6 +12,41 @@ describe("swarmd", () => {
     const r = await app.request("/v1/health");
     expect(r.status).toBe(200);
     expect(await r.json()).toMatchObject({ ok: true });
+  });
+
+  it("keeps scratch roots out of the project list anything shells out to", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const scratch = mkdtempSync(join(tmpdir(), "swarm-scratch-"));
+    // A discovered temp root: the hooks of a spawned run reach this daemon and register it.
+    store.resolveProject(scratch);
+    expect(store.projects().some((p) => p.root.startsWith(realpathSync(tmpdir())))).toBe(true);
+    expect(store.liveProjects().some((p) => p.root === scratch)).toBe(false);
+    const listed = (await (await app.request("/v1/projects")).json()) as Array<{ root: string }>;
+    expect(listed.some((p) => p.root === scratch)).toBe(false);
+  });
+
+  it("answers an unchanged snapshot with 304 and no body", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const first = await app.request("/v1/state");
+    const etag = first.headers.get("etag");
+    expect(first.status).toBe(200);
+    expect(etag).toBeTruthy();
+
+    const again = await app.request("/v1/state", { headers: { "if-none-match": etag as string } });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe("");
+
+    // A write moves the ledger, so the tag has to move with it.
+    store.append({
+      ts: new Date().toISOString(),
+      type: "session.started",
+      projectId: "p_etag",
+      sessionId: "s_etag",
+      payload: {},
+    });
+    const third = await app.request("/v1/state", { headers: { "if-none-match": etag as string } });
+    expect(third.status).toBe(200);
+    expect(third.headers.get("etag")).not.toBe(etag);
   });
 
   it("appends events with a monotonic seq", async () => {

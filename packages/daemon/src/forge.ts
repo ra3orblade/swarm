@@ -70,7 +70,8 @@ export class ForgeService {
   }
 
   async refresh(maxAgeMs = 120_000): Promise<void> {
-    const projects = this.store.projects();
+    // Scratch roots have no remote and often no longer exist — spawning `git` for them is waste.
+    const projects = this.store.liveProjects();
     await Promise.all(
       projects.map(async (p) => {
         const hit = this.cache.get(p.id);
@@ -111,23 +112,42 @@ export class ForgeService {
   ): { merged: MergedPR[]; reverted: string[]; fresh: boolean } {
     const hit = this.outcomeCache.get(projectId);
     const fresh = !!hit && Date.now() - hit.at < 600_000;
-    if (!fresh && !this.outcomeInflight.has(projectId)) {
-      const run = this.merged(projectId, root).finally(() =>
-        this.outcomeInflight.delete(projectId),
-      );
-      this.outcomeInflight.set(projectId, run);
-    }
+    // `merged()` owns the in-flight map, so a background kick can never start a second run.
+    if (!fresh) void this.merged(projectId, root).catch(() => {});
     return { merged: hit?.merged ?? [], reverted: hit?.reverted ?? [], fresh };
   }
 
+  /**
+   * Merged PRs for one project, at most one `gh`/`glab` run at a time.
+   *
+   * The dedupe is the point. Every caller polls — the Outcomes view every 5 s — and a cold read
+   * takes seconds per project, so without an in-flight map each poll stacked a fresh fan-out on
+   * the ones still running: three overlapping requests measured 8 s, 1018 s and 2 s. Waiters now
+   * share the one run.
+   */
   async merged(
     projectId: string,
     root: string,
   ): Promise<{ merged: MergedPR[]; reverted: string[] }> {
     const hit = this.outcomeCache.get(projectId);
     if (hit && Date.now() - hit.at < 600_000) return hit;
+    const inflight = this.outcomeInflight.get(projectId) as
+      | Promise<{ merged: MergedPR[]; reverted: string[] }>
+      | undefined;
+    if (inflight) return inflight;
+    const run = this.fetchMerged(projectId, root).finally(() =>
+      this.outcomeInflight.delete(projectId),
+    );
+    this.outcomeInflight.set(projectId, run);
+    return run;
+  }
+
+  private async fetchMerged(
+    projectId: string,
+    root: string,
+  ): Promise<{ merged: MergedPR[]; reverted: string[] }> {
     let merged: MergedPR[] = [];
-    const remote = this.remote(root);
+    const remote = await this.remote(root);
     if (remote?.forge === "github") {
       const out = await this.run(
         [
@@ -167,40 +187,64 @@ export class ForgeService {
           mergeSha: ((r.merge_commit_sha as string) ?? null)?.toLowerCase() ?? null,
         }));
     }
-    const log = Bun.spawnSync([
-      "git",
-      "-C",
+    const log = await this.run(
+      ["git", "log", "--grep", "This reverts commit", "--format=%B", "-n", "300"],
       root,
-      "log",
-      "--grep",
-      "This reverts commit",
-      "--format=%B",
-      "-n",
-      "300",
-    ]);
-    const reverted =
-      log.exitCode === 0 ? [...parseReverts(new TextDecoder().decode(log.stdout))] : [];
+    );
+    const reverted = log ? [...parseReverts(log)] : [];
     const entry = { at: Date.now(), merged, reverted };
     this.outcomeCache.set(projectId, entry);
     return entry;
   }
 
-  private remote(root: string): ReturnType<typeof parseRemote> {
-    const r = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"]);
-    if (r.exitCode !== 0) return null;
-    return parseRemote(new TextDecoder().decode(r.stdout).trim());
+  /**
+   * origin's URL, parsed. Cached because it is asked for on every poll and effectively never
+   * changes — but "no remote" is cached only briefly: that is the answer that *does* change, when
+   * someone adds an origin to a repo they just started, and a 10-minute memory of it would hide
+   * their pull requests for 10 minutes.
+   */
+  private remoteCache = new Map<string, { at: number; v: ReturnType<typeof parseRemote> }>();
+  private async remote(root: string): Promise<ReturnType<typeof parseRemote>> {
+    const hit = this.remoteCache.get(root);
+    if (hit && Date.now() - hit.at < (hit.v ? 600_000 : 60_000)) return hit.v;
+    const out = await this.run(["git", "remote", "get-url", "origin"], root);
+    const v = out ? parseRemote(out.trim()) : null;
+    this.remoteCache.set(root, { at: Date.now(), v });
+    return v;
   }
 
-  private async run(cmd: string[], cwd: string): Promise<string | null> {
+  /**
+   * Run a CLI and return stdout, or null.
+   *
+   * The timeout is not decoration: `gh` waiting on a network that never answers used to hold the
+   * request open with no upper bound. `git` is invoked through here too, so nothing on this path
+   * blocks the event loop the hook shim needs.
+   */
+  private async run(cmd: string[], cwd: string, timeoutMs = 20_000): Promise<string | null> {
     const bin = findBin(cmd[0]);
     if (!bin) return null; // CLI not installed — forge silently unavailable
-    const proc = Bun.spawn([bin, ...cmd.slice(1)], { cwd, stdout: "pipe", stderr: "ignore" });
-    const out = await new Response(proc.stdout).text();
-    return (await proc.exited) === 0 ? out : null;
+    // A project root can be deleted while it is still registered (a scratch clone, a removed
+    // worktree). Spawning into a cwd that is gone throws, and one throw here would otherwise fail
+    // the whole fan-out for every other project.
+    let proc: Bun.Subprocess<"ignore", "pipe", "ignore">;
+    try {
+      proc = Bun.spawn([bin, ...cmd.slice(1)], { cwd, stdout: "pipe", stderr: "ignore" });
+    } catch {
+      return null;
+    }
+    const killer = setTimeout(() => proc.kill(), timeoutMs);
+    try {
+      const out = await new Response(proc.stdout).text();
+      return (await proc.exited) === 0 ? out : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(killer);
+    }
   }
 
   private async poll(projectId: string, root: string): Promise<ProjectPR[]> {
-    const remote = this.remote(root);
+    const remote = await this.remote(root);
     if (!remote) return [];
     let prs: ForgePR[] = [];
     if (remote.forge === "github") {
@@ -232,7 +276,7 @@ export class ForgeService {
         ok: false,
         error: `${worktree.path} has uncommitted changes — commit them first (Swarm never commits for you)`,
       };
-    const remote = this.remote(p.root);
+    const remote = await this.remote(p.root);
     if (!remote) return { ok: false, error: "no GitHub/GitLab remote on origin" };
     const cli = remote.forge === "github" ? "gh" : "glab";
     const bin = findBin(cli);
@@ -289,7 +333,7 @@ export class ForgeService {
   async merge(projectId: string, number: number): Promise<{ ok: boolean; output: string }> {
     const p = this.store.projects().find((x) => x.id === projectId);
     if (!p) return { ok: false, output: "unknown project" };
-    const remote = this.remote(p.root);
+    const remote = await this.remote(p.root);
     if (!remote) return { ok: false, output: "no forge remote" };
     const cmd =
       remote.forge === "github"

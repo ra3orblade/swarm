@@ -51,6 +51,28 @@ describe("detection", () => {
     expect(isPatternKill("pkill -f 'next dev'")).toBe(true);
     expect(isPatternKill("kill 1234")).toBe(false);
   });
+  // Every one of these walked straight past the rules until the predicates learned about git's
+  // global options: `git -C <other tree> reset --hard` is the exact command the rule is for.
+  it("sees through git's global options", () => {
+    for (const c of [
+      "git -C /other/tree reset --hard",
+      "git --git-dir=/r/.git --work-tree=/r reset --hard",
+      "git -C /other/tree clean -fd",
+      "git -C /other/tree checkout .",
+      "git -c core.hooksPath=/dev/null restore .",
+      "git --no-pager branch -D feature/x",
+    ])
+      expect(isDestructiveGit(c)).toBe(true);
+    for (const c of ["git -C /other/tree add -A", "git -C /other/tree commit -am 'x'"])
+      expect(isBroadStage(c)).toBe(true);
+    // A subcommand name appearing as an *argument* is still not that subcommand.
+    expect(isDestructiveGit("git log --grep clean -f")).toBe(false);
+    expect(isDestructiveGit("git -C /other/tree status")).toBe(false);
+  });
+  it("recognizes the long and by-name forms of a pattern kill", () => {
+    for (const c of ["pkill --full node", "killall -9 node", "pgrep --full node | xargs kill"])
+      expect(isPatternKill(c)).toBe(true);
+  });
 });
 
 describe("otherLiveInSameTree", () => {

@@ -12,7 +12,7 @@
 import type { DashboardSnapshot } from "@swarm/core/dashboard";
 import { EVENT_TYPES } from "@swarm/core/types";
 import { create } from "zustand";
-import { eventStream, get } from "../api/client";
+import { eventStream, getIfChanged } from "../api/client";
 import { POLL_MS } from "../api/useResource";
 
 interface SnapshotState {
@@ -24,8 +24,14 @@ interface SnapshotState {
   refresh: () => Promise<void>;
 }
 
-/** The last response body, compared as a string so an unchanged poll notifies nobody. */
-let lastBody = "";
+/**
+ * The daemon's `ETag` for the snapshot we are holding.
+ *
+ * This used to be the whole response body, re-serialised on every poll so an unchanged answer
+ * could be recognised. The daemon computes the same comparison from the string it already has, so
+ * the client now sends this back and an unchanged poll costs one 304 — no body, no parse.
+ */
+let lastEtag: string | null = null;
 
 /** The raw snapshot store. Prefer `useSnapshot` with a selector, which subscribes to one slice. */
 export const useSnapshotStore = create<SnapshotState>((set) => ({
@@ -33,14 +39,13 @@ export const useSnapshotStore = create<SnapshotState>((set) => ({
   offline: false,
   refresh: async () => {
     try {
-      const body = await get<DashboardSnapshot>("/v1/state");
-      const serialised = JSON.stringify(body);
+      const answer = await getIfChanged<DashboardSnapshot>("/v1/state", lastEtag);
       set((prev) => {
         // Identical data must not produce a new object: re-rendering on an unchanged poll is
         // precisely the wasted work this rewrite exists to remove.
-        if (serialised === lastBody) return prev.offline ? { offline: false } : prev;
-        lastBody = serialised;
-        return { data: body, offline: false };
+        if (!answer.changed) return prev.offline ? { offline: false } : prev;
+        lastEtag = answer.etag;
+        return { data: answer.data, offline: false };
       });
     } catch {
       // Keep the last good snapshot. A daemon restart reads as stale data, not as an empty app.

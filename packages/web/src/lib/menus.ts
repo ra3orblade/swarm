@@ -1,10 +1,11 @@
 /**
  * The menus island (M11.6).
  *
- * `menus.js` mounts a `@react-fancy-menus/core` provider and exposes an imperative
- * `window.menus.open(anchor, spec)`. It stays a separate bundle and a separate React root: it is
- * generated, it already works, and re-implementing dropdown positioning and keyboard handling as a
- * component would be a rewrite with no user-visible payoff.
+ * `src/menus.tsx` mounts a `@react-fancy-menus/core` provider and exposes an imperative
+ * `window.menus.open(anchor, spec)`. It stays a separate React *root* — re-implementing dropdown
+ * positioning and keyboard handling as a component would be a rewrite with no user-visible payoff
+ * — but `main.tsx` imports it, so it shares the app's React instead of shipping a second copy.
+ * The standalone `menus.js` build still exists for the vanilla team dashboard.
  */
 import type { MenuItem, MenuSpec } from "../menus";
 

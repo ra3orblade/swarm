@@ -6,6 +6,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Changed
 
+- **The dashboard asks the daemon whether anything changed instead of re-downloading the answer.**
+  `/v1/state` is ~195 KB and every client asked for all of it every 5 seconds, plus once per event
+  nudge, then compared it against the last copy to decide whether to re-render. The response now
+  carries an `ETag` and an unchanged poll comes back `304` with no body — no transfer, no parse, and
+  the same "nothing moved, render nothing" outcome, decided before the bytes are sent.
+- **The dashboard ships one copy of React.** The dropdown island was a second `<script>` with its
+  own React bundled in, so the page loaded two runtimes: 737 KB of JavaScript where 549 KB would do.
+  The island is imported by the app now — still its own React root, since fancy-menus renders
+  outside the app tree — and the three remaining scripts no longer block the parser.
+
 - **The website's Downloads section reads a cached endpoint instead of calling GitHub from every
   visitor's browser.** The page made three cross-origin calls per visit — two to `api.github.com`,
   which is 60 requests/hour per IP unauthenticated, so a visitor who reloaded a few times (or shared
@@ -14,6 +24,24 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   which also serves the last good payload if GitHub is rate-limiting or down.
 
 ### Fixed
+
+- **A `git -C <path>` command walked straight past every git rule.** The guards matched on `git`
+  immediately followed by the subcommand, so any of git's global options in between — `-C`,
+  `--git-dir`, `--work-tree`, `-c` — turned `git -C /someone-elses/worktree reset --hard` into a
+  command the rules did not recognise, which is precisely the command they exist to catch. They now
+  read git's global options before the verb. `pkill --full` and `killall` count as pattern kills too.
+- **A cold Outcomes read could hold a request open indefinitely.** `gh` was run once per project in
+  sequence with no timeout, and a second request started a second full fan-out rather than waiting
+  for the first: three overlapping requests measured 8 s, 1018 s and 2 s. Projects are now queried in
+  parallel, callers share one in-flight run per project, and a CLI that stops answering is killed
+  after 20 s. Scratch and deleted temp checkouts are skipped entirely — on a machine with 21 tracked
+  repos, 13 of them had no remote and were still costing a subprocess per refresh.
+- **The session list cost the whole ledger to build.** It joined every turn ever recorded before
+  applying its 200-row limit, and built sparklines for every session rather than the ones on screen.
+  Both queries are now scoped to the page: on a 200,000-turn ledger that is 111 ms → 11 ms.
+- **"Open on GitHub" in a pull request's row menu did nothing in the desktop app.** It called
+  `window.open`, which the desktop webview discards; it goes through the same path as every other
+  external link now.
 
 - **Clicking a project in the sidebar did nothing while a session was open.** Picking a project
   scoped the app but did not leave the session page, so the highlight moved on the left and the
