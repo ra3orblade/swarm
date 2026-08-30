@@ -2457,6 +2457,19 @@ export class Store {
       createdAt: r.created_at as string,
     }));
   }
+
+  /**
+   * Projects worth spending work on: everything `projects()` returns, minus auto-discovered roots
+   * under the OS temp dir — test fixtures and scratch clones whose hooks still reach this daemon.
+   *
+   * The sidebar has always hidden them. Anything that shells out (`gh`, `git`) must skip them too:
+   * on this machine 13 of 21 registered roots have no remote and several no longer exist on disk,
+   * and each was still costing a subprocess per refresh.
+   */
+  liveProjects(): Project[] {
+    return this.projects().filter((p) => !(p.discovered && isScratchRoot(p.root)));
+  }
+
   project(id: string): Project | undefined {
     const r = this.db.query("SELECT * FROM projects WHERE id = ?").get(id) as Record<
       string,
@@ -4923,6 +4936,10 @@ export class Store {
       project_id: string;
     }>;
     const liveIds = new Set(live.map((s) => s.id));
+    // `stuck` rides on the session list, which is memoised until the next write. The stall map is
+    // not a write, so anything that changes it has to invalidate that memo itself — otherwise a
+    // cleared stall keeps reading as stuck for the life of the cached list.
+    const before = JSON.stringify([...this.stalls].map(([id, v]) => [id, v.kind, v.reason]));
     for (const id of [...this.stalls.keys()]) if (!liveIds.has(id)) this.stalls.delete(id);
     let flagged = 0;
     for (const s of live) {
@@ -4965,6 +4982,8 @@ export class Store {
       });
       this.touch();
     }
+    const after = JSON.stringify([...this.stalls].map(([id, v]) => [id, v.kind, v.reason]));
+    if (after !== before) this.touch();
     return flagged;
   }
 
@@ -5365,10 +5384,30 @@ export class Store {
 
   /** Refresh every project's worktrees; for the background tick. */
   async refreshAllWorktrees() {
-    await Promise.all(this.projects().map((p) => this.refreshWorktrees(p.id)));
+    await Promise.all(this.liveProjects().map((p) => this.refreshWorktrees(p.id)));
   }
 
+  /**
+   * The session list, memoised for a beat.
+   *
+   * Every reader wants the same rows in the same tick — the snapshot, outcomes, provenance — and a
+   * write bumps `gen`, so the memo can never serve a stale ledger. It lives here rather than at the
+   * one call site that used to have it so no caller pays the query twice.
+   */
   sessions(): SessionView[] {
+    return this.memoised("sessions", 2000, () => this.computeSessions());
+  }
+
+  private computeSessions(): SessionView[] {
+    // Pick the page first, aggregate second. Joining every turn and *then* applying LIMIT 200 made
+    // both queries cost the whole history rather than the 200 rows anyone can see: the aggregate
+    // scanned the full `turns` table, and the window function below partitioned it end to end.
+    const page = this.db
+      .query("SELECT id FROM sessions ORDER BY last_seen_at DESC LIMIT 200")
+      .all() as Array<{ id: string }>;
+    if (!page.length) return [];
+    const ids = page.map((r) => r.id);
+    const holes = ids.map(() => "?").join(",");
     const rows = this.db
       .query(
         `SELECT s.*, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
@@ -5377,9 +5416,10 @@ export class Store {
                 (SELECT model FROM turns lt WHERE lt.session_id = s.id AND lt.agent_id IS NULL AND lt.sidechain = 0 ORDER BY lt.ts DESC LIMIT 1) AS live_model,
                 (SELECT COUNT(DISTINCT model) FROM turns lm WHERE lm.session_id = s.id AND lm.agent_id IS NULL AND lm.sidechain = 0) AS model_count
          FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
-         GROUP BY s.id ORDER BY s.last_seen_at DESC LIMIT 200`,
+         WHERE s.id IN (${holes})
+         GROUP BY s.id ORDER BY s.last_seen_at DESC`,
       )
-      .all() as Array<Record<string, unknown>>;
+      .all(...ids) as Array<Record<string, unknown>>;
     const idleBefore = Date.now() - IDLE_MS;
     // Per-session sparkline: the last 24 top-level turns (output tokens + cost), oldest first.
     const sparkRows = this.db
@@ -5387,10 +5427,10 @@ export class Store {
         `SELECT session_id, output, cost_usd FROM (
            SELECT t.session_id, t.output, t.cost_usd, t.ts,
                   ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY t.ts DESC) AS rn
-           FROM turns t WHERE t.agent_id IS NULL AND t.sidechain = 0
+           FROM turns t WHERE t.agent_id IS NULL AND t.sidechain = 0 AND t.session_id IN (${holes})
          ) WHERE rn <= 24 ORDER BY ts`,
       )
-      .all() as Array<{ session_id: string; output: number; cost_usd: number | null }>;
+      .all(...ids) as Array<{ session_id: string; output: number; cost_usd: number | null }>;
     const sparks = new Map<string, Array<[number, number | null]>>();
     for (const x of sparkRows) {
       const a = sparks.get(x.session_id) ?? [];
@@ -6494,13 +6534,13 @@ export class Store {
     const worktrees: Record<string, Worktree[]> = {};
     // Auto-discovered repos under the OS temp dir are test fixtures and scratch clones (spawned
     // runs' hooks still reach this daemon) — keep their history, keep them off the sidebar.
-    const projects = this.projects().filter((p) => !(p.discovered && isScratchRoot(p.root)));
+    const projects = this.liveProjects();
     for (const p of projects) worktrees[p.id] = this.worktrees(p.id);
     return {
       projects,
       worktrees,
       // sessions/spend/incidents only change on writes; `ago`-style fields are computed client-side
-      sessions: this.memoised("sessions", 2000, () => this.sessions()),
+      sessions: this.sessions(),
       spend: this.memoised("spend", 30_000, () => this.spend()),
       spendSparks: this.memoised("spendSparks", 60_000, () => this.spendSparks()),
       claims: this.claims(),

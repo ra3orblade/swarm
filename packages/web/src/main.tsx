@@ -8,6 +8,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+// The dropdown island, imported rather than loaded as its own <script>: it stays a separate React
+// *root* (fancy-menus renders into its own host outside the app tree) but no longer ships a second
+// copy of React — that duplicate was 374 KB, as much as the whole dashboard bundle.
+import "./menus";
 import { applyStoredTheme } from "./lib/theme";
 import "./styles/dashboard.css";
 

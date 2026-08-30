@@ -136,7 +136,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   );
 
   // ---- projects
-  app.get("/v1/projects", (c) => c.json(store.snapshot().projects));
+  app.get("/v1/projects", (c) => c.json(store.liveProjects()));
   app.post("/v1/projects", async (c) => {
     const { path, name } = (await c.req.json()) as { path?: string; name?: string };
     if (!path) return c.json({ error: "path required" }, 400);
@@ -192,7 +192,22 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   });
 
   // ---- state for the dashboard
-  app.get("/v1/state", (c) => c.json(store.snapshot()));
+  /**
+   * The snapshot, with an `ETag` so an unchanged poll costs no body.
+   *
+   * Every client asks every 5 s (and again on each SSE nudge) for ~195 KB that is usually identical
+   * to the last answer. The dashboard already compared responses to avoid re-rendering — it just
+   * did it after paying for the transfer and the parse. The tag is a hash of the same bytes.
+   */
+  app.get("/v1/state", (c) => {
+    const body = JSON.stringify(store.snapshot());
+    const etag = `W/"${Bun.hash(body).toString(36)}"`;
+    // `no-cache` means "revalidate every time", not "don't store": without it a browser is free to
+    // decide for itself how long the ledger stays fresh, and the dashboard would show stale state.
+    const head = { etag, "cache-control": "no-cache" };
+    if (c.req.header("if-none-match") === etag) return c.body(null, 304, head);
+    return c.body(body, 200, { ...head, "content-type": "application/json" });
+  });
   app.get("/v1/stats", (c) => c.json(store.stats(c.req.query("project") || undefined)));
   app.get("/v1/graphs/collisions", (c) =>
     c.json(store.collisions(c.req.query("project") || undefined)),
@@ -301,8 +316,8 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   const outcomesFor = async (project?: string, opts: { blocking?: boolean } = {}) => {
     const blocking = opts.blocking !== false;
     const sessions = store
-      .snapshot()
-      .sessions.filter((s) => !project || s.projectId === project)
+      .sessions()
+      .filter((s) => !project || s.projectId === project)
       .map((s) => ({
         id: s.id,
         branch: s.branch,
@@ -314,11 +329,18 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     const prs: OutcomePR[] = [];
     const reverted = new Set<string>();
     let stale = false;
-    for (const p of store.projects().filter((x) => !project || x.id === project)) {
-      // Provenance paints from cache and lets the forge catch up; /v1/outcomes still waits.
-      const o = blocking
-        ? { ...(await forge.merged(p.id, p.root)), fresh: true }
-        : forge.mergedCached(p.id, p.root);
+    // One `gh` run per project, all of them at once: awaiting them in a loop made a cold read the
+    // sum of every project's round-trip (8s across 8 repos here) rather than the slowest one.
+    const scope = store.liveProjects().filter((x) => !project || x.id === project);
+    const outcomes = await Promise.all(
+      scope.map(async (p) =>
+        // Provenance paints from cache and lets the forge catch up; /v1/outcomes still waits.
+        blocking
+          ? { ...(await forge.merged(p.id, p.root)), fresh: true }
+          : forge.mergedCached(p.id, p.root),
+      ),
+    );
+    for (const o of outcomes) {
       if (!o.fresh) stale = true;
       for (const m of o.merged) prs.push({ ...m, state: "merged" });
       for (const sha of o.reverted) reverted.add(sha);
@@ -428,8 +450,8 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       state: cl.state,
     }));
     const sessions = store
-      .snapshot()
-      .sessions.filter((s) => !project || s.projectId === project)
+      .sessions()
+      .filter((s) => !project || s.projectId === project)
       .map((s) => ({
         id: s.id,
         title: s.title,

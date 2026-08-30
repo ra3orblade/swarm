@@ -1,5 +1,7 @@
 // Build the dashboard's generated assets into public/:
-//   menus.js  — React island: fancy-menus provider + Swarm's menu configs (window.menus)
+//   menus.js  — React island: fancy-menus provider + Swarm's menu configs (window.menus).
+//               Built for the vanilla team dashboard only; the React dashboard imports the same
+//               island from `src/menus.tsx` so the page ships one React, not two.
 //   fm.css    — fancy-menus runtime stylesheet
 //   icons.js  — pixelarticons as inline SVG, window.icon(name, size)
 // index.html is hand-written and stays as it is; everything else here is generated.
@@ -227,9 +229,11 @@ copyFileSync(
 );
 
 // ---- React bundles
-// Two entrypoints, not one: `menus.js` is the imperative dropdown island the app talks to through
-// `window.menus`, and `app.js` is the dashboard itself (M11.6). They stay separate roots because
-// fancy-menus renders into its own host outside the app tree.
+// Two entrypoints, because two pages need the island: the dashboard imports `src/menus.tsx`
+// directly (one React copy for both roots — as a second <script> it duplicated React and cost the
+// page 374 KB), while `menus.js` stays a standalone build for the vanilla team dashboard, which
+// has no bundler of its own and talks to it through `window.menus`. Separate React *roots* either
+// way: fancy-menus renders into its own host outside the app tree.
 const bundle = async (entry: string, naming: string) => {
   const r = await Bun.build({
     entrypoints: [join(here, entry)],

@@ -39,13 +39,29 @@ export function otherLiveInSameTree(
   return null;
 }
 
+/**
+ * `git` plus its global options, up to (not including) the subcommand.
+ *
+ * `git -C /other/tree reset --hard` is the same command as `git reset --hard` run somewhere else —
+ * and it is the form an agent reaches for when the target is not its cwd, which is precisely the
+ * case these rules exist to catch. Anchoring on `git\s+reset` missed every one of them, so the
+ * options that can appear between the binary and the verb are matched here, once.
+ */
+const GIT_GLOBAL_OPTS =
+  "(?:\\s+(?:-C\\s+\\S+|-c\\s+\\S+|--git-dir(?:=|\\s+)\\S+|--work-tree(?:=|\\s+)\\S+|--namespace(?:=|\\s+)\\S+|--no-pager|--paginate|--bare|--literal-pathspecs|--exec-path(?:=\\S+)?))*";
+
+/** Anchored `git <global opts> <verb>` — build the rest of the pattern from `tail`. */
+function gitVerb(verb: string, tail: string): RegExp {
+  return new RegExp(`\\bgit${GIT_GLOBAL_OPTS}\\s+${verb}${tail}`);
+}
+
 /** `git add` that stages everything (no explicit pathspec), or `git commit -a`. */
 export function isBroadStage(cmd: string): boolean {
   const c = cmd.trim();
-  if (/\bgit\s+add\s+(-A\b|--all\b|\.(\s|$))/.test(c)) return true;
-  if (/\bgit\s+commit\b[^|&;]*\s-[a-zA-Z]*a/.test(c)) return true; // -a / -am / -na …
+  if (gitVerb("add", "\\s+(-A\\b|--all\\b|\\.(\\s|$))").test(c)) return true;
+  if (gitVerb("commit", "\\b[^|&;]*\\s-[a-zA-Z]*a").test(c)) return true; // -a / -am / -na …
   // `git add` with only flags / no pathspec at all
-  if (/\bgit\s+add\s*$/.test(c)) return true;
+  if (gitVerb("add", "\\s*$").test(c)) return true;
   return false;
 }
 
@@ -53,19 +69,29 @@ export function isBroadStage(cmd: string): boolean {
 export function isDestructiveGit(cmd: string): boolean {
   const c = cmd.trim();
   return (
-    /\bgit\s+reset\s+[^|&;]*--hard\b/.test(c) ||
-    /\bgit\s+checkout\s+(--\s+)?\.(\s|$)/.test(c) ||
-    /\bgit\s+checkout\s+-f\b/.test(c) ||
-    /\bgit\s+restore\s+(--\s+)?\.(\s|$)/.test(c) ||
-    /\bgit\s+clean\s+[^|&;]*-[a-zA-Z]*f/.test(c) ||
-    /\bgit\s+stash\s+(drop|clear)\b/.test(c) ||
-    /\bgit\s+branch\s+[^|&;]*-[a-zA-Z]*D/.test(c)
+    gitVerb("reset", "\\s+[^|&;]*--hard\\b").test(c) ||
+    gitVerb("checkout", "\\s+(--\\s+)?\\.(\\s|$)").test(c) ||
+    gitVerb("checkout", "\\s+-f\\b").test(c) ||
+    gitVerb("restore", "\\s+(--\\s+)?\\.(\\s|$)").test(c) ||
+    gitVerb("clean", "\\s+[^|&;]*-[a-zA-Z]*f").test(c) ||
+    gitVerb("stash", "\\s+(drop|clear)\\b").test(c) ||
+    gitVerb("branch", "\\s+[^|&;]*-[a-zA-Z]*D").test(c)
   );
 }
 
-/** Killing processes by command pattern — hits every matching process, not just yours. */
+/**
+ * Killing processes by command pattern or name — hits every matching process, not just yours.
+ *
+ * `pkill -f` and its long form `--full` match on the full command line; `killall` matches on the
+ * executable name. All three kill other agents' processes and the owner's alike, which is the
+ * hazard — the flag spelling is not.
+ */
 export function isPatternKill(cmd: string): boolean {
-  return /\bpkill\s+-f\b/.test(cmd) || /\bpgrep\s+-f\b[^|]*\|\s*[^|]*\bkill\b/.test(cmd);
+  return (
+    /\bpkill\s+(-[a-zA-Z]*f\b|--full\b)/.test(cmd) ||
+    /\bkillall\b/.test(cmd) ||
+    /\bpgrep\s+(-[a-zA-Z]*f\b|--full\b)[^|]*\|\s*[^|]*\bkill\b/.test(cmd)
+  );
 }
 
 /** Command that kills/frees a specific port: `lsof -ti:PORT | xargs kill`, `fuser -k PORT`,
@@ -216,6 +242,11 @@ export const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"
  *  - `claim_required_to_write` (opt-in): `target` lies in the project's shared checkout
  *    (`current.toplevel`) rather than in any claimed worktree, and the session isn't working from a
  *    claimed worktree either. The repo has declared that writes go through claims.
+ *
+ * Known scope, so nobody mistakes this for a sandbox: a write is a file tool's `file_path` or a
+ * Bash command's **cwd**. A shell redirect to an absolute path elsewhere (`echo x > /other/wt/f`)
+ * is not parsed out of the command line, and containment is textual — `norm()` resolves `..`
+ * without following symlinks, so a symlink into another worktree reads as its own path.
  */
 export function guardWrite(
   target: string,

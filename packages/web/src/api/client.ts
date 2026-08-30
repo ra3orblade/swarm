@@ -80,6 +80,29 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Either the body changed since `etag`, or the daemon says it did not. */
+export type Conditional<T> = { changed: true; data: T; etag: string | null } | { changed: false };
+
+/**
+ * GET a path the caller polls, asking the daemon to skip the body when nothing moved.
+ *
+ * The snapshot is ~195 KB and most polls are answered "same as last time". Sending the previous
+ * `ETag` turns those into a 304 with no body: no transfer, no parse, and no re-render, because an
+ * unchanged answer never becomes a new object.
+ */
+export async function getIfChanged<T>(
+  path: string,
+  etag: string | null,
+  signal?: AbortSignal,
+): Promise<Conditional<T>> {
+  const init: RequestInit = { headers: headers(etag ? { "if-none-match": etag } : undefined) };
+  if (signal) init.signal = signal;
+  const response = await request(path, init);
+  if (response.status === 304) return { changed: false };
+  if (!response.ok) throw new ApiError(response.status, path);
+  return { changed: true, data: (await response.json()) as T, etag: response.headers.get("etag") };
+}
+
 /**
  * `fetch`, with a network failure named.
  *
