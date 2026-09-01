@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, Store } from "./app";
+import { createApp, expandHome, Store } from "./app";
 
 const tmpHome = () => mkdtempSync(join(tmpdir(), "swarm-test-"));
 
@@ -1668,6 +1668,33 @@ describe("event storage and wire shape (perf)", () => {
     const wts = await store.refreshWorktrees(a.id);
     expect(wts.length).toBeGreaterThan(0);
     expect(store.snapshot().worktrees[a.id]).toBe(wts);
+  });
+});
+
+describe("POST /v1/projects", () => {
+  it("expandHome rewrites ~ and ~/x only", () => {
+    expect(expandHome("~", "/h")).toBe("/h");
+    expect(expandHome("~/a/b", "/h")).toBe("/h/a/b");
+    expect(expandHome("~bob/x", "/h")).toBe("~bob/x");
+    expect(expandHome("/abs/~", "/h")).toBe("/abs/~");
+  });
+
+  it("accepts a ~ path typed into the dashboard", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const res = await app.request("/v1/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "~" }),
+    });
+    expect(res.status).toBe(201);
+    expect(store.projects()).toHaveLength(1);
+    const miss = await app.request("/v1/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "~/swarm-test-no-such-dir-4f2e" }),
+    });
+    expect(miss.status).toBe(400);
+    expect(store.projects()).toHaveLength(1);
   });
 });
 
