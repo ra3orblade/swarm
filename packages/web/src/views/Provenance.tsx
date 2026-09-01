@@ -197,7 +197,16 @@ export function Provenance() {
     <>
       <Section
         title="Provenance"
-        hint={`${page.total} chain${page.total === 1 ? "" : "s"} · ${t.untracked ? `${t.untracked} untracked` : "every branch has a task"}`}
+        hint={
+          <>
+            {page.total} chain{page.total === 1 ? "" : "s"} ·{" "}
+            {t.untracked ? (
+              <b className="navcount">{t.untracked} untracked</b>
+            ) : (
+              "every branch has a task"
+            )}
+          </>
+        }
       />
       <ProvenanceStats totals={t} />
 

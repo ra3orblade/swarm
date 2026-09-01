@@ -55,6 +55,14 @@ export function Board() {
     () => new Set(data.heldClaims.filter((c) => c.state === "held").map((c) => c.worktree)),
     [data.heldClaims],
   );
+  // The map's tiles name the task holding a worktree, not just that one does.
+  const heldBy = useMemo(
+    () =>
+      new Map(
+        data.heldClaims.filter((c) => c.state === "held").map((c) => [c.worktree, c.task] as const),
+      ),
+    [data.heldClaims],
+  );
 
   // Tasks are the one thing not in the snapshot: the source is configured per repo.
   const { data: taskSet } = useResource<TaskSet>(project ? `/v1/tasks${query({ project })}` : null);
@@ -129,6 +137,7 @@ export function Board() {
         showProject={showProject}
         menu={menu}
         heldPaths={heldPaths}
+        heldBy={heldBy}
       />
       {diff && (
         <DiffDrawer

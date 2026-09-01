@@ -114,7 +114,7 @@ export function Sidebar() {
   });
 
   return (
-    <aside>
+    <aside id="sidebar">
       <div id="projects">
         <ProjectsHeading />
 

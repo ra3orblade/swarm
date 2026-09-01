@@ -5,8 +5,10 @@
  * components they get typed props and children, which is what makes a view readable: `<Section>`
  * says what it is, `head("did the work survive?")` did not.
  */
+import { ROBOT } from "@swarm/core/art";
 import type { ReactNode } from "react";
 import { icon } from "../lib/icon";
+import { Mark } from "./Mark";
 
 /** A section heading and what sits under it. */
 export interface SectionProps {
@@ -50,13 +52,16 @@ export function Absent() {
 
 /** An empty state: optionally an illustration, then why it is empty. */
 export interface EmptyProps {
-  /** Pixel-art illustration; views pass one from `PX`. */
+  /** The illustration above the text. The idle robot unless a view passes `null` to go without. */
   art?: ReactNode;
   children: ReactNode;
 }
 
 /** What a view shows instead of an empty table: why it is empty and what would fill it. */
-export function Empty({ art, children }: EmptyProps) {
+export function Empty({
+  art = <Mark art={ROBOT} cell={1} className="px" />,
+  children,
+}: EmptyProps) {
   return (
     <div className="empty">
       {art}

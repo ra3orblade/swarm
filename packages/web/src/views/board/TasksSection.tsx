@@ -13,6 +13,7 @@ import { RowMenuButton } from "../../components/RowMenuButton";
 import { Badge, Empty, Section } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { menuSection, openMenu } from "../../lib/menus";
+import { useUiStore } from "../../state/ui";
 import { RunDrawer } from "../session/RunDrawer";
 
 type Filter = "ready" | "open" | "all";
@@ -22,6 +23,74 @@ function StateBadge({ task }: { task: TaskView }) {
   if (task.status === "done") return <Badge>Done</Badge>;
   if (task.status === "active") return <Badge tone="acc">In progress</Badge>;
   return task.ready ? <Badge tone="ok">Ready</Badge> : <Badge>Blocked</Badge>;
+}
+
+type Lane = "ready" | "held" | "blocked" | "done";
+const LANES: [Lane, string][] = [
+  ["ready", "Ready"],
+  ["held", "In progress"],
+  ["blocked", "Blocked"],
+  ["done", "Done"],
+];
+/** Done lanes are capped: the table has the rest, and a wall of finished cards says nothing. */
+const DONE_CAP = 6;
+
+function lane(task: TaskView): Lane {
+  if (task.claimedBy) return "held";
+  if (task.status === "done") return "done";
+  if (task.ready) return "ready";
+  return task.status === "active" ? "held" : "blocked";
+}
+
+/** The kanban: one lane per state, a card per task, each card opening the same menu as a row. */
+function Kanban({
+  tasks,
+  onMenu,
+}: {
+  tasks: TaskView[];
+  onMenu: (a: Element, t: TaskView) => void;
+}) {
+  const by: Record<Lane, TaskView[]> = { ready: [], held: [], blocked: [], done: [] };
+  for (const t of tasks) by[lane(t)].push(t);
+  by.done.reverse();
+  return (
+    <div className="kanban">
+      {LANES.map(([key, label]) => {
+        const list = by[key];
+        const shown = key === "done" ? list.slice(0, DONE_CAP) : list;
+        return (
+          <div className={`lane ${key}`} key={key}>
+            <div className="lane-h">
+              {label} <span>{list.length}</span>
+            </div>
+            {shown.length === 0 && <div className="lane-empty">—</div>}
+            {shown.map((t) => (
+              <button
+                type="button"
+                className={`tcard ${key}`}
+                key={t.id}
+                title={t.statusText}
+                onClick={(e) => onMenu(e.currentTarget, t)}
+              >
+                <div className="tc-h">
+                  <b>{t.id}</b>
+                  {t.claimedBy && <Badge tone="ok">{t.claimedBy}</Badge>}
+                  {t.depends.length > 0 && key === "blocked" && (
+                    <span className="dim">← {t.depends.join(" ")}</span>
+                  )}
+                </div>
+                <div className="tc-t">{t.title}</div>
+                {t.milestone && <div className="tc-m">{t.milestone.split(" — ")[0]}</div>}
+              </button>
+            ))}
+            {list.length > shown.length && (
+              <div className="lane-more dim">+{list.length - shown.length} more in the table</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Held first, then ready, then in progress, blocked, done — the order you would work them in. */
@@ -97,6 +166,8 @@ export function TasksSection({
   onOpenSession,
 }: TasksSectionProps) {
   const [filter, setFilter] = useState<Filter>("ready");
+  const mode = useUiStore((s) => s.boardTasks);
+  const setMode = useUiStore((s) => s.setBoardTasks);
   /** The task whose Run drawer is open, if any. */
   const [running, setRunning] = useState<TaskView | null>(null);
 
@@ -136,32 +207,54 @@ export function TasksSection({
   return (
     <Section title="Tasks" hint={source}>
       <div className="chips">
-        {chips.map(([key, label, count]) => (
+        {mode === "table" &&
+          chips.map(([key, label, count]) => (
+            <button
+              type="button"
+              key={key}
+              className={filter === key ? "chip on" : "chip"}
+              onClick={() => setFilter(key)}
+            >
+              {label} <b>{count}</b>
+            </button>
+          ))}
+        <span className="grow" />
+        <span className="seg">
           <button
             type="button"
-            key={key}
-            className={filter === key ? "chip on" : "chip"}
-            onClick={() => setFilter(key)}
+            className={mode === "cards" ? "on" : ""}
+            onClick={() => setMode("cards")}
           >
-            {label} <b>{count}</b>
+            Cards
           </button>
-        ))}
+          <button
+            type="button"
+            className={mode === "table" ? "on" : ""}
+            onClick={() => setMode("table")}
+          >
+            Table
+          </button>
+        </span>
       </div>
-      <DataGrid
-        id="tasks"
-        columns={COLUMNS}
-        rows={shown}
-        rowKey={(t) => t.id}
-        trailing={{
-          width: 34,
-          cell: (t) => (
-            <RowMenuButton
-              title="Task actions"
-              onOpen={(anchor) => openTaskMenu(anchor, t, projectId, setRunning)}
-            />
-          ),
-        }}
-      />
+      {mode === "cards" ? (
+        <Kanban tasks={tasks} onMenu={(a, t) => openTaskMenu(a, t, projectId, setRunning)} />
+      ) : (
+        <DataGrid
+          id="tasks"
+          columns={COLUMNS}
+          rows={shown}
+          rowKey={(t) => t.id}
+          trailing={{
+            width: 34,
+            cell: (t) => (
+              <RowMenuButton
+                title="Task actions"
+                onOpen={(anchor) => openTaskMenu(anchor, t, projectId, setRunning)}
+              />
+            ),
+          }}
+        />
+      )}
       {running && (
         <RunDrawer
           projectId={projectId}

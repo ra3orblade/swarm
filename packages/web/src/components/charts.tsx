@@ -23,7 +23,7 @@ function niceTicks(max: number, count: number): number[] {
 }
 
 /** A bar with only its top corners rounded — the bottom meets the axis or the segment below it. */
-function roundedTop(x: number, y: number, w: number, h: number, r: number): string {
+export function roundedTop(x: number, y: number, w: number, h: number, r: number): string {
   if (h <= 0) return "";
   const radius = Math.min(r, w / 2, h);
   return `M${x},${y + h}V${y + radius}Q${x},${y} ${x + radius},${y}H${x + w - radius}Q${x + w},${y} ${x + w},${y + radius}V${y + h}Z`;
