@@ -29,6 +29,10 @@ interface UiState {
    * — "search Swarm for X" has to survive the navigation that shows the results.
    */
   search: string;
+  /** Worktrees on the Board as a project map of tiles, or as the table. */
+  boardWorktrees: "map" | "table";
+  /** Tasks on the Board as a kanban, or as the table. */
+  boardTasks: "cards" | "table";
 
   openView: (view: ViewId) => void;
   /**
@@ -43,6 +47,8 @@ interface UiState {
   setGraphTab: (tab: string) => void;
   /** Set the query and go to Search. */
   setSearch: (query: string) => void;
+  setBoardWorktrees: (mode: "map" | "table") => void;
+  setBoardTasks: (mode: "cards" | "table") => void;
 }
 
 /**
@@ -68,6 +74,8 @@ export const useUiStore = create<UiState>()(
       sidebarWidth: SIDEBAR_WIDTH.default,
       graphTab: "collisions",
       search: "",
+      boardWorktrees: "map",
+      boardTasks: "table",
 
       // Opening a view always leaves the session page: a session is a place, not an overlay.
       openView: (view) => set({ view, session: null }),
@@ -81,6 +89,8 @@ export const useUiStore = create<UiState>()(
       setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
       setGraphTab: (graphTab) => set({ graphTab }),
       setSearch: (search) => set({ search, view: "search", session: null }),
+      setBoardWorktrees: (boardWorktrees) => set({ boardWorktrees }),
+      setBoardTasks: (boardTasks) => set({ boardTasks }),
     }),
     {
       name: "swarm.ui",
@@ -92,6 +102,8 @@ export const useUiStore = create<UiState>()(
         sidebarCollapsed: s.sidebarCollapsed,
         sidebarWidth: s.sidebarWidth,
         graphTab: s.graphTab,
+        boardWorktrees: s.boardWorktrees,
+        boardTasks: s.boardTasks,
       }),
     },
   ),

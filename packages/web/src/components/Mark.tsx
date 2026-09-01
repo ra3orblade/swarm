@@ -15,11 +15,13 @@
  * `ART_THEME` paints in `color-mix(… var(--acc) …)`, so the mark follows the accent and the theme
  * instead of being frozen to one green.
  */
-import { ART_THEME, artSvg, MARK } from "@swarm/core/art";
+import { ART_THEME, artSvg, MARK, trimArt } from "@swarm/core/art";
 import { useMemo } from "react";
 
 /** How large to draw the mark, and whether it needs an accessible name. */
 export interface MarkProps {
+  /** Which drawing from core's art to render. The header mark by default. */
+  art?: readonly string[];
   /** Pixel size of one cell in the drawing's grid. */
   cell?: number;
   className?: string;
@@ -34,13 +36,21 @@ function parse(markup: string): { viewBox: string; body: string } {
   return { viewBox, body };
 }
 
-export function Mark({ cell = 2, className, title }: MarkProps) {
-  const { viewBox, body } = useMemo(() => parse(artSvg(MARK, ART_THEME, { cell })), [cell]);
+export function Mark({ art = MARK, cell = 2, className, title }: MarkProps) {
+  const { viewBox, body } = useMemo(
+    () => parse(artSvg(trimArt(art), ART_THEME, { cell })),
+    [art, cell],
+  );
   const inner = title ? `<title>${title}</title>${body}` : body;
+  // The viewBox is the drawing's pixel size; without width/height an <svg> stretches to fill
+  // whatever it sits in, which turned the empty-state robot into a wall.
+  const [, , w, h] = viewBox.split(" ");
   return (
     <svg
       className={className || undefined}
       viewBox={viewBox}
+      width={w}
+      height={h}
       shapeRendering="crispEdges"
       xmlns="http://www.w3.org/2000/svg"
       {...(title ? { role: "img" as const } : { "aria-hidden": true })}

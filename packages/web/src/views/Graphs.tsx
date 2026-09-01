@@ -84,7 +84,10 @@ export function Graphs() {
 
   return (
     <>
-      <Section title="Graphs" hint={HINT[tab]} />
+      <Section
+        title="Graphs"
+        hint={tab === "collisions" ? <CollisionsHint graph={collisions.data} /> : HINT[tab]}
+      />
       <div className="chips">
         {tabs.map(([key, label, count]) => (
           <button
@@ -120,6 +123,28 @@ const HINT: Record<Tab, string> = {
   tools: "tool transitions",
   resources: "who holds what",
 };
+
+/**
+ * The collisions summary line, the same one the vanilla view printed: how many live sessions, how
+ * many files, and the contested count as a warning pill — visible before the picture is read.
+ */
+function CollisionsHint({ graph: g }: { graph: CollisionGraph | null }) {
+  if (!g || g.sessions.length === 0) return HINT.collisions;
+  const n = g.sessions.length;
+  const files = g.files.length;
+  return (
+    <>
+      {n} live session{n === 1 ? "" : "s"}
+      {files > 0 && (
+        <>
+          {" "}
+          · {files} file{files === 1 ? "" : "s"} ·{" "}
+          {g.contested > 0 ? <b className="navcount">{g.contested} contested</b> : "no collisions"}
+        </>
+      )}
+    </>
+  );
+}
 
 function Collisions({ graph, scoped }: { graph: CollisionGraph | null; scoped: boolean }) {
   const agents = useMemo(

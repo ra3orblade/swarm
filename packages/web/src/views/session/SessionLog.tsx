@@ -8,7 +8,7 @@
  * follow the tail when pinned to the bottom, and otherwise stay where the reader put it.
  */
 import type { SwarmEvent } from "@swarm/core/types";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { hhmm, tokens } from "../../lib/format";
 import type { Turn } from "./types";
 
@@ -108,16 +108,16 @@ export interface SessionLogProps {
 export function SessionLog({ events, turns }: SessionLogProps) {
   const rows = useMemo(() => merge(events, turns), [events, turns]);
   const log = useRef<HTMLDivElement>(null);
-  /** Whether the reader was pinned to the bottom *before* this update painted. */
+  /** Whether the reader is at the bottom — true until they scroll up, true again when they return. */
   const pinned = useRef(true);
 
-  // Read the scroll position before React commits, so the check is against the old content. No
-  // dependency array on purpose: this has to run before every commit, not a chosen few.
-  useLayoutEffect(() => {
+  // Read on the reader's own scrolls, never after a commit: an effect that measures after React
+  // has appended rows sees the new, taller content and concludes the reader "left" the bottom,
+  // which is how the log used to open at the top and never follow the tail.
+  const onScroll = () => {
     const el = log.current;
-    if (!el) return;
-    pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - FOLLOW_SLACK;
-  });
+    if (el) pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - FOLLOW_SLACK;
+  };
 
   // Follow the tail after the rows change, but only if the reader was already at the bottom.
   useEffect(() => {
@@ -127,7 +127,7 @@ export function SessionLog({ events, turns }: SessionLogProps) {
   }, [rows]);
 
   return (
-    <div id="log" ref={log}>
+    <div id="log" ref={log} onScroll={onScroll}>
       {rows.map((row) => (
         <div className={`ev ${row.className}`} key={row.key}>
           <span className="t">{hhmm(row.ts)}</span>

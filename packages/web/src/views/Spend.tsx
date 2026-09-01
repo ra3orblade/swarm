@@ -238,6 +238,7 @@ function BucketTable({ id, label, rows, name, color }: BucketTableProps) {
       columns={columns}
       rows={sorted}
       rowKey={(r) => r.key}
+      trailing={{ width: 34, cell: () => null }}
       defaultPageSize={0}
     />
   );

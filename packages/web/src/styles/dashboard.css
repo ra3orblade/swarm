@@ -244,11 +244,10 @@ code {
 
 /* collapsed sidebar = icon rail (M9.1): views stay one click away; projects via ⌘K */
 body.nosb {
-  grid-template-columns: 46px 1fr;
+  grid-template-columns: 0 1fr;
 }
-body.nosb aside {
-  padding: 12px 5px;
-  overflow: hidden;
+body.nosb #sidebar {
+  display: none;
 }
 body.nosb #projects {
   display: none;
@@ -1437,7 +1436,7 @@ td.now {
    This was `td.br`, matching only when the class sat on the cell itself. React puts it on a
    <span> inside the cell (and uses it outside tables too: Search, Graphs, Incidents), so the
    selector matched nothing and every branch name silently rendered as 14px body sans. */
-.br {
+td.br {
   font-family: var(--mono);
   font-size: var(--fs-mono);
   color: var(--fg-2);
@@ -2993,6 +2992,7 @@ main > h2:not(:first-child) {
   flex-wrap: wrap;
 }
 .chip {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -3022,7 +3022,12 @@ main > h2:not(:first-child) {
   border-radius: var(--r-sm);
   padding: 2px;
 }
-.seg a {
+.seg a,
+.seg button {
+  appearance: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
   padding: 3px 10px;
   border-radius: var(--r-sm);
   font: 600 var(--fs-md) var(--sans);
@@ -3034,10 +3039,12 @@ main > h2:not(:first-child) {
   letter-spacing: 0;
   text-transform: none;
 }
-.seg a:hover {
+.seg a:hover,
+.seg button:hover {
   color: var(--fg-2);
 }
-.seg a.on {
+.seg a.on,
+.seg button.on {
   background: var(--acc-soft);
   color: var(--acc);
 }
@@ -3420,7 +3427,6 @@ body.nosb .nudge {
    their own, so strip the button's — a <button> brings its own border, background, centred text,
    shrink-to-fit width and font, none of which these rules expect. */
 .proj,
-.chip,
 .h4-act,
 .nav-group,
 .mini-act {
@@ -3645,4 +3651,20 @@ tr.clickable {
 }
 .linkish:hover {
   color: var(--fg-2);
+}
+
+/* Tiles and cards on the Board are <button>s too (a row menu opens from them); they keep their
+   own background and border, so only the button's text styling is stripped. */
+.wt,
+.tcard {
+  appearance: none;
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wt-group {
+  min-width: 0;
 }
