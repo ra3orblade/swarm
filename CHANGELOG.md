@@ -2,7 +2,7 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.13.1] — 2026-09-01
 
 ### Changed
 
@@ -25,6 +25,9 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Fixed
 
+- **A pill badge in a grid cell sat ~7px low and grew its row** ("built-in" in the MCP grid). A
+  pill is an inline-block of text, so its baseline is its own last line box, not its bottom edge
+  the way an SVG's is; the shared vertical offset assumed the latter.
 - **The sidebar's `+` is a menu again, with the folder browser behind it.** The React port had
   replaced "Browse folders… / Add by path…" with a bare path box under the heading. Both are back
   and open the same picker: sub-folders listed with `git` badged, `..` to go up, a path box that
