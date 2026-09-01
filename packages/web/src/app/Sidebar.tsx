@@ -7,13 +7,32 @@
  * `<button>`s so they can be tabbed to, which the old `<div>`s could not; `.proj` therefore also
  * resets the browser's button chrome (see dashboard.css).
  *
- * Pinned rows reorder by drag-and-drop, as the vanilla ones did. The vanilla moved DOM nodes
- * around during `dragover` as the drop preview; React owns these nodes, so the preview is state —
- * the id order being dragged into — and the list renders from it until the daemon has the new
- * order and the re-poll shows it.
+ * Pinned rows reorder by drag-and-drop, as the vanilla ones did — but with dnd-kit's pointer
+ * sensor, not the HTML5 drag events the vanilla used. Native drag never delivered a `drop` inside
+ * the desktop shell (Tauri's own drag-drop handler eats it), and it cannot animate; dnd-kit moves
+ * the neighbours out of the way with transforms while the row is held. React owns the nodes, so
+ * the dropped order is state — the list renders from it until the daemon has the new order and
+ * the re-poll shows it, so nothing snaps back and forth in between.
  */
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Project, SessionView } from "@swarm/core/types";
-import { type DragEvent, useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { reorderProjects } from "../api/actions";
 import { Sparkline } from "../components/Sparkline";
 import { sumBy } from "../lib/format";
@@ -56,41 +75,43 @@ export function Sidebar() {
   const unpinned = useMemo(() => projects.filter((p) => p.discovered), [projects]);
   const liveAll = Object.values(live).reduce((a, b) => a + b, 0);
 
-  const [drag, setDrag] = useState<Drag | null>(null);
-  // The pinned list in the order being dragged into, else as the daemon sorted it.
+  // Which pinned row is held, and the id order it was dropped into — kept until the daemon has
+  // it and the re-poll shows the same thing.
+  const [active, setActive] = useState<string | null>(null);
+  const [dropped, setDropped] = useState<string[] | null>(null);
   const shownPinned = useMemo(() => {
-    if (!drag) return pinned;
+    if (!dropped) return pinned;
     const byId = new Map(pinned.map((p) => [p.id, p]));
-    return drag.order.flatMap((id) => byId.get(id) ?? []);
-  }, [drag, pinned]);
+    const known = new Set(dropped);
+    // A project pinned while the drop is in flight goes at the end rather than vanishing.
+    return [
+      ...dropped.flatMap((id) => byId.get(id) ?? []),
+      ...pinned.filter((p) => !known.has(p.id)),
+    ];
+  }, [dropped, pinned]);
 
-  const dragHandlers: DragHandlers = {
-    active: drag !== null,
-    onStart: (id) => setDrag({ id, order: pinned.map((p) => p.id) }),
-    onOver: (target, before) => setDrag((d) => (d ? moved(d, target, before) : d)),
-    onEnd: () => {
-      if (!drag) return;
-      const changed = drag.order.some((id, i) => id !== pinned[i]?.id);
-      // The preview stays up until the daemon has the order, so the list does not snap back and
-      // forth between the drop and the re-poll.
-      if (changed) void reorderProjects(drag.order).finally(() => setDrag(null));
-      else setDrag(null);
-    },
+  // A few pixels of travel before a press counts as a drag, so clicks still select the project and
+  // reach the `⋯` button.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const onDragStart = (e: DragStartEvent) => setActive(String(e.active.id));
+  const onDragEnd = ({ active: held, over }: DragEndEvent) => {
+    setActive(null);
+    if (!over || held.id === over.id) return;
+    const ids = shownPinned.map((p) => p.id);
+    const next = arrayMove(ids, ids.indexOf(String(held.id)), ids.indexOf(String(over.id)));
+    setDropped(next);
+    void reorderProjects(next).finally(() => setDropped(null));
   };
 
-  const row = (project: Project, draggable: boolean) => (
-    <ProjectRow
-      key={project.id}
-      project={project}
-      selected={selected === project.id}
-      live={live[project.id] ?? 0}
-      spark={sparks[project.id] ?? EMPTY_SPARK}
-      ambiguous={(duplicated.get(project.name) ?? 0) > 1}
-      onSelect={selectProject}
-      onMenu={(anchor) => projectMenu(anchor, project, live[project.id] ?? 0, menu)}
-      {...(draggable ? { drag: dragHandlers, dragging: drag?.id === project.id } : {})}
-    />
-  );
+  const rowProps = (project: Project): ProjectRowProps => ({
+    project,
+    selected: selected === project.id,
+    live: live[project.id] ?? 0,
+    spark: sparks[project.id] ?? EMPTY_SPARK,
+    ambiguous: (duplicated.get(project.name) ?? 0) > 1,
+    onSelect: selectProject,
+    onMenu: (anchor) => projectMenu(anchor, project, live[project.id] ?? 0, menu),
+  });
 
   return (
     <aside>
@@ -108,14 +129,34 @@ export function Sidebar() {
           <small>{liveAll || ""}</small>
         </button>
 
-        <div id="pinned">{shownPinned.map((p) => row(p, true))}</div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setActive(null)}
+        >
+          <SortableContext
+            items={shownPinned.map((p) => p.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div id="pinned">
+              {shownPinned.map((p) => (
+                <SortableProjectRow key={p.id} {...rowProps(p)} dragging={active === p.id} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
 
         {unpinned.length > 0 && (
           <>
             <h4>
               Unpinned <span className="faint h4-note">· seen, not pinned</span>
             </h4>
-            {unpinned.map((p) => row(p, false))}
+            {unpinned.map((p) => (
+              <ProjectRow key={p.id} {...rowProps(p)} />
+            ))}
           </>
         )}
       </div>
@@ -123,29 +164,19 @@ export function Sidebar() {
   );
 }
 
-/** A drag in progress: which pinned project, and the id order it is being dropped into. */
-interface Drag {
-  id: string;
-  order: string[];
-}
-
-/** `drag.order` with the dragged id moved before or after `target`. Unchanged if nothing moves. */
-function moved(drag: Drag, target: string, before: boolean): Drag {
-  if (target === drag.id) return drag;
-  const rest = drag.order.filter((id) => id !== drag.id);
-  const at = rest.indexOf(target);
-  if (at < 0) return drag;
-  rest.splice(before ? at : at + 1, 0, drag.id);
-  return rest.every((id, i) => id === drag.order[i]) ? drag : { ...drag, order: rest };
-}
-
-/** What a pinned row needs to take part in reordering. */
-interface DragHandlers {
-  /** True while some pinned row is being dragged — a file from the desktop is not our drag. */
-  active: boolean;
-  onStart: (id: string) => void;
-  onOver: (target: string, before: boolean) => void;
-  onEnd: () => void;
+/** A pinned row: `ProjectRow` wired to dnd-kit, so it can be picked up and its neighbours slide. */
+function SortableProjectRow(props: ProjectRowProps) {
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({
+    id: props.project.id,
+  });
+  const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition };
+  return (
+    <ProjectRow
+      {...props}
+      dragging={isDragging || props.dragging === true}
+      sortable={{ ref: setNodeRef, style, listeners: listeners ?? {} }}
+    />
+  );
 }
 
 interface ProjectRowProps {
@@ -156,8 +187,12 @@ interface ProjectRowProps {
   ambiguous: boolean;
   onSelect: (id: string) => void;
   onMenu: (anchor: Element) => void;
-  /** Present on pinned rows, which can be reordered. */
-  drag?: DragHandlers;
+  /** Present on pinned rows, which can be reordered: what dnd-kit needs on the node. */
+  sortable?: {
+    ref: (node: HTMLElement | null) => void;
+    style: CSSProperties;
+    listeners: Record<string, unknown>;
+  };
   dragging?: boolean;
 }
 
@@ -169,28 +204,15 @@ function ProjectRow({
   ambiguous,
   onSelect,
   onMenu,
-  drag,
+  sortable,
   dragging = false,
 }: ProjectRowProps) {
   // Under half a dollar over a fortnight is a flat line pretending to be information.
   const spend = sumBy(spark, (n) => n);
   const parent = ambiguous ? project.root.split("/").filter(Boolean).at(-2) : undefined;
-  const className = ["proj", selected && "sel", dragging && "dragging"].filter(Boolean).join(" ");
-
-  const onDragStart = (e: DragEvent<HTMLDivElement>) => {
-    if (!drag) return;
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", project.id);
-    // After the browser has captured the drag image, so the ghost is not the dimmed row.
-    requestAnimationFrame(() => drag.onStart(project.id));
-  };
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!drag?.active) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const box = e.currentTarget.getBoundingClientRect();
-    drag.onOver(project.id, e.clientY < box.top + box.height / 2);
-  };
+  const className = ["proj", selected && "sel", sortable && "sortable", dragging && "dragging"]
+    .filter(Boolean)
+    .join(" ");
 
   // A <div role="button">, not a <button>: the row contains the `⋯` menu button, and nesting one
   // button inside another is invalid HTML — the browser hoists it out and the click is swallowed.
@@ -204,13 +226,9 @@ function ProjectRow({
         if (e.key === "Enter" || e.key === " ") onSelect(project.id);
       }}
       title={project.root}
-      draggable={drag !== undefined}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={(e) => {
-        if (drag?.active) e.preventDefault();
-      }}
-      onDragEnd={drag?.onEnd}
+      ref={sortable?.ref}
+      style={sortable?.style}
+      {...sortable?.listeners}
     >
       <span className={live > 0 ? "st live" : "st"} />
       <ProjectGlyph project={project} />
