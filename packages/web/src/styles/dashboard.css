@@ -1265,7 +1265,13 @@ tbody td .pg::before {
   width: 0;
   height: 16px;
 }
+/* A pill is an inline-block of *text*, so its baseline is its own last line box, not its bottom
+     edge the way an SVG's is — and `cap - H/2` measured from a text baseline dropped the pill
+     ~7px and grew the row with it ("built-in" in the MCP grid). `overflow: hidden` moves the
+     baseline to the bottom margin edge, which is what the offset below assumes. Nothing is
+     clipped: the pill's padding already clears its own line box. */
 tbody td > * + .badge {
+  overflow: hidden;
   vertical-align: calc(var(--cap) - var(--pill-h) / 2);
 }
 tbody td:not(.td-tools) > svg.ph[width="12"] {
