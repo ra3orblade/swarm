@@ -1,44 +1,22 @@
 /**
  * The "+" in the sidebar header (M11.6).
  *
- * The vanilla dashboard opened a folder browser over `/v1/fs/ls`. This is the same endpoint's
- * simpler half — type or paste a path — which is what the browser was mostly used for anyway, and
- * it is a real control rather than a button that does nothing.
- *
- * The daemon decides what is a project; this only reports what it said.
+ * A menu of the two ways to add a project, as the vanilla dashboard had: browse to the folder, or
+ * type its path. Both open the same {@link FolderPicker}; "Add by path…" just lands in its path
+ * box. The React port replaced this with an inline path input and lost the browser, which is the
+ * one people reach for.
  */
-import { useEffect, useRef, useState } from "react";
-import { addProject } from "../api/actions";
+import { useCallback, useState } from "react";
 import { icon } from "../lib/icon";
+import { openMenu } from "../lib/menus";
+import { FolderPicker } from "./FolderPicker";
+
+type Picker = "browse" | "path";
 
 export function ProjectsHeading() {
-  const [open, setOpen] = useState(false);
-  const [path, setPath] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const [picker, setPicker] = useState<Picker | null>(null);
+  const close = useCallback(() => setPicker(null), []);
 
-  useEffect(() => {
-    if (open) input.current?.focus();
-  }, [open]);
-
-  const submit = async () => {
-    const trimmed = path.trim();
-    if (!trimmed || busy) return;
-    setBusy(true);
-    const result = await addProject(trimmed);
-    setBusy(false);
-    if (result.ok) {
-      setPath("");
-      setError(null);
-      setOpen(false);
-    } else {
-      setError(result.error ?? "could not add that folder");
-    }
-  };
-
-  // The heading is a flex row, so the input cannot be a child of it — it renders after, which is
-  // why this component owns the whole heading rather than just the button.
   return (
     <>
       <h4>
@@ -46,33 +24,21 @@ export function ProjectsHeading() {
         <button
           type="button"
           className="h4-act"
-          title="Add a project by path"
+          title="Add a project"
           aria-label="Add a project"
-          aria-expanded={open}
-          onClick={() => setOpen((was) => !was)}
+          aria-haspopup="menu"
+          onClick={(e) =>
+            openMenu(e.currentTarget, [
+              { label: "Browse folders…", icon: "folder-simple", run: () => setPicker("browse") },
+              { label: "Add by path…", icon: "terminal-window", run: () => setPicker("path") },
+            ])
+          }
         >
           {icon("plus", 14)}
         </button>
       </h4>
 
-      {open && (
-        <div className="addproj">
-          <input
-            ref={input}
-            type="text"
-            value={path}
-            placeholder="~/code/my-repo"
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
-              if (e.key === "Escape") setOpen(false);
-            }}
-          />
-          {error && <div className="addproj-err">{error}</div>}
-        </div>
-      )}
+      {picker !== null && <FolderPicker focusPath={picker === "path"} onClose={close} />}
     </>
   );
 }

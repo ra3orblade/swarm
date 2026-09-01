@@ -25,6 +25,17 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Fixed
 
+- **The sidebar's `+` is a menu again, with the folder browser behind it.** The React port had
+  replaced "Browse folders… / Add by path…" with a bare path box under the heading. Both are back
+  and open the same picker: sub-folders listed with `git` badged, `..` to go up, a path box that
+  navigates on Enter, and refusals shown in the footer instead of an `alert()`. A typed path that
+  does not exist now answers "no such folder" — the daemon used to list `~` instead, silently.
+- **Pinned projects drag to reorder again.** The rows lost their drag handlers in the React port;
+  the order is previewed in place while dragging and saved to the daemon on drop, as before.
+- **The sidebar is resizable.** Drag its right edge (double-click to reset, arrow keys when it has
+  focus); the width persists. It was a fixed 240px, so a long project name was cut to an ellipsis
+  with no way to see the rest.
+
 - **A `git -C <path>` command walked straight past every git rule.** The guards matched on `git`
   immediately followed by the subcommand, so any of git's global options in between — `-C`,
   `--git-dir`, `--work-tree`, `-c` — turned `git -C /someone-elses/worktree reset --hard` into a

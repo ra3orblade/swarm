@@ -38,6 +38,17 @@ export interface TrialsResponse {
 }
 
 /**
+ * One folder as `/v1/fs/ls` lists it, for the add-project picker: directories only, hidden ones
+ * skipped, `repo` when the entry has a `.git`. `parent` is null at the filesystem root. The route
+ * lives in the daemon (`app.ts`), which is the only reader of the disk; this is its shape.
+ */
+export interface DirListing {
+  path: string;
+  parent: string | null;
+  entries: { name: string; repo: boolean }[];
+}
+
+/**
  * A path that remembers what the endpoint returns.
  *
  * The brand is optional, so a plain string is still assignable — views that build a path inline
@@ -51,6 +62,8 @@ const byProject = <T>(path: string, project: string | null): Route<T> =>
 
 /** Every `/v1` path the dashboard reads, built once so encoding cannot drift between call sites. */
 export const routes = {
+  /** A folder's sub-folders. An empty or missing path lists the home directory. */
+  fsList: (path: string): Route<DirListing> => `/v1/fs/ls${query({ path })}`,
   outcomes: (project: string | null) => byProject<OutcomeReport>("/v1/outcomes", project),
   hygiene: (project: string | null) => byProject<HygieneReport>("/v1/hygiene", project),
   gateHealth: (project: string | null) => byProject<GateHealthReport>("/v1/gates/health", project),

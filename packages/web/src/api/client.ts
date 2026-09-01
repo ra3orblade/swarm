@@ -130,7 +130,7 @@ async function request(path: string, init: RequestInit): Promise<Response> {
  */
 export async function send<T>(
   path: string,
-  method: "POST" | "DELETE" | "PATCH",
+  method: "POST" | "PUT" | "DELETE" | "PATCH",
   body?: unknown,
 ): Promise<T> {
   const init: RequestInit = { method, headers: headers() };

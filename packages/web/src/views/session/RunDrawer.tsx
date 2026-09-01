@@ -191,7 +191,7 @@ export function RunDrawer({ projectId, task, onClose, onStarted }: RunDrawerProp
         </select>
       </label>
 
-      {error && <div className="addproj-err">{error}</div>}
+      {error && <div className="pk-err">{error}</div>}
 
       <div className="dim note">
         Claims <b>{task.id}</b> (or reuses your held worktree) and spawns <code>claude -p</code>{" "}

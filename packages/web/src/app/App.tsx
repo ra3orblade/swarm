@@ -45,6 +45,7 @@ import { NotPorted } from "./NotPorted";
 import { Nudges } from "./Nudges";
 import { Palette } from "./Palette";
 import { Sidebar } from "./Sidebar";
+import { SidebarGrip } from "./SidebarGrip";
 import type { ViewId } from "./views";
 import { WhatsNew } from "./WhatsNew";
 
@@ -145,6 +146,7 @@ export function App() {
         onOpenWhatsNew={openWhatsNew}
       />
       <Sidebar />
+      <SidebarGrip />
       <main id="main">
         <ErrorBoundary resetKey={session ?? view}>
           {/* A session is a place you go to and come back from, so it takes over the main pane
