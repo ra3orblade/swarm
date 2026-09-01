@@ -1052,14 +1052,20 @@ button.pk-row {
   opacity: 0.5;
   font-weight: 400;
 }
-/* drag-to-reorder (pinned rows only) */
-.proj[draggable] {
+/* drag-to-reorder (pinned rows only). dnd-kit's pointer sensor needs touch-action off so a
+   finger drag is not turned into a scroll before the row is picked up. The held row moves by
+   transform and its neighbours slide (see Sidebar.tsx), so it is lifted, not ghosted. */
+.proj.sortable {
   cursor: grab;
+  touch-action: none;
 }
 .proj.dragging {
-  opacity: 0.35;
+  position: relative;
+  z-index: 1;
+  cursor: grabbing;
   background: var(--panel-2);
   outline: 1px dashed var(--acc);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
 }
 button {
   background: var(--panel);
