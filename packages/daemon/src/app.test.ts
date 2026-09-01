@@ -1374,7 +1374,9 @@ describe("event storage and wire shape (perf)", () => {
 
   it("measures blocked-on-human time, closing a notification with the next activity (M9.4)", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
-    const at = (min: number) => new Date(Date.UTC(2026, 7, 24, 10, min)).toISOString();
+    // waiting() looks back 7 days, so anchor the fixture an hour ago rather than at a fixed date
+    const t0 = Date.now() - 60 * 60_000;
+    const at = (min: number) => new Date(t0 + min * 60_000).toISOString();
     const base = { projectId: "p1", sessionId: "s1" } as const;
     // a permission prompt answered after 5 minutes
     store.append({
