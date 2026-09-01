@@ -20,6 +20,8 @@ interface UiState {
   /** Session id when the session detail page is open, else null. It is never persisted. */
   session: string | null;
   sidebarCollapsed: boolean;
+  /** Sidebar width in px, dragged from its right edge. Clamped to {@link SIDEBAR_WIDTH}. */
+  sidebarWidth: number;
   /** Sub-tab within the Graphs view. */
   graphTab: string;
   /**
@@ -37,10 +39,23 @@ interface UiState {
   selectProject: (project: string | null) => void;
   openSession: (session: string | null) => void;
   toggleSidebar: () => void;
+  setSidebarWidth: (px: number) => void;
   setGraphTab: (tab: string) => void;
   /** Set the query and go to Search. */
   setSearch: (query: string) => void;
 }
+
+/**
+ * How wide the sidebar may be dragged. The floor keeps the "All projects" row and the `+`
+ * readable; the ceiling stops a stray drag from swallowing the main pane.
+ */
+export const SIDEBAR_WIDTH = { min: 180, default: 240, max: 520 } as const;
+
+/** Clamp a dragged width into range, and drop anything that is not a finite number. */
+export const clampSidebarWidth = (px: number): number =>
+  Number.isFinite(px)
+    ? Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, px)))
+    : SIDEBAR_WIDTH.default;
 
 /** What the user is looking at. The router, in practice: `view` is the route. */
 export const useUiStore = create<UiState>()(
@@ -50,6 +65,7 @@ export const useUiStore = create<UiState>()(
       project: null,
       session: null,
       sidebarCollapsed: false,
+      sidebarWidth: SIDEBAR_WIDTH.default,
       graphTab: "collisions",
       search: "",
 
@@ -62,6 +78,7 @@ export const useUiStore = create<UiState>()(
       selectProject: (project) => set({ project, session: null }),
       openSession: (session) => set({ session }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
       setGraphTab: (graphTab) => set({ graphTab }),
       setSearch: (search) => set({ search, view: "search", session: null }),
     }),
@@ -73,6 +90,7 @@ export const useUiStore = create<UiState>()(
         view: s.view,
         project: s.project,
         sidebarCollapsed: s.sidebarCollapsed,
+        sidebarWidth: s.sidebarWidth,
         graphTab: s.graphTab,
       }),
     },

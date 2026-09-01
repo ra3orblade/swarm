@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createApp, expandHome, Store } from "./app";
 
 const tmpHome = () => mkdtempSync(join(tmpdir(), "swarm-test-"));
@@ -1730,6 +1730,36 @@ describe("POST /v1/projects", () => {
     });
     expect(miss.status).toBe(400);
     expect(store.projects()).toHaveLength(1);
+  });
+
+  it("lists a folder for the picker: sub-folders only, hidden ones skipped, repos badged", async () => {
+    const { app } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs") as typeof import("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-fsls-")));
+    fs.mkdirSync(join(dir, "zeta"));
+    fs.mkdirSync(join(dir, "alpha", ".git"), { recursive: true });
+    fs.mkdirSync(join(dir, ".hidden"));
+    fs.writeFileSync(join(dir, "a-file.txt"), "");
+
+    const res = await app.request(`/v1/fs/ls?path=${encodeURIComponent(dir)}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      path: dir,
+      parent: dirname(dir),
+      entries: [
+        { name: "alpha", repo: true },
+        { name: "zeta", repo: false },
+      ],
+    });
+
+    // A typed path that is not there is an answer, not a silent trip to `~`.
+    const miss = await app.request(`/v1/fs/ls?path=${encodeURIComponent(join(dir, "nope"))}`);
+    expect(miss.status).toBe(404);
+    expect(await miss.json()).toMatchObject({ error: "no such folder" });
+
+    // No path at all lists home, the picker's starting point.
+    const home = (await (await app.request("/v1/fs/ls")).json()) as { path: string };
+    expect(home.path).toBe(fs.realpathSync(require("node:os").homedir()));
   });
 });
 

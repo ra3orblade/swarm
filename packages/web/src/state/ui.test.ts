@@ -20,7 +20,7 @@ const saved = new Map<string, string>();
   },
 };
 
-const { useUiStore } = await import("./ui");
+const { useUiStore, SIDEBAR_WIDTH } = await import("./ui");
 
 const reset = () =>
   useUiStore.setState({ view: "fleet", project: null, session: null, graphTab: "collisions" });
@@ -69,5 +69,26 @@ describe("ui store navigation", () => {
     expect(useUiStore.getState().view).toBe("search");
     expect(useUiStore.getState().search).toBe("orphaned");
     expect(useUiStore.getState().session).toBeNull();
+  });
+});
+
+describe("sidebar width", () => {
+  beforeEach(reset);
+
+  test("a dragged width is kept, rounded to whole pixels", () => {
+    useUiStore.getState().setSidebarWidth(301.6);
+    expect(useUiStore.getState().sidebarWidth).toBe(302);
+  });
+
+  test("a drag past either edge stops at the edge", () => {
+    useUiStore.getState().setSidebarWidth(20);
+    expect(useUiStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH.min);
+    useUiStore.getState().setSidebarWidth(5000);
+    expect(useUiStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH.max);
+  });
+
+  test("garbage falls back to the default rather than NaN-ing the layout", () => {
+    useUiStore.getState().setSidebarWidth(Number.NaN);
+    expect(useUiStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH.default);
   });
 });

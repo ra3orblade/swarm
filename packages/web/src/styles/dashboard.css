@@ -253,6 +253,36 @@ body.nosb aside {
 body.nosb #projects {
   display: none;
 }
+/* The sidebar's drag handle: straddles the edge the body grid draws at `--sb-w`, the way the
+   data-grid's .th-grip straddles a column boundary. Fixed, so it needs no hook in the grid. */
+.sb-grip {
+  position: fixed;
+  top: var(--hdr-h);
+  bottom: 0;
+  left: calc(var(--sb-w) - 4px);
+  width: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 40;
+}
+.sb-grip:hover,
+.sb-grip:active,
+.sb-grip:focus-visible {
+  outline: none;
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--acc) 3px,
+    var(--acc) 5px,
+    transparent 5px
+  );
+}
+body.nosb .sb-grip {
+  display: none;
+}
 #root > aside {
   grid-column: 1;
   grid-row: 2;
@@ -701,6 +731,17 @@ table.plain td {
   cursor: pointer;
   color: var(--fg-2);
 }
+/* Rows are <button>s so they can be tabbed to (the palette, the folder picker): reset the chrome
+   the global `button` rule would give them. */
+button.pk-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  justify-content: flex-start;
+}
 .pk-row:hover {
   background: var(--panel-2);
 }
@@ -981,6 +1022,18 @@ table.plain td {
 }
 .pk-f button {
   flex: none;
+}
+/* A refusal, shown where the action was — the vanilla picker used alert(). In a footer it sits
+   on the button line and gives way to the buttons rather than wrapping them. */
+.pk-err {
+  color: var(--bad);
+  font-size: var(--fs-sm);
+}
+.pk-f .pk-err {
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* a flex spacer, anywhere (the picker header relied on this being global and it wasn't) */
 .grow {
@@ -3470,28 +3523,6 @@ tr.clickable {
 
 /* Add-a-project input in the sidebar header (M11.6). It sits below the heading rather than inside
    it, because the heading is a flex row and an input in it would squeeze the label. */
-.addproj {
-  padding: 4px 0 8px;
-}
-.addproj input {
-  width: 100%;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  color: var(--fg);
-  border-radius: var(--r-xs);
-  padding: 5px 7px;
-  font: var(--fs-md) var(--mono);
-}
-.addproj input:focus {
-  outline: none;
-  border-color: var(--acc);
-}
-.addproj-err {
-  color: var(--bad);
-  font-size: var(--fs-sm);
-  margin-top: 4px;
-}
-
 /* A second heading inside a panel (M11.9) — the vanilla used an inline margin. */
 .mt-panel {
   margin-top: 14px;

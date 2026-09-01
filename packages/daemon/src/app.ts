@@ -181,9 +181,12 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // already has the user's file access. Directories only, hidden dirs skipped.
   app.get("/v1/fs/ls", (c) => {
     const q = expandHome(c.req.query("path") ?? "");
+    // A path that was typed and is not there is an answer, not a reason to list `~` instead —
+    // the picker used to do that silently, and a typo read as "it worked".
+    if (q && !existsSync(q)) return c.json({ error: "no such folder", path: q }, 404);
     let dir: string;
     try {
-      dir = realpathSync(q && existsSync(q) ? q : homedir());
+      dir = realpathSync(q || homedir());
     } catch {
       dir = homedir();
     }

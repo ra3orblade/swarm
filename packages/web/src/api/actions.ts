@@ -136,6 +136,15 @@ export async function addProject(path: string): Promise<WriteResult> {
   }
 }
 
+/**
+ * Persist the sidebar order of the pinned projects: ids in display order. The daemon skips ids
+ * it does not know and answers with the projects re-sorted, which the re-poll then shows.
+ */
+export async function reorderProjects(ids: string[]): Promise<void> {
+  await send("/v1/projects/order", "PUT", { ids });
+  await refreshSnapshot();
+}
+
 /** Pin a discovered project to the sidebar, or unpin it back into the seen-but-not-pinned list. */
 export async function pinProject(id: string, pinned: boolean): Promise<void> {
   await send(`/v1/projects/${id}`, "PATCH", { pinned });
