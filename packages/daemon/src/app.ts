@@ -93,6 +93,14 @@ export function diskVersion(): string | null {
   }
 }
 
+/** `~` and `~/x` → the user's home. Typed paths from the dashboard arrive unexpanded; the shell
+ * does this for the CLI, so the daemon must do it for HTTP callers. */
+export function expandHome(p: string, home = homedir()): string {
+  if (p === "~") return home;
+  if (p.startsWith("~/")) return join(home, p.slice(2));
+  return p;
+}
+
 export function createApp(store = new Store(), hooks: { restart?: () => void } = {}) {
   const app = new Hono();
   const forge = new ForgeService(store);
@@ -141,7 +149,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     const { path, name } = (await c.req.json()) as { path?: string; name?: string };
     if (!path) return c.json({ error: "path required" }, 400);
     try {
-      return c.json(store.resolveProject(path, true, name), 201);
+      return c.json(store.resolveProject(expandHome(path), true, name), 201);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
@@ -172,7 +180,7 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
   // ---- filesystem browser (for the "add project" folder picker). Localhost only; the daemon
   // already has the user's file access. Directories only, hidden dirs skipped.
   app.get("/v1/fs/ls", (c) => {
-    const q = c.req.query("path");
+    const q = expandHome(c.req.query("path") ?? "");
     let dir: string;
     try {
       dir = realpathSync(q && existsSync(q) ? q : homedir());
