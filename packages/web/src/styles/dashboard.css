@@ -82,7 +82,7 @@
   --acc-contrast: #ffffff;
   /* recurring spacing */
   --pad-cell: 9px 12px;
-  --pad-page: 22px;
+  --pad-page: 16px 24px 24px 24px;
   --pad-ctl: 7px 11px;
   --pad-row: 7px 10px;
   --gap-sec: 18px;
@@ -1712,16 +1712,16 @@ span.path .dim {
 /* session detail */
 /* The page is a column that fills the pane: header, the two panels, then the stdin bar for a
      spawned run. The panels take whatever height is left, so the gap under them is the page
-     padding — the same 22px as the sides — instead of the remainder of a hardcoded `100vh - 140px`
+     padding — the same 24px as the sides — instead of the remainder of a hardcoded `100vh - 140px`
      that was ~35px on a normal window and drifted with the header's wrapping and the stdin bar. */
 main:has(> .sess) {
   display: flex;
   flex-direction: column;
 }
-/* The header sits centred in its band: the same gap to the panels as to the top edge. */
+/* The header sits centred in its band: the same 16px to the panels as to the top edge. */
 main:has(> .sess) > h2.hrow {
   flex: none;
-  margin-bottom: var(--pad-page);
+  margin-bottom: 16px;
 }
 .sess {
   flex: 1;
