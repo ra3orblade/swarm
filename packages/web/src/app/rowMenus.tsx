@@ -43,6 +43,8 @@ export interface MenuContext {
   reload?: () => void;
   /** Open the diff drawer for a worktree. Absent in views that have nowhere to put it. */
   showDiff?: (projectId: string, worktree: string) => void;
+  /** Open the project settings drawer. Only the sidebar hosts it. */
+  editProject?: (project: Project) => void;
 }
 
 /** Project row: where to look at it, whether it is pinned, and how to stop tracking it. */
@@ -82,6 +84,16 @@ export function projectMenu(
         caption: tail(project.root, 16),
         run: () => void copy(project.root),
       },
+      ...(ctx.editProject
+        ? [
+            {
+              label: "Settings…",
+              icon: "sliders",
+              caption: "name · icon · color",
+              run: () => ctx.editProject?.(project),
+            },
+          ]
+        : []),
       divider,
       {
         label: "Remove from Swarm",

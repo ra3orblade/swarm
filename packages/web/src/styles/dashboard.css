@@ -761,7 +761,8 @@ button.pk-row {
   display: grid;
   gap: 10px;
 }
-.pk-b label {
+.pk-b label,
+.pk-b .pk-lbl {
   display: grid;
   gap: 4px;
   font: 500 var(--fs-sm) var(--sans);
@@ -2792,6 +2793,12 @@ main > h2:not(:first-child) {
 .swatch.on {
   border-color: var(--fg);
 }
+/* The emoji cells and swatches are buttons (keyboard-reachable). Their own class rules already
+   outrank the global button rule; only its padding has nothing to lose against. */
+button.emoji,
+button.swatch {
+  padding: 0;
+}
 .pk-b label.chk {
   display: flex;
   align-items: center;
@@ -3035,6 +3042,8 @@ main > h2:not(:first-child) {
   border-radius: var(--r-sm);
   padding: 2px;
 }
+/* The vanilla rendered <a>; React renders <button>, which the global button rule would otherwise
+   dress as a bordered control. Both selectors, so the segment reads the same either way. */
 .seg a,
 .seg button {
   appearance: none;

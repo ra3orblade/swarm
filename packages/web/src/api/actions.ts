@@ -151,6 +151,17 @@ export async function pinProject(id: string, pinned: boolean): Promise<void> {
   await refreshSnapshot();
 }
 
+/** Project settings. `icon` and `color` empty mean "none"; the daemon validates both. */
+export async function updateProject(
+  id: string,
+  patch: { name?: string; icon?: string; color?: string; pinned?: boolean },
+): Promise<WriteResult> {
+  const body = await send<unknown>(`/v1/projects/${id}`, "PATCH", patch);
+  const result = asResult(body);
+  if (result.ok) await refreshSnapshot();
+  return result;
+}
+
 /** Stop tracking a project. Its history stays in the database; only the sidebar entry goes. */
 export async function removeProject(id: string): Promise<void> {
   await send(`/v1/projects/${id}`, "DELETE");
