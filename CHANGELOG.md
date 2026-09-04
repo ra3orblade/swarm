@@ -2,6 +2,15 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Changed
+
+- **The session log shows the newest entries first.** The latest tool call or turn is the top line
+  now instead of the one at the end of a scroll. While you are at the top the log stays on the
+  newest row as more arrive; scroll down into the history and it keeps the row you are reading
+  under your eyes when new rows land above it.
+
 ## [0.13.1] — 2026-09-01
 
 ### Changed

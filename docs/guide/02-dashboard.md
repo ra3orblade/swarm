@@ -59,7 +59,7 @@ Click a row to open the session. The `⋯` menu (or right-click) opens the sessi
 
 ## Session detail
 
-The left column is the session stream: hook events (prompts, tool calls, subagent starts, notifications) interleaved with the assistant's reasoning text, each turn annotated with its output tokens and cost. Subagent turns are labelled `subagent`. The log follows the tail while you are scrolled to the bottom and keeps your place otherwise.
+The left column is the session stream: hook events (prompts, tool calls, subagent starts, notifications) interleaved with the assistant's reasoning text, each turn annotated with its output tokens and cost. Subagent turns are labelled `subagent`. Newest first: the latest event or turn is the top line. While you are at the top the log stays on the newest row as they arrive; scroll down into the history and it keeps the row you are reading in place under new arrivals.
 
 The right panel is the stats panel: cost, model, turns, tool calls, output (with thinking tokens), context size with the percentage served from cache, started / last seen, subagent turns, a token-composition bar, a per-turn cost strip, a tool histogram, and the path of the transcript file the numbers come from.
 
