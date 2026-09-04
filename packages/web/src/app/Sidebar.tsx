@@ -34,12 +34,14 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Project, SessionView } from "@swarm/core/types";
 import { type CSSProperties, useMemo, useState } from "react";
 import { reorderProjects } from "../api/actions";
+import { ProjectGlyph } from "../components/ProjectGlyph";
 import { Sparkline } from "../components/Sparkline";
 import { sumBy } from "../lib/format";
 import { icon } from "../lib/icon";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
 import { ProjectsHeading } from "./AddProject";
+import { ProjectSettings } from "./ProjectSettings";
 import { projectMenu } from "./rowMenus";
 import { useMenuContext } from "./useMenuContext";
 
@@ -49,7 +51,8 @@ export function Sidebar() {
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY_SESSIONS);
   const sparks = useSnapshot((s) => s?.spendSparks ?? EMPTY_SPARKS);
-  const menu = useMenuContext();
+  const [editing, setEditing] = useState<Project | null>(null);
+  const menu = useMenuContext(undefined, undefined, setEditing);
 
   // Derived with useMemo, never inside the selector: a selector that builds a fresh object returns
   // a new reference every call, so the store's identity check always says "changed" and the render
@@ -160,6 +163,7 @@ export function Sidebar() {
           </>
         )}
       </div>
+      {editing && <ProjectSettings project={editing} onClose={() => setEditing(null)} />}
     </aside>
   );
 }
@@ -257,20 +261,6 @@ function ProjectRow({
       </button>
     </div>
   );
-}
-
-/** A project's emoji glyph, or the folder icon, tinted with its colour slot. */
-export function ProjectGlyph({ project, size = 14 }: { project: Project; size?: number }) {
-  const className = project.color ? `pg pg-${project.color}` : "pg";
-  if (!project.icon) return <span className={className}>{icon("folder-simple", size)}</span>;
-  if (project.icon.startsWith("data:image/")) {
-    return (
-      <span className={className}>
-        <img className="pg-img" src={project.icon} alt="" />
-      </span>
-    );
-  }
-  return <span className={className}>{project.icon}</span>;
 }
 
 const EMPTY_PROJECTS: Project[] = [];
