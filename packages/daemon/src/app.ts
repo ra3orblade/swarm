@@ -31,7 +31,7 @@ import { Store } from "./store";
 import { TeamForwarder } from "./team";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.13.1";
+export const VERSION = process.env.SWARM_VERSION ?? "0.13.2";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.

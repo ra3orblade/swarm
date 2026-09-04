@@ -2,7 +2,7 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.13.2] — 2026-09-04
 
 ### Changed
 
@@ -10,6 +10,33 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   now instead of the one at the end of a scroll. While you are at the top the log stays on the
   newest row as more arrive; scroll down into the history and it keeps the row you are reading
   under your eyes when new rows land above it.
+
+### Fixed
+
+- **The React port's regressions against the vanilla dashboard.** Every view was rendered from the
+  retired vanilla dashboard beside the React one and pixel-diffed; ten things had slipped in the
+  port. The session sidebar has its cost-per-turn strip, messages, waiting questions and the
+  copyable transcript row back; chips are pills again (the global `<button>` reset had stripped
+  them); branch and model columns are proportional, so `fable-5-1` fits; empty states draw the idle
+  robot; the Board's Map/Table and Cards/Table toggles, the Graphs collisions hint, the Provenance
+  "N untracked" pill and the Spend column menus are restored. The collapsed sidebar collapses to
+  nothing — the 46px rail had been empty since the nav moved to the header.
+- **The range switch shows which range is on.** 14d / 90d on Spend and Stats, 3h…72h on Timeline:
+  the stylesheet styled `.seg a`, React renders `<button>`, so the buttons wore the global button
+  chrome and the active one looked like the rest.
+- **The project row's `⋯` menu has "Settings…" again.** The v0.8.0 drawer was never ported, so
+  there was no way to change a project's icon, name, colour or pinned state from the dashboard.
+  Emoji tiles, the full emoji grid behind "…", an image file downsized to 64px, the swatches and the
+  pinned toggle are back, and the daemon's validation error shows in the footer instead of being
+  swallowed. The emoji and swatch cells are buttons now, so the keyboard reaches them.
+- **Pinned projects reorder with dnd-kit; the drop lands.** HTML5 drag started but the drop never
+  fired inside the desktop app: Tauri installs its own drag-drop handler on the webview, which
+  swallows `drop` and `dragend`. Pointer events get through. The held row follows the pointer and
+  its neighbours slide out of the way, which the native drag could never animate.
+- **The session page keeps consistent gutters.** The panels were `calc(100vh - 140px)`, a guess
+  that drifted whenever the header wrapped or the stdin bar appeared, leaving ~35px at the bottom
+  and the header crowding the panels. The page is a flex column now: 16px on top, 24px on the
+  other sides, and the log scrolls inside its panel.
 
 ## [0.13.1] — 2026-09-01
 
