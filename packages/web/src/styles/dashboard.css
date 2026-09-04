@@ -1749,6 +1749,8 @@ main:has(> .sess) > h2.hrow {
   box-shadow: var(--shadow);
   padding: 6px 0;
   overflow: auto;
+  /* Newest row first: SessionLog corrects scrollTop itself when rows land above the reader. */
+  overflow-anchor: none;
 }
 /* 68 + 112 + two 12px gaps was 204px of chrome before a single character of transcript. The
      kind labels are short now (see EV_LABEL), so the columns fit what they hold and the text
