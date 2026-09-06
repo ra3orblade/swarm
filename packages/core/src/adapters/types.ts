@@ -20,6 +20,10 @@ export interface AgentAdapter {
   id: string;
   /** human label, e.g. "Claude Code", "Codex" */
   label: string;
-  /** Parse newly-appended log text into turns + session facts. Must tolerate partial/garbage lines. */
-  parseLog(chunk: string): LogParseResult;
+  /**
+   * Parse newly-appended log text into turns + session facts. Must tolerate partial/garbage lines.
+   * `sessionIdHint` is the session id already known for this file — adapters whose id lives only in
+   * a header record at the top of the file need it to make sense of an incremental chunk.
+   */
+  parseLog(chunk: string, sessionIdHint?: string | null): LogParseResult;
 }

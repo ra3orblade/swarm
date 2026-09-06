@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store";
@@ -89,6 +89,23 @@ describe("gemini tailer (M5.4)", () => {
       store.db.query("SELECT COUNT(*) AS n FROM turns WHERE session_id = 'g-43'").get(),
     ).toEqual({ n: 1 });
     // incremental: nothing new → no re-ingest
+    expect(store.tailGemini()).toBe(0);
+    // #145: the next chunk has no metadata header — the remembered session id keeps it flowing
+    appendFileSync(
+      join(chats, "session-2026-08-24-g-42.jsonl"),
+      `${JSON.stringify({
+        id: "m3",
+        timestamp: now,
+        type: "gemini",
+        model: "gemini-2.5-pro",
+        content: [{ text: "More." }],
+        tokens: { input: 300, output: 40 },
+      })}\n`,
+    );
+    expect(store.tailGemini()).toBe(1);
+    expect(
+      store.db.query("SELECT id FROM turns WHERE session_id = 'g-42' ORDER BY id").all(),
+    ).toEqual([{ id: "g-42-m2" }, { id: "g-42-m3" }]);
     expect(store.tailGemini()).toBe(0);
   });
 });

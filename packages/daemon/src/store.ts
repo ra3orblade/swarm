@@ -3501,17 +3501,21 @@ export class Store {
   private ingestLog(
     path: string,
     agent: string,
-    parse: (chunk: string) => LogParseResult,
+    parse: (chunk: string, sessionIdHint?: string | null) => LogParseResult,
     cwdHint?: string,
     titleHint?: string,
   ): number {
-    const off = (this.db.query("SELECT offset FROM tails WHERE path = ?").get(path) as {
+    const off = (this.db.query("SELECT offset, session_id FROM tails WHERE path = ?").get(path) as {
       offset: number;
-    } | null) ?? { offset: 0 };
+      session_id: string | null;
+    } | null) ?? { offset: 0, session_id: null };
     const r = this.readFrom(path, off.offset);
     if (!r) return 0;
-    const d = parse(r.chunk);
-    const sid = d.sessionId;
+    // Codex rollouts and Gemini chats carry the session id only in a header record the first poll
+    // consumes, so hand the parser the id remembered for this file: without it every later chunk
+    // would bail below and the offset would never advance past those bytes.
+    const d = parse(r.chunk, off.session_id);
+    const sid = d.sessionId ?? off.session_id;
     if (!sid) return 0; // header not seen yet
     const mtime = (() => {
       try {
