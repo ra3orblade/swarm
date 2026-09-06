@@ -60,4 +60,38 @@ describe("parseCodexRollout", () => {
   it("tolerates garbage and partial lines", () => {
     expect(parseCodexRollout("not json\n{}\n").turns).toHaveLength(0);
   });
+  it("keeps the session and mints the same turn ids for an incremental chunk (#145)", () => {
+    // second poll: only the bytes appended since the first one — no session_meta header
+    const tail = L({
+      type: "event_msg",
+      timestamp: "2026-07-06T14:00:09Z",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: {
+            input_tokens: 20000,
+            cached_input_tokens: 14000,
+            output_tokens: 300,
+            reasoning_output_tokens: 12,
+          },
+        },
+      },
+    });
+    const blind = parseCodexRollout(tail);
+    expect(blind.sessionId).toBeNull(); // the header is gone: without the hint the daemon bails
+    const hinted = parseCodexRollout(tail, "sess-cx");
+    expect(hinted.sessionId).toBe("sess-cx");
+    expect(hinted.turns).toHaveLength(1);
+    // a full rescan of the whole file mints exactly the same ids, so re-ingest overwrites
+    const whole = parseCodexRollout(fixture + tail);
+    expect([parseCodexRollout(fixture).turns[0]?.id, hinted.turns[0]?.id]).toEqual(
+      whole.turns.map((t) => t.id),
+    );
+  });
+  it("collapses a re-emitted identical usage snapshot onto one id", () => {
+    const lastEvent = `${fixture.split("\n").filter(Boolean).at(-1)}\n`; // the token_count line
+    const d = parseCodexRollout(`${fixture}${lastEvent}`);
+    expect(d.turns).toHaveLength(2);
+    expect(d.turns[0]?.id).toBe(d.turns[1]?.id as string); // same id → upsert, counted once
+  });
 });

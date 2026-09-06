@@ -34,9 +34,19 @@ interface Line {
   };
 }
 
-export function parseCodexRollout(chunk: string): LogParseResult {
-  const out: LogParseResult = { turns: [], sessionId: null, cwd: null, model: null, title: null };
-  let n = 0;
+/**
+ * `sessionIdHint` is the id the daemon recorded when the file was first tailed: the session_meta
+ * record sits at the top of the rollout, so every incremental chunk after the first poll arrives
+ * without it.
+ */
+export function parseCodexRollout(chunk: string, sessionIdHint?: string | null): LogParseResult {
+  const out: LogParseResult = {
+    turns: [],
+    sessionId: sessionIdHint ?? null,
+    cwd: null,
+    model: null,
+    title: null,
+  };
   // pending assistant text + tool names since the last usage boundary
   let text = "";
   let tools: string[] = [];
@@ -68,9 +78,13 @@ export function parseCodexRollout(chunk: string): LogParseResult {
         const u = p.info?.last_token_usage;
         if (!u) continue;
         const cacheRead = u.cached_input_tokens ?? 0;
+        const ts = d.timestamp ?? (lastTs || new Date(0).toISOString());
         const turn: Turn = {
-          id: `${out.sessionId ?? "codex"}-t${n}`,
-          ts: d.timestamp ?? (lastTs || new Date(0).toISOString()),
+          // The event's own timestamp + usage, not a per-chunk counter: the same event keeps the
+          // same id whether it arrives in an incremental tail chunk or a full rescan, so
+          // re-reading it overwrites its own row instead of minting a duplicate turn.
+          id: `${out.sessionId ?? "codex"}-${ts}-${u.input_tokens ?? 0}-${cacheRead}-${u.output_tokens ?? 0}-${u.reasoning_output_tokens ?? 0}`,
+          ts,
           model: out.model ?? "gpt-5",
           usage: {
             input: Math.max(0, (u.input_tokens ?? 0) - cacheRead),
@@ -86,7 +100,6 @@ export function parseCodexRollout(chunk: string): LogParseResult {
           sidechain: false,
         };
         out.turns.push(turn);
-        n++;
         text = "";
         tools = [];
       }

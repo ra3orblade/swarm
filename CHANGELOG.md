@@ -2,6 +2,20 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Codex and Gemini sessions stopped updating after the first look.** Both write their session id
+  once, in a header line at the top of the file, and the first poll consumed it — so every later
+  poll read the new lines, failed to tell which session they belonged to, and threw them away
+  without even advancing its place in the file. A Codex session's usage sat frozen at whatever the
+  daemon saw the first time it found the log. The daemon now remembers the session it recorded for
+  each file and hands it back to the parser, so tailing continues for the life of the session.
+  Codex turns are also identified by their own timestamp and usage now instead of a per-poll
+  counter, so a re-read of the same event updates that turn rather than counting it twice.
+  Thanks @roy-tong for the diagnosis and the fix (#145).
+
 ## [0.13.2] — 2026-09-04
 
 ### Changed

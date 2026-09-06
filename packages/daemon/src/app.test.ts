@@ -168,6 +168,24 @@ describe("codex ingestion", () => {
     expect(s?.agent).toBe("codex");
     expect(s?.model).toBe("gpt-5.5");
     expect(s?.tokens.output).toBe(200);
+    // #145: the next poll's chunk has no session_meta header — the remembered id keeps it flowing
+    require("node:fs").appendFileSync(
+      roll,
+      L({
+        type: "event_msg",
+        timestamp: "2026-08-20T10:00:07Z",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: { input_tokens: 2000, cached_input_tokens: 0, output_tokens: 500 },
+          },
+        },
+      }),
+    );
+    expect(store.tailCodex(3650 * 24 * 60 * 60_000)).toBe(1);
+    expect(store.sessions().find((x) => x.id === "cx1")?.tokens.output).toBe(700);
+    // and the offset advanced: nothing new to read
+    expect(store.tailCodex(3650 * 24 * 60 * 60_000)).toBe(0);
     delete process.env.SWARM_CODEX_DIR;
   });
 });

@@ -48,8 +48,18 @@ function partText(content: unknown): string {
   return out.slice(0, 400);
 }
 
-export function parseGeminiChat(chunk: string): LogParseResult {
-  const out: LogParseResult = { turns: [], sessionId: null, model: null, cwd: null, title: null };
+/**
+ * `sessionIdHint` is the id the daemon recorded when the file was first tailed: the metadata
+ * record sits at the head of the chat, so incremental chunks after the first poll never see it.
+ */
+export function parseGeminiChat(chunk: string, sessionIdHint?: string | null): LogParseResult {
+  const out: LogParseResult = {
+    turns: [],
+    sessionId: sessionIdHint ?? null,
+    model: null,
+    cwd: null,
+    title: null,
+  };
   let subagent = false;
   for (const raw of chunk.split("\n")) {
     if (!raw.trim()) continue;
