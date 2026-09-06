@@ -381,7 +381,7 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
     <div class="dl card">
       <div class="row" data-os="mac"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M11 8h3v2h-3zm3-2h4v2h-4zm4 2h2v3h-2zm-2 3h2v4h-2zm2 4h2v5h-2zm-4 5h4v2h-4zm-3-2h3v2h-3zm-4 2h4v2H7zm-2-2h2v2H5zm-2-8h2v8H3zm2-2h2v2H5zm2-2h4v2H7zm5-3h2v2h-2zm2-2h2v2h-2z"/></svg><div class="who"><b>macOS</b><span>Apple silicon · signed &amp; notarized · auto-updates</span></div><div class="links"></div></div>
       <div class="row" data-os="win"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 3h16v2H4zm0 16h16v2H4zM2 5h2v14H2zm18 0h2v14h-2zM4 7h16v2H4zm8-2h2v2h-2zm4 0h2v2h-2z"/></svg><div class="who"><b>Windows</b><span>x64 · auto-updates</span></div><div class="links"></div></div>
-      <div class="row" data-os="linux"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 22H9v-2h6v2Zm-6-2H7v-2h2v2Zm8 0h-2v-2h2v2ZM3 14h4v4H5v-2H1v-4h2v2Zm20 2h-4v2h-2v-4h4v-2h2v4Zm-10-3h-2v-2H9V9h6v2h-2v2Zm-8-1H3v-2h2v2Zm16 0h-2v-2h2v2ZM7 10H5V8h2v2Zm12 0h-2V8h2v2ZM9 8H7V4h2v4Zm8 0h-2V4h2v4Zm-2-4H9V2h6v2Z"/></svg><div class="who"><b>Linux</b><span>x86_64 · .deb and .rpm</span></div><div class="links"></div></div>
+      <div class="row" data-os="linux"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M15 22H9v-2h6v2Zm-6-2H7v-2h2v2Zm8 0h-2v-2h2v2ZM3 14h4v4H5v-2H1v-4h2v2Zm20 2h-4v2h-2v-4h4v-2h2v4Zm-10-3h-2v-2H9V9h6v2h-2v2Zm-8-1H3v-2h2v2Zm16 0h-2v-2h2v2ZM7 10H5V8h2v2Zm12 0h-2V8h2v2ZM9 8H7V4h2v4Zm8 0h-2V4h2v4Zm-2-4H9V2h6v2Z"/></svg><div class="who"><b>Linux</b><span>x86_64 · AppImage, .deb and .rpm</span></div><div class="links"></div></div>
       <div class="row"><svg class="ic" viewBox="0 0 24 24" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true"><path d="M4 2h16v2H4zm0 18h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM6 16h2v2H6zm2-2h2v2H8zm-2-2h2v2H6z"/></svg><div class="who"><b>CLI</b><span>any platform with <a href="https://bun.sh">Bun</a></span></div><div class="links"><a class="pill mono" href="https://www.npmjs.com/package/@ra3orblade/swarm">bunx @ra3orblade/swarm setup</a></div></div>
     </div>
   </section>
@@ -428,7 +428,7 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
       const dl = gh + npm ? ` · ${fmt(gh + npm)} downloads${npm ? ` (${fmt(npm)} via npm, 30d)` : ""}` : "";
       document.getElementById("ver").textContent = `${rel.tag} · ${new Date(rel.published_at).toLocaleDateString()}${dl}`;
       document.getElementById("rel").textContent = ` · ${rel.tag}`;
-      const buckets = { mac: [/\.dmg$/], win: [/-setup\.exe$/, /\.msi$/], linux: [/\.deb$/, /\.rpm$/] };
+      const buckets = { mac: [/\.dmg$/], win: [/-setup\.exe$/, /\.msi$/], linux: [/\.AppImage$/, /\.deb$/, /\.rpm$/] };
       const ext = (n) => n.match(/(\.[a-z0-9]+)$/i)?.[1] ?? n;
       const mb = (b) => `${(b / 1048576).toFixed(0)} MB`;
       let mine = null;

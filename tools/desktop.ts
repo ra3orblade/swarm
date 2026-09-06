@@ -1,5 +1,5 @@
 /** Prepare the Tauri desktop app: build web assets, compile the daemon sidecar, stage resources. */
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { splashHtml } from "./splash";
 
@@ -23,13 +23,30 @@ const hostLine = new TextDecoder()
   .find((l) => l.startsWith("host:"));
 if (!hostLine) throw new Error("could not determine the Rust host triple (is rustc installed?)");
 const triple = hostLine.slice(6).trim();
-mkdirSync(join(tauri, "binaries"), { recursive: true });
-const out = join(tauri, "binaries", `swarmd-${triple}${triple.includes("windows") ? ".exe" : ""}`);
+const linux = triple.includes("linux");
+// On Linux the daemon ships **gzipped as a resource**, not as an `externalBin`. AppImage bundling
+// runs every ELF file in the AppDir — usr/bin and the resource dir alike — through
+// `patchelf --set-rpath`, which appends to the file and so destroys the payload `bun build
+// --compile` glues to the end of its executables: the sidecar segfaults on launch. A .gz is not an
+// ELF, so linuxdeploy walks past it; the app unpacks it to ~/.swarm/bin on first run. See
+// `daemon_command` in src-tauri/src/lib.rs and M6.4 in docs/06.
+mkdirSync(join(tauri, linux ? "bin" : "binaries"), { recursive: true });
+const out = linux
+  ? join(tauri, "bin", "swarmd")
+  : join(tauri, "binaries", `swarmd-${triple}${triple.includes("windows") ? ".exe" : ""}`);
 const r = Bun.spawnSync(
   ["bun", "build", "packages/daemon/src/bin.ts", "--compile", "--outfile", out],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
 if (r.exitCode !== 0) process.exit(r.exitCode);
+if (linux) {
+  const raw = readFileSync(out);
+  writeFileSync(`${out}.gz`, Bun.gzipSync(raw));
+  rmSync(out, { force: true }); // only the .gz is a declared resource; a stray ELF would be patched
+  console.log(
+    `gzipped sidecar: ${(raw.byteLength / 2 ** 20) | 0}MB → ${(statSync(`${out}.gz`).size / 2 ** 20) | 0}MB`,
+  );
+}
 
 // 3. stage web assets as a Tauri resource
 const web = join(tauri, "web");
@@ -37,7 +54,9 @@ rmSync(web, { recursive: true, force: true });
 mkdirSync(web, { recursive: true });
 cpSync(join(root, "packages/web/public"), web, { recursive: true });
 
-console.log(`\nstaged sidecar swarmd-${triple} + web resources → ${tauri}`);
+console.log(
+  `\nstaged ${linux ? "bin/swarmd.gz" : `sidecar swarmd-${triple}`} + web resources → ${tauri}`,
+);
 
 // --bundle: map Brainstorm/electron-builder signing vars to Tauri's names, then build the app.
 if (process.argv.includes("--bundle")) {

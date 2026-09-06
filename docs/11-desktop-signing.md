@@ -41,6 +41,27 @@ With none set, `desktop:build` produces an unsigned dev build.
 
 The workflow uploads the `.dmg` plus the updater artifacts and `latest.json` to a draft Release; the app's updater polls `releases/latest/download/latest.json`.
 
+## Linux packaging: the daemon ships gzipped
+
+AppImage bundling runs `linuxdeploy`, which walks **every ELF file in the AppDir** — `usr/bin` and
+the resource directory alike — and rewrites each one with `patchelf --set-rpath`. That appends to
+the file, which destroys the payload `bun build --compile` glues onto the end of its executables:
+the bundled daemon segfaults, and the gtk plugin's next `ldd` over the wrecked binary exits 1 and
+takes linuxdeploy down with it (`Failed to run ldd`, exit 134). That is why AppImage was off
+between v0.2.2 and v0.13.2.
+
+So on Linux the daemon is not an `externalBin` at all:
+
+- `tauri.linux.conf.json` clears `externalBin` and adds `bin/swarmd.gz` to `resources`.
+- `tools/desktop.ts` compiles the daemon and gzips it there (77 MB → 36 MB). A `.gz` is not an ELF,
+  so linuxdeploy walks past it untouched.
+- `daemon_command` in `src-tauri/src/lib.rs` unpacks it to `~/.swarm/bin/swarmd-<version>` on the
+  first run of each version, drops the copies older versions left, and runs that.
+
+The same path serves `.deb` and `.rpm`, which keeps one Linux code path instead of two. `NO_STRIP`
+stays set in the workflow: linuxdeploy's own strip step fails on GitHub runners, and the release
+profile already strips.
+
 ## The updater keypair
 
 Generated once with `bunx tauri signer generate`. The **public** key lives in `tauri.conf.json`. Keep the **private** key secret (repo secret + a safe backup) — losing it means shipped apps can no longer verify updates.
