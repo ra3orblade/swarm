@@ -63,6 +63,6 @@ Status: living. Grouped by what you can use today. The engineering plan behind t
 
 ## Planned
 
-Nothing in this document is planned any more — every group above ships today. What is still open is tracked as decisions in [open questions](07-open-questions.md) and as milestones in [06-roadmap.md](06-roadmap.md).
+Every group above ships today. **M12 Reach** is proposed (not yet decided) from the 2026-09-06 landscape survey in [15-landscape](15-landscape.md): OpenTelemetry export, a statusline, plan quota windows, rules on Codex / Gemini CLI / Cursor, a destructive-command family with secrets and tamper guards, sandboxed runs, a reviewer on permission prompts, user-defined signals and a score, cost by MCP server, and CI feedback into the run. Decisions it needs are OQ-20 – OQ-23 in [open questions](07-open-questions.md).
 
 See [open questions](07-open-questions.md) for decisions still in the air.
