@@ -1,0 +1,50 @@
+# The AppImage bundler is the one thing the rest of CI never exercises: it runs only at release
+# time, which is how a broken one went unnoticed from v0.2.2 to v0.13.2 (M6.4 in docs/06). This
+# builds it on the same runner the release uses, and asserts the daemon inside came out untouched.
+name: desktop
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "tools/desktop.ts"
+      - ".github/workflows/desktop.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev build-essential libfuse2
+      - run: bun install --frozen-lockfile
+      - run: bun run desktop:prep
+      - name: Bundle the AppImage
+        working-directory: apps/desktop
+        env:
+          NO_STRIP: "true"
+        # no updater artifacts: signing them needs the release key, which PRs don't get
+        run: bunx tauri build --verbose --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: The daemon must reach the AppDir unpatched
+        run: |
+          set -eux
+          appdir=apps/desktop/src-tauri/target/release/bundle/appimage/Swarm.AppDir
+          # gzipped, so linuxdeploy's patchelf pass walks past it instead of wrecking bun's payload
+          cmp "$appdir/usr/lib/Swarm/bin/swarmd.gz" apps/desktop/src-tauri/bin/swarmd.gz
+          # and no ELF copy anywhere for it to rewrite
+          test ! -e "$appdir/usr/bin/swarmd"
+          ls -lh apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+      - name: The bundled daemon still runs
+        run: |
+          set -eux
+          gzip -dc apps/desktop/src-tauri/target/release/bundle/appimage/Swarm.AppDir/usr/lib/Swarm/bin/swarmd.gz > /tmp/swarmd
+          chmod +x /tmp/swarmd
+          SWARM_HOME=/tmp/swarm-home SWARM_PORT=7998 /tmp/swarmd &
+          for i in $(seq 1 30); do curl -sf -m 2 http://127.0.0.1:7998/v1/state >/dev/null && break; sleep 1; done
+          curl -sf -m 5 http://127.0.0.1:7998/v1/state | head -c 80

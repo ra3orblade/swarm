@@ -1,6 +1,8 @@
 src-tauri/target/
 src-tauri/gen/
 src-tauri/binaries/
+# the gzipped daemon staged for Linux bundles (tools/desktop.ts)
+src-tauri/bin/
 src-tauri/web/
 *.key
 dist/

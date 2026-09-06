@@ -12,7 +12,7 @@ Builds are published on [GitHub Releases](https://github.com/ra3orblade/swarm/re
 |---|---|---|
 | macOS (Apple silicon) | `.dmg` | Signed and notarized; opens without warnings |
 | Windows (x86_64) | `.msi` or `.exe` | Not code-signed yet — SmartScreen will warn the first time |
-| Linux (x86_64) | `.deb`, `.rpm` | Not signed. No AppImage yet |
+| Linux (x86_64) | `.AppImage`, `.deb`, `.rpm` | Not signed. The AppImage auto-updates; the packages update through your package manager |
 
 There is no Intel macOS build at the moment.
 
@@ -54,7 +54,7 @@ The app asks GitHub Releases for a newer build, and every outcome shows a native
 - **You're up to date**.
 - **Update check failed** — with the error (usually: offline).
 
-Updates are signed with Swarm's updater key and verified before install. This is the only time the app talks to the network on its own, and only when you click the item. Linux builds do not receive updates through the app yet; download the new `.deb`/`.rpm` from Releases.
+Updates are signed with Swarm's updater key and verified before install. This is the only time the app talks to the network on its own, and only when you click the item. On Linux only the AppImage can replace itself: a copy installed from `.deb`/`.rpm` says so and points you at Releases, because the package manager owns those files.
 
 ## Port behaviour and the CLI
 

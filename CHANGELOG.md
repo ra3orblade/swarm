@@ -16,6 +16,18 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   counter, so a re-read of the same event updates that turn rather than counting it twice.
   Thanks @roy-tong for the diagnosis and the fix (#145).
 
+### Added
+
+- **Linux has an AppImage again — and auto-updates with it.** The AppImage has been off since
+  v0.2.2 because the bundler died every time, and Linux was the one platform the in-app updater
+  could not reach. The bundler runs `patchelf` over every executable it finds inside the package,
+  which quietly wrecks the daemon: it is compiled by bun, and bun keeps its program glued to the
+  end of the file, exactly where `patchelf` writes. The next tool to inspect the wreckage aborted
+  the build. Linux builds now carry the daemon compressed instead, which the bundler leaves alone,
+  and the app unpacks it once per version into `~/.swarm/bin`. AppImage, `.deb` and `.rpm` all ship
+  again; "Check for Updates…" installs updates in place for the AppImage and, for a `.deb`/`.rpm`
+  copy, now says to update through your package manager instead of failing halfway.
+
 ## [0.13.2] — 2026-09-04
 
 ### Changed

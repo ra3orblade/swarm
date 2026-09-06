@@ -17,12 +17,8 @@ jobs:
           - platform: macos-latest       # Apple silicon
             args: --target aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
-          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .rpm)
-            # AppImage is off for now: linuxdeploy fails on GH runners (even with libfuse2 +
-            # NO_STRIP) and Tauri hides its output — suspect patchelf on the bun-compiled sidecar.
-            # `--bundles` alone is not enough (updater artifacts force AppImage on Linux), so both
-            # are disabled via a config override. Tracked under M6.4 in docs/06.
-            args: --config {"bundle":{"targets":["deb","rpm"],"createUpdaterArtifacts":false}}
+          - platform: ubuntu-22.04        # Linux x86_64 (.deb / .rpm / .AppImage)
+            args: ""
             rust-targets: ""
           - platform: windows-latest      # Windows x86_64 (.msi / .exe)
             args: ""
@@ -63,6 +59,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # linuxdeploy's own strip step fails on GH runners; the release profile already strips.
           NO_STRIP: "true"
+          # linuxdeploy runs `patchelf` over every ELF file in the AppDir, which corrupts a
+          # `bun build --compile` binary; the Linux build therefore ships the daemon gzipped as a
+          # resource instead of as an externalBin (tauri.linux.conf.json). M6.4 in docs/06.
           # macOS signing + notarization (ignored on other platforms). Reuses the Apple account
           # creds, mapped from electron-builder / Brainstorm names to Tauri's. See docs/11.
           APPLE_CERTIFICATE: ${{ secrets.CSC_LINK }}

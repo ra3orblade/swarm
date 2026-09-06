@@ -16,7 +16,7 @@ use tauri::{
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::process::{Command as ShellCommand, CommandChild};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -56,6 +56,58 @@ fn existing_healthy_port() -> Option<u16> {
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let port = v.get("port")?.as_u64()? as u16;
     health(port).then_some(port)
+}
+
+/// The daemon, ready to spawn.
+///
+/// Everywhere but Linux it is a Tauri sidecar sitting beside the app binary. AppImage bundling
+/// makes that impossible on Linux: linuxdeploy walks every ELF file in the AppDir — `usr/bin` and
+/// the resource directory alike — and runs `patchelf --set-rpath` over it, which appends to the
+/// file and destroys the payload `bun build --compile` glues onto the end of its executables, so
+/// the bundled daemon segfaults the moment it is launched. The Linux build therefore ships the
+/// daemon **gzipped** (`tools/desktop.ts`), which linuxdeploy walks past, and unpacks it under
+/// `~/.swarm/bin` on the first run of each version. See M6.4 in docs/06.
+#[cfg(target_os = "linux")]
+fn daemon_command<R: tauri::Runtime, M: Manager<R>>(app: &M) -> Option<ShellCommand> {
+    use std::io::copy;
+    use std::os::unix::fs::PermissionsExt;
+
+    let version = app.package_info().version.to_string();
+    let dir = swarm_home().join("bin");
+    let exe = dir.join(format!("swarmd-{version}"));
+    if !exe.exists() {
+        let gz = app.path().resource_dir().ok()?.join("bin/swarmd.gz");
+        fs::create_dir_all(&dir).ok()?;
+        // unpack beside the target and rename, so a half-written daemon is never runnable
+        let tmp = dir.join(format!(".swarmd-{version}.{}", std::process::id()));
+        let mut src = flate2::read::GzDecoder::new(fs::File::open(&gz).ok()?);
+        let mut dst = fs::File::create(&tmp).ok()?;
+        let unpacked = copy(&mut src, &mut dst).is_ok();
+        drop(dst);
+        if !unpacked {
+            let _ = fs::remove_file(&tmp);
+            return None;
+        }
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).ok()?;
+        fs::rename(&tmp, &exe).ok()?;
+        // the copies older versions unpacked are dead weight now (~80 MB each)
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let stale = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("swarmd-"));
+            if stale && path != exe {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    Some(app.shell().command(exe))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn daemon_command<R: tauri::Runtime, M: Manager<R>>(app: &M) -> Option<ShellCommand> {
+    app.shell().sidecar("swarmd").ok()
 }
 
 fn navigate_when_ready(win: tauri::WebviewWindow, port: u16) {
@@ -226,6 +278,21 @@ fn check_for_updates(app: tauri::AppHandle) {
         };
         match result {
             Ok(Some(update)) => {
+                // The updater can only replace a running AppImage. A .deb/.rpm install has to go
+                // through the package manager, so say so rather than fail mid-download.
+                #[cfg(target_os = "linux")]
+                if env::var_os("APPIMAGE").is_none() {
+                    app.dialog()
+                        .message(format!(
+                            "Swarm {} is available (you have {}).\n\nThis copy was installed from \
+                             a package, so it updates through your package manager: download the \
+                             new .deb or .rpm from the Releases page.",
+                            update.version, update.current_version
+                        ))
+                        .title("Update available")
+                        .show(|_| {});
+                    return;
+                }
                 let msg = format!(
                     "Swarm {} is available (you have {}).\n\nDownload and install it now? \
                      The app will restart.",
@@ -301,7 +368,9 @@ pub fn run() {
                         .and_then(|d| d.to_str().map(String::from))
                         .unwrap_or_default()
                 };
-                if let Ok(cmd) = app.shell().sidecar("swarmd") {
+                // Linux runs the daemon unpacked from a gzipped resource; every other platform
+                // runs it as a Tauri sidecar. See `daemon_command`.
+                if let Some(cmd) = daemon_command(app) {
                     let mut cmd = cmd.env("SWARM_PORT", p.to_string());
                     if !web_dir.is_empty() {
                         cmd = cmd.env("SWARM_WEB_DIR", web_dir);
