@@ -67,11 +67,19 @@ export function Sidebar() {
     return counts;
   }, [sessions]);
 
-  /** Two projects can share a name; the parent directory is the cheapest way to tell them apart. */
+  /**
+   * Two projects can share a name; the parent directory is the cheapest way to tell them apart.
+   * Counted by distinct root: two rows for one folder (a duplicate the daemon has yet to fold)
+   * are not two projects, and a prefix would only hide the name behind an ellipsis.
+   */
   const duplicated = useMemo(() => {
-    const seen = new Map<string, number>();
-    for (const p of projects) seen.set(p.name, (seen.get(p.name) ?? 0) + 1);
-    return seen;
+    const roots = new Map<string, Set<string>>();
+    for (const p of projects) {
+      const set = roots.get(p.name) ?? new Set<string>();
+      set.add(p.root);
+      roots.set(p.name, set);
+    }
+    return new Map([...roots].map(([name, set]) => [name, set.size]));
   }, [projects]);
 
   const pinned = useMemo(() => projects.filter((p) => !p.discovered), [projects]);

@@ -388,16 +388,28 @@ export class Store {
    * row — often pinned, with history — pointing at a root that no longer exists, next to a fresh
    * discovered row with the same name. Fold the stale row into the live one: history moves over,
    * the pin and custom name survive, one sidebar entry remains.
+   *
+   * The same folder can also change identity without moving: a plain directory hashes its own
+   * path, so `git init` inside it (or deleting `.git`) makes the next visit mint a second row for
+   * the same root. Two rows with one root are never two projects — fold the one whose id no longer
+   * matches what its root hashes to into the one that does.
    */
   reconcileMovedProjects() {
     const all = this.projects();
+    const byId = new Map(all.map((p) => [p.id, p]));
     for (const stale of all) {
-      if (existsSync(stale.root)) continue;
+      if (!byId.has(stale.id)) continue; // already folded this pass
+      if (existsSync(stale.root)) {
+        const current = projectIdentity({ root: stale.root, commonDir: gitCommonDir(stale.root) });
+        const live = current.id !== stale.id ? byId.get(current.id) : undefined;
+        if (live && this.mergeProject(stale.id, live.id)) byId.delete(stale.id);
+        continue;
+      }
       const live = all.filter(
         (p) => p.id !== stale.id && p.name === stale.name && existsSync(p.root),
       );
       if (live.length !== 1) continue; // ambiguous → leave it for the user
-      this.mergeProject(stale.id, (live[0] as Project).id);
+      if (this.mergeProject(stale.id, (live[0] as Project).id)) byId.delete(stale.id);
     }
   }
 
