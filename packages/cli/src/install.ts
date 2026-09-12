@@ -168,7 +168,14 @@ export function install(): string[] {
       .filter((g) => g.hooks.length);
     clean.push({
       // M13.1: Stop may wait for the repair loop's gates; everything else answers in < 1 s.
-      hooks: [{ type: "command", command: hookCommand(ev), timeout: ev === "Stop" ? 330 : 5 }],
+      hooks: [
+        {
+          type: "command",
+          command: hookCommand(ev),
+          // M13.2: a PermissionRequest may wait for the dashboard's answer (≤ 120 s)
+          timeout: ev === "Stop" ? 330 : ev === "PermissionRequest" ? 150 : 5,
+        },
+      ],
     });
     hooks[ev] = clean;
     added.push(ev);

@@ -9,6 +9,7 @@
  * Types only — no runtime, no I/O — so `core` stays pure.
  */
 
+import type { InteractivePermission } from "./permissions";
 import type { TrackedProcess } from "./processes";
 import type { Question } from "./questions";
 import type { QuotaReport } from "./quota";
@@ -116,6 +117,8 @@ export interface DashboardSnapshot {
   openIncidents: number;
   openIncidentsByProject: Record<string, number>;
   questions: Question[];
+  /** M13.2: interactive sessions' permission prompts waiting on a person, newest last. */
+  permissions: InteractivePermission[];
   resources: Resource[];
   /** Event-log high-water mark; the SSE stream resumes from here. */
   seq: number;

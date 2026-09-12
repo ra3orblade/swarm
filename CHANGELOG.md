@@ -47,6 +47,17 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **The permission card, for interactive sessions too.** Until now only spawned runs got the
+  dashboard's Allow / Deny card; a session in your terminal asked there and nowhere else. Claude
+  Code's `PermissionRequest` hook fires before the terminal dialog and holds it while the hook
+  runs, so the daemon now parks the prompt as a card on the session page (the session shows as
+  *asking* on Fleet, and a desktop notification fires) and waits `[broker] interactive_wait`
+  seconds — 30 by default — for an answer. Allow or deny on the card and the terminal never asks;
+  press *Answer in terminal* or let the countdown run out and the dialog appears there unchanged.
+  The card names the rule that flagged the call when one did. Nothing waits unless a dashboard is
+  actually open, so a machine with the dashboard closed is never slowed down. `swarm install`
+  registers the new hook; run it once after updating.
+
 - **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
   to `swarm statusline`, and the footer of every session reads, for example,
   `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left

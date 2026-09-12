@@ -80,6 +80,13 @@ redact = []               # regexes replaced by "[redacted]" in every stored str
 # Fire-and-forget, never on the hook path. Global only.
 # webhook = "https://hooks.slack.com/services/…"
 
+[broker]
+# M13.2: an interactive session's permission prompt becomes a card on the dashboard (session page,
+# Fleet, desktop notification) while a dashboard is open. Claude Code holds its terminal dialog
+# while the hook waits; after this many seconds — or "Answer in terminal" on the card — the dialog
+# appears unchanged. 0 = never wait (no card). Max 120. Nothing waits when no dashboard is watching.
+interactive_wait = 30
+
 [models]
 # Model allow-list (M8.4): globs, empty = every model allowed. An org policy can lock this.
 # Spawned runs / dispatch refuse a disallowed model; an interactive session on one opens an

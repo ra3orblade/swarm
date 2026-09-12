@@ -8,7 +8,9 @@
  * An interactive session gets none of this. It has a terminal, and typing at it there is the
  * correct place; a text box here would be a second, worse one.
  */
-import { useState } from "react";
+
+import type { InteractivePermission } from "@swarm/core/permissions";
+import { useEffect, useState } from "react";
 import { send } from "../../api/client";
 import { usd } from "../../lib/format";
 import { icon } from "../../lib/icon";
@@ -68,6 +70,65 @@ function PermissionCard({ run, ask }: { run: Run; ask: PendingPermission }) {
       </div>
     </div>
   );
+}
+
+/**
+ * M13.2: the same card for an *interactive* session's permission prompt. Claude Code holds its
+ * terminal dialog while the daemon waits for this answer; "Answer in terminal" hands it back now,
+ * and the countdown says when the terminal takes over on its own.
+ */
+export function InteractivePermissionCard({ ask }: { ask: InteractivePermission }) {
+  const [busy, setBusy] = useState(false);
+  const [left, setLeft] = useState(() => secondsLeft(ask.terminalAt));
+  useEffect(() => {
+    const t = setInterval(() => setLeft(secondsLeft(ask.terminalAt)), 1000);
+    return () => clearInterval(t);
+  }, [ask.terminalAt]);
+  const answer = async (body: { allow?: boolean; terminal?: boolean }) => {
+    setBusy(true);
+    await send(`/v1/permissions/${encodeURIComponent(ask.id)}`, "POST", body);
+    await refreshSnapshot();
+    setBusy(false);
+  };
+  return (
+    <div className="perm">
+      <div className="perm-t">
+        {icon("warning", 13)} <b>{ask.tool}</b> is asking in the terminal
+        <span className="dim now" title={ask.reason}>
+          {" "}
+          — {ask.rule ? `${ask.rule}: ` : ""}
+          {ask.reason}
+        </span>
+      </div>
+      <div className="perm-c">{ask.display}</div>
+      <div className="perm-b">
+        <button
+          type="button"
+          className="ok"
+          disabled={busy}
+          onClick={() => void answer({ allow: true })}
+        >
+          Allow
+        </button>
+        <button
+          type="button"
+          className="danger"
+          disabled={busy}
+          onClick={() => void answer({ allow: false })}
+        >
+          Deny
+        </button>
+        <button type="button" disabled={busy} onClick={() => void answer({ terminal: true })}>
+          Answer in terminal
+        </button>
+        <span className="dim now">terminal takes over in {left}s</span>
+      </div>
+    </div>
+  );
+}
+
+function secondsLeft(iso: string): number {
+  return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
 }
 
 export interface RunControlProps {

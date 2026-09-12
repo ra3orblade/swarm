@@ -129,6 +129,12 @@ export interface SwarmConfig {
    *  JSON — works for Slack incoming webhooks and any generic JSON receiver (Jira/PagerDuty via
    *  their webhook bridges). Fire-and-forget, never on the hook path. Global only. */
   notify: { webhook: string | null };
+  /** M13.2 permission broker for interactive sessions. */
+  broker: {
+    /** Seconds a PermissionRequest hook waits for an answer from the dashboard before the terminal
+     *  dialog takes over; only while a dashboard is watching; 0 = never wait (card off). */
+    interactive_wait: number;
+  };
   /** Model allow-list (M8.4): globs like "claude-*"; empty = every model allowed. An org policy
    *  can lock `models.allow`. Spawned runs/dispatch refuse a disallowed model; an interactive
    *  session on one opens an incident (observation — Swarm never kills a session). */
@@ -189,6 +195,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
+  broker: { interactive_wait: 30 },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
   audit: { retain_days: 0 },
@@ -355,6 +362,15 @@ function validate(c: SwarmConfig): SwarmConfig {
       webhook: (() => {
         const w = (c.notify as { webhook?: unknown } | undefined)?.webhook;
         return typeof w === "string" && /^https?:\/\//.test(w.trim()) ? w.trim() : null;
+      })(),
+    },
+    broker: {
+      interactive_wait: (() => {
+        const w = Number(
+          (c.broker as { interactive_wait?: unknown } | undefined)?.interactive_wait,
+        );
+        if (!Number.isFinite(w) || w < 0) return 30;
+        return Math.min(Math.round(w), 120);
       })(),
     },
     models: {
