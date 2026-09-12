@@ -18,6 +18,17 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
+  to `swarm statusline`, and the footer of every session reads, for example,
+  `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left
+  half is what Claude Code hands the command after each assistant message: model, context used,
+  session cost and, for Pro / Max subscribers, the 5-hour and 7-day plan windows. The right half is
+  what only the daemon knows: the task whose worktree you are in and its lease, the budget when it
+  is not fine, un-acked incidents, a question of yours nobody has answered, an inbox. Same contract
+  as the hooks — 400 ms, fails open to the left half, never starts the daemon. It is opt-in because
+  a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
+  already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
+
 - **Linux has an AppImage again — and auto-updates with it.** The AppImage has been off since
   v0.2.2 because the bundler died every time, and Linux was the one platform the in-app updater
   could not reach. The bundler runs `patchelf` over every executable it finds inside the package,

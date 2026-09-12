@@ -2,7 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { binCommand, resolveBin } from "@swarm/client";
-import { HOOK_EVENTS, type HookCoverage, hookCoverage, hookIsOurs } from "@swarm/core";
+import {
+  HOOK_EVENTS,
+  type HookCoverage,
+  hookCoverage,
+  hookIsOurs,
+  statuslineIsOurs,
+} from "@swarm/core";
 
 const isOurs = hookIsOurs;
 const settingsPath = () =>
@@ -181,6 +187,34 @@ export function install(): string[] {
   return added;
 }
 
+/**
+ * M12.2: `statusLine` in settings.json. Written only when none is set (or the one set is ours —
+ * re-install refreshes the path); someone else's statusline is never replaced. Returns what
+ * happened so the CLI can say it.
+ */
+export type StatuslineInstall = "installed" | "refreshed" | "kept";
+export function installStatusline(): StatuslineInstall {
+  const s = load();
+  const cur = s.statusLine;
+  if (cur && !statuslineIsOurs(cur)) return "kept";
+  s.statusLine = { type: "command", command: `${binCommand("swarm-hook")} statusline` };
+  save(s);
+  return cur ? "refreshed" : "installed";
+}
+/** Remove our statusLine entry; false when it was not ours (or absent). */
+export function uninstallStatusline(): boolean {
+  const s = load();
+  if (!statuslineIsOurs(s.statusLine)) return false;
+  delete s.statusLine;
+  save(s);
+  return true;
+}
+export type StatuslineStatus = "ours" | "other" | "none";
+function statuslineStatus(s: Record<string, unknown>): StatuslineStatus {
+  if (!s.statusLine) return "none";
+  return statuslineIsOurs(s.statusLine) ? "ours" : "other";
+}
+
 export function uninstall(): number {
   const s = load();
   const hooks = (s.hooks as Hooks | undefined) ?? {};
@@ -208,6 +242,10 @@ export function uninstall(): number {
   if (mcp.swarm) delete mcp.swarm;
   if (Object.keys(mcp).length) s.mcpServers = mcp;
   else delete s.mcpServers;
+  if (statuslineIsOurs(s.statusLine)) {
+    delete s.statusLine;
+    removed++;
+  }
   save(s);
   if (unregisterMcp()) removed++;
   removed += unregisterOtherAgents().length;
@@ -222,6 +260,8 @@ export function status(): {
   path: string;
   shim: string;
   otherAgents: string[];
+  /** M12.2: whose `statusLine` is set — ours, someone else's, or none. */
+  statusline: StatuslineStatus;
 } {
   const s = load();
   const hooks = (s.hooks as Hooks | undefined) ?? {};
@@ -241,6 +281,7 @@ export function status(): {
     path: settingsPath(),
     shim: shimPath(),
     otherAgents,
+    statusline: statuslineStatus(s),
   };
 }
 

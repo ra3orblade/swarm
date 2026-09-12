@@ -17,6 +17,8 @@ swarm doctor                # check bun, claude, daemon, hooks, MCP; exit 1 if d
 swarm doctor --migrate      # also apply pending database migrations, then report the schema version
 swarm install               # add hooks + MCP server to ~/.claude/settings.json
 swarm install --config-url https://swarm.example.internal   # also point this machine at a team daemon
+swarm install --statusline  # also set Claude Code's status line to `swarm statusline` (only if none is set)
+swarm statusline            # the status line command itself: Claude Code's JSON on stdin → one line; fails open, never starts the daemon
 swarm uninstall             # remove them again (prints how many entries were removed)
 swarm ui                    # open the dashboard; prints its URL
 ```

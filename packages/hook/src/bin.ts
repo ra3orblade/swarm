@@ -4,6 +4,7 @@
  * daemon's decision on stdout. When the daemon is unreachable or slow it fails OPEN — except for
  * rules the org policy locks, which are evaluated from the daemon's integrity-checked
  * `~/.swarm/policy.cache.json` (M8.1c, OQ-3). Never starts the daemon — a hook must stay fast.
+ * `swarm-hook statusline` is Claude Code's statusLine command under the same contract (M12.2).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,6 +13,13 @@ import { evaluateOffline, POLICY_CACHE_FILE, verifyPolicyCache } from "@swarm/co
 
 const event = process.argv[2] ?? "Unknown";
 const input = await Bun.stdin.text();
+// M12.2: `swarm-hook statusline` shares the shim's contract (fast, fails open, never starts the
+// daemon) but prints a line for a human, not JSON for Claude Code.
+if (event === "statusline") {
+  const { runStatusline } = await import("./statusline");
+  process.stdout.write(`${await runStatusline(input)}\n`);
+  process.exit(0);
+}
 const timeout = Number(process.env.SWARM_HOOK_TIMEOUT_MS ?? 400);
 const post = async (base: string) => {
   const r = await fetch(`${base}/v1/hook/${event}`, {

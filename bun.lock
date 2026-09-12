@@ -22,6 +22,7 @@
       "dependencies": {
         "@swarm/client": "workspace:*",
         "@swarm/core": "workspace:*",
+        "@swarm/hook": "workspace:*",
       },
     },
     "packages/client": {
