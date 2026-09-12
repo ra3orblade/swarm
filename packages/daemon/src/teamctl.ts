@@ -41,10 +41,28 @@ function alive(pid: number): boolean {
   }
 }
 
-/** The team daemon this machine started, if it is still up. */
+/**
+ * The team daemon this machine started, if it is still up. A pid alone is not proof: after a
+ * reboot the number can belong to anything, which would report "hosting", refuse every retry,
+ * and — worse — aim `leaveTeam`'s SIGTERM at a stranger. The port must answer as a team daemon
+ * too, and the pair is forgotten as soon as it does not.
+ */
 export function hostedPid(store: Store): number | null {
   const pid = Number(store.metaValue(HOSTED_PID) ?? 0);
-  return alive(pid) ? pid : null;
+  if (!alive(pid)) {
+    if (pid) store.setMetaValue(HOSTED_PID, "");
+    return null;
+  }
+  return pid;
+}
+
+/** `hostedPid`, confirmed by the port answering `/t1/health`. */
+export async function hostedPidChecked(store: Store): Promise<number | null> {
+  const pid = hostedPid(store);
+  if (!pid) return null;
+  if (await healthy(hostedUrl("127.0.0.1", readSetup(store.home).port))) return pid;
+  store.setMetaValue(HOSTED_PID, "");
+  return null;
 }
 
 /** First non-internal IPv4 — what a teammate on the same network can reach. */
@@ -172,7 +190,7 @@ export async function hostTeam(
   store: Store,
   input: HostInput = {},
 ): Promise<HostResult | { ok: false; error: string }> {
-  const existing = hostedPid(store);
+  const existing = await hostedPidChecked(store);
   if (existing) return { ok: false, error: `already hosting a team (pid ${existing})` };
   const cur = readSetup(store.home);
   const mode = input.mode ?? cur.mode;
@@ -230,7 +248,18 @@ export async function hostTeam(
   store.setMetaValue(HOSTED_PID, String(proc.pid));
   setTeamUrl(store, loopback);
   const reg = await registerMachine(store, loopback, setup.token);
-  if (!reg.ok) return reg;
+  if (!reg.ok) {
+    // don't leave the machine pointed at a team it never joined: the forwarder would retry
+    // unauthenticated forever and the next Host would be refused by the pid guard
+    setTeamUrl(store, null);
+    store.setMetaValue(HOSTED_PID, "");
+    try {
+      process.kill(proc.pid, "SIGTERM");
+    } catch {
+      /* it is already gone */
+    }
+    return reg;
+  }
   const address = lanAddress();
   return {
     ok: true,

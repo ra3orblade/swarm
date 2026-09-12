@@ -220,6 +220,8 @@ export async function applyCodify(
   target: "claude-md" | "swarm-toml" | "both",
 ): Promise<CodifyApplied> {
   return (await send(`/v1/incidents/${seq}/apply`, "POST", { projectId, target })) as CodifyApplied;
+}
+
 /** M13.12: hosting or joining a team from the Team panel. */
 export interface TeamStatus {
   configured: boolean;

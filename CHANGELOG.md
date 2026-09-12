@@ -4,22 +4,55 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Changed
-
-- **The desktop app always runs its own daemon.** It used to reuse any healthy daemon registered
-  in `~/.swarm/daemon.json` — which meant a clone's `bun run dev` daemon, serving whatever
-  dashboard bundle happened to be on that disk, was what the packaged app displayed, and
-  restarting the app changed nothing because the daemon it borrowed never restarted. Now the app
-  asks the registered daemon to stop over a new loopback `POST /v1/shutdown` (the same clean path
-  as `swarm stop`: spawned runs stopped by pid, `daemon.json` cleared), starts its bundled daemon,
-  and finds it by pid. The daemon keeps its preferred port — `[daemon] port`, else 7777 — and
-  falls back to any free port when that is taken, so a blocked 7777 is never an error; and a
-  process that merely listens on the port no longer counts as a daemon, since the app now checks
-  `/v1/health` rather than a TCP connect. The daemon the app starts also watches the app's pid and stops
-  itself when the app is gone — quit, crashed or killed — so no invisible daemon survives to be
-  evicted next time.
+The **Act** release: Swarm stops only watching agents and starts steering them — every new
+capability below reaches an *interactive* session, not just a spawned run.
 
 ### Added
+
+- **The repair loop: a session cannot say it is done while a required gate fails.** With
+  `[gates] on_stop = "block"`, stopping inside a held worktree runs the executable required gates
+  first, and while one fails the stop is refused — Claude Code keeps working, and what it reads is
+  the gate's name and the tail of its output, not a hint. Bounded: at most `max_blocks` refusals
+  per session (three by default), then the stop goes through and a `gate_failed` incident opens.
+  Every refusal is a `gate.blocked` line in the session log. Default stays `record`, so nothing
+  changes until a repo opts in; subagents are never refused; the wait is capped by `stop_timeout`.
+  This is Claude Code's own `Stop` → `block` hook contract, verified against the current reference.
+
+- **The permission card, for interactive sessions too.** Until now only spawned runs got the
+  dashboard's Allow / Deny card; a session in your terminal asked there and nowhere else. Claude
+  Code's `PermissionRequest` hook fires before the terminal dialog and holds it while the hook
+  runs, so the daemon now parks the prompt as a card on the session page (the session shows as
+  *asking* on Fleet, and a desktop notification fires) and waits `[broker] interactive_wait`
+  seconds — 30 by default — for an answer. Allow or deny on the card and the terminal never asks;
+  press *Answer in terminal* or let the countdown run out and the dialog appears there unchanged.
+  The card names the rule that flagged the call when one did. Nothing waits unless a dashboard is
+  actually open, so a machine with the dashboard closed is never slowed down. `swarm install`
+  registers the new hook; run it once after updating.
+
+- **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
+  third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
+  `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the
+  first `terraform apply`, `kubectl delete` or `helm uninstall` in a session into its dry-run form
+  and allows the second. The agent is told what changed and why; the Incidents view shows the
+  call that was asked for beside the one that ran, marked *Rewritten*, so rule effectiveness
+  scores it like any rule. Both ship `off`. `[[rules.custom]]` is the promised DSL: `name`,
+  `match` (a regex over the command), `action` (`ask | deny | rewrite | off`), `replace`,
+  `reason` — evaluated in config order after the coordination rules, so a deny is never softened.
+  Codify writes it, `swarm rules dryrun` replays history under it, spawned runs get the rewrite
+  through the permission broker, and interactive sessions through Claude Code's `updatedInput`.
+  A rewrite only ever touches a command it can reason about whole — one invocation, no `&&`, no
+  pipe, no redirection, no substitution — and the rewritten command is put back through the rules
+  before it runs, so a rewrite can neither smuggle a second command past the guards nor approve
+  the call outright. Flags are stripped outside quotes only, so a commit message that mentions
+  `--no-verify` is left alone.
+
+- **A heads-up the moment two live sessions edit the same file.** The collision graph could show
+  it after the fact; nobody told the agent. Now, right after an edit lands, a session whose file
+  another live session edited within the last 15 minutes reads who that was — task, branch, how
+  long ago — and the suggestion to look at that diff before going further. Context on
+  `PostToolUse`, never a refusal; once per pair of sessions per file per window; each one a
+  `collision.warned` line in the session log. `[rules] collision_context = false` turns it off,
+  `collision_window` sets the minutes.
 
 - **Messages wake an idle session.** A message from another agent or from you (`swarm msg send`,
   `swarm_send`) and an answer to a session's question used to arrive on that session's next tool
@@ -38,6 +71,27 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   the worktree. Without a forge remote the branch stays and the card shows the push line.
   `[codify] target` picks the default file(s).
 
+- **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
+  to `swarm statusline`, and the footer of every session reads, for example,
+  `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left
+  half is what Claude Code hands the command after each assistant message: model, context used,
+  session cost and, for Pro / Max subscribers, the 5-hour and 7-day plan windows. The right half is
+  what only the daemon knows: the task whose worktree you are in and its lease, the budget when it
+  is not fine, un-acked incidents, a question of yours nobody has answered, an inbox. Same contract
+  as the hooks — 400 ms, fails open to the left half, never starts the daemon. It is opt-in because
+  a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
+  already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
+
+- **Plan quota windows on Spend and in the status line.** Pro / Max plans are metered by a 5-hour
+  and a 7-day window, not by dollars, and Claude Code reports both to its status line after every
+  message. The daemon keeps those samples (a row when a window moves, never one per message) and
+  Spend shows a tile per window: percent used, when it resets, the burn rate, and at the current
+  pace whether the limit lands before the reset. The status line names the window that runs out
+  first: `5h limit in 2h`. `[budget] window_warn_at = 0.8` opens a `budget` incident once per
+  window per reset period, and again at 100%; `false` turns the warning off. Swarm has no
+  account and never asks Anthropic for usage — the status line is the only source, so the tiles
+  appear only while some session on a plan keeps reporting (API-key sessions never do).
+
 - **Host or join a team from the app.** Running the team daemon meant a clone, environment
   variables and two CLI commands; joining meant a third. The dashboard has a **Team** panel now:
   **Host a team** mints a shared secret, writes `~/.swarm/team.toml`, starts `swarm-teamd`, points
@@ -50,17 +104,20 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   to forward forever, and a config file the daemon wrote itself stayed invisible to it for 30
   seconds.
 
-- **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
-  third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
-  `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the
-  first `terraform apply`, `kubectl delete` or `helm uninstall` in a session into its dry-run form
-  and allows the second. The agent is told what changed and why; the Incidents view shows the
-  call that was asked for beside the one that ran, marked *Rewritten*, so rule effectiveness
-  scores it like any rule. Both ship `off`. `[[rules.custom]]` is the promised DSL: `name`,
-  `match` (a regex over the command), `action` (`ask | deny | rewrite | off`), `replace`,
-  `reason` — evaluated in config order after the coordination rules, so a deny is never softened.
-  Codify writes it, `swarm rules dryrun` replays history under it, spawned runs get the rewrite
-  through the permission broker, and interactive sessions through Claude Code's `updatedInput`.
+### Changed
+
+- **The desktop app always runs its own daemon.** It used to reuse any healthy daemon registered
+  in `~/.swarm/daemon.json` — which meant a clone's `bun run dev` daemon, serving whatever
+  dashboard bundle happened to be on that disk, was what the packaged app displayed, and
+  restarting the app changed nothing because the daemon it borrowed never restarted. Now the app
+  asks the registered daemon to stop over a new loopback `POST /v1/shutdown` (the same clean path
+  as `swarm stop`: spawned runs stopped by pid, `daemon.json` cleared), starts its bundled daemon,
+  and finds it by pid. The daemon keeps its preferred port — `[daemon] port`, else 7777 — and
+  falls back to any free port when that is taken, so a blocked 7777 is never an error; and a
+  process that merely listens on the port no longer counts as a daemon, since the app now checks
+  `/v1/health` rather than a TCP connect. The daemon the app starts also watches the app's pid and stops
+  itself when the app is gone — quit, crashed or killed — so no invisible daemon survives to be
+  evicted next time.
 
 ### Fixed
 
@@ -73,57 +130,6 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   Codex turns are also identified by their own timestamp and usage now instead of a per-poll
   counter, so a re-read of the same event updates that turn rather than counting it twice.
   Thanks @roy-tong for the diagnosis and the fix (#145).
-
-### Added
-
-- **The permission card, for interactive sessions too.** Until now only spawned runs got the
-  dashboard's Allow / Deny card; a session in your terminal asked there and nowhere else. Claude
-  Code's `PermissionRequest` hook fires before the terminal dialog and holds it while the hook
-  runs, so the daemon now parks the prompt as a card on the session page (the session shows as
-  *asking* on Fleet, and a desktop notification fires) and waits `[broker] interactive_wait`
-  seconds — 30 by default — for an answer. Allow or deny on the card and the terminal never asks;
-  press *Answer in terminal* or let the countdown run out and the dialog appears there unchanged.
-  The card names the rule that flagged the call when one did. Nothing waits unless a dashboard is
-  actually open, so a machine with the dashboard closed is never slowed down. `swarm install`
-  registers the new hook; run it once after updating.
-
-- **A heads-up the moment two live sessions edit the same file.** The collision graph could show
-  it after the fact; nobody told the agent. Now, right after an edit lands, a session whose file
-  another live session edited within the last 15 minutes reads who that was — task, branch, how
-  long ago — and the suggestion to look at that diff before going further. Context on
-  `PostToolUse`, never a refusal; once per pair of sessions per file per window; each one a
-  `collision.warned` line in the session log. `[rules] collision_context = false` turns it off,
-  `collision_window` sets the minutes.
-
-- **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
-  to `swarm statusline`, and the footer of every session reads, for example,
-  `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left
-  half is what Claude Code hands the command after each assistant message: model, context used,
-  session cost and, for Pro / Max subscribers, the 5-hour and 7-day plan windows. The right half is
-  what only the daemon knows: the task whose worktree you are in and its lease, the budget when it
-  is not fine, un-acked incidents, a question of yours nobody has answered, an inbox. Same contract
-  as the hooks — 400 ms, fails open to the left half, never starts the daemon. It is opt-in because
-  a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
-  already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
-
-- **The repair loop: a session cannot say it is done while a required gate fails.** With
-  `[gates] on_stop = "block"`, stopping inside a held worktree runs the executable required gates
-  first, and while one fails the stop is refused — Claude Code keeps working, and what it reads is
-  the gate's name and the tail of its output, not a hint. Bounded: at most `max_blocks` refusals
-  per session (three by default), then the stop goes through and a `gate_failed` incident opens.
-  Every refusal is a `gate.blocked` line in the session log. Default stays `record`, so nothing
-  changes until a repo opts in; subagents are never refused; the wait is capped by `stop_timeout`.
-  This is Claude Code's own `Stop` → `block` hook contract, verified against the current reference.
-
-- **Plan quota windows on Spend and in the status line.** Pro / Max plans are metered by a 5-hour
-  and a 7-day window, not by dollars, and Claude Code reports both to its status line after every
-  message. The daemon keeps those samples (a row when a window moves, never one per message) and
-  Spend shows a tile per window: percent used, when it resets, the burn rate, and at the current
-  pace whether the limit lands before the reset. The status line names the window that runs out
-  first: `5h limit in 2h`. `[budget] window_warn_at = 0.8` opens a `budget` incident once per
-  window per reset period, and again at 100%; `false` turns the warning off. Swarm has no
-  account and never asks Anthropic for usage — the status line is the only source, so the tiles
-  appear only while some session on a plan keeps reporting (API-key sessions never do).
 
 - **Linux has an AppImage again — and auto-updates with it.** The AppImage has been off since
   v0.2.2 because the bundler died every time, and Linux was the one platform the in-app updater

@@ -240,20 +240,41 @@ describe("rewrite rules (M13.5)", async () => {
 
   it("turns the first infra change into its dry run, and knows what is already dry", () => {
     expect(rewriteDryRun("terraform apply -auto-approve")).toEqual({
-      key: "terraform apply",
+      key: "terraform apply -auto-approve",
       command: "terraform plan",
     });
     expect(rewriteDryRun("kubectl delete pod web-1 -n prod")).toEqual({
-      key: "kubectl delete",
+      key: "kubectl delete pod web-1 -n prod",
       command: "kubectl delete pod web-1 -n prod --dry-run=client",
     });
     expect(rewriteDryRun("helm uninstall api")).toEqual({
-      key: "helm uninstall",
+      key: "helm uninstall api",
       command: "helm uninstall api --dry-run",
     });
     expect(rewriteDryRun("terraform plan")).toBeNull();
     expect(rewriteDryRun("kubectl delete pod x --dry-run=server")).toBeNull();
     expect(rewriteDryRun("kubectl get pods")).toBeNull();
+  });
+
+  it("never rewrites a command it cannot reason about whole", () => {
+    // appending a flag to a chain used to leave the deletion running and land the flag on `rm`,
+    // while the incident feed claimed the call had been made safe
+    expect(rewriteDryRun("kubectl delete ns prod && rm -rf /tmp/x")).toBeNull();
+    expect(rewriteDryRun("kubectl delete -f x.yaml > out.txt")).toBeNull();
+    expect(rewriteDryRun("helm uninstall rel | tee log")).toBeNull();
+    expect(rewriteDryRun("kubectl delete pod $(cat name)")).toBeNull();
+    // a saved plan is applied positionally; `terraform plan <file>` is a different command
+    expect(rewriteDryRun("terraform apply tfplan.out")).toBeNull();
+    // the key is the command, so dry-running one target never unlocks another
+    expect(rewriteDryRun("kubectl delete pod a")?.key).not.toBe(
+      rewriteDryRun("kubectl delete ns prod")?.key,
+    );
+  });
+
+  it("strips --no-verify only from a real git command, never from quoted text", () => {
+    expect(rewriteNoVerify('git commit -m "drop the --no-verify flag"')).toBeNull();
+    expect(rewriteNoVerify("npm run x --no-verify && git push")).toBeNull();
+    expect(rewriteNoVerify("git commit -m x --no-verify && echo done")).toBeNull();
   });
 
   it("is off by default, rewrites when on, and refuses in ask / deny mode", () => {

@@ -48,4 +48,26 @@ describe("Codify that writes (M13.6)", () => {
       `[rules]\nshared_tree = "ask"\n\n[[rules.custom]]\nname = "no-force"\nmatch = "git push .*--force"\naction = "deny"\n`,
     );
   });
+
+  it("never writes a file it would break: arrays, comments and code fences", () => {
+    // a continuation line is not a section header — this used to put the key inside the array
+    const multiline = '[rules]\npairs = [\n  ["a", 1],\n]\n';
+    expect(mergeToml(multiline, '[rules]\nno_verify = "rewrite"')).toBe(
+      '[rules]\npairs = [\n  ["a", 1],\n]\nno_verify = "rewrite"\n',
+    );
+    // a comment on the ports line is not part of the list
+    expect(
+      mergeToml(
+        "[rules.protected]\nports = [3000] # keep 8080 free\n",
+        "[rules.protected]\nports = [5432]",
+      ),
+    ).toBe("[rules.protected]\nports = [3000, 5432]\n");
+    // a `# comment` inside a fence is not the next heading
+    const fenced =
+      "# Repo\n\n## Lessons from Swarm\n\n- one\n\n```sh\n# not a heading\nbun test\n```\n\n## After\n\nx\n";
+    const out = mergeLesson(fenced, "two");
+    expect(out).toContain("```sh\n# not a heading\nbun test\n```");
+    expect(out.indexOf("- two")).toBeGreaterThan(out.indexOf("```sh"));
+    expect(out.indexOf("- two")).toBeLessThan(out.indexOf("## After"));
+  });
 });

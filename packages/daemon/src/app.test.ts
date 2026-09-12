@@ -173,7 +173,9 @@ describe("swarmd", () => {
         };
       };
     const r = await pre("git commit -m x --no-verify");
-    expect(r.hookSpecificOutput?.permissionDecision).toBe("allow");
+    // no permissionDecision: the rewrite hands back updatedInput and Claude Code's own permission
+    // flow still runs. Answering "allow" here would approve the whole call, chain and all.
+    expect(r.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.hookSpecificOutput?.updatedInput).toEqual({
       command: "git commit -m x",
       description: "x",
@@ -199,6 +201,10 @@ describe("swarmd", () => {
     expect(await pre("terraform apply")).toEqual({});
     // nothing to fix: plain allow
     expect(await pre("git status")).toEqual({});
+    // a rewrite may not launder a command the other rules refuse: the rewritten string is
+    // evaluated again and the second pass wins
+    const laundered = await pre("npm i left-pad; pkill -f node");
+    expect(laundered.hookSpecificOutput?.updatedInput).toBeUndefined();
   });
 
   it("parks an interactive PermissionRequest as a card while a dashboard watches (M13.2)", async () => {

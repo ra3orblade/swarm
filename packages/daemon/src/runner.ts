@@ -355,7 +355,19 @@ export class Runner {
       return;
     }
     if (decision.action === "rewrite") {
-      // M13.5: approve with the fixed command in place (the incident feed shows before / after)
+      // M13.5: approve with the fixed command in place — but only after the rewritten command has
+      // been through the rules itself, so a rewrite can never launder a call the guards refuse.
+      const second = this.store.evaluateTool(
+        tool,
+        { command: decision.command },
+        run.sessionId,
+        run.worktree,
+        false,
+      ).decision;
+      if (second.action === "deny" || second.action === "ask") {
+        this.answerPermission(run.id, requestId, false, `[swarm] ${second.reason}`);
+        return;
+      }
       this.answerPermission(run.id, requestId, true, undefined, {
         ...input,
         command: decision.command,

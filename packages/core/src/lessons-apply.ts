@@ -12,6 +12,28 @@
 
 export const LESSONS_HEADING = "## Lessons from Swarm";
 
+/**
+ * Offset of the next markdown heading in `text`, skipping fenced code blocks — a `# comment` in a
+ * shell snippet is not a heading, and treating it as one used to insert the lesson between a
+ * fence and its contents.
+ */
+function nextHeading(text: string): number {
+  let fence: string | null = null;
+  let at = 0;
+  for (const line of text.split("\n")) {
+    const open = line.match(/^\s*(```+|~~~+)/);
+    if (fence) {
+      if (open && line.trim().startsWith(fence)) fence = null;
+    } else if (open) {
+      fence = open[1] as string;
+    } else if (at > 0 && /^#{1,6} /.test(line)) {
+      return at - 1; // the newline before the heading
+    }
+    at += line.length + 1;
+  }
+  return -1;
+}
+
 export function mergeLesson(existing: string | null, lesson: string): string {
   const line = `- ${lesson.trim()}`;
   const text = existing ?? "";
@@ -24,11 +46,19 @@ export function mergeLesson(existing: string | null, lesson: string): string {
   // append inside the section: before the next heading, or at the end
   const after = idx + LESSONS_HEADING.length;
   const rest = text.slice(after);
-  const next = rest.search(/\n#{1,6} /);
+  const next = nextHeading(rest);
   const cut = next < 0 ? text.length : after + next;
   const section = text.slice(after, cut).trimEnd();
   return `${text.slice(0, after)}${section}\n${line}\n${next < 0 ? "" : text.slice(cut)}`;
 }
+
+/**
+ * A real section header — `[rules]`, `[[rules.custom]]` — and nothing else. `/^\s*\[/` also
+ * matched a continuation line of a multi-line array (`  ["a", 1],`), which ended the section
+ * early and let a key be written *inside* the array, producing unparseable TOML that Apply then
+ * committed and opened as a PR.
+ */
+const SECTION_HEADER = /^\s*\[\[?[A-Za-z0-9_.-]+\]\]?\s*(#.*)?$/;
 
 interface Block {
   /** `[rules]`, `[rules.protected]` or `[[rules.custom]]`. */
@@ -41,7 +71,7 @@ function parseSnippet(snippet: string): Block[] {
   const out: Block[] = [];
   for (const raw of snippet.split("\n")) {
     const line = raw.trimEnd();
-    const h = line.match(/^\[\[?([^\]]+)\]\]?$/);
+    const h = SECTION_HEADER.test(line) ? line.match(/^\[\[?([^\]]+)\]\]?$/) : null;
     if (h) {
       out.push({ header: line.trim(), array: line.startsWith("[["), lines: [] });
       continue;
@@ -59,7 +89,7 @@ function sectionBounds(lines: string[], header: string): { start: number; end: n
   if (start < 0) return null;
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (/^\s*\[/.test(lines[i] as string)) {
+    if (SECTION_HEADER.test(lines[i] as string)) {
       end = i;
       break;
     }
@@ -84,8 +114,11 @@ function setKey(lines: string[], start: number, end: number, key: string, value:
 }
 
 function unionPorts(existing: string, incoming: string): string {
+  // `ports = [3000] # keep 8080 free` must not contribute 8080
   const nums = (s: string) =>
-    [...s.matchAll(/\d+/g)].map((m) => Number(m[0])).filter((n) => Number.isInteger(n));
+    [...s.replace(/#.*$/, "").matchAll(/\d+/g)]
+      .map((m) => Number(m[0]))
+      .filter((n) => Number.isInteger(n));
   const set = new Set([...nums(existing), ...nums(incoming)]);
   return `[${[...set].sort((a, b) => a - b).join(", ")}]`;
 }

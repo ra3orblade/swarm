@@ -1314,15 +1314,32 @@ export function createApp(
     if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
       const guard = store.guardHook(raw);
       if (guard?.action === "rewrite") {
-        // M13.5: allow, with the fixed command in place — PreToolUse honours `updatedInput`
-        // (verified 2026-09-12); the agent is told what changed and why.
+        // M13.5: hand back the fixed command as `updatedInput` and let Claude Code's own
+        // permission flow decide as it would have. An earlier version answered
+        // `permissionDecision: "allow"`, which approved the *whole* call — so anything else in
+        // the command rode along unprompted, and a `[[rules.custom]]` replacement could
+        // synthesise something the other rules would have refused. The rewritten command is
+        // therefore evaluated again, and a second pass that is not `allow` wins.
         const input = (raw.tool_input ?? {}) as Record<string, unknown>;
+        const second = store.evaluateTool(
+          typeof raw.tool_name === "string" ? raw.tool_name : "Bash",
+          { command: guard.command },
+          sid ?? "",
+          typeof raw.cwd === "string" ? raw.cwd : "",
+          false,
+        ).decision;
+        if (second.action === "deny" || second.action === "ask")
+          return c.json({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: second.action,
+              permissionDecisionReason: `[swarm] ${second.reason}`,
+            },
+          });
         const note = `[swarm] rewrote the command (${guard.rule}): ${guard.reason}\nran: ${guard.command}`;
         return c.json({
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
-            permissionDecision: "allow",
-            permissionDecisionReason: `[swarm] rewritten by ${guard.rule}`,
             updatedInput: { ...input, command: guard.command },
             additionalContext: answers ? `${note}\n${answers}` : note,
           },

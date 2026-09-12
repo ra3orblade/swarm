@@ -378,6 +378,7 @@ function validate(c: SwarmConfig): SwarmConfig {
     },
     messages: {
       wake: (c.messages as { wake?: unknown } | undefined)?.wake !== false,
+    },
     codify: {
       target: (() => {
         const t = (c.codify as { target?: unknown } | undefined)?.target;
