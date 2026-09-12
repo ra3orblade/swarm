@@ -217,6 +217,26 @@ export function worktreeAdd(
   }
 }
 
+/** Stage `paths` and commit them in `cwd`; the new sha, or null when nothing changed / git failed. */
+export function commitPaths(cwd: string, paths: string[], message: string): string | null {
+  if (!paths.length || git(cwd, ["add", "--", ...paths]) === null) return null;
+  if (git(cwd, ["diff", "--cached", "--quiet"]) !== null) return null; // exit 0 = nothing staged
+  if (
+    git(cwd, [
+      "-c",
+      "user.email=swarm@localhost",
+      "-c",
+      "user.name=Swarm",
+      "commit",
+      "-q",
+      "-m",
+      message,
+    ]) === null
+  )
+    return null;
+  return git(cwd, ["rev-parse", "HEAD"])?.trim() ?? null;
+}
+
 export function worktreeRemove(repoRoot: string, path: string, force: boolean): boolean {
   const args = ["worktree", "remove", path];
   if (force) args.push("--force");

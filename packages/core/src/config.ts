@@ -135,6 +135,8 @@ export interface SwarmConfig {
   notify: { webhook: string | null };
   /** M13.4: messages and answers wake an idle interactive session (asyncRewake waiter). */
   messages: { wake: boolean };
+  /** M13.6 Codify → Apply: which file(s) a suggestion is written to. */
+  codify: { target: "claude-md" | "swarm-toml" | "both" };
   /** M13.2 permission broker for interactive sessions. */
   broker: {
     /** Seconds a PermissionRequest hook waits for an answer from the dashboard before the terminal
@@ -202,6 +204,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   models: { allow: [] },
   notify: { webhook: null },
   messages: { wake: true },
+  codify: { target: "both" },
   broker: { interactive_wait: 30 },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
@@ -375,6 +378,11 @@ function validate(c: SwarmConfig): SwarmConfig {
     },
     messages: {
       wake: (c.messages as { wake?: unknown } | undefined)?.wake !== false,
+    codify: {
+      target: (() => {
+        const t = (c.codify as { target?: unknown } | undefined)?.target;
+        return t === "claude-md" || t === "swarm-toml" ? t : "both";
+      })(),
     },
     broker: {
       interactive_wait: (() => {
