@@ -45,6 +45,7 @@ export const VIEW_DEFS = [
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard" },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard" },
   { id: "rules", label: "Rules", icon: "shield", group: "Guard" },
+  { id: "team", label: "Team", icon: "broadcast", group: "Guard" },
 ] as const satisfies readonly ViewDef[];
 
 /** One registry entry, with its literal `id` preserved so routing stays exhaustive. */

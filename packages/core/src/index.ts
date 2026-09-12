@@ -45,6 +45,7 @@ export * from "./stall";
 export * from "./statusline";
 export * from "./tasks";
 export * from "./team";
+export * from "./teamsetup";
 export * from "./transitions";
 export * from "./types";
 export * from "./waiting";
