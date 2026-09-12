@@ -146,8 +146,14 @@ function mcpServerConfig(): { command: string; args: string[] } {
 
 type Hooks = Record<
   string,
-  Array<{ matcher?: string; hooks: Array<{ type: string; command: string; timeout?: number }> }>
+  Array<{
+    matcher?: string;
+    hooks: Array<{ type: string; command: string; timeout?: number; asyncRewake?: boolean }>;
+  }>
 >;
+
+/** M13.4: the events that arm the background waiter (the idle time after each of them). */
+const WAKE_EVENTS = new Set(["SessionStart", "Stop"]);
 
 function load(): Record<string, unknown> {
   const p = settingsPath();
@@ -175,6 +181,11 @@ export function install(): string[] {
           // M13.2: a PermissionRequest may wait for the dashboard's answer (≤ 120 s)
           timeout: ev === "Stop" ? 330 : ev === "PermissionRequest" ? 150 : 5,
         },
+        // M13.4: a background waiter that exits 2 with the text when a message lands, waking the
+        // idle session; Claude Code cancels it at `timeout`, so it gives up on its own before.
+        ...(WAKE_EVENTS.has(ev)
+          ? [{ type: "command", command: hookCommand("wait"), timeout: 3600, asyncRewake: true }]
+          : []),
       ],
     });
     hooks[ev] = clean;

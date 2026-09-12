@@ -80,6 +80,12 @@ redact = []               # regexes replaced by "[redacted]" in every stored str
 # Fire-and-forget, never on the hook path. Global only.
 # webhook = "https://hooks.slack.com/services/…"
 
+[messages]
+# M13.4: a message (swarm msg send / swarm_send) or an answer to a session's question wakes that
+# session while it sits idle at its prompt — a background hook armed after every turn exits with
+# the text and Claude Code shows it as a system reminder. Off: delivery waits for the next hook.
+wake = true
+
 [broker]
 # M13.2: an interactive session's permission prompt becomes a card on the dashboard (session page,
 # Fleet, desktop notification) while a dashboard is open. Claude Code holds its terminal dialog

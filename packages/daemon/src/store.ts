@@ -1158,6 +1158,7 @@ export class Store {
       payload: { id, task: q.task, answer: a, by, summary: `answer to #${id}: ${a.slice(0, 120)}` },
     });
     this.touch();
+    this.wakeAll();
     return { ok: true as const, question: this.question(id) as Question };
   }
 
@@ -1332,6 +1333,7 @@ export class Store {
         summary: `message to ${String(input.to)}: ${v.text.slice(0, 120)}`,
       },
     });
+    this.wakeAll();
     return { ok: true, message };
   }
 
@@ -1661,6 +1663,70 @@ export class Store {
       },
     });
     return w.text;
+  }
+
+  // ---------- wake an idle session (M13.4)
+  /** One background waiter per session (`swarm-hook wait`); a newer one replaces the older. */
+  private wakers = new Map<
+    string,
+    {
+      resolve: (r: { wake: true; text: string } | { wake: false; reason: string }) => void;
+      timer: Timer;
+    }
+  >();
+
+  /**
+   * Hold the waiter until something is deliverable to `sessionId` (a message, an answer), the
+   * session becomes active or ends, a newer waiter arrives, or `maxMs` passes. Delivering here
+   * marks the rows delivered exactly as the next-hook path would have.
+   */
+  waitForWake(
+    sessionId: string,
+    maxMs: number,
+  ): Promise<{ wake: true; text: string } | { wake: false; reason: string }> {
+    if (!this.policyFor(null).config.messages.wake)
+      return Promise.resolve({ wake: false, reason: "off" });
+    const already = this.answerContext(sessionId);
+    if (already) return Promise.resolve({ wake: true, text: already });
+    this.wakers.get(sessionId)?.resolve({ wake: false, reason: "replaced" });
+    return new Promise((resolve) => {
+      const done = (r: { wake: true; text: string } | { wake: false; reason: string }) => {
+        const cur = this.wakers.get(sessionId);
+        if (cur?.resolve !== done) return;
+        clearTimeout(cur.timer);
+        this.wakers.delete(sessionId);
+        resolve(r);
+      };
+      const timer = setTimeout(() => done({ wake: false, reason: "timeout" }), maxMs);
+      this.wakers.set(sessionId, { resolve: done, timer });
+    });
+  }
+
+  /** After a send / answer: hand every waiting session what is now deliverable to it. */
+  private wakeAll() {
+    for (const [sid, w] of [...this.wakers]) {
+      const text = this.answerContext(sid);
+      if (text) {
+        w.resolve({ wake: true, text });
+        this.append({
+          ts: new Date().toISOString(),
+          type: "message.delivered",
+          projectId: this.sessionProject(sid) ?? "p_unknown",
+          sessionId: sid,
+          payload: { by: "wake", summary: "woke the session with its inbox" },
+        });
+      }
+    }
+  }
+  /** The session is active (or gone): its waiter is pointless — the next hook delivers. */
+  private cancelWake(sessionId: string, reason: string) {
+    this.wakers.get(sessionId)?.resolve({ wake: false, reason });
+  }
+  private sessionProject(sessionId: string): string | null {
+    const r = this.db.query("SELECT project_id FROM sessions WHERE id = ?").get(sessionId) as {
+      project_id: string | null;
+    } | null;
+    return r?.project_id ?? null;
   }
 
   // ---------- statusline (M12.2)
@@ -3320,6 +3386,12 @@ export class Store {
     if (typeof raw.cwd === "string")
       this.autoRenewFor(typeof raw.session_id === "string" ? raw.session_id : null, raw.cwd);
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
+    // M13.4: an active session gets its inbox on the next hook; a gone session never will
+    if (typeof raw.session_id === "string") {
+      if (event === "UserPromptSubmit" || event === "PreToolUse")
+        this.cancelWake(raw.session_id, "active");
+      else if (event === "SessionEnd") this.cancelWake(raw.session_id, "ended");
+    }
     // M13.3: remember who is editing what, for the heads-up after the edit lands
     if (event === "PreToolUse" && typeof raw.session_id === "string") {
       const fp = (raw.tool_input as { file_path?: unknown } | undefined)?.file_path;
