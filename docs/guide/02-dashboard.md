@@ -157,7 +157,9 @@ With a project selected, the Spend view attributes cost and tokens to each **tas
 
 ## Codify an incident
 
-Each incident on the Incidents feed has a **Codify** action: it turns the incident into a `.swarm.toml` rule you can paste in and a one-line lesson for the repo's CLAUDE.md, both with copy buttons. A rule that keeps firing as `ask` is suggested as a `deny`.
+Each incident on the Incidents feed has a **Codify** action: it turns the incident into a `.swarm.toml` rule and a one-line lesson for the repo's CLAUDE.md, both with copy buttons. A rule that keeps firing as `ask` is suggested as a `deny`; a custom rule that keeps firing is suggested tightened.
+
+**Apply → PR** does the writing for you, without ever touching the main checkout: the daemon creates a task-less worktree on `swarm/codify-<n>`, merges the lesson into CLAUDE.md under a *Lessons from Swarm* heading (once, never twice) and the rule into `.swarm.toml` (a key is set in its section, ports are unioned, a custom rule block is appended, everything else stays byte for byte), commits, pushes, opens the PR through `gh` / `glab` prefilled with the incident, and removes the worktree. Choose *both files*, *CLAUDE.md* or *.swarm.toml* on the card; `[codify] target` sets the default. In a repo without a forge remote the branch and the worktree stay, and the card shows the `git push` line to run. Nothing is written unless you pressed the button on that incident, which is what keeps Swarm repo-agnostic.
 
 ## Resume where it died
 

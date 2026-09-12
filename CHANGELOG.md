@@ -21,6 +21,15 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Codify is back, and it writes.** The React port had lost the Incidents feed's Codify action;
+  it returns as a card with the CLAUDE.md lesson and the `.swarm.toml` rule, copy buttons, and a
+  new **Apply → PR** button. Apply never touches your main checkout: the daemon creates a
+  task-less worktree on `swarm/codify-<n>`, merges the lesson under a *Lessons from Swarm*
+  heading (once) and the rule into its section (ports unioned, custom rules appended, everything
+  else byte for byte), commits, pushes and opens the PR prefilled with the incident, then removes
+  the worktree. Without a forge remote the branch stays and the card shows the push line.
+  `[codify] target` picks the default file(s).
+
 - **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
   third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
   `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the

@@ -203,3 +203,21 @@ export async function runGates(projectId: string, task: string): Promise<GateRun
   await refreshSnapshot();
   return result;
 }
+
+/** M13.6: Codify → Apply. The daemon branches, commits and opens the PR; nothing touches main. */
+export interface CodifyApplied {
+  ok: boolean;
+  error?: string;
+  branch?: string;
+  files?: string[];
+  pr?: { url: string; number?: number };
+  worktree?: string;
+  gitLine?: string;
+}
+export async function applyCodify(
+  seq: number,
+  projectId: string,
+  target: "claude-md" | "swarm-toml" | "both",
+): Promise<CodifyApplied> {
+  return (await send(`/v1/incidents/${seq}/apply`, "POST", { projectId, target })) as CodifyApplied;
+}

@@ -27,6 +27,7 @@ import {
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { applyCodify } from "./codify";
 import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
@@ -587,6 +588,19 @@ export function createApp(
   app.post("/v1/incidents/ack", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { project?: string; by?: string };
     return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined, body.by) });
+  });
+  // M13.6: Codify → Apply: branch + commit + PR, never the main checkout
+  app.post("/v1/incidents/:seq/apply", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; target?: string };
+    const seq = Number(c.req.param("seq"));
+    if (!b.projectId || !Number.isInteger(seq))
+      return c.json({ ok: false, error: "projectId and a numeric seq required" }, 400);
+    const target =
+      b.target === "claude-md" || b.target === "swarm-toml" || b.target === "both"
+        ? b.target
+        : store.policyFor(null).config.codify.target;
+    const r = await applyCodify(store, forge, b.projectId, seq, target);
+    return c.json(r, r.ok ? 201 : 409);
   });
   app.post("/v1/incidents/:seq/ack", (c) => {
     const seq = Number(c.req.param("seq"));

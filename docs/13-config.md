@@ -80,6 +80,11 @@ redact = []               # regexes replaced by "[redacted]" in every stored str
 # Fire-and-forget, never on the hook path. Global only.
 # webhook = "https://hooks.slack.com/services/…"
 
+[codify]
+# M13.6: what Codify → Apply writes by default — "both" (CLAUDE.md lesson + .swarm.toml rule),
+# "claude-md", or "swarm-toml". The card can override per click. Always on a branch, never main.
+target = "both"
+
 [broker]
 # M13.2: an interactive session's permission prompt becomes a card on the dashboard (session page,
 # Fleet, desktop notification) while a dashboard is open. Claude Code holds its terminal dialog

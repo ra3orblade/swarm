@@ -6,6 +6,7 @@
  * denial has been read.
  */
 import type { IncidentEvent } from "@swarm/core/dashboard";
+import type { LessonSuggestion } from "@swarm/core/lessons";
 import { useMemo, useState } from "react";
 import { ackAllIncidents, ackIncident } from "../api/actions";
 import { routes } from "../api/endpoints";
@@ -15,6 +16,7 @@ import { Absent, Badge, Empty, Failed, Loading, Section } from "../components/ui
 import { ago } from "../lib/format";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
+import { CodifyModal } from "./incidents/CodifyModal";
 
 /** The part of a shell command worth reading in a cell: drop a leading `cd <dir> &&` / `;`. */
 function commandGist(command: string): string {
@@ -43,6 +45,10 @@ export function Incidents() {
   const project = useUiStore((s) => s.project);
   const openSession = useUiStore((s) => s.openSession);
   const [openOnly, setOpenOnly] = useState(true);
+  // M13.6: the incident whose Codify card is open
+  const [codify, setCodify] = useState<(IncidentEvent & { suggestion?: LessonSuggestion }) | null>(
+    null,
+  );
   const { data, error, reload } = useResource<IncidentEvent[]>(routes.incidents(project, openOnly));
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY_SESSIONS);
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
@@ -231,20 +237,35 @@ export function Incidents() {
             ),
           }}
           trailing={{
-            width: 70,
-            cell: (i) =>
-              i.acked ? null : (
-                <button
-                  type="button"
-                  className="mini-act"
-                  onClick={async () => {
-                    await ackIncident(i.seq);
-                    reload();
-                  }}
-                >
-                  Ack
-                </button>
-              ),
+            width: 132,
+            cell: (i) => (
+              <>
+                {(i as { suggestion?: LessonSuggestion }).suggestion && (
+                  <button
+                    type="button"
+                    className="mini-act"
+                    title="Turn this incident into a rule and a lesson — copy them, or open a PR"
+                    onClick={() =>
+                      setCodify(i as IncidentEvent & { suggestion?: LessonSuggestion })
+                    }
+                  >
+                    Codify
+                  </button>
+                )}
+                {!i.acked && (
+                  <button
+                    type="button"
+                    className="mini-act"
+                    onClick={async () => {
+                      await ackIncident(i.seq);
+                      reload();
+                    }}
+                  >
+                    Ack
+                  </button>
+                )}
+              </>
+            ),
           }}
         />
       ) : (
@@ -255,6 +276,7 @@ export function Incidents() {
           seen it.
         </Empty>
       )}
+      {codify && <CodifyModal incident={codify} onClose={() => setCodify(null)} />}
     </>
   );
 }

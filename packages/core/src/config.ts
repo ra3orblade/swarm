@@ -133,6 +133,8 @@ export interface SwarmConfig {
    *  JSON — works for Slack incoming webhooks and any generic JSON receiver (Jira/PagerDuty via
    *  their webhook bridges). Fire-and-forget, never on the hook path. Global only. */
   notify: { webhook: string | null };
+  /** M13.6 Codify → Apply: which file(s) a suggestion is written to. */
+  codify: { target: "claude-md" | "swarm-toml" | "both" };
   /** M13.2 permission broker for interactive sessions. */
   broker: {
     /** Seconds a PermissionRequest hook waits for an answer from the dashboard before the terminal
@@ -199,6 +201,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
+  codify: { target: "both" },
   broker: { interactive_wait: 30 },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
@@ -368,6 +371,12 @@ function validate(c: SwarmConfig): SwarmConfig {
       webhook: (() => {
         const w = (c.notify as { webhook?: unknown } | undefined)?.webhook;
         return typeof w === "string" && /^https?:\/\//.test(w.trim()) ? w.trim() : null;
+      })(),
+    },
+    codify: {
+      target: (() => {
+        const t = (c.codify as { target?: unknown } | undefined)?.target;
+        return t === "claude-md" || t === "swarm-toml" ? t : "both";
       })(),
     },
     broker: {
