@@ -160,6 +160,9 @@ export interface RuleModes {
   dry_run_first?: RewriteMode;
   /** `[[rules.custom]]` in config order (M13.5). */
   custom?: CustomRule[];
+  /** M13.3, read by the daemon only; optional here so older policy caches still evaluate. */
+  collision_context?: boolean;
+  collision_window?: number;
   protected: { ports: number[] };
 }
 

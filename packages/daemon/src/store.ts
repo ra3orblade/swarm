@@ -42,11 +42,13 @@ import {
   claimRefusalMessage,
   clusterProjectKey,
   collisionGraph,
+  collisionWarning,
   compileRedactions,
   gateHealth as computeGateHealth,
   contextReport,
   costUsd,
   type DashboardSnapshot,
+  DEFAULT_COLLISION_WINDOW_MIN,
   DEFAULT_FROM_PORT,
   DEFAULT_RESOURCE_LEASE_MINUTES,
   type DryRunReport,
@@ -95,6 +97,7 @@ import {
   LIVE_WINDOW_MS,
   type LineageEdgeInput,
   type LineageSession,
+  type LiveEditor,
   type LiveSession,
   type LoadedConfig,
   type LogParseResult,
@@ -1571,6 +1574,93 @@ export class Store {
       };
     cur.resolve(a);
     return { ok: true };
+  }
+
+  // ---------- live collision context (M13.3)
+  /** abs path → session → ms of its latest edit request; pruned as it is read. */
+  private recentEdits = new Map<string, Map<string, number>>();
+  /** `${session}|${other}|${path}` → ms warned, so a pair hears it once per window. */
+  private collisionWarned = new Map<string, number>();
+
+  /** Called from ingestHook on every PreToolUse of a write tool. */
+  noteEdit(sessionId: string, path: string, at = Date.now()) {
+    const m = this.recentEdits.get(path) ?? new Map<string, number>();
+    m.set(sessionId, at);
+    this.recentEdits.set(path, m);
+    if (this.recentEdits.size > 5000) this.pruneEdits(at);
+  }
+  private pruneEdits(now: number) {
+    const keep = 4 * 60 * 60_000;
+    for (const [path, m] of this.recentEdits) {
+      for (const [sid, at] of m) if (now - at > keep) m.delete(sid);
+      if (!m.size) this.recentEdits.delete(path);
+    }
+    for (const [k, at] of this.collisionWarned) if (now - at > keep) this.collisionWarned.delete(k);
+  }
+
+  /**
+   * After `sessionId` edited `path`: the heads-up text naming other live sessions that edited it
+   * within the repo's window, or null. Records `collision.warned` once per pair per window.
+   */
+  collisionContext(sessionId: string, cwd: string, path: string): string | null {
+    const modes = this.rulesFor(this.toplevel(cwd));
+    if (modes.collision_context === false) return null;
+    const windowMs = (modes.collision_window ?? DEFAULT_COLLISION_WINDOW_MIN) * 60_000;
+    const now = Date.now();
+    const edits = [...(this.recentEdits.get(path) ?? [])].map(([sid, at]) => ({
+      sessionId: sid,
+      at,
+    }));
+    if (edits.length < 2) return null;
+    const cutoff = new Date(now - LIVE_WINDOW_MS - 10_000).toISOString();
+    const rows = this.db
+      .query(
+        "SELECT id, cwd, branch, title FROM sessions WHERE state != 'ended' AND last_seen_at > ? AND id != ?",
+      )
+      .all(cutoff, sessionId) as Array<{
+      id: string;
+      cwd: string | null;
+      branch: string | null;
+      title: string | null;
+    }>;
+    const held = this.heldClaimsWithWorktree();
+    const live = new Map<string, LiveEditor>(
+      rows.map((r) => [
+        r.id,
+        {
+          sessionId: r.id,
+          task: r.cwd
+            ? (held.find((c) => isInside(r.cwd as string, c.worktree))?.task ?? null)
+            : null,
+          branch: r.branch,
+          // the agent's name alone would not tell two Claude sessions apart; the id does
+          title: r.title,
+        },
+      ]),
+    );
+    const w = collisionWarning(path, sessionId, edits, live, now, windowMs);
+    if (!w) return null;
+    const fresh = w.others.filter((o) => {
+      const k = `${sessionId}|${o.sessionId}|${path}`;
+      const at = this.collisionWarned.get(k);
+      if (at && now - at < windowMs) return false;
+      this.collisionWarned.set(k, now);
+      return true;
+    });
+    if (!fresh.length) return null;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    this.append({
+      ts: new Date(now).toISOString(),
+      type: "collision.warned",
+      projectId: project?.id ?? "p_unknown",
+      sessionId,
+      payload: {
+        path,
+        others: fresh.map((o) => ({ sessionId: o.sessionId, task: o.task, branch: o.branch })),
+        summary: `also edited by ${fresh.map((o) => o.title ?? o.sessionId.slice(0, 8)).join(", ")}: ${path}`,
+      },
+    });
+    return w.text;
   }
 
   // ---------- statusline (M12.2)
@@ -3230,6 +3320,12 @@ export class Store {
     if (typeof raw.cwd === "string")
       this.autoRenewFor(typeof raw.session_id === "string" ? raw.session_id : null, raw.cwd);
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
+    // M13.3: remember who is editing what, for the heads-up after the edit lands
+    if (event === "PreToolUse" && typeof raw.session_id === "string") {
+      const fp = (raw.tool_input as { file_path?: unknown } | undefined)?.file_path;
+      if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
+        this.noteEdit(raw.session_id, absolutePath(fp, cwd));
+    }
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
     // M4.4: every pause is a potential death — keep a structured auto-handoff current.

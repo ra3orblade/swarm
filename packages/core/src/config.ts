@@ -38,6 +38,10 @@ export interface RulesConfig {
   dry_run_first: RewriteRuleMode;
   /** M13.5: `[[rules.custom]]` — name, match (regex), action, replace, reason. */
   custom: CustomRule[];
+  /** M13.3: after an edit, tell the session when another live session edited the same file
+   *  within `collision_window` minutes (on PostToolUse). */
+  collision_context: boolean;
+  collision_window: number;
   protected: {
     /** Ports that agents must not kill/free (dev servers, databases, the daemon itself). */
     ports: number[];
@@ -219,6 +223,8 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     no_verify: "off",
     dry_run_first: "off",
     custom: [],
+    collision_context: true,
+    collision_window: 15,
     protected: { ports: [] },
   },
 };
@@ -439,6 +445,11 @@ function validate(c: SwarmConfig): SwarmConfig {
       no_verify: rewriteMode(c.rules?.no_verify, "off"),
       dry_run_first: rewriteMode(c.rules?.dry_run_first, "off"),
       custom: parseCustomRules(c.rules?.custom),
+      collision_context: c.rules?.collision_context !== false,
+      collision_window: (() => {
+        const n = Number(c.rules?.collision_window);
+        return Number.isFinite(n) && n >= 1 && n <= 240 ? Math.round(n) : 15;
+      })(),
       protected: {
         ports: Array.isArray(c.rules?.protected?.ports)
           ? c.rules.protected.ports.filter((p) => Number.isInteger(p) && p > 0 && p < 65536)

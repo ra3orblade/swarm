@@ -128,6 +128,11 @@ dry_run_first = "off"     # the first terraform apply / kubectl delete / helm un
 # action = "rewrite"
 # replace = "pnpm add"
 
+# Live collision context (M13.3): after a file edit, the session is told when another live session
+# edited the same file within the window — once per pair per window, as context, never a refusal.
+collision_context = true
+collision_window = 15     # minutes
+
 [rules.protected]
 # Ports agents must not kill/free (dev servers, databases, the daemon itself).
 ports = []                # e.g. [3000, 5432, 7777]
