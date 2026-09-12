@@ -61,6 +61,8 @@ labels = []                # GitHub: only issues carrying every one of these
 # Verifications a task must pass. See the Claims page.
 required = []              # e.g. ["review", "tests"]
 auto = "session-end"       # when the daemon runs executable gates itself: "session-end" | "stop" | "off"
+on_stop = "record"         # "block": refuse a Stop while a required gate fails (the repair loop), at most max_blocks times
+max_blocks = 3
 
 # [gates.tests]
 # cmd = "bun test"         # exit 0 is a pass; the rubric is the command that ran

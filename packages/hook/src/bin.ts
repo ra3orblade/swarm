@@ -20,7 +20,12 @@ if (event === "statusline") {
   process.stdout.write(`${await runStatusline(input)}\n`);
   process.exit(0);
 }
-const timeout = Number(process.env.SWARM_HOOK_TIMEOUT_MS ?? 400);
+// M13.1: a Stop may wait for the repair loop's gates (the daemon answers at once unless the repo
+// set `[gates] on_stop = "block"`), so Stop alone gets a long budget; every other event stays fast.
+const timeout =
+  event === "Stop"
+    ? Number(process.env.SWARM_STOP_TIMEOUT_MS ?? 330_000)
+    : Number(process.env.SWARM_HOOK_TIMEOUT_MS ?? 400);
 const post = async (base: string) => {
   const r = await fetch(`${base}/v1/hook/${event}`, {
     method: "POST",

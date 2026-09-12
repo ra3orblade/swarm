@@ -32,6 +32,7 @@ export * from "./project-id";
 export * from "./provenance";
 export * from "./questions";
 export * from "./quota";
+export * from "./repair";
 export * from "./resourcegraph";
 export * from "./resources";
 export * from "./review";

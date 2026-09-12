@@ -103,6 +103,13 @@ export interface SwarmConfig {
     required: string[];
     /** When the daemon runs the executable required gates on its own for a held worktree (M7.4). */
     auto: "session-end" | "stop" | "off";
+    /** M13.1 repair loop: with "block", a Stop inside a held worktree runs the executable required
+     *  gates and is refused (Claude keeps working) while one fails — at most `max_blocks` times
+     *  per session, then a gate_failed incident opens and the stop goes through. */
+    on_stop: "record" | "block";
+    max_blocks: number;
+    /** Seconds a Stop may wait for the gates before it is let through (the hook's own budget). */
+    stop_timeout: number;
     /** Executable gates: `[gates.<name>] cmd = "bun test"` (M7.4). */
     defs: Record<string, GateDef>;
   };
@@ -162,7 +169,14 @@ export interface SwarmConfig {
 export const DEFAULT_CONFIG: SwarmConfig = {
   daemon: { port: 7777, auth: "loopback-optional" },
   tasks: { source: null, labels: [], team: null },
-  gates: { required: [], auto: "session-end", defs: {} },
+  gates: {
+    required: [],
+    auto: "session-end",
+    on_stop: "record",
+    max_blocks: 3,
+    stop_timeout: 300,
+    defs: {},
+  },
   workflows: {},
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
@@ -269,6 +283,15 @@ function validate(c: SwarmConfig): SwarmConfig {
       auto: AUTO_MODES.includes(auto as (typeof AUTO_MODES)[number])
         ? (auto as SwarmConfig["gates"]["auto"])
         : "session-end",
+      on_stop: rawGates?.on_stop === "block" ? "block" : "record",
+      max_blocks: (() => {
+        const n = Number(rawGates?.max_blocks);
+        return Number.isInteger(n) && n >= 0 && n <= 20 ? n : 3;
+      })(),
+      stop_timeout: (() => {
+        const n = Number(rawGates?.stop_timeout);
+        return Number.isFinite(n) && n >= 5 && n <= 1800 ? n : 300;
+      })(),
       defs: parseGateDefs(rawGates),
     },
     budget: {

@@ -40,6 +40,7 @@ export const EVENT_TYPES = [
   "process.started",
   "process.exited",
   "gate.recorded",
+  "gate.blocked",
   "handoff.recorded",
   "permission.requested",
   "permission.resolved",

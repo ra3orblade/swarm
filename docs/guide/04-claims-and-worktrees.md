@@ -323,4 +323,24 @@ The review gate spawns Claude Code non-interactively in the held worktree with t
 
 The daemon also runs them on its own: when a session working in a held worktree **ends**, the executable required gates run and their verdicts land in that session's auto-handoff `verify` line — so the next session (or **Resume where it died**) starts from "tests ✓, lint ✗" rather than a guess. `[gates] auto = "stop"` does it after every turn instead (throttled to once per two minutes per task); `"off"` turns it off.
 
+### The repair loop
+
+```toml
+[gates]
+required = ["tests", "lint"]
+on_stop = "block"     # default "record"
+max_blocks = 3
+```
+
+With `on_stop = "block"`, an interactive session working in a held worktree cannot declare itself done while a required gate fails. When the agent stops, the daemon runs the executable required gates, and if one fails it refuses the stop and hands the agent the gate's name and the tail of its output:
+
+```
+[swarm] not done yet — a required gate is failing in this worktree. Fix the cause, run it again, then finish.
+gate "lint" failed (ran `bun run lint` — exit 1 in 4s):
+src/a.ts:3 unused variable x
+(refusal 1 of 3; after 2 more the stop goes through and an incident opens)
+```
+
+The agent keeps working on that. Every refusal is a `gate.blocked` line in the session log; after `max_blocks` refusals the stop goes through and a `gate_failed` incident opens, so an agent that cannot make a gate pass never loops forever on the budget the gate was meant to protect. The wait is bounded by `stop_timeout` (300 s by default): gates that take longer still run and record, they just stop refusing. Subagents are never refused, and a session outside any claimed worktree is never touched. Gates without a command (recorded by hand, like a review) never block.
+
 Three rules, all fail-closed: a run with no rubric is rejected (a bare "pass" is noise); the **latest** run of a gate decides, so a fail followed by a pass is a pass — but the fail stays on record; and every fail opens a `gate_failed` incident. On the Board, each task shows ✓ / ✗ / — per declared gate, and **Recent gates** lists the runs with rubric, evidence and the session that recorded them.

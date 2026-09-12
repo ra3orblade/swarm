@@ -1187,9 +1187,22 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
           hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx },
         });
     }
+    const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    // M13.1 repair loop: a Stop inside a held worktree with `[gates] on_stop = "block"` runs the
+    // required gates and, while one fails, answers `block` so Claude keeps working on the output.
+    // Verified 2026-09-12: Stop reads `decision: "block"` + `reason` (top level and under
+    // hookSpecificOutput); we send both.
+    if (event === "Stop" && sid && typeof raw.cwd === "string") {
+      const d = await store.stopDecision(sid, raw.cwd);
+      if (d)
+        return c.json({
+          decision: "block",
+          reason: d.reason,
+          hookSpecificOutput: { hookEventName: "Stop", decision: "block", reason: d.reason },
+        });
+    }
     // M7.7: answers to this session's questions ride along as context on the next hook that
     // accepts it (UserPromptSubmit / PreToolUse / PostToolUse).
-    const sid = typeof raw.session_id === "string" ? raw.session_id : null;
     const answers =
       event === "UserPromptSubmit" || event === "PreToolUse" || event === "PostToolUse"
         ? store.answerContext(sid)

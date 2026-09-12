@@ -167,7 +167,8 @@ export function install(): string[] {
       .map((g) => ({ ...g, hooks: g.hooks.filter((h) => !isOurs(h)) }))
       .filter((g) => g.hooks.length);
     clean.push({
-      hooks: [{ type: "command", command: hookCommand(ev), timeout: 5 }],
+      // M13.1: Stop may wait for the repair loop's gates; everything else answers in < 1 s.
+      hooks: [{ type: "command", command: hookCommand(ev), timeout: ev === "Stop" ? 330 : 5 }],
     });
     hooks[ev] = clean;
     added.push(ev);

@@ -117,4 +117,100 @@ describe("executed gates (M7.4)", () => {
     expect(h?.verify).toMatch(/^auto-gates: test ✓ \(ran `echo/);
     expect(h?.verify).toContain("lint ✗");
   });
+
+  it("refuses a Stop while a required gate fails, then gives up after max_blocks (M13.1)", async () => {
+    const store = new Store(mkdtempSync(join(tmpdir(), "swarm-home-")));
+    const { app } = createApp(store);
+    const repo = tmpRepo(`[gates]
+required = ["test", "lint", "review"]
+on_stop = "block"
+max_blocks = 2
+[gates.test]
+cmd = "test -f README.md"
+[gates.lint]
+cmd = "echo 'src/a.ts:3 unused x' >&2; test -f lint-ok"
+`);
+    const p = store.resolveProject(repo, true);
+    const c = store.claim(p.id, "auth", "alice");
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    const stop = async () => {
+      const r = await app.request("/v1/hook/Stop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: "s_stop", cwd: c.worktree, hook_event_name: "Stop" }),
+      });
+      return (await r.json()) as { decision?: string; reason?: string };
+    };
+    // a session outside the worktree is never touched
+    const outside = await app.request("/v1/hook/Stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s_other", cwd: repo, hook_event_name: "Stop" }),
+    });
+    expect(await outside.json()).toEqual({});
+
+    const first = await stop();
+    expect(first.decision).toBe("block");
+    expect(first.reason).toContain('gate "lint" failed');
+    expect(first.reason).toContain("src/a.ts:3 unused x");
+    expect(first.reason).toContain("(refusal 1 of 2;");
+    expect(store.stopBlocks("s_stop")).toBe(1);
+    expect(store.gateRuns(p.id, "auth").map((x) => [x.gate, x.verdict])).toEqual([
+      ["lint", "fail"],
+      ["test", "pass"],
+    ]);
+    const second = await stop();
+    expect(second.decision).toBe("block");
+    expect(second.reason).toContain("(refusal 2 of 2; the next stop goes through");
+    // refusals used up: the stop goes through and one gate_failed incident opens
+    const third = await stop();
+    expect(third).toEqual({});
+    const fourth = await stop();
+    expect(fourth).toEqual({});
+    const incidents = store.since(0).filter(
+      (e) =>
+        e.type === "incident.opened" &&
+        // every failed lint run opens its own gate_failed incident (M2.2); the loop's is named
+        (e.payload as { command?: string }).command === "stop on auth" &&
+        e.sessionId === "s_stop",
+    );
+    expect(incidents).toHaveLength(1);
+    const inc = incidents[0];
+    expect(inc ? (inc.payload as { reason?: string }).reason : "").toContain(
+      "lint still failing after 2 refusals",
+    );
+    expect(store.stopBlocks("s_stop")).toBe(2);
+
+    // fix the cause: the stop is allowed and the auto-handoff carries the verdicts
+    writeFileSync(join(c.worktree, "lint-ok"), "");
+    // the auto-handoff (M4.4) exists once the session has said something
+    await app.request("/v1/hook/UserPromptSubmit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s_fixed", cwd: c.worktree, prompt: "fix lint" }),
+    });
+    await app.request("/v1/hook/PreToolUse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s_fixed",
+        cwd: c.worktree,
+        tool_name: "Write",
+        tool_input: { file_path: join(c.worktree, "lint-ok") },
+      }),
+    });
+    const fixed = await app.request("/v1/hook/Stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s_fixed", cwd: c.worktree, hook_event_name: "Stop" }),
+    });
+    expect(await fixed.json()).toEqual({});
+    expect(store.stopBlocks("s_fixed")).toBe(0);
+    const h = store.db
+      .query("SELECT verify FROM handoffs WHERE task = 'auth' AND session_id = 's_fixed'")
+      .get() as { verify: string | null } | null;
+    expect(h?.verify).toMatch(/^auto-gates: /);
+    expect(h?.verify).toContain("lint ✓");
+  });
 });
