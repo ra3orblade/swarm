@@ -133,6 +133,18 @@ describe("swarmd", () => {
     expect(snap.quota.windows).toHaveLength(1);
   });
 
+  it("stops on POST /v1/shutdown only when the daemon wired it", async () => {
+    const bare = createApp(new Store(tmpHome()));
+    expect((await bare.app.request("/v1/shutdown", { method: "POST" })).status).toBe(501);
+    let stopped = 0;
+    const wired = createApp(new Store(tmpHome()), { shutdown: () => stopped++ });
+    const r = await wired.app.request("/v1/shutdown", { method: "POST" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ ok: true });
+    await new Promise((res) => setTimeout(res, 80));
+    expect(stopped).toBe(1);
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {

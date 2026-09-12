@@ -102,7 +102,10 @@ export function expandHome(p: string, home = homedir()): string {
   return p;
 }
 
-export function createApp(store = new Store(), hooks: { restart?: () => void } = {}) {
+export function createApp(
+  store = new Store(),
+  hooks: { restart?: () => void; shutdown?: () => void } = {},
+) {
   const app = new Hono();
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
@@ -1236,6 +1239,15 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
     if (!raw || typeof raw !== "object" || Array.isArray(raw))
       return c.json({ ok: false, error: "expected the statusLine JSON object" }, 400);
     return c.json(store.statuslineFor(raw));
+  });
+
+  // A clean stop over HTTP, for the desktop app: it always runs its own daemon and asks whoever
+  // holds ~/.swarm/daemon.json to leave first. Loopback-only like every route; the same path as
+  // SIGTERM (spawned runs stopped by registry pid, daemon.json cleared). 501 when not wired.
+  app.post("/v1/shutdown", (c) => {
+    if (!hooks.shutdown) return c.json({ ok: false, error: "shutdown not available" }, 501);
+    setTimeout(() => hooks.shutdown?.(), 50);
+    return c.json({ ok: true, pid: process.pid });
   });
   app.post("/v1/events", async (c) => {
     const e = (await c.req.json()) as SwarmEvent;

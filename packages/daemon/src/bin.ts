@@ -14,7 +14,7 @@ import { Store } from "./store";
 // Port preference: SWARM_PORT env > ~/.swarm/config.toml [daemon].port > 7777.
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
-const appHooks: { restart?: () => void } = {};
+const appHooks: { restart?: () => void; shutdown?: () => void } = {};
 const { app, store, runner, team } = createApp(new Store(), appHooks);
 // `swarm demo`: a dedicated home seeded with a believable afternoon of agent work (never real data)
 if (process.env.SWARM_DEMO === "1" && isEmpty(store)) seedDemo(store);
@@ -57,6 +57,8 @@ const restart = () => {
   setTimeout(() => process.exit(0), 100);
 };
 appHooks.restart = restart;
+// the desktop app asks over HTTP (POST /v1/shutdown); same path as SIGTERM
+appHooks.shutdown = () => void shutdown();
 server = serve();
 const port = server.port ?? DEFAULT_PORT;
 
@@ -118,4 +120,19 @@ async function shutdown() {
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+// Started as the desktop app's sidecar: leave when the app does, even when the app was killed
+// rather than quit (a crash, a `kill`, a logout) — otherwise a daemon nobody can see keeps
+// running and the next app launch has to evict it. Polled, because there is no portable
+// "die with parent" flag; ESRCH on the parent pid is the signal.
+const parentPid = Number(process.env.SWARM_PARENT_PID);
+if (Number.isInteger(parentPid) && parentPid > 1) {
+  setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      console.error(`swarmd: parent ${parentPid} is gone — shutting down`);
+      void shutdown();
+    }
+  }, 2000).unref();
+}
 process.on("exit", () => clearDaemonInfo());

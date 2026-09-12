@@ -4,6 +4,21 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- **The desktop app always runs its own daemon.** It used to reuse any healthy daemon registered
+  in `~/.swarm/daemon.json` — which meant a clone's `bun run dev` daemon, serving whatever
+  dashboard bundle happened to be on that disk, was what the packaged app displayed, and
+  restarting the app changed nothing because the daemon it borrowed never restarted. Now the app
+  asks the registered daemon to stop over a new loopback `POST /v1/shutdown` (the same clean path
+  as `swarm stop`: spawned runs stopped by pid, `daemon.json` cleared), starts its bundled daemon,
+  and finds it by pid. The daemon keeps its preferred port — `[daemon] port`, else 7777 — and
+  falls back to any free port when that is taken, so a blocked 7777 is never an error; and a
+  process that merely listens on the port no longer counts as a daemon, since the app now checks
+  `/v1/health` rather than a TCP connect. The daemon the app starts also watches the app's pid and stops
+  itself when the app is gone — quit, crashed or killed — so no invisible daemon survives to be
+  evicted next time.
+
 ### Fixed
 
 - **Codex and Gemini sessions stopped updating after the first look.** Both write their session id

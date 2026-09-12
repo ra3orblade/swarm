@@ -28,11 +28,11 @@ That writes the hook and MCP entries into `~/.claude/settings.json` exactly as `
 
 ## What the app does on launch
 
-1. It looks for a daemon that is already running and healthy (via `~/.swarm/daemon.json`). If one is there — because you ran `swarm start`, or another copy of the app is open — it reuses it and does not start a second one.
-2. Otherwise it starts its own daemon as a sidecar on a **free port** chosen by the OS. The port is recorded in `~/.swarm/daemon.json`, so the CLI, hook and MCP server all find it; nothing needs 7777 to be free.
-3. It shows a short splash and then loads the dashboard from that daemon.
+1. If a daemon is already registered in `~/.swarm/daemon.json` and healthy — because you ran `swarm start`, or a clone's `bun run dev` is up — the app asks it to stop (over HTTP, the same clean path as `swarm stop`) and waits for it to go. The app **always runs its own daemon**: that is the only way it can promise the dashboard you see is the one this version shipped, not a stale bundle from wherever the other daemon was started.
+2. It starts its bundled daemon as a sidecar. The daemon takes its preferred port (`[daemon] port` in your config, else 7777) and, if that is taken by anything else, **any free port** the OS hands out. The real port lands in `~/.swarm/daemon.json`, so the CLI, hook and MCP server all follow it; nothing ever needs 7777 to be free.
+3. It shows a short splash, finds its daemon by pid in `daemon.json`, and loads the dashboard from it. If the bundled daemon failed to start, after a short grace period the window falls back to any healthy daemon on file rather than staying on the splash.
 
-Because the daemon is shared, the CLI and the app always see the same sessions, claims and resources.
+The CLI and the app see the same sessions, claims and resources because they read the same `daemon.json`. A daemon that refuses to stop (it requires a token, or predates the shutdown route) is left running; the app's daemon still registers, so hooks and the CLI follow the app's.
 
 ## Tray and window
 
@@ -42,7 +42,7 @@ The app lives in the tray (menu bar on macOS). The tray menu has three items:
 - **Check for Updates…** — see below.
 - **Quit** — quit the app and stop the daemon it started.
 
-**Closing the window hides it**; the app keeps running in the tray and the daemon keeps collecting. Bring the window back from the tray, or on macOS by clicking the dock icon. **Quit** (tray, or Cmd+Q on macOS) really quits, and takes the sidecar daemon down with it — only a daemon the app itself spawned; one you started with `swarm start` is left alone.
+**Closing the window hides it**; the app keeps running in the tray and the daemon keeps collecting. Bring the window back from the tray, or on macOS by clicking the dock icon. **Quit** (tray, or Cmd+Q on macOS) really quits, and takes the sidecar daemon down with it. The daemon also watches the app's pid on its own, so if the app crashes or is killed the daemon stops within a couple of seconds rather than living on invisibly.
 
 On macOS the window uses an inset title bar: drag it by the dashboard header, double-click the header to maximise.
 
@@ -58,7 +58,7 @@ Updates are signed with Swarm's updater key and verified before install. This is
 
 ## Port behaviour and the CLI
 
-With the app running, `swarm ui`, `swarm status` and the rest talk to the app's daemon through `daemon.json`, whatever port it landed on. `swarm stop` sends that daemon a SIGTERM; the app's window will show the daemon as disconnected until you quit and relaunch the app or run `swarm start`. If you set `SWARM_HOME`, set it for the app's environment too, or it will look in `~/.swarm`.
+With the app running, `swarm ui`, `swarm status` and the rest talk to the app's daemon through `daemon.json`, whatever port it landed on. `swarm stop` sends that daemon a SIGTERM; the app's window will show the daemon as disconnected until you quit and relaunch the app (which starts a fresh one). Starting a daemon by hand while the app runs — `swarm start`, or `bun run dev` in a clone — puts *that* daemon in `daemon.json`, and the app takes over again on its next launch. If you set `SWARM_HOME`, set it for the app's environment too, or it will look in `~/.swarm`.
 
 ## Feedback
 
