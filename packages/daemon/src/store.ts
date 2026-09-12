@@ -1482,7 +1482,12 @@ export class Store {
   touchDashboard() {
     this.dashboardSeenAt = Date.now();
   }
-  dashboardWatching(withinMs = 45_000): boolean {
+  /**
+   * 12 s, not 45: the dashboard polls every 5 s and only when its tab is visible, so two missed
+   * polls is already generous. The old window meant a tab that had been in the background for
+   * forty seconds still made every terminal permission prompt wait.
+   */
+  dashboardWatching(withinMs = 12_000): boolean {
     return Date.now() - this.dashboardSeenAt < withinMs;
   }
 
@@ -1591,19 +1596,34 @@ export class Store {
   private collisionWarned = new Map<string, number>();
 
   /** Called from ingestHook on every PreToolUse of a write tool. */
+  private static readonly EDIT_CAP = 5000;
+  private lastEditPrune = 0;
   noteEdit(sessionId: string, path: string, at = Date.now()) {
     const m = this.recentEdits.get(path) ?? new Map<string, number>();
     m.set(sessionId, at);
+    // re-insert so the Map's own insertion order is a least-recently-touched list
+    this.recentEdits.delete(path);
     this.recentEdits.set(path, m);
-    if (this.recentEdits.size > 5000) this.pruneEdits(at);
+    if (this.recentEdits.size > Store.EDIT_CAP && at - this.lastEditPrune > 60_000)
+      this.pruneEdits(at);
   }
+  /**
+   * Age entries out, then enforce the cap. Age alone could free nothing — a machine that touches
+   * 5 000 paths inside the four-hour window would then walk the whole map again on the *next*
+   * write tool call, forever — so anything still over the cap loses its oldest entries.
+   */
   private pruneEdits(now: number) {
+    this.lastEditPrune = now;
     const keep = 4 * 60 * 60_000;
     for (const [path, m] of this.recentEdits) {
       for (const [sid, at] of m) if (now - at > keep) m.delete(sid);
       if (!m.size) this.recentEdits.delete(path);
     }
     for (const [k, at] of this.collisionWarned) if (now - at > keep) this.collisionWarned.delete(k);
+    for (const path of this.recentEdits.keys()) {
+      if (this.recentEdits.size <= Store.EDIT_CAP) break;
+      this.recentEdits.delete(path); // oldest first: Map iterates in insertion order
+    }
   }
 
   /**
@@ -2331,6 +2351,15 @@ export class Store {
    * carries the failing gate's output as the reason Claude keeps working on. Bounded by
    * `[gates] max_blocks` per session (OQ-24); never for `SubagentStop`, which is not routed here.
    */
+  /** Would a Stop here run gates and possibly refuse? Cheap: config plus the claim lookup. */
+  repairArmed(cwd: string): boolean {
+    if (!cwd || !existsSync(cwd)) return false;
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (!held) return false;
+    const cfg = this.gateDefs(held.projectId);
+    return cfg?.on_stop === "block" && cfg.max_blocks > 0 && cfg.required.some((g) => cfg.defs[g]);
+  }
+
   async stopDecision(
     sessionId: string,
     cwd: string,
@@ -6630,6 +6659,63 @@ export class Store {
       });
       return { ...i, count: counts.get(key) ?? 1, suggestion };
     });
+  }
+
+  /**
+   * One incident by its event seq, with the same `suggestion` the feed attaches. Codify used to
+   * ask for 5 000 rows and `.find()` the one it wanted, parsing every payload and building a
+   * suggestion for each on the way past.
+   */
+  incident(seq: number): (Record<string, unknown> & { seq: number }) | null {
+    const r = this.db
+      .query(
+        `SELECT e.seq, e.ts, e.project_id, e.session_id, e.payload, a.acked_at FROM events e
+         LEFT JOIN incident_acks a ON a.seq = e.seq WHERE e.seq = ? AND e.type = 'incident.opened'`,
+      )
+      .get(seq) as
+      | {
+          seq: number;
+          ts: string;
+          project_id: string;
+          session_id: string | null;
+          payload: string;
+          acked_at: string | null;
+        }
+      | null
+      | undefined;
+    if (!r) return null;
+    const payload = JSON.parse(r.payload || "{}") as Record<string, unknown>;
+    const base = {
+      seq: r.seq,
+      ts: r.ts,
+      projectId: r.project_id,
+      sessionId: r.session_id,
+      acked: r.acked_at,
+      ...payload,
+    };
+    if (typeof payload.rule !== "string") return base;
+    const rule = payload.rule;
+    const command = typeof payload.command === "string" ? payload.command : "";
+    // how often this (rule, target) has fired, so a recurring ask still escalates to deny
+    const count = (
+      this.db
+        .query(
+          `SELECT COUNT(*) AS n FROM events WHERE type = 'incident.opened' AND project_id = ?
+             AND json_extract(payload,'$.rule') = ? AND json_extract(payload,'$.command') = ?`,
+        )
+        .get(r.project_id, rule, command) as { n: number }
+    ).n;
+    return {
+      ...base,
+      count: Math.max(1, count),
+      suggestion: suggestFromIncident({
+        rule,
+        action: typeof payload.action === "string" ? payload.action : "",
+        command,
+        reason: typeof payload.reason === "string" ? payload.reason : "",
+        count: Math.max(1, count),
+      }),
+    };
   }
 
   /** Open (un-acked) incident count, for the nav badge. */

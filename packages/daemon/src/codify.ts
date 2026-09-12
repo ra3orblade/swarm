@@ -37,10 +37,11 @@ export async function applyCodify(
 ): Promise<CodifyResult | { ok: false; error: string }> {
   const project = store.project(projectId);
   if (!project) return { ok: false, error: "unknown project" };
-  const incident = store.incidents(5000, { projectId }).find((i) => i.seq === seq) as
+  const incident = store.incident(seq) as
     | (Record<string, unknown> & { suggestion?: LessonSuggestion })
-    | undefined;
-  if (!incident) return { ok: false, error: `no incident #${seq} in ${project.name}` };
+    | null;
+  if (!incident || incident.projectId !== projectId)
+    return { ok: false, error: `no incident #${seq} in ${project.name}` };
   const s = incident.suggestion;
   if (!s) return { ok: false, error: "this incident carries no suggestion to apply" };
   const wantToml = target !== "claude-md" && Boolean(s.toml);

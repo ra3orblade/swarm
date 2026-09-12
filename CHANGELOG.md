@@ -26,8 +26,9 @@ capability below reaches an *interactive* session, not just a spawned run.
   seconds — 30 by default — for an answer. Allow or deny on the card and the terminal never asks;
   press *Answer in terminal* or let the countdown run out and the dialog appears there unchanged.
   The card names the rule that flagged the call when one did. Nothing waits unless a dashboard is
-  actually open, so a machine with the dashboard closed is never slowed down. `swarm install`
-  registers the new hook; run it once after updating.
+  open **and visible** — a background tab is not someone watching, and a terminal prompt is never
+  held for a card nobody can see. `swarm install` registers the new hook; run it once after
+  updating.
 
 - **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
   third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /

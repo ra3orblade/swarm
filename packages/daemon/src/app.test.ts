@@ -231,8 +231,12 @@ describe("swarmd", () => {
     expect(await (await ask("t1")).json()).toEqual({});
     expect(store.since(0).filter((e) => e.type === "permission.resolved")).toHaveLength(1);
 
-    // a dashboard is polling: the prompt is parked, visible in the snapshot, and answerable
+    // a dashboard that is open but not visible is not watching: it polls without `watching=1`
     await app.request("/v1/state");
+    expect(await (await ask("t1b")).json()).toEqual({});
+
+    // a dashboard someone can actually see: the prompt is parked, in the snapshot, answerable
+    await app.request("/v1/state?watching=1");
     const pending = ask("t2");
     await new Promise((r) => setTimeout(r, 30));
     const snap = (await (await app.request("/v1/state")).json()) as {
