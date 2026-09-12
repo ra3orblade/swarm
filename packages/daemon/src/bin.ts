@@ -89,6 +89,7 @@ const tailer = setInterval(() => {
   store.reapProcesses(); // registered processes that exited on their own
   if (tick % 12 === 0) store.sweepOrphans(); // every minute: expired leases holding work → incident
   if (tick % 6 === 0) store.checkBudgets(); // every 30 s: [budget] + team ceilings → incident / ask / stop
+  if (tick % 6 === 0) store.checkQuota(); // every 30 s: [budget] window_warn_at on the plan windows (M12.3)
   if (tick % 12 === 0) store.checkModels(); // every minute: [models] allow-list observation (M8.4)
   if (tick % 2 === 0) store.checkStalls(); // every 10 s: loop/stall heuristics → stuck badge + event
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval

@@ -56,6 +56,9 @@ export interface StatuslineState {
   waitingOn: number;
   /** Answers and messages waiting in this session's inbox. */
   inbox: number;
+  /** M12.3: the plan window that runs out soonest at the current pace, if any does before it
+   *  resets; `hoursToLimit` is null once the window is already exhausted. */
+  quota: { window: "five_hour" | "seven_day" | "spend_limit"; hoursToLimit: number | null } | null;
 }
 
 /** Parse the stdin text; null when it is not a JSON object. */
@@ -131,6 +134,15 @@ export function renderStatusline(
     if (state.waitingOn > 0)
       swarm.push(red(color, `waiting on you${state.waitingOn > 1 ? ` ×${state.waitingOn}` : ""}`));
     if (state.inbox > 0) swarm.push(`inbox ${state.inbox}`);
+    if (state.quota) {
+      const short = { five_hour: "5h", seven_day: "7d", spend_limit: "spend" }[state.quota.window];
+      const h = state.quota.hoursToLimit;
+      if (h == null) swarm.push(red(color, `${short} limit reached`));
+      else {
+        const s = `${short} limit in ${h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : `${Math.round(h)}h`}`;
+        swarm.push(h < 1 ? red(color, s) : h < 3 ? yellow(color, s) : s);
+      }
+    }
   }
   const sep = dim(color, " · ");
   const bar = dim(color, " │ ");

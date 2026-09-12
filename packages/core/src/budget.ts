@@ -12,6 +12,9 @@ export interface BudgetConfig {
   warn_at: number;
   /** What happens past 100%: an incident only, `ask` on write-ish tools, or stop spawned runs too. */
   on_exceed: "warn" | "ask" | "stop";
+  /** M12.3: fraction of a plan quota window (5-hour / 7-day, from the statusline) at which a
+   *  `budget` incident opens, once per window per reset; null = never warn (100% still does). */
+  window_warn_at: number | null;
 }
 
 export type BudgetLevel = "ok" | "warn" | "exceeded";

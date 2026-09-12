@@ -30,6 +30,7 @@ import {
   auditRow,
   BUDGET_ASK_TOOLS,
   BUILD_DIRS,
+  BURN_MIN_SPAN_MS,
   type BudgetStatus,
   budgetMessage,
   budgetStatus,
@@ -129,7 +130,14 @@ import {
   policyFindings,
   prDraft,
   projectIdentity,
+  QUOTA_LABEL,
   type Question,
+  type QuotaReport,
+  type QuotaWindow,
+  type QuotaWindowReport,
+  quotaMessage,
+  quotaReport,
+  quotaSamples,
   type Resource,
   type RuleId,
   type RulesConfig,
@@ -164,6 +172,7 @@ import {
   type Turn,
   taskBoard,
   taskSourceKind,
+  tightestWindow,
   toolResponseErrored,
   transitionGraph,
   validateGateRun,
@@ -249,6 +258,11 @@ CREATE TABLE IF NOT EXISTS messages (
   answer TEXT, answered_by TEXT, answered_at TEXT, delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_open ON messages(project_id, answered_at, delivered_at);
+CREATE TABLE IF NOT EXISTS quota (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, window TEXT, used_pct REAL, resets_at INTEGER,
+  session_id TEXT, project_id TEXT
+);
+CREATE INDEX IF NOT EXISTS quota_window_at ON quota(window, at);
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, workflow TEXT,
   step INTEGER, step_label TEXT, steps TEXT, state TEXT, detail TEXT, run_id TEXT,
@@ -1471,7 +1485,10 @@ export class Store {
         ? this.resolveProject(cwd)
         : null;
     const budget = project ? this.budgetFor(project.id) : null;
+    this.recordQuota(payload, sessionId, project?.id ?? null);
+    const tight = tightestWindow(this.quota());
     return {
+      quota: tight ? { window: tight.window, hoursToLimit: tight.hoursToLimit } : null,
       task: held
         ? {
             id: held.task,
@@ -1489,6 +1506,105 @@ export class Store {
       waitingOn: sessionId ? this.questions({ sessionId, open: true }).length : 0,
       inbox: sessionId ? this.inbox(sessionId, { peek: true }).length : 0,
     };
+  }
+
+  // ---------- plan quota windows (M12.3)
+  /**
+   * Keep the windows a statusLine payload carries. The payload lands after every assistant
+   * message, so a row is written only when a window moved or ten minutes passed — enough points
+   * for a burn rate, not a row per message.
+   */
+  private recordQuota(
+    payload: StatuslinePayload,
+    sessionId: string | null,
+    projectId: string | null,
+  ) {
+    const now = Date.now();
+    for (const q of quotaSamples(payload, now)) {
+      const last = this.db
+        .query(
+          "SELECT at, used_pct, resets_at FROM quota WHERE window = ? ORDER BY at DESC LIMIT 1",
+        )
+        .get(q.window) as { at: number; used_pct: number; resets_at: number | null } | null;
+      if (
+        last &&
+        last.used_pct === q.usedPct &&
+        last.resets_at === q.resetsAt &&
+        now - last.at < BURN_MIN_SPAN_MS
+      )
+        continue;
+      this.db
+        .query(
+          "INSERT INTO quota (at, window, used_pct, resets_at, session_id, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run(now, q.window, q.usedPct, q.resetsAt, sessionId, projectId);
+      this.quotaDirty = true;
+    }
+  }
+  private quotaDirty = true;
+  private quotaMemo: { at: number; report: QuotaReport } | null = null;
+
+  /** The plan windows as last reported, with burn rate and time-to-limit (8 days of samples so
+   *  the 7-day window has its whole period). Memoised until a new sample lands or 30 s pass. */
+  quota(): QuotaReport {
+    const now = Date.now();
+    if (!this.quotaDirty && this.quotaMemo && now - this.quotaMemo.at < 30_000)
+      return this.quotaMemo.report;
+    const rows = this.db
+      .query("SELECT at, window, used_pct, resets_at FROM quota WHERE at >= ? ORDER BY at")
+      .all(now - 8 * 86_400_000) as Array<{
+      at: number;
+      window: QuotaWindow;
+      used_pct: number;
+      resets_at: number | null;
+    }>;
+    const report = quotaReport(
+      rows.map((r) => ({ window: r.window, usedPct: r.used_pct, resetsAt: r.resets_at, at: r.at })),
+      now,
+      this.policyFor(null).config.budget.window_warn_at,
+    );
+    this.quotaMemo = { at: now, report };
+    this.quotaDirty = false;
+    return report;
+  }
+
+  private quotaNotified = new Map<string, string>(); // window → "<resets_at>:<level>"
+  /**
+   * For the daemon tick: open a `budget` incident the first time a window crosses
+   * `[budget] window_warn_at` and again at 100%, once per reset period. The incident belongs to
+   * the project whose session last reported the window — quota is per plan, incidents per project.
+   */
+  checkQuota(): QuotaWindowReport[] {
+    const out: QuotaWindowReport[] = [];
+    for (const w of this.quota().windows) {
+      if (w.level === "ok") continue;
+      out.push(w);
+      const key = `${w.resetsAt ?? "none"}:${w.level}`;
+      if (this.quotaNotified.get(w.window) === key) continue;
+      this.quotaNotified.set(w.window, key);
+      const src = this.db
+        .query("SELECT project_id FROM quota WHERE window = ? ORDER BY at DESC LIMIT 1")
+        .get(w.window) as { project_id: string | null } | null;
+      const projectId = src?.project_id ?? this.projects()[0]?.id ?? null;
+      if (!projectId) continue;
+      this.append({
+        ts: new Date().toISOString(),
+        type: "incident.opened",
+        projectId,
+        sessionId: null,
+        payload: {
+          rule: "budget",
+          action: "warn",
+          command: `${QUOTA_LABEL[w.window]} (plan quota)`,
+          reason:
+            w.level === "exceeded"
+              ? `${quotaMessage(w)}. Sessions on this plan will be rate-limited; API-key sessions are unaffected.`
+              : `${quotaMessage(w)} — approaching the plan limit ([budget] window_warn_at)`,
+        },
+      });
+      this.touch();
+    }
+    return out;
   }
 
   /** The last statusline payload a session sent, if any. */
@@ -2856,6 +2972,8 @@ export class Store {
     const cfg = this.policyFor(null).config;
     const chatter = days ?? cfg.events.retain_days;
     const cutoff = new Date(Date.now() - chatter * 86_400_000).toISOString();
+    // M12.3: quota samples are only ever read over the last 8 days
+    this.db.query("DELETE FROM quota WHERE at < ?").run(Date.now() - 14 * 86_400_000);
     // chatter (tool calls, deltas, …) ages out; audit records only when [audit] retain_days > 0
     let n = this.db
       .query(`DELETE FROM events WHERE ts < ? AND type NOT IN (${AUDIT_TYPES_SQL})`)
@@ -6610,6 +6728,7 @@ export class Store {
       sessions: this.sessions(),
       spend: this.memoised("spend", 30_000, () => this.spend()),
       spendSparks: this.memoised("spendSparks", 60_000, () => this.spendSparks()),
+      quota: this.quota(),
       claims: this.claims(),
       processes: this.memoised("processes", 5000, () => this.processes()),
       incidents: this.memoised("incidents", 30_000, () => this.incidents(20, { open: true })),

@@ -6,10 +6,11 @@
  * cost at API rates, because the comparison between models is the point.
  */
 import type { SpendBucket } from "@swarm/core/dashboard";
+import { hoursText, QUOTA_LABEL, type QuotaWindowReport } from "@swarm/core/quota";
 import { useMemo, useState } from "react";
 import { Heatmap, Legend, StackedColumns } from "../components/charts";
 import { type Column, DataGrid } from "../components/DataGrid";
-import { Absent, Section, Stat, StatRow } from "../components/ui";
+import { Absent, Section, Stat, StatRow, type StatTone } from "../components/ui";
 import { agentColor, agentName } from "../lib/agents";
 import { modelName, sumBy, tokens, usd } from "../lib/format";
 import { useSnapshot } from "../state/snapshot";
@@ -18,9 +19,29 @@ import { useSpendRollup } from "./spend/useSpendRollup";
 
 const RANGES = [7, 14, 30, 90];
 
+function quotaTone(level: QuotaWindowReport["level"]): StatTone | undefined {
+  if (level === "exceeded") return "hot";
+  if (level === "warn") return "warm";
+  return undefined;
+}
+
+/** "resets in 3h · +4.2%/h · limit in 2h — before the reset" */
+function quotaDetail(w: QuotaWindowReport): string {
+  const parts: string[] = [];
+  if (w.hoursToReset != null) parts.push(`resets in ${hoursText(w.hoursToReset)}`);
+  if (w.burnPctPerHour != null)
+    parts.push(`${w.burnPctPerHour >= 0 ? "+" : ""}${w.burnPctPerHour.toFixed(1)}%/h`);
+  if (w.hoursToLimit != null)
+    parts.push(
+      `limit in ${hoursText(w.hoursToLimit)}${w.limitBeforeReset ? " — before the reset" : ""}`,
+    );
+  return parts.join(" · ");
+}
+
 export function Spend() {
   const project = useUiStore((s) => s.project);
   const spend = useSnapshot((s) => s?.spend ?? null);
+  const quota = useSnapshot((s) => s?.quota ?? null);
   const projects = useSnapshot((s) => s?.projects ?? EMPTY);
   const [days, setDays] = useState(14);
 
@@ -92,6 +113,27 @@ export function Spend() {
           detail={rollup.agents.map(agentName).join(" · ") || "—"}
         />
       </StatRow>
+
+      {quota && quota.windows.length > 0 && (
+        <>
+          <Section
+            title="Plan windows"
+            hint="from Claude Code's status line — Pro / Max plans only"
+            spaced
+          />
+          <StatRow>
+            {quota.windows.map((w) => (
+              <Stat
+                key={w.window}
+                label={QUOTA_LABEL[w.window]}
+                value={`${Math.round(w.usedPct)}%`}
+                tone={quotaTone(w.level)}
+                detail={quotaDetail(w)}
+              />
+            ))}
+          </StatRow>
+        </>
+      )}
 
       <div className="chart-card">
         <h3>

@@ -29,6 +29,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
   already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
 
+- **Plan quota windows on Spend and in the status line.** Pro / Max plans are metered by a 5-hour
+  and a 7-day window, not by dollars, and Claude Code reports both to its status line after every
+  message. The daemon keeps those samples (a row when a window moves, never one per message) and
+  Spend shows a tile per window: percent used, when it resets, the burn rate, and at the current
+  pace whether the limit lands before the reset. The status line names the window that runs out
+  first: `5h limit in 2h`. `[budget] window_warn_at = 0.8` opens a `budget` incident once per
+  window per reset period, and again at 100%; `false` turns the warning off. Swarm has no
+  account and never asks Anthropic for usage — the status line is the only source, so the tiles
+  appear only while some session on a plan keeps reporting (API-key sessions never do).
+
 - **Linux has an AppImage again — and auto-updates with it.** The AppImage has been off since
   v0.2.2 because the bundler died every time, and Linux was the one platform the in-app updater
   could not reach. The bundler runs `patchelf` over every executable it finds inside the package,

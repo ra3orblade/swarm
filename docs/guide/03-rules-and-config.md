@@ -48,6 +48,7 @@ ports = []
 # weekly = 100
 warn_at = 0.8
 on_exceed = "warn"
+window_warn_at = 0.8       # plan's 5-hour / 7-day window (Pro / Max, via the status line): incident at this fraction; false = off
 
 [tasks]
 # The repo's backlog, read-only: a markdown file with ID | Task | Depends | Status
@@ -214,6 +215,8 @@ Bash is not covered — a `cat` is not a write — and neither are paths outside
 ## Budgets
 
 A repo can carry a spend ceiling: `[budget] daily = 25` and/or `weekly = 100` (USD, from the same transcript-priced numbers the Spend view shows). At `warn_at` (80% by default) a `budget` incident opens once for the day; past 100% another does, and `on_exceed` says what else happens — `"warn"` nothing more, `"ask"` makes every Bash / Edit / Write in that repo ask first (the reason names the ceiling), `"stop"` stops the repo's spawned runs and clears its dispatch queue. The Spend view shows the ceiling as a tile when a project is selected. Budgets are checked every 30 seconds; an interactive session past the ceiling keeps working, it just confirms each change.
+
+On a Pro / Max plan the meter that matters is the 5-hour and 7-day window, not dollars. With the [status line](01-getting-started.md#a-status-line-optionally) installed, Claude Code reports both after every message and Swarm keeps them: Spend shows a tile per window (percent used, reset, burn rate, and whether the limit lands before the reset at the current pace), the status line names the window that runs out first, and `window_warn_at` (80% by default) opens a `budget` incident once per window per reset period, again at 100%. Swarm never asks Anthropic for usage; the status line is the only source, so the tiles appear only while a session on a plan keeps reporting.
 
 ## What rules are — and aren't
 

@@ -160,6 +160,10 @@ ports = []                # e.g. [3000, 5432, 7777]
 # weekly = 100
 warn_at = 0.8
 on_exceed = "warn"
+# M12.3: the plan's 5-hour / 7-day windows (from Claude Code's status line, Pro / Max only). A
+# `budget` incident opens once per window per reset period at this fraction, and again at 100%;
+# false = never warn. Global in effect — a plan belongs to the user, not to a repo.
+window_warn_at = 0.8
 
 [dispatch]
 # `swarm dispatch` (M7.5): autonomous runs per project at once; the rest queue. Defaults for those
