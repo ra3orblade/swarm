@@ -181,51 +181,126 @@ export const DEFAULT_MODES: RuleModes = {
 
 // ---------- rewrites (M13.5): the built-in fixes, pure string → string
 
+/**
+ * A rewrite may only touch a command it fully understands: one invocation, no chaining, no
+ * redirection, no substitution. `kubectl delete ns prod && rm -rf /tmp/x` used to come back as
+ * `… && rm -rf /tmp/x --dry-run=client` — the deletion ran, the flag landed on `rm`, and the
+ * incident feed claimed the call had been made safe. Anything carrying shell punctuation is left
+ * to `ask` / `deny` instead.
+ */
+export function isSingleCommand(cmd: string): boolean {
+  return !/[&|;<>`\n]/.test(cmd) && !cmd.includes("$(");
+}
+
+/**
+ * Drop `flags` from a command, ignoring anything inside single or double quotes — otherwise
+ * `git commit -m "drop the --no-verify flag"` silently rewrites the commit message.
+ */
+export function stripFlagsOutsideQuotes(cmd: string, flags: readonly string[]): string {
+  let out = "";
+  let quote: string | null = null;
+  let i = 0;
+  while (i < cmd.length) {
+    const ch = cmd[i] as string;
+    if (quote) {
+      out += ch;
+      if (ch === quote && cmd[i - 1] !== "\\") quote = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    const rest = cmd.slice(i);
+    const hit = flags.find((f) => rest.startsWith(f) && /^(\s|$)/.test(rest.slice(f.length)));
+    if (hit) {
+      out = out.replace(/[ \t]+$/, ""); // take the separating space with the flag
+      i += hit.length;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 /** `git … --no-verify` / `--no-gpg-sign` without the flags; null when there is nothing to drop. */
 export function rewriteNoVerify(cmd: string): string | null {
-  if (!/\bgit\b/.test(cmd) || !/--no-(verify|gpg-sign)\b/.test(cmd)) return null;
-  const out = cmd.replace(/\s+--no-(verify|gpg-sign)\b/g, "").replace(/ {2,}/g, " ");
+  // one plain `git …` invocation only: in `npm run x --no-verify && git push` the flag is npm's
+  if (!isSingleCommand(cmd) || !/^\s*git\s/.test(cmd)) return null;
+  if (!/--no-(verify|gpg-sign)\b/.test(cmd)) return null;
+  const out = stripFlagsOutsideQuotes(cmd, ["--no-verify", "--no-gpg-sign"]);
   return out === cmd ? null : out;
 }
 
 /**
- * The dry-run form of an irreversible infrastructure command, keyed by family so the daemon can
- * remember that this session already saw the dry run. Null when the command is not one, or is
- * already a dry run.
+ * The dry-run form of an irreversible infrastructure command, keyed by the command itself so that
+ * dry-running one target never unlocks a different one. Null when the command is not one of them,
+ * is already a dry run, or is anything but a single plain invocation.
  */
 export function rewriteDryRun(cmd: string): { key: string; command: string } | null {
-  if (/\bterraform\s+apply\b/.test(cmd) && !/\bterraform\s+plan\b/.test(cmd))
+  if (!isSingleCommand(cmd)) return null;
+  const key = cmd.replace(/\s+/g, " ").trim();
+  if (/^\s*terraform\s+apply\b/.test(cmd)) {
+    // a saved plan is applied positionally, and `terraform plan <file>` is a different command —
+    // so only a flags-only apply is rewritten
+    const tail = cmd.replace(/^\s*terraform\s+apply\b/, "").trim();
+    if (tail.length > 0 && tail.split(/\s+/).some((a) => !a.startsWith("-"))) return null;
     return {
-      key: "terraform apply",
+      key,
       command: cmd
-        .replace(/\bterraform\s+apply\b/, "terraform plan")
+        .replace(/^(\s*)terraform\s+apply\b/, "$1terraform plan")
         .replace(/\s+-auto-approve\b/g, "")
-        .replace(/ {2,}/g, " "),
+        .replace(/ {2,}/g, " ")
+        .trimEnd(),
     };
-  if (/\bkubectl\s+delete\b/.test(cmd) && !/--dry-run\b/.test(cmd))
-    return { key: "kubectl delete", command: `${cmd.trimEnd()} --dry-run=client` };
-  if (/\bhelm\s+(uninstall|delete)\b/.test(cmd) && !/--dry-run\b/.test(cmd))
-    return { key: "helm uninstall", command: `${cmd.trimEnd()} --dry-run` };
+  }
+  if (/^\s*kubectl\s+delete\b/.test(cmd) && !/--dry-run\b/.test(cmd))
+    return { key, command: `${cmd.trimEnd()} --dry-run=client` };
+  if (/^\s*helm\s+(uninstall|delete)\b/.test(cmd) && !/--dry-run\b/.test(cmd))
+    return { key, command: `${cmd.trimEnd()} --dry-run` };
   return null;
 }
 
 /** Apply one custom rule; null when it does not match (or a rewrite would change nothing). */
-export function applyCustomRule(rule: CustomRule, cmd: string): GuardDecision | null {
-  let re: RegExp;
+/**
+ * Compiled custom-rule patterns. `guardBash` runs on every Bash call and the dry-run replays up to
+ * 20 000 of them, so compiling per call was a real cost; the config layer hands back the same
+ * frozen rule objects for 30 s, so a WeakMap hits.
+ */
+const customRe = new WeakMap<CustomRule, RegExp | null>();
+function compiled(rule: CustomRule): RegExp | null {
+  const hit = customRe.get(rule);
+  if (hit !== undefined) return hit;
+  let re: RegExp | null = null;
   try {
     re = new RegExp(rule.match, rule.action === "rewrite" ? "g" : "");
   } catch {
-    return null;
+    re = null; // an invalid pattern drops the rule, never the daemon
   }
+  customRe.set(rule, re);
+  return re;
+}
+
+export function applyCustomRule(rule: CustomRule, cmd: string): GuardDecision | null {
+  const re = compiled(rule);
+  if (!re) return null;
   if (rule.action === "off" || !re.test(cmd)) return null;
   const id: RuleId = `custom:${rule.name}`;
   const reason = rule.reason ?? `matches custom rule "${rule.name}" (${rule.match})`;
   if (rule.action !== "rewrite") return { action: rule.action, rule: id, reason };
+  // a rewrite is only safe on a command we can reason about whole (see isSingleCommand)
+  if (!isSingleCommand(cmd))
+    return {
+      action: "ask",
+      rule: id,
+      reason: `${reason} — not rewritten: the command chains or redirects`,
+    };
   re.lastIndex = 0;
-  const out = cmd
-    .replace(re, rule.replace ?? "")
-    .replace(/ {2,}/g, " ")
-    .trim();
+  const out = cmd.replace(re, rule.replace ?? "").trim();
   return out === cmd ? null : { action: "rewrite", rule: id, reason, command: out };
 }
 

@@ -203,3 +203,59 @@ export async function runGates(projectId: string, task: string): Promise<GateRun
   await refreshSnapshot();
   return result;
 }
+
+/** M13.6: Codify → Apply. The daemon branches, commits and opens the PR; nothing touches main. */
+export interface CodifyApplied {
+  ok: boolean;
+  error?: string;
+  branch?: string;
+  files?: string[];
+  pr?: { url: string; number?: number };
+  worktree?: string;
+  gitLine?: string;
+}
+export async function applyCodify(
+  seq: number,
+  projectId: string,
+  target: "claude-md" | "swarm-toml" | "both",
+): Promise<CodifyApplied> {
+  return (await send(`/v1/incidents/${seq}/apply`, "POST", { projectId, target })) as CodifyApplied;
+}
+
+/** M13.12: hosting or joining a team from the Team panel. */
+export interface TeamStatus {
+  configured: boolean;
+  url: string | null;
+  forward: string[];
+  pending: number;
+  oldest: string | null;
+  lastError: string | null;
+  authed: boolean;
+  machine: { id: string; name: string };
+  hosting: boolean;
+  pid: number | null;
+  port: number | null;
+  invite: string | null;
+  mode: "token" | "oidc" | "open" | null;
+  address: string | null;
+}
+export interface TeamActionResult {
+  ok: boolean;
+  error?: string;
+  invite?: string;
+  url?: string;
+  address?: string | null;
+}
+export async function hostTeam(body: {
+  mode?: "token" | "oidc" | "open";
+  port?: number;
+  name?: string | null;
+}): Promise<TeamActionResult> {
+  return (await send("/v1/team/host", "POST", body)) as TeamActionResult;
+}
+export async function joinTeam(body: { invite: string }): Promise<TeamActionResult> {
+  return (await send("/v1/team/join", "POST", body)) as TeamActionResult;
+}
+export async function leaveTeam(stopHosted: boolean): Promise<TeamActionResult> {
+  return (await send("/v1/team/leave", "POST", { stopHosted })) as TeamActionResult;
+}

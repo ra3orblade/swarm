@@ -73,7 +73,7 @@ describe("install", () => {
 });
 
 describe("wake waiter (M13.4)", () => {
-  it("arms an asyncRewake waiter on SessionStart and Stop only, and removes it with the rest", () => {
+  it("arms one asyncRewake waiter, on Stop only, and removes it with the rest", () => {
     install();
     const hooks = JSON.parse(readFileSync(settings, "utf8")).hooks as Record<
       string,
@@ -81,7 +81,8 @@ describe("wake waiter (M13.4)", () => {
     >;
     const waiters = (ev: string) =>
       (hooks[ev] ?? []).flatMap((g) => g.hooks).filter((h) => h.asyncRewake === true);
-    expect(waiters("SessionStart")).toHaveLength(1);
+    // an idle period begins at Stop; SessionStart would spawn a second waiter per session
+    expect(waiters("SessionStart")).toHaveLength(0);
     expect(waiters("Stop")).toHaveLength(1);
     expect(waiters("Stop")[0]?.command).toMatch(/ wait$/);
     expect(waiters("Stop")[0]?.timeout).toBe(3600);

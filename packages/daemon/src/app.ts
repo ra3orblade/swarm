@@ -27,12 +27,14 @@ import {
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { applyCodify } from "./codify";
 import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
+import { hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
 import { WorkflowEngine } from "./workflow";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.13.2";
@@ -218,7 +220,10 @@ export function createApp(
    * did it after paying for the transfer and the parse. The tag is a hash of the same bytes.
    */
   app.get("/v1/state", (c) => {
-    store.touchDashboard(); // M13.2: a permission card is worth waiting for only while it can be seen
+    // M13.2: a permission card is worth waiting for only while someone can see it. The dashboard
+    // says so explicitly (`?watching=1`, sent only when its tab is visible) rather than us reading
+    // attention into the fact that an HTTP request arrived.
+    if (c.req.query("watching") === "1") store.touchDashboard();
     const body = JSON.stringify(store.snapshot());
     const etag = `W/"${Bun.hash(body).toString(36)}"`;
     // `no-cache` means "revalidate every time", not "don't store": without it a browser is free to
@@ -519,7 +524,30 @@ export function createApp(
   });
 
   // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
-  app.get("/v1/team", (c) => c.json(team.status()));
+  // M13.12: the Team panel — status, plus hosting and joining without a terminal
+  app.get("/v1/team", (c) => c.json({ ...team.status(), ...hostingStatus(store) }));
+  app.post("/v1/team/host", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      mode?: "token" | "oidc" | "open";
+      port?: number;
+      name?: string | null;
+    };
+    const r = await hostTeam(store, b);
+    return c.json(r, r.ok ? 201 : 409);
+  });
+  app.post("/v1/team/join", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      invite?: string;
+      url?: string;
+      token?: string | null;
+    };
+    const r = await joinTeam(store, b);
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.post("/v1/team/leave", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { stopHosted?: boolean };
+    return c.json(await leaveTeam(store, b));
+  });
   // M8.3c: `swarm login` hands the daemon its machine token after registering with the team daemon
   app.post("/v1/team/credentials", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {
@@ -587,6 +615,19 @@ export function createApp(
   app.post("/v1/incidents/ack", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { project?: string; by?: string };
     return c.json({ ok: true, acked: store.ackAllIncidents(body.project || undefined, body.by) });
+  });
+  // M13.6: Codify → Apply: branch + commit + PR, never the main checkout
+  app.post("/v1/incidents/:seq/apply", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; target?: string };
+    const seq = Number(c.req.param("seq"));
+    if (!b.projectId || !Number.isInteger(seq))
+      return c.json({ ok: false, error: "projectId and a numeric seq required" }, 400);
+    const target =
+      b.target === "claude-md" || b.target === "swarm-toml" || b.target === "both"
+        ? b.target
+        : store.policyFor(null).config.codify.target;
+    const r = await applyCodify(store, forge, b.projectId, seq, target);
+    return c.json(r, r.ok ? 201 : 409);
   });
   app.post("/v1/incidents/:seq/ack", (c) => {
     const seq = Number(c.req.param("seq"));
@@ -892,6 +933,15 @@ export function createApp(
       b.message,
     );
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
+  /**
+   * M13.1: does a Stop in this worktree have to wait for gates? The shim asks before it posts the
+   * Stop, so the 400 ms budget stays the default and only a repo that opted into the repair loop
+   * pays the long one. Config read only — no gates are run here.
+   */
+  app.get("/v1/repair", (c) => {
+    const cwd = c.req.query("cwd") ?? "";
+    return c.json({ block: store.repairArmed(cwd) });
   });
   // M13.4: the background waiter long-polls here; answered within 10 min either way
   app.post("/v1/wake", async (c) => {
@@ -1276,15 +1326,32 @@ export function createApp(
     if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
       const guard = store.guardHook(raw);
       if (guard?.action === "rewrite") {
-        // M13.5: allow, with the fixed command in place — PreToolUse honours `updatedInput`
-        // (verified 2026-09-12); the agent is told what changed and why.
+        // M13.5: hand back the fixed command as `updatedInput` and let Claude Code's own
+        // permission flow decide as it would have. An earlier version answered
+        // `permissionDecision: "allow"`, which approved the *whole* call — so anything else in
+        // the command rode along unprompted, and a `[[rules.custom]]` replacement could
+        // synthesise something the other rules would have refused. The rewritten command is
+        // therefore evaluated again, and a second pass that is not `allow` wins.
         const input = (raw.tool_input ?? {}) as Record<string, unknown>;
+        const second = store.evaluateTool(
+          typeof raw.tool_name === "string" ? raw.tool_name : "Bash",
+          { command: guard.command },
+          sid ?? "",
+          typeof raw.cwd === "string" ? raw.cwd : "",
+          false,
+        ).decision;
+        if (second.action === "deny" || second.action === "ask")
+          return c.json({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: second.action,
+              permissionDecisionReason: `[swarm] ${second.reason}`,
+            },
+          });
         const note = `[swarm] rewrote the command (${guard.rule}): ${guard.reason}\nran: ${guard.command}`;
         return c.json({
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
-            permissionDecision: "allow",
-            permissionDecisionReason: `[swarm] rewritten by ${guard.rule}`,
             updatedInput: { ...input, command: guard.command },
             additionalContext: answers ? `${note}\n${answers}` : note,
           },
@@ -1342,7 +1409,8 @@ export function createApp(
   // `since=<seq>` replays newer events (wire shape; `full=1` includes raw + clipped tool I/O).
   // Omitting `since` (or 0) starts from the last REPLAY_TAIL events rather than the whole table.
   app.get("/v1/events", (c) => {
-    store.touchDashboard();
+    // deliberately not `touchDashboard()`: the stream is opened once and stays open in a
+    // background tab for days, which is the opposite of someone watching
     const full = c.req.query("full") === "1";
     const raw = Number(c.req.query("since") ?? 0);
     const since = raw > 0 ? raw : Math.max(0, store.seq() - REPLAY_TAIL);

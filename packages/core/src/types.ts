@@ -43,6 +43,7 @@ export const EVENT_TYPES = [
   "gate.blocked",
   "collision.warned",
   "message.delivered",
+  "codify.applied",
   "handoff.recorded",
   "permission.requested",
   "permission.resolved",

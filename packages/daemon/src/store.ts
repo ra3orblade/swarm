@@ -267,11 +267,15 @@ CREATE TABLE IF NOT EXISTS messages (
   answer TEXT, answered_by TEXT, answered_at TEXT, delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_open ON messages(project_id, answered_at, delivered_at);
+-- the statusline asks per session after every assistant message; messages_open cannot serve that
+CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, kind, answered_at);
 CREATE TABLE IF NOT EXISTS quota (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, window TEXT, used_pct REAL, resets_at INTEGER,
   session_id TEXT, project_id TEXT
 );
 CREATE INDEX IF NOT EXISTS quota_window_at ON quota(window, at);
+-- the report reads a time range across every window; (window, at) cannot serve a bare at >= ?
+CREATE INDEX IF NOT EXISTS quota_at ON quota(at);
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, task TEXT, workflow TEXT,
   step INTEGER, step_label TEXT, steps TEXT, state TEXT, detail TEXT, run_id TEXT,
@@ -1478,7 +1482,12 @@ export class Store {
   touchDashboard() {
     this.dashboardSeenAt = Date.now();
   }
-  dashboardWatching(withinMs = 45_000): boolean {
+  /**
+   * 12 s, not 45: the dashboard polls every 5 s and only when its tab is visible, so two missed
+   * polls is already generous. The old window meant a tab that had been in the background for
+   * forty seconds still made every terminal permission prompt wait.
+   */
+  dashboardWatching(withinMs = 12_000): boolean {
     return Date.now() - this.dashboardSeenAt < withinMs;
   }
 
@@ -1536,7 +1545,9 @@ export class Store {
     return new Promise((resolve) => {
       const done = (a: InteractiveAnswer | null) => {
         const cur = this.interactive.get(id);
-        if (!cur) return;
+        // identity, not existence: a retry of the same tool_use_id parks a second entry, and
+        // without this the first request's timer would clear the second's and resolve the wrong one
+        if (!cur || cur.resolve !== done) return;
         clearTimeout(cur.timer);
         this.interactive.delete(id);
         this.append({
@@ -1585,19 +1596,34 @@ export class Store {
   private collisionWarned = new Map<string, number>();
 
   /** Called from ingestHook on every PreToolUse of a write tool. */
+  private static readonly EDIT_CAP = 5000;
+  private lastEditPrune = 0;
   noteEdit(sessionId: string, path: string, at = Date.now()) {
     const m = this.recentEdits.get(path) ?? new Map<string, number>();
     m.set(sessionId, at);
+    // re-insert so the Map's own insertion order is a least-recently-touched list
+    this.recentEdits.delete(path);
     this.recentEdits.set(path, m);
-    if (this.recentEdits.size > 5000) this.pruneEdits(at);
+    if (this.recentEdits.size > Store.EDIT_CAP && at - this.lastEditPrune > 60_000)
+      this.pruneEdits(at);
   }
+  /**
+   * Age entries out, then enforce the cap. Age alone could free nothing — a machine that touches
+   * 5 000 paths inside the four-hour window would then walk the whole map again on the *next*
+   * write tool call, forever — so anything still over the cap loses its oldest entries.
+   */
   private pruneEdits(now: number) {
+    this.lastEditPrune = now;
     const keep = 4 * 60 * 60_000;
     for (const [path, m] of this.recentEdits) {
       for (const [sid, at] of m) if (now - at > keep) m.delete(sid);
       if (!m.size) this.recentEdits.delete(path);
     }
     for (const [k, at] of this.collisionWarned) if (now - at > keep) this.collisionWarned.delete(k);
+    for (const path of this.recentEdits.keys()) {
+      if (this.recentEdits.size <= Store.EDIT_CAP) break;
+      this.recentEdits.delete(path); // oldest first: Map iterates in insertion order
+    }
   }
 
   /**
@@ -1684,11 +1710,12 @@ export class Store {
     sessionId: string,
     maxMs: number,
   ): Promise<{ wake: true; text: string } | { wake: false; reason: string }> {
+    // an older waiter goes first, before either early return, or it sits parked to its own timeout
+    this.wakers.get(sessionId)?.resolve({ wake: false, reason: "replaced" });
     if (!this.policyFor(null).config.messages.wake)
       return Promise.resolve({ wake: false, reason: "off" });
     const already = this.answerContext(sessionId);
     if (already) return Promise.resolve({ wake: true, text: already });
-    this.wakers.get(sessionId)?.resolve({ wake: false, reason: "replaced" });
     return new Promise((resolve) => {
       const done = (r: { wake: true; text: string } | { wake: false; reason: string }) => {
         const cur = this.wakers.get(sessionId);
@@ -1705,6 +1732,9 @@ export class Store {
   /** After a send / answer: hand every waiting session what is now deliverable to it. */
   private wakeAll() {
     for (const [sid, w] of [...this.wakers]) {
+      // peek first: `answerContext` marks rows delivered, and a waiter whose client has gone
+      // would otherwise consume the message into a closed socket
+      if (!this.hasPending(sid)) continue;
       const text = this.answerContext(sid);
       if (text) {
         w.resolve({ wake: true, text });
@@ -1718,6 +1748,14 @@ export class Store {
       }
     }
   }
+  /** Is anything deliverable to this session, without consuming it? */
+  private hasPending(sessionId: string): boolean {
+    return (
+      this.inbox(sessionId, { peek: true }).length > 0 ||
+      this.messageInbox(sessionId, { peek: true }).length > 0
+    );
+  }
+
   /** The session is active (or gone): its waiter is pointless — the next hook delivers. */
   private cancelWake(sessionId: string, reason: string) {
     this.wakers.get(sessionId)?.resolve({ wake: false, reason });
@@ -1794,19 +1832,19 @@ export class Store {
           "SELECT at, used_pct, resets_at FROM quota WHERE window = ? ORDER BY at DESC LIMIT 1",
         )
         .get(q.window) as { at: number; used_pct: number; resets_at: number | null } | null;
-      if (
-        last &&
-        last.used_pct === q.usedPct &&
-        last.resets_at === q.resetsAt &&
-        now - last.at < BURN_MIN_SPAN_MS
-      )
-        continue;
+      // `used_percentage` is a float that moves on nearly every message, so comparing it exactly
+      // meant the ten-minute floor never applied and a row landed per message per window. A burn
+      // rate needs nothing finer than a tenth of a point.
+      const moved = !last || Math.round(last.used_pct * 10) !== Math.round(q.usedPct * 10);
+      const reset = !last || last.resets_at !== q.resetsAt;
+      if (last && !reset && !moved && now - last.at < BURN_MIN_SPAN_MS) continue;
       this.db
         .query(
           "INSERT INTO quota (at, window, used_pct, resets_at, session_id, project_id) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .run(now, q.window, q.usedPct, q.resetsAt, sessionId, projectId);
       this.quotaDirty = true;
+      this.quotaMemo = null;
     }
   }
   private quotaDirty = true;
@@ -2313,6 +2351,15 @@ export class Store {
    * carries the failing gate's output as the reason Claude keeps working on. Bounded by
    * `[gates] max_blocks` per session (OQ-24); never for `SubagentStop`, which is not routed here.
    */
+  /** Would a Stop here run gates and possibly refuse? Cheap: config plus the claim lookup. */
+  repairArmed(cwd: string): boolean {
+    if (!cwd || !existsSync(cwd)) return false;
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (!held) return false;
+    const cfg = this.gateDefs(held.projectId);
+    return cfg?.on_stop === "block" && cfg.max_blocks > 0 && cfg.required.some((g) => cfg.defs[g]);
+  }
+
   async stopDecision(
     sessionId: string,
     cwd: string,
@@ -2325,14 +2372,41 @@ export class Store {
     const executable = cfg.required.filter((g) => cfg.defs[g]);
     if (!executable.length) return null;
     const blocksSoFar = this.stopBlocks(sessionId);
+    // Spent budget: the decision is already "let it stop", so running the suite again would hold
+    // the Stop hook for up to stop_timeout on every turn, forever, for an answer that cannot
+    // change. The incident is still opened once, named from the gate runs already recorded.
+    if (blocksSoFar >= cfg.max_blocks) {
+      if (!this.stopExhausted.has(sessionId)) {
+        this.stopExhausted.add(sessionId);
+        const failed = this.gateStatusFor(this.gateRuns(held.projectId, held.task), executable)
+          .filter((g) => g.verdict !== "pass")
+          .map((g) => g.gate);
+        this.append({
+          ts: new Date().toISOString(),
+          type: "incident.opened",
+          projectId: held.projectId,
+          sessionId,
+          payload: {
+            rule: "gate_failed",
+            action: "warn",
+            command: `stop on ${held.task}`,
+            reason: `${failed.join(", ") || "a required gate"} still failing after ${cfg.max_blocks} refusal${cfg.max_blocks === 1 ? "" : "s"} — letting the session stop. The runs are on the Board.`,
+            task: held.task,
+            gates: failed,
+          },
+        });
+      }
+      return null;
+    }
     const batch = this.runGates(held.projectId, held.task, undefined, {
       sessionId,
       owner: "stop",
     });
-    const timeout = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), cfg.stop_timeout * 1000),
-    );
-    const r = await Promise.race([batch, timeout]);
+    let timer: Timer | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), cfg.stop_timeout * 1000);
+    });
+    const r = await Promise.race([batch, timeout]).finally(() => clearTimeout(timer));
     if (!r) return null; // the gates outran the hook's budget: let the stop through, the runs still land
     this.writeAutoVerify(held.projectId, held.task, sessionId, r.runs);
     const d = repairDecision({
@@ -2528,6 +2602,14 @@ export class Store {
 
   rulesFor(repoRoot: string | null): RulesConfig {
     return this.policyFor(repoRoot).config.rules;
+  }
+
+  /**
+   * Forget the cached config. The 30 s cache is right for a file someone edits by hand, and wrong
+   * the moment the daemon itself writes one (M13.12 host / join): the next read must see it.
+   */
+  invalidateConfig(): void {
+    this.policyCache.clear();
   }
 
   /** Config with provenance for a repo, cached 30 s (same cadence the rules always had). */
@@ -3390,7 +3472,13 @@ export class Store {
     if (typeof raw.session_id === "string") {
       if (event === "UserPromptSubmit" || event === "PreToolUse")
         this.cancelWake(raw.session_id, "active");
-      else if (event === "SessionEnd") this.cancelWake(raw.session_id, "ended");
+      else if (event === "SessionEnd") {
+        this.cancelWake(raw.session_id, "ended");
+        // a daemon runs for weeks: nothing else ever dropped these
+        this.statuslines.delete(raw.session_id);
+        this.rewritesDone.delete(raw.session_id);
+        this.stopExhausted.delete(raw.session_id);
+      }
     }
     // M13.3: remember who is editing what, for the heads-up after the edit lands
     if (event === "PreToolUse" && typeof raw.session_id === "string") {
@@ -6571,6 +6659,63 @@ export class Store {
       });
       return { ...i, count: counts.get(key) ?? 1, suggestion };
     });
+  }
+
+  /**
+   * One incident by its event seq, with the same `suggestion` the feed attaches. Codify used to
+   * ask for 5 000 rows and `.find()` the one it wanted, parsing every payload and building a
+   * suggestion for each on the way past.
+   */
+  incident(seq: number): (Record<string, unknown> & { seq: number }) | null {
+    const r = this.db
+      .query(
+        `SELECT e.seq, e.ts, e.project_id, e.session_id, e.payload, a.acked_at FROM events e
+         LEFT JOIN incident_acks a ON a.seq = e.seq WHERE e.seq = ? AND e.type = 'incident.opened'`,
+      )
+      .get(seq) as
+      | {
+          seq: number;
+          ts: string;
+          project_id: string;
+          session_id: string | null;
+          payload: string;
+          acked_at: string | null;
+        }
+      | null
+      | undefined;
+    if (!r) return null;
+    const payload = JSON.parse(r.payload || "{}") as Record<string, unknown>;
+    const base = {
+      seq: r.seq,
+      ts: r.ts,
+      projectId: r.project_id,
+      sessionId: r.session_id,
+      acked: r.acked_at,
+      ...payload,
+    };
+    if (typeof payload.rule !== "string") return base;
+    const rule = payload.rule;
+    const command = typeof payload.command === "string" ? payload.command : "";
+    // how often this (rule, target) has fired, so a recurring ask still escalates to deny
+    const count = (
+      this.db
+        .query(
+          `SELECT COUNT(*) AS n FROM events WHERE type = 'incident.opened' AND project_id = ?
+             AND json_extract(payload,'$.rule') = ? AND json_extract(payload,'$.command') = ?`,
+        )
+        .get(r.project_id, rule, command) as { n: number }
+    ).n;
+    return {
+      ...base,
+      count: Math.max(1, count),
+      suggestion: suggestFromIncident({
+        rule,
+        action: typeof payload.action === "string" ? payload.action : "",
+        command,
+        reason: typeof payload.reason === "string" ? payload.reason : "",
+        count: Math.max(1, count),
+      }),
+    };
   }
 
   /** Open (un-acked) incident count, for the nav badge. */

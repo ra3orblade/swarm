@@ -2,13 +2,17 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type BinName = "swarm" | "swarmd" | "swarm-hook" | "swarm-mcp";
+export type BinName = "swarm" | "swarmd" | "swarm-hook" | "swarm-mcp" | "swarm-teamd";
 
 const SRC: Record<BinName, string> = {
   swarm: "cli",
   swarmd: "daemon",
   "swarm-hook": "hook",
   "swarm-mcp": "mcp",
+  // M13.12: source-available and published separately — in a clone it is packages/team/src/bin.ts,
+  // otherwise it has to be on PATH (`bun add -g @ra3orblade/swarm-team`). The free bundle never
+  // ships it, and resolving a command string imports nothing.
+  "swarm-teamd": "team",
 };
 
 /**

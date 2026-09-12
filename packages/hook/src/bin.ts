@@ -35,16 +35,35 @@ if (event === "statusline") {
   process.stdout.write(`${await runStatusline(input)}\n`);
   process.exit(0);
 }
-// M13.1: a Stop may wait for the repair loop's gates (the daemon answers at once unless the repo
-// set `[gates] on_stop = "block"`), so Stop alone gets a long budget; every other event stays fast.
 // M13.2: a PermissionRequest may wait for an answer from the dashboard ([broker] interactive_wait,
 // at most 120 s); the daemon answers at once when nobody is watching.
+const fast = Number(process.env.SWARM_HOOK_TIMEOUT_MS ?? 400);
+
+/** Does a Stop here have to wait for the repair loop's gates? 400 ms, fails open to "no". */
+async function repairArmed(): Promise<boolean> {
+  try {
+    const cwd = String((JSON.parse(input || "{}") as { cwd?: unknown }).cwd ?? "");
+    if (!cwd) return false;
+    const r = await fetch(`${resolveBaseUrl()}/v1/repair?cwd=${encodeURIComponent(cwd)}`, {
+      signal: AbortSignal.timeout(fast),
+    });
+    return r.ok && ((await r.json()) as { block?: boolean }).block === true;
+  } catch {
+    return false;
+  }
+}
+
+// M13.1: a Stop may have to wait for gates — but only in a repo that asked for them. Everywhere
+// else a long budget is just 5.5 minutes of exposure to a wedged daemon, so the shim asks first
+// and keeps the fast budget unless the answer is yes.
 const timeout =
   event === "Stop"
-    ? Number(process.env.SWARM_STOP_TIMEOUT_MS ?? 330_000)
+    ? (await repairArmed())
+      ? Number(process.env.SWARM_STOP_TIMEOUT_MS ?? 330_000)
+      : fast
     : event === "PermissionRequest"
       ? Number(process.env.SWARM_PERMISSION_TIMEOUT_MS ?? 130_000)
-      : Number(process.env.SWARM_HOOK_TIMEOUT_MS ?? 400);
+      : fast;
 const post = async (base: string) => {
   const r = await fetch(`${base}/v1/hook/${event}`, {
     method: "POST",

@@ -152,8 +152,12 @@ type Hooks = Record<
   }>
 >;
 
-/** M13.4: the events that arm the background waiter (the idle time after each of them). */
-const WAKE_EVENTS = new Set(["SessionStart", "Stop"]);
+/**
+ * M13.4: the event that arms the background waiter. `Stop` only — that is where an idle period
+ * actually begins; arming on `SessionStart` as well spawned a second waiter process per session
+ * for a session that was about to be busy anyway.
+ */
+const WAKE_EVENTS = new Set(["Stop"]);
 
 function load(): Record<string, unknown> {
   const p = settingsPath();

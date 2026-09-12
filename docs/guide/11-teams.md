@@ -6,12 +6,33 @@ Everything so far runs on one machine, free, with no account. Teams is the layer
 
 The team daemon lives in [`packages/team`](https://github.com/ra3orblade/swarm/tree/main/packages/team) under the [FSL-1.1-ALv2](https://github.com/ra3orblade/swarm/blob/main/packages/team/LICENSE.md) source-available license — free for internal use, education, research and professional services, converting to Apache-2.0 two years after each release. Everything else in Swarm is and stays Apache-2.0. The line is simple: one machine free, a second person is the product.
 
-## Running the team daemon
+## Host a team from the dashboard
+
+Open **Team** in the dashboard and press **Host a team**. Swarm mints a shared secret, writes
+`~/.swarm/team.toml`, starts `swarm-teamd` on this machine, points this machine at it, registers,
+and hands you an **invite link**. A teammate opens their own Team panel, pastes the link into
+**Join a team**, and that is the whole setup — no terminal, no exported secrets on either side.
+
+The team daemon is source-available (FSL-1.1-ALv2) and ships separately from the Apache-2.0
+bundle, so hosting needs it present: run Swarm from a clone, or put `swarm-teamd` on your PATH.
+The panel says so, and names the log, when it cannot start one.
+
+Leaving is on the same panel: **Leave the team** stops forwarding (your ledger, claims and
+worktrees are untouched), and **Leave and stop hosting** also stops the daemon this machine
+started — by pid, never by pattern.
+
+## Running the team daemon yourself
 
 ```sh
-bun packages/team/src/bin.ts        # listens on 0.0.0.0:7878 (SWARM_TEAM_PORT / SWARM_TEAM_HOST)
+swarm-teamd setup                   # interactive: mode, port, secret → ~/.swarm/team.toml
+swarm-teamd                         # listens on 0.0.0.0:7878
+bun packages/team/src/bin.ts        # the same thing from a clone
 SWARM_TEAM_DB=/srv/swarm/team.db …  # state (default ~/.swarm/team.db, SQLite, one file)
 ```
+
+Settings come from `~/.swarm/team.toml` (`name`, `host`, `port`, `mode`, `token`, `issuer`,
+`client_id`, `db`) with the environment on top, so every deployment that predates the file keeps
+behaving exactly as it did.
 
 Put TLS in front (any reverse proxy) for anything beyond a lab. Auth has three modes, decided by environment:
 
@@ -24,6 +45,8 @@ Put TLS in front (any reverse proxy) for anything beyond a lab. Auth has three m
 In `oidc` mode the *team daemon* is the OAuth client: it starts the device flow, polls the issuer, verifies the ID token against the issuer's JWKS and issues its own opaque token — your laptop never holds an OIDC credential. The first user to log in becomes **admin**; everyone after is a **viewer** until an admin promotes them (roles: viewer / developer / admin).
 
 ## Connecting a machine
+
+The dashboard's Team panel is the short way (above). The equivalent by hand:
 
 ```sh
 swarm install --config-url https://swarm.example.internal   # writes [team] url into ~/.swarm/config.toml

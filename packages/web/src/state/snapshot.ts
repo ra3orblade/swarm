@@ -39,7 +39,13 @@ export const useSnapshotStore = create<SnapshotState>((set) => ({
   offline: false,
   refresh: async () => {
     try {
-      const answer = await getIfChanged<DashboardSnapshot>("/v1/state", lastEtag);
+      // `watching=1` is the daemon's signal that a person could actually see a permission card
+      // right now (M13.2) — a request alone is not attention, a background tab still polls on a
+      // stream nudge.
+      const answer = await getIfChanged<DashboardSnapshot>(
+        document.hidden ? "/v1/state" : "/v1/state?watching=1",
+        lastEtag,
+      );
       set((prev) => {
         // Identical data must not produce a new object: re-rendering on an unchanged poll is
         // precisely the wasted work this rewrite exists to remove.
