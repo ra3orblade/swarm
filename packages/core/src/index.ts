@@ -6,6 +6,7 @@ export * from "./adapters/claude-code/transcript";
 export * from "./art";
 export * from "./audit";
 export * from "./budget";
+export * from "./collision-context";
 export * from "./config";
 export * from "./context";
 export * from "./dag";

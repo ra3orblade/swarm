@@ -58,6 +58,14 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   actually open, so a machine with the dashboard closed is never slowed down. `swarm install`
   registers the new hook; run it once after updating.
 
+- **A heads-up the moment two live sessions edit the same file.** The collision graph could show
+  it after the fact; nobody told the agent. Now, right after an edit lands, a session whose file
+  another live session edited within the last 15 minutes reads who that was — task, branch, how
+  long ago — and the suggestion to look at that diff before going further. Context on
+  `PostToolUse`, never a refusal; once per pair of sessions per file per window; each one a
+  `collision.warned` line in the session log. `[rules] collision_context = false` turns it off,
+  `collision_window` sets the minutes.
+
 - **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
   to `swarm statusline`, and the footer of every session reads, for example,
   `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left

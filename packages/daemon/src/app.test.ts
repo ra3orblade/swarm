@@ -281,6 +281,60 @@ describe("swarmd", () => {
     );
   });
 
+  it("tells a session when another live one just edited the same file (M13.3)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const repo = mkdtempSync(join(tmpdir(), "swarm-col-"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
+    const hook = async (event: string, session_id: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id, cwd: repo, hook_event_name: event, ...body }),
+        })
+      ).json()) as { additionalContext?: string };
+    const edit = { tool_name: "Edit", tool_input: { file_path: "src/auth.ts" } };
+    for (const sid of ["s_a", "s_b"]) await hook("UserPromptSubmit", sid, { prompt: "work" });
+    // a edits first: nothing to say yet
+    await hook("PreToolUse", "s_a", edit);
+    expect(await hook("PostToolUse", "s_a", edit)).toEqual({});
+    // b edits the same file: told about a, once
+    await hook("PreToolUse", "s_b", edit);
+    const warned = await hook("PostToolUse", "s_b", edit);
+    expect(warned.additionalContext).toContain("[swarm] heads-up: ");
+    expect(warned.additionalContext).toMatch(
+      /src\/auth\.ts was also edited by (session s_a|"work")/,
+    );
+    expect(store.since(0).filter((e) => e.type === "collision.warned")).toHaveLength(1);
+    await hook("PreToolUse", "s_b", edit);
+    expect(await hook("PostToolUse", "s_b", edit)).toEqual({}); // same pair, same window: quiet
+    // and a hears about b on its next edit
+    await hook("PreToolUse", "s_a", edit);
+    expect((await hook("PostToolUse", "s_a", edit)).additionalContext).toMatch(
+      /session s_b|"work"/,
+    );
+    // a different file: nothing
+    const other = { tool_name: "Write", tool_input: { file_path: "README.md" } };
+    await hook("PreToolUse", "s_b", other);
+    expect(await hook("PostToolUse", "s_b", other)).toEqual({});
+    // off switch — a repo whose config says so from the start (repo config is cached ~30 s)
+    const quiet = mkdtempSync(join(tmpdir(), "swarm-col-off-"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: quiet });
+    await Bun.write(join(quiet, ".swarm.toml"), "[rules]\ncollision_context = false\n");
+    const there = async (event: string, session_id: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id, cwd: quiet, hook_event_name: event, ...body }),
+        })
+      ).json()) as { additionalContext?: string };
+    const edit2 = { tool_name: "Edit", tool_input: { file_path: "src/other.ts" } };
+    await there("PreToolUse", "s_a", edit2);
+    await there("PreToolUse", "s_b", edit2);
+    expect(await there("PostToolUse", "s_b", edit2)).toEqual({});
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {

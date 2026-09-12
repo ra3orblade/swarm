@@ -44,6 +44,9 @@ dry_run_first = "off"      # "rewrite": first terraform apply / kubectl delete /
 # match = "git push .*--force"
 # action = "deny"
 
+collision_context = true   # after an edit, name the other live session that just edited the same file
+collision_window = 15      # minutes
+
 [rules.protected]
 # Ports agents must not kill or free. Empty by default.
 ports = []
@@ -180,6 +183,10 @@ replace = "pnpm add"                # every match becomes this ($1 works)
 ```
 
 Custom rules run in config order after the built-in coordination rules, so a deny above is never softened into a rewrite. The incident names the rule (`custom:pnpm`), and Codify offers to tighten it from there. A regex that does not compile drops that rule with a warning, never the daemon. `swarm rules dryrun` replays the repo's history under any of these, so you can see what a rule would have done before turning it on.
+
+### Heads-up on a shared file
+
+Two live sessions editing the same file is the collision the Graphs view draws after the fact. With `collision_context` on (the default), the second session hears about it the moment its edit lands: a line naming the other session, its task and branch, and how long ago it touched the file, with the suggestion to look at that diff before going further. It is context, never a refusal, and it is said once per pair of sessions per file per `collision_window` minutes; each heads-up is a `collision.warned` line in the session log. The rule that *refuses* an edit inside a worktree someone else holds, `no_foreign_worktree`, already names the task and its holder in its reason.
 
 The protected list is the union of `rules.protected.ports` and every port currently held as a [runtime resource](05-runtime-resources.md). Acquiring `db` with `--port 5432` protects 5432 for every other agent with no config change; when the holding is released or reaped the protection goes with it.
 

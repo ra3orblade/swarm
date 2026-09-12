@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonCommand, readToken } from "@swarm/client";
 import {
+  absolutePath,
   armTask,
   formatAudit,
   formatHandoff,
@@ -22,6 +23,7 @@ import {
   type SwarmEvent,
   sinceToIso,
   taskPrompt,
+  WRITE_TOOLS,
 } from "@swarm/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -1292,10 +1294,18 @@ export function createApp(
         });
       }
     }
-    if (answers)
+    // M13.3: after an edit, the heads-up when another live session edited the same file
+    let collision: string | null = null;
+    if (event === "PostToolUse" && sid && typeof raw.cwd === "string") {
+      const fp = (raw.tool_input as { file_path?: unknown } | undefined)?.file_path;
+      if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
+        collision = store.collisionContext(sid, raw.cwd, absolutePath(fp, raw.cwd));
+    }
+    const context = [collision, answers].filter(Boolean).join("\n");
+    if (context)
       return c.json({
-        additionalContext: answers,
-        hookSpecificOutput: { hookEventName: event, additionalContext: answers },
+        additionalContext: context,
+        hookSpecificOutput: { hookEventName: event, additionalContext: context },
       });
     return c.json({});
   });
