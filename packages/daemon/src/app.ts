@@ -14,6 +14,7 @@ import {
   outcomeReport,
   type ProvenanceClaim,
   type ProvenanceTask,
+  permissionHookOutput,
   provenance,
   RULE_IDS,
   type RuleId,
@@ -215,6 +216,7 @@ export function createApp(
    * did it after paying for the transfer and the parse. The tag is a hash of the same bytes.
    */
   app.get("/v1/state", (c) => {
+    store.touchDashboard(); // M13.2: a permission card is worth waiting for only while it can be seen
     const body = JSON.stringify(store.snapshot());
     const etag = `W/"${Bun.hash(body).toString(36)}"`;
     // `no-cache` means "revalidate every time", not "don't store": without it a browser is free to
@@ -889,6 +891,22 @@ export function createApp(
     );
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
+  // M13.2: interactive sessions' permission prompts
+  app.get("/v1/permissions", (c) => c.json({ permissions: store.pendingPermissions() }));
+  app.post("/v1/permissions/:id", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      allow?: boolean;
+      terminal?: boolean;
+      message?: string;
+      by?: "dashboard" | "cli";
+    };
+    const r = store.answerInteractive(c.req.param("id"), {
+      behavior: b.terminal ? null : b.allow === true ? "allow" : "deny",
+      ...(b.message ? { message: b.message } : {}),
+      by: b.terminal ? "terminal" : (b.by ?? "dashboard"),
+    });
+    return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
+  });
   app.delete("/v1/runs/:id", async (c) => {
     const r = await runner.stop(c.req.param("id"));
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
@@ -1192,6 +1210,39 @@ export function createApp(
         });
     }
     const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    // M13.2: an interactive session's permission prompt becomes a card while a dashboard is
+    // watching; the hook waits [broker] interactive_wait for an answer, then the terminal dialog
+    // takes over unchanged (verified 2026-09-12: the dialog is not drawn while the hook runs).
+    if (event === "PermissionRequest" && sid) {
+      const waitS = store.policyFor(null).config.broker.interactive_wait;
+      if (waitS > 0 && store.dashboardWatching()) {
+        const a = await store.askInteractive(raw, waitS * 1000);
+        return c.json(
+          permissionHookOutput(
+            a ?? { behavior: null, by: "terminal" },
+            (raw.tool_input ?? {}) as Record<string, unknown>,
+          ),
+        );
+      }
+      // nobody to ask: record the twin so the pair closes, and let the terminal decide at once
+      store.append({
+        ts: new Date().toISOString(),
+        type: "permission.resolved",
+        projectId:
+          typeof raw.cwd === "string" && existsSync(raw.cwd)
+            ? store.resolveProject(raw.cwd).id
+            : "p_unknown",
+        sessionId: sid,
+        payload: {
+          requestId: raw.tool_use_id ?? null,
+          decision: "terminal",
+          by: "terminal",
+          source: "interactive",
+          summary: "handed to the terminal (no dashboard watching)",
+        },
+      });
+      return c.json({});
+    }
     // M13.1 repair loop: a Stop inside a held worktree with `[gates] on_stop = "block"` runs the
     // required gates and, while one fails, answers `block` so Claude keeps working on the output.
     // Verified 2026-09-12: Stop reads `decision: "block"` + `reason` (top level and under
@@ -1274,6 +1325,7 @@ export function createApp(
   // `since=<seq>` replays newer events (wire shape; `full=1` includes raw + clipped tool I/O).
   // Omitting `since` (or 0) starts from the last REPLAY_TAIL events rather than the whole table.
   app.get("/v1/events", (c) => {
+    store.touchDashboard();
     const full = c.req.query("full") === "1";
     const raw = Number(c.req.query("since") ?? 0);
     const since = raw > 0 ? raw : Math.max(0, store.seq() - REPLAY_TAIL);

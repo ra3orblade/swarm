@@ -15,7 +15,9 @@ export type HookEventName =
   | "Stop"
   | "SessionEnd"
   | "Notification"
-  | "PreCompact";
+  | "PreCompact"
+  // M13.2: fires before the permission dialog; the daemon may answer it (verified 2026-09-12)
+  | "PermissionRequest";
 
 export const HOOK_EVENTS: HookEventName[] = [
   "SessionStart",
@@ -28,6 +30,7 @@ export const HOOK_EVENTS: HookEventName[] = [
   "SessionEnd",
   "Notification",
   "PreCompact",
+  "PermissionRequest",
 ];
 
 export interface HookInput {
@@ -58,6 +61,7 @@ const MAP: Record<HookEventName, EventType> = {
   SessionEnd: "session.ended",
   Notification: "session.notification",
   PreCompact: "agent.text",
+  PermissionRequest: "permission.requested",
 };
 
 export interface HookPayload {
@@ -70,6 +74,23 @@ export interface HookPayload {
   agentId?: string;
   agentType?: string;
   prompt?: string;
+  /** M13.2 PermissionRequest: what the card and the notification show. */
+  requestId?: string;
+  display?: string;
+  reason?: string;
+  source?: "interactive";
+}
+
+/** M13.2: why Claude Code is asking, from its own suggestions when it gave any. */
+export function permissionReason(raw: HookInput): string {
+  const sug = raw.permission_suggestions;
+  if (Array.isArray(sug)) {
+    for (const x of sug) {
+      const r = (x as { reasoning?: unknown } | null)?.reasoning;
+      if (typeof r === "string" && r.trim()) return r.trim();
+    }
+  }
+  return `Claude Code is asking before it runs this (${typeof raw.permission_mode === "string" ? raw.permission_mode : "default"} mode)`;
 }
 
 export function summarizeToolInput(tool: string | undefined, input: unknown): string {
@@ -139,10 +160,20 @@ export function normalizeHook(
     case "PreCompact":
       summary = "context compaction";
       break;
+    case "PermissionRequest":
+      summary = `permission: ${tool ?? "?"} ${summarizeToolInput(tool, raw.tool_input)}`.trim();
+      break;
     default:
       summary = event;
   }
   const payload: HookPayload = { hook: event, cwd: raw.cwd ?? null, summary };
+  if (event === "PermissionRequest") {
+    // the same keys the runner's permission.requested carries, so one notification path serves both
+    if (typeof raw.tool_use_id === "string") payload.requestId = raw.tool_use_id;
+    payload.display = summarizeToolInput(tool, raw.tool_input);
+    payload.reason = permissionReason(raw);
+    payload.source = "interactive";
+  }
   if (tool) payload.tool = tool;
   if (raw.tool_input !== undefined) payload.toolInput = raw.tool_input;
   if (raw.tool_response !== undefined) payload.toolResponse = raw.tool_response;

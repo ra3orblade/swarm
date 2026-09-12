@@ -8,6 +8,8 @@
  * The header's actions are the things you can only do from here: step through what it did, see what
  * its worktree changed, and — for a session that died mid-task — pick the work back up.
  */
+
+import type { InteractivePermission } from "@swarm/core/permissions";
 import { useMemo, useState } from "react";
 import { query } from "../api/client";
 import { useResource } from "../api/useResource";
@@ -19,7 +21,7 @@ import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
 import { DiffDrawer } from "./session/DiffDrawer";
 import { Replay } from "./session/Replay";
-import { type Run, RunControl } from "./session/RunControl";
+import { InteractivePermissionCard, type Run, RunControl } from "./session/RunControl";
 import { resumeSession } from "./session/resume";
 import { SessionLog } from "./session/SessionLog";
 import { SessionStats } from "./session/SessionStats";
@@ -36,6 +38,7 @@ const kindIcon = (kind: string) =>
 export function Session({ id }: { id: string }) {
   const openSession = useUiStore((s) => s.openSession);
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY_SESSIONS);
+  const permissions = useSnapshot((s) => s?.permissions ?? EMPTY_PERMISSIONS);
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
   const worktreesByProject = useSnapshot((s) => s?.worktrees ?? EMPTY_TREES);
   const [drawer, setDrawer] = useState<"replay" | "diff" | null>(null);
@@ -133,6 +136,11 @@ export function Session({ id }: { id: string }) {
             <SessionLog events={data.events} turns={data.turns} />
             <SessionStats session={session} turns={data.turns} />
           </div>
+          {permissions
+            .filter((p) => p.sessionId === session.id)
+            .map((p) => (
+              <InteractivePermissionCard key={p.id} ask={p} />
+            ))}
           <RunControl sessionId={session.id} kind={session.kind} runs={runs ?? EMPTY_RUNS} />
         </>
       ) : (
@@ -154,6 +162,7 @@ export function Session({ id }: { id: string }) {
 }
 
 const EMPTY_SESSIONS: never[] = [];
+const EMPTY_PERMISSIONS: InteractivePermission[] = [];
 const EMPTY_PROJECTS: never[] = [];
 const EMPTY_RUNS: Run[] = [];
 const EMPTY_TREES: Record<string, never[]> = {};

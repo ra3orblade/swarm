@@ -63,6 +63,8 @@ The left column is the session stream: hook events (prompts, tool calls, subagen
 
 The right panel is the stats panel: cost, model, turns, tool calls, output (with thinking tokens), context size with the percentage served from cache, started / last seen, subagent turns, a token-composition bar, a per-turn cost strip, a tool histogram, and the path of the transcript file the numbers come from.
 
+When an interactive session hits a permission prompt, the same **Allow / Deny** card a spawned run gets appears here (and the session shows as *asking* on Fleet) — Claude Code fires its `PermissionRequest` hook before drawing the terminal dialog, and the daemon holds that hook for `[broker] interactive_wait` seconds (30 by default) while a dashboard is open. Answer on the card and the terminal never asks; press **Answer in terminal**, or let the countdown run out, and the dialog appears there unchanged. The card names the Swarm rule that flagged the call when one did, otherwise Claude Code's own reason. Nothing waits when no dashboard is watching, so a session on a machine where the dashboard is closed is never slowed down.
+
 ## Board
 
 The coordination ledger for the selected project (or all projects). A KPI strip at the top says what is live, held, dirty, failing and waiting on you; below it, each section only appears when it has rows.
@@ -171,4 +173,4 @@ The **Search** view is full-text search over what Swarm remembers: handoffs (wha
 
 ## Notifications
 
-Turn on **Desktop notifications** in the settings menu to be pinged when a spawned run is waiting on a permission, or a claim is orphaned with unfinished work — the things worth walking away for. Clicking the notification opens the spot to act. They stay quiet while you're looking at the dashboard.
+Turn on **Desktop notifications** in the settings menu to be pinged when a run — spawned or interactive — is waiting on a permission, an agent has a question, or a claim is orphaned with unfinished work — the things worth walking away for. Clicking the notification opens the spot to act. They stay quiet while you're looking at the dashboard.

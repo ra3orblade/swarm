@@ -201,6 +201,86 @@ describe("swarmd", () => {
     expect(await pre("git status")).toEqual({});
   });
 
+  it("parks an interactive PermissionRequest as a card while a dashboard watches (M13.2)", async () => {
+    const home = tmpHome();
+    await Bun.write(join(home, "config.toml"), "[broker]\ninteractive_wait = 2\n");
+    const { app, store } = createApp(new Store(home));
+    const cwd = mkdtempSync(join(tmpdir(), "swarm-perm-"));
+    const ask = (id: string) =>
+      app.request("/v1/hook/PermissionRequest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          session_id: "s_perm",
+          cwd,
+          hook_event_name: "PermissionRequest",
+          tool_name: "Bash",
+          tool_input: { command: "rm -rf build", description: "clean" },
+          tool_use_id: id,
+          permission_mode: "default",
+          permission_suggestions: [{ type: "deny", reasoning: "Destructive command" }],
+        }),
+      });
+    // nobody watching: the terminal decides at once, and the pair still closes
+    expect(await (await ask("t1")).json()).toEqual({});
+    expect(store.since(0).filter((e) => e.type === "permission.resolved")).toHaveLength(1);
+
+    // a dashboard is polling: the prompt is parked, visible in the snapshot, and answerable
+    await app.request("/v1/state");
+    const pending = ask("t2");
+    await new Promise((r) => setTimeout(r, 30));
+    const snap = (await (await app.request("/v1/state")).json()) as {
+      permissions: Array<{ id: string; tool: string; display: string; reason: string }>;
+    };
+    expect(snap.permissions).toHaveLength(1);
+    expect(snap.permissions[0]).toMatchObject({
+      id: "t2",
+      tool: "Bash",
+      display: "rm -rf build",
+      reason: "Destructive command",
+    });
+    const answered = await app.request("/v1/permissions/t2", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ allow: true }),
+    });
+    expect(answered.status).toBe(200);
+    expect(await (await pending).json()).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: {
+          behavior: "allow",
+          message: "[swarm] allowed from the dashboard",
+          updatedInput: { command: "rm -rf build", description: "clean" },
+        },
+      },
+    });
+    expect(store.pendingPermissions()).toEqual([]);
+    const resolved = store.since(0).filter((e) => e.type === "permission.resolved");
+    expect(resolved.at(-1)?.payload).toMatchObject({
+      requestId: "t2",
+      decision: "allow",
+      by: "dashboard",
+    });
+
+    // "let the terminal decide" hands it back with nothing
+    const p3 = ask("t3");
+    await new Promise((r) => setTimeout(r, 30));
+    await app.request("/v1/permissions/t3", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ terminal: true }),
+    });
+    expect(await (await p3).json()).toEqual({});
+    // the wait runs out: same
+    const t0 = Date.now();
+    expect(await (await ask("t4")).json()).toEqual({});
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1900);
+    expect((await app.request("/v1/permissions/nope", { method: "POST", body: "{}" })).status).toBe(
+      404,
+    );
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {

@@ -6,6 +6,7 @@
  * something finished.
  */
 
+import type { InteractivePermission } from "@swarm/core/permissions";
 import type { Question } from "@swarm/core/questions";
 import type { SessionView } from "@swarm/core/types";
 import { useMemo, useState } from "react";
@@ -45,11 +46,17 @@ export function Fleet() {
   const sessions = useSnapshot((s) => s?.sessions ?? EMPTY);
   const projects = useSnapshot((s) => s?.projects ?? EMPTY_PROJECTS);
   const questions = useSnapshot((s) => s?.questions ?? EMPTY_QUESTIONS);
+  const permissions = useSnapshot((s) => s?.permissions ?? EMPTY_PERMISSIONS);
   // See Sidebar: a selector must return a reference the snapshot already holds, or every call
   // looks like a change and the render loops (React #185). Deriving happens in useMemo.
+  // M13.2: a session waiting on a permission card is "asking" the same way one with a question is.
   const asking = useMemo(
-    () => new Set(questions.map((q) => q.sessionId).filter((id): id is string => Boolean(id))),
-    [questions],
+    () =>
+      new Set([
+        ...questions.map((q) => q.sessionId).filter((id): id is string => Boolean(id)),
+        ...permissions.map((p) => p.sessionId),
+      ]),
+    [questions, permissions],
   );
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const menu = useMenuContext();
@@ -286,4 +293,5 @@ const contextTokens = (s: SessionView): number =>
 
 const EMPTY: SessionView[] = [];
 const EMPTY_QUESTIONS: Question[] = [];
+const EMPTY_PERMISSIONS: InteractivePermission[] = [];
 const EMPTY_PROJECTS: never[] = [];

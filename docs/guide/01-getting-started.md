@@ -37,7 +37,7 @@ Prefer a native window with a tray icon and auto-updates? Use the [desktop app](
 `swarm setup` does four things and prints a line for each:
 
 1. **Starts the daemon** (`swarmd`) in the background on port 7777. If that port is taken it picks a free one and records the real URL in `~/.swarm/daemon.json`, so every other command still finds it.
-2. **Installs hooks** into `~/.claude/settings.json` for ten Claude Code events (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd`, `Notification`, `PreCompact`). Each hook is a small command with a 5-second timeout that posts the event to the daemon. Your existing hooks are left in place.
+2. **Installs hooks** into `~/.claude/settings.json` for eleven Claude Code events (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd`, `Notification`, `PreCompact`, `PermissionRequest`). Each hook is a small command that posts the event to the daemon, with a 5-second timeout — except `Stop` and `PermissionRequest`, which may wait on the gates or on you (see the [repair loop](04-claims-and-worktrees.md#the-repair-loop) and the [permission card](02-dashboard.md#session-detail)). Your existing hooks are left in place.
 3. **Registers an MCP server** named `swarm` in the same file, so agents can claim tasks and resources themselves. See [MCP](08-mcp.md).
 4. **Opens the dashboard** in your browser.
 

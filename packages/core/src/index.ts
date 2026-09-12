@@ -25,6 +25,7 @@ export * from "./mcphealth";
 export * from "./memory";
 export * from "./messages";
 export * from "./outcomes";
+export * from "./permissions";
 export * from "./policy";
 export * from "./pricing";
 export * from "./processes";

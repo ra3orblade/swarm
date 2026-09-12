@@ -74,11 +74,14 @@ import {
   type HeldRow,
   type HeldWorktree,
   type HistoricalCall,
+  type HookInput,
   handoffDoc,
   handoffEdges,
   hasLockedRules,
   hookCoverage,
   hygieneReport,
+  type InteractiveAnswer,
+  type InteractivePermission,
   incidentDoc,
   incidentKey,
   isActive,
@@ -124,6 +127,7 @@ import {
   parseReviewVerdict,
   parseTo,
   parseTranscriptChunk,
+  permissionReason,
   pickPort,
   planBootstrap,
   planGc,
@@ -165,6 +169,7 @@ import {
   splitArmTask,
   suggestFromIncident,
   summarizeBootstrap,
+  summarizeToolInput,
   type Task,
   type TaskView,
   type ToolCallSample,
@@ -1460,6 +1465,112 @@ export class Store {
     );
     if (open && !base?.includes(open)) parts.push(open);
     return { text: parts.length ? parts.join("\n") : null, parts };
+  }
+
+  // ---------- interactive permission broker (M13.2)
+  private dashboardSeenAt = 0;
+  /** Called on every dashboard poll / stream: the card is only worth waiting for while it can be seen. */
+  touchDashboard() {
+    this.dashboardSeenAt = Date.now();
+  }
+  dashboardWatching(withinMs = 45_000): boolean {
+    return Date.now() - this.dashboardSeenAt < withinMs;
+  }
+
+  private interactive = new Map<
+    string,
+    { p: InteractivePermission; resolve: (a: InteractiveAnswer | null) => void; timer: Timer }
+  >();
+  private interactiveSeq = 0;
+
+  pendingPermissions(): InteractivePermission[] {
+    return [...this.interactive.values()].map((x) => x.p);
+  }
+
+  /**
+   * Park a PermissionRequest for the dashboard and wait up to `waitMs` for an answer. Resolves
+   * null when nobody answered in time — the hook then returns nothing and the terminal dialog
+   * appears unchanged. `permission.requested` was already recorded by ingestHook; the
+   * `permission.resolved` twin is recorded here so the waiting pairs close.
+   */
+  askInteractive(raw: Record<string, unknown>, waitMs: number): Promise<InteractiveAnswer | null> {
+    const sessionId = typeof raw.session_id === "string" ? raw.session_id : "";
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const tool = typeof raw.tool_name === "string" ? raw.tool_name : "tool";
+    const input = (raw.tool_input ?? {}) as Record<string, unknown>;
+    const id =
+      typeof raw.tool_use_id === "string" && raw.tool_use_id
+        ? raw.tool_use_id
+        : `perm_${++this.interactiveSeq}`;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    // the rule that flagged it on PreToolUse, if any — evaluated again without recording
+    const verdict = this.evaluateTool(
+      tool,
+      input as { command?: string; file_path?: string },
+      sessionId,
+      cwd,
+      false,
+    ).decision;
+    const rule = verdict.action === "ask" || verdict.action === "deny" ? verdict.rule : null;
+    const now = Date.now();
+    const p: InteractivePermission = {
+      id,
+      sessionId,
+      projectId: project?.id ?? null,
+      tool,
+      display: summarizeToolInput(tool, input),
+      input,
+      reason:
+        verdict.action === "ask" || verdict.action === "deny"
+          ? verdict.reason
+          : permissionReason(raw as HookInput),
+      rule,
+      askedAt: new Date(now).toISOString(),
+      terminalAt: new Date(now + waitMs).toISOString(),
+    };
+    return new Promise((resolve) => {
+      const done = (a: InteractiveAnswer | null) => {
+        const cur = this.interactive.get(id);
+        if (!cur) return;
+        clearTimeout(cur.timer);
+        this.interactive.delete(id);
+        this.append({
+          ts: new Date().toISOString(),
+          type: "permission.resolved",
+          projectId: p.projectId ?? "p_unknown",
+          sessionId: sessionId || null,
+          payload: {
+            requestId: id,
+            tool,
+            display: p.display,
+            decision: a?.behavior ?? "terminal",
+            by: a?.by ?? "terminal",
+            source: "interactive",
+            summary: `${tool} ${a?.behavior ?? "handed to the terminal"} (${a?.by ?? "no answer in time"})`,
+          },
+        });
+        this.touch();
+        resolve(a);
+      };
+      const timer = setTimeout(() => done(null), waitMs);
+      this.interactive.set(id, { p, resolve: done, timer });
+      this.touch();
+    });
+  }
+
+  /** Answer a parked prompt from the dashboard / CLI. `behavior: null` hands it to the terminal now. */
+  answerInteractive(
+    id: string,
+    a: InteractiveAnswer,
+  ): { ok: true } | { ok: false; reason: string } {
+    const cur = this.interactive.get(id);
+    if (!cur)
+      return {
+        ok: false,
+        reason: "no such pending permission (answered, or the terminal took over)",
+      };
+    cur.resolve(a);
+    return { ok: true };
   }
 
   // ---------- statusline (M12.2)
@@ -6860,6 +6971,7 @@ export class Store {
         this.openIncidentsByProject(),
       ),
       questions: this.questions({ open: true, limit: 50 }),
+      permissions: this.pendingPermissions(),
       resources: this.resources(),
       seq: this.seq(),
     };
