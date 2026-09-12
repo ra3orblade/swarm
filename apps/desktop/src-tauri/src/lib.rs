@@ -1,10 +1,13 @@
-//! Swarm desktop shell: run the daemon as a sidecar on a free port (or reuse a healthy one already
-//! running), then point the window at the discovered dashboard URL. No hard-coded port — robust to
-//! a blocked/occupied 7777. Tray icon keeps it alive when the window closes.
+//! Swarm desktop shell: the app always runs its own daemon. A daemon already holding
+//! `~/.swarm/daemon.json` (a `swarm start`, a dev clone's `bun run dev`) is asked to stop over
+//! HTTP first, so what the window shows is always this build's daemon and dashboard — never a
+//! stale bundle from wherever the other daemon was started. The daemon takes its preferred port
+//! (config, else 7777) or any free one when that is taken; the app finds it by pid through
+//! `daemon.json`, so no port is ever required. Tray icon keeps it alive when the window closes.
 
 use std::env;
 use std::fs;
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -24,21 +27,57 @@ use tauri_plugin_updater::UpdaterExt;
 /// Killed on real exit so quitting Swarm doesn't leave a stray swarmd behind.
 struct Sidecar(Mutex<Option<CommandChild>>);
 
-fn health(port: u16) -> bool {
-    TcpStream::connect_timeout(
-        &format!("127.0.0.1:{port}").parse().unwrap(),
-        Duration::from_millis(300),
+/// One small HTTP/1.0 request to the loopback daemon; the response body, if any. std only —
+/// the app has no HTTP client and needs exactly two routes (`/v1/health`, `/v1/shutdown`).
+fn http(port: u16, method: &str, path: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    let addr = format!("127.0.0.1:{port}").parse().ok()?;
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(300)).ok()?;
+    s.set_read_timeout(Some(Duration::from_millis(1500))).ok()?;
+    s.write_all(
+        format!("{method} {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n")
+            .as_bytes(),
     )
-    .is_ok()
+    .ok()?;
+    let mut buf = String::new();
+    s.read_to_string(&mut buf).ok()?;
+    buf.split_once("\r\n\r\n").map(|(_, body)| body.to_string())
 }
 
-/// An OS-assigned free port (bind :0, read it back, release).
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .ok()
-        .and_then(|l| l.local_addr().ok())
-        .map(|a| a.port())
-        .unwrap_or(7777)
+/// Is a *Swarm* daemon answering on this port? A TCP connect is not enough — anything could be
+/// sitting on 7777 — so it has to say `"ok":true` on /v1/health.
+fn health(port: u16) -> bool {
+    http(port, "GET", "/v1/health").is_some_and(|b| b.contains("\"ok\":true"))
+}
+
+/// `~/.swarm/daemon.json`: (port, pid) of whichever daemon registered last.
+fn daemon_info() -> Option<(u16, u32)> {
+    let raw = fs::read_to_string(swarm_home().join("daemon.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let port = v.get("port")?.as_u64()? as u16;
+    let pid = v.get("pid")?.as_u64()? as u32;
+    Some((port, pid))
+}
+
+/// Ask the daemon that holds `daemon.json` to stop, and wait for it to go. Returns what was
+/// stopped, for the log. Nothing is signalled by pid or by name: the daemon leaves on its own
+/// SIGTERM path (spawned runs stopped by registry pid, `daemon.json` cleared). A daemon that will
+/// not leave (auth required, an older version without the route) is left running; ours still
+/// starts and re-registers, so hooks and the CLI follow ours.
+fn stop_existing_daemon() -> Option<(u16, u32)> {
+    let (port, pid) = daemon_info()?;
+    if !health(port) {
+        return None;
+    }
+    let _ = http(port, "POST", "/v1/shutdown");
+    let until = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < until {
+        if !health(port) {
+            return Some((port, pid));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    None
 }
 
 fn swarm_home() -> PathBuf {
@@ -47,15 +86,6 @@ fn swarm_home() -> PathBuf {
     }
     let home = env::var("HOME").or_else(|_| env::var("USERPROFILE")).unwrap_or_default();
     PathBuf::from(home).join(".swarm")
-}
-
-/// Port of a daemon already running (from ~/.swarm/daemon.json), if it's healthy — so the app
-/// reuses the machine's single daemon instead of starting a second one.
-fn existing_healthy_port() -> Option<u16> {
-    let raw = fs::read_to_string(swarm_home().join("daemon.json")).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let port = v.get("port")?.as_u64()? as u16;
-    health(port).then_some(port)
 }
 
 /// The daemon, ready to spawn.
@@ -110,22 +140,36 @@ fn daemon_command<R: tauri::Runtime, M: Manager<R>>(app: &M) -> Option<ShellComm
     app.shell().sidecar("swarmd").ok()
 }
 
-fn navigate_when_ready(win: tauri::WebviewWindow, port: u16) {
+/// The port our daemon landed on: `daemon.json` once it carries our child's pid and answers
+/// /v1/health. `None` = the child never registered (did not start, or died) — after a grace
+/// period any healthy daemon on file is accepted so the window still shows something.
+fn our_port(child_pid: Option<u32>, deadline: Instant) -> Option<u16> {
+    let (port, pid) = daemon_info()?;
+    let ours = child_pid.is_none_or(|c| c == pid);
+    if (ours || Instant::now() > deadline) && health(port) {
+        Some(port)
+    } else {
+        None
+    }
+}
+
+fn navigate_when_ready(win: tauri::WebviewWindow, child_pid: Option<u32>) {
     std::thread::spawn(move || {
         // Keep the animated splash on screen for at least this long so it's actually watchable,
         // even when the daemon is already healthy and would otherwise flash straight past it.
         let min_splash = Duration::from_millis(3000);
         let start = Instant::now();
-        // macOS uses an overlay title bar (traffic lights float over the content); the dashboard
-        // reads ?chrome=inset to pad its header clear of them.
-        let url = if cfg!(target_os = "macos") {
-            format!("http://127.0.0.1:{port}/?chrome=inset")
-        } else {
-            format!("http://127.0.0.1:{port}")
-        };
+        let grace = start + Duration::from_secs(20);
         let mut navigated = false;
         for _ in 0..150 {
-            if health(port) {
+            if let Some(port) = our_port(child_pid, grace) {
+                // macOS uses an overlay title bar (traffic lights float over the content); the
+                // dashboard reads ?chrome=inset to pad its header clear of them.
+                let url = if cfg!(target_os = "macos") {
+                    format!("http://127.0.0.1:{port}/?chrome=inset")
+                } else {
+                    format!("http://127.0.0.1:{port}")
+                };
                 let elapsed = start.elapsed();
                 if elapsed < min_splash {
                     std::thread::sleep(min_splash - elapsed);
@@ -353,34 +397,41 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // Reuse a healthy daemon if one is running; otherwise start our own on a free port.
-            let port = existing_healthy_port().unwrap_or_else(|| {
-                let p = free_port();
-                // Dev builds serve the repo's live dashboard, not the staged snapshot from the
-                // last desktop:prep — otherwise the app quietly shows stale UI.
-                let web_dir = if cfg!(debug_assertions) {
-                    concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/web/public").to_string()
-                } else {
-                    app.path()
-                        .resource_dir()
-                        .map(|d| d.join("web"))
-                        .ok()
-                        .and_then(|d| d.to_str().map(String::from))
-                        .unwrap_or_default()
-                };
-                // Linux runs the daemon unpacked from a gzipped resource; every other platform
-                // runs it as a Tauri sidecar. See `daemon_command`.
-                if let Some(cmd) = daemon_command(app) {
-                    let mut cmd = cmd.env("SWARM_PORT", p.to_string());
-                    if !web_dir.is_empty() {
-                        cmd = cmd.env("SWARM_WEB_DIR", web_dir);
-                    }
-                    if let Ok((_rx, child)) = cmd.spawn() {
-                        app.manage(Sidecar(Mutex::new(Some(child))));
-                    }
+            // The app owns the daemon it shows. Whoever registered before us is asked to stop
+            // (a `swarm start`, a dev clone's daemon serving a stale bundle); then ours starts
+            // on its preferred port — config, else 7777 — or any free one when that is taken.
+            if let Some((port, pid)) = stop_existing_daemon() {
+                eprintln!("swarm: stopped the daemon on :{port} (pid {pid}); starting our own");
+            }
+            // Dev builds serve the repo's live dashboard, not the staged snapshot from the
+            // last desktop:prep — otherwise the app quietly shows stale UI.
+            let web_dir = if cfg!(debug_assertions) {
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/web/public").to_string()
+            } else {
+                app.path()
+                    .resource_dir()
+                    .map(|d| d.join("web"))
+                    .ok()
+                    .and_then(|d| d.to_str().map(String::from))
+                    .unwrap_or_default()
+            };
+            // Linux runs the daemon unpacked from a gzipped resource; every other platform
+            // runs it as a Tauri sidecar. See `daemon_command`.
+            let mut child_pid = None;
+            if let Some(cmd) = daemon_command(app) {
+                // the daemon watches this pid and stops when we are gone, quit or killed
+                let mut cmd = cmd.env("SWARM_PARENT_PID", std::process::id().to_string());
+                if !web_dir.is_empty() {
+                    cmd = cmd.env("SWARM_WEB_DIR", web_dir);
                 }
-                p
-            });
+                if let Ok((_rx, child)) = cmd.spawn() {
+                    child_pid = Some(child.pid());
+                    app.manage(Sidecar(Mutex::new(Some(child))));
+                }
+            }
+            if child_pid.is_none() {
+                eprintln!("swarm: the bundled daemon did not start; showing any daemon on file");
+            }
 
             // Build the window in Rust (not tauri.conf) so we can pin the macOS traffic lights
             // near the top-left instead of letting them center in the tall header. It loads a
@@ -411,7 +462,7 @@ pub fn run() {
                     }
                 }
             });
-            navigate_when_ready(win, port);
+            navigate_when_ready(win, child_pid);
 
             app.set_menu(app_menu(app.handle())?)?;
 
