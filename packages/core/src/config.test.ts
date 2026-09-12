@@ -130,3 +130,25 @@ describe("org policy layer (M8.1)", () => {
     expect(r.policy).toEqual({ path: null, locked: [] });
   });
 });
+
+describe("[[rules.custom]] (M13.5)", async () => {
+  const { parseCustomRules } = await import("./config");
+  test("keeps usable rules, drops bad regexes, duplicate names and junk", () => {
+    expect(
+      parseCustomRules([
+        { name: "no-force", match: "git push .*--force", action: "deny", reason: "PRs only" },
+        { name: "pnpm", match: "\\bnpm i\\b", action: "rewrite", replace: "pnpm add" },
+        { name: "pnpm", match: "again", action: "deny" }, // duplicate name
+        { name: "bad", match: "(", action: "deny" }, // regex does not compile
+        { name: "loose", match: "x", action: "nonsense" }, // unknown action → ask
+        { name: "", match: "x", action: "deny" },
+        "not an object",
+      ]),
+    ).toEqual([
+      { name: "no-force", match: "git push .*--force", action: "deny", reason: "PRs only" },
+      { name: "pnpm", match: "\\bnpm i\\b", action: "rewrite", replace: "pnpm add" },
+      { name: "loose", match: "x", action: "ask" },
+    ]);
+    expect(parseCustomRules(undefined)).toEqual([]);
+  });
+});

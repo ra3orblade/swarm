@@ -39,6 +39,21 @@ const RECURRING = 3; // an ask that has fired this many times is a candidate to 
 /** Suggest how to codify the intent behind an incident. */
 export function suggestFromIncident(inc: IncidentLike): LessonSuggestion {
   const n = inc.count ?? 1;
+  // M13.5: a custom rule that keeps firing is a candidate to harden; the snippet re-declares it
+  // on the exact command so the user can tighten `match` from there.
+  if (inc.rule.startsWith("custom:")) {
+    const name = inc.rule.slice("custom:".length);
+    const escaped = inc.command
+      .slice(0, 160)
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/"/g, '\\"');
+    return {
+      title:
+        n >= RECURRING ? `Deny "${name}" outright (recurring)` : `Tighten custom rule "${name}"`,
+      toml: `[[rules.custom]]\nname = "${name}"\nmatch = "${escaped}"\naction = "${n >= RECURRING ? "deny" : "ask"}"`,
+      lesson: `Custom rule "${name}" fired on \`${inc.command.slice(0, 120)}\` — don't run that here; see .swarm.toml [[rules.custom]] for why.`,
+    };
+  }
   switch (inc.rule) {
     case "protected_ports": {
       const ports = portsIn(inc.command);
@@ -86,6 +101,20 @@ export function suggestFromIncident(inc: IncidentLike): LessonSuggestion {
         toml: `[rules]\nclaim_required_to_write = "deny"`,
         lesson:
           "Claim a task (`swarm claim`) and work in the worktree it creates before editing this repo.",
+      };
+    case "no_verify":
+      return {
+        title: "Always drop --no-verify",
+        toml: `[rules]\nno_verify = "rewrite"`,
+        lesson:
+          "Never pass `--no-verify` / `--no-gpg-sign` to git — the hooks are the repo's checks. Fix the hook if it is wrong.",
+      };
+    case "dry_run_first":
+      return {
+        title: "Dry-run infrastructure changes first",
+        toml: `[rules]\ndry_run_first = "rewrite"`,
+        lesson:
+          "Run `terraform plan` / `kubectl … --dry-run=client` / `helm … --dry-run` and read it before the real apply, delete or uninstall.",
       };
     case "orphaned_claim":
       return {

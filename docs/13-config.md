@@ -102,6 +102,24 @@ pattern_kill    = "ask"   # `pkill -f` and friends — pattern kills hit other a
 protected_ports = "ask"   # kill/free of a port listed below
 no_foreign_worktree = "ask"      # a file write (or Bash cwd) inside a worktree another claim holds
 claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a claim (work in its worktree)
+# Rewrite rules (M13.5): "rewrite" fixes the call and lets it run — the agent is told what changed,
+# the incident feed shows before / after — "ask" / "deny" refuse it, "off" (default) ignores it.
+no_verify     = "off"     # `git commit/push --no-verify` / `--no-gpg-sign` → the flags are dropped
+dry_run_first = "off"     # the first terraform apply / kubectl delete / helm uninstall per session runs as its dry-run form; the next one is allowed
+
+# Your own rules (M13.5): tested in order against every Bash command, after the rules above (a deny
+# above is never softened here). `match` is a regex over the whole command; with action = "rewrite"
+# every match becomes `replace` ($1 works). A regex that does not compile drops the rule, not the daemon.
+# [[rules.custom]]
+# name = "no-force-push"
+# match = "git push .*--force"
+# action = "deny"                 # ask | deny | rewrite | off
+# reason = "force pushes go through a PR"
+# [[rules.custom]]
+# name = "pnpm"
+# match = "\\bnpm (install|i)\\b"
+# action = "rewrite"
+# replace = "pnpm add"
 
 [rules.protected]
 # Ports agents must not kill/free (dev servers, databases, the daemon itself).

@@ -19,6 +19,20 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   itself when the app is gone — quit, crashed or killed — so no invisible daemon survives to be
   evicted next time.
 
+### Added
+
+- **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
+  third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
+  `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the
+  first `terraform apply`, `kubectl delete` or `helm uninstall` in a session into its dry-run form
+  and allows the second. The agent is told what changed and why; the Incidents view shows the
+  call that was asked for beside the one that ran, marked *Rewritten*, so rule effectiveness
+  scores it like any rule. Both ship `off`. `[[rules.custom]]` is the promised DSL: `name`,
+  `match` (a regex over the command), `action` (`ask | deny | rewrite | off`), `replace`,
+  `reason` — evaluated in config order after the coordination rules, so a deny is never softened.
+  Codify writes it, `swarm rules dryrun` replays history under it, spawned runs get the rewrite
+  through the permission broker, and interactive sessions through Claude Code's `updatedInput`.
+
 ### Fixed
 
 - **Codex and Gemini sessions stopped updating after the first look.** Both write their session id

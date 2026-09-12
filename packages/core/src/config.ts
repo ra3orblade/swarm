@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 /** What a rule does when it matches. `ask` surfaces a confirmation, `deny` blocks. */
 export type RuleMode = "ask" | "deny" | "off";
+export type RewriteRuleMode = "rewrite" | "ask" | "deny" | "off";
 
 export interface RulesConfig {
   /** Broad staging (`git add -A`, `git commit -a`) while another session shares the checkout. */
@@ -31,6 +32,12 @@ export interface RulesConfig {
   no_foreign_worktree: RuleMode;
   /** Writing into the shared checkout without a claim (opt-in). */
   claim_required_to_write: RuleMode;
+  /** M13.5: `git … --no-verify` / `--no-gpg-sign` loses the flags ("rewrite"), or asks / denies. */
+  no_verify: RewriteRuleMode;
+  /** M13.5: the first terraform apply / kubectl delete / helm uninstall per session runs dry. */
+  dry_run_first: RewriteRuleMode;
+  /** M13.5: `[[rules.custom]]` — name, match (regex), action, replace, reason. */
+  custom: CustomRule[];
   protected: {
     /** Ports that agents must not kill/free (dev servers, databases, the daemon itself). */
     ports: number[];
@@ -78,6 +85,7 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
 
 import { DEFAULT_PRIVACY, type PrivacyConfig } from "./audit";
 import type { BudgetConfig } from "./budget";
+import type { CustomRule } from "./rules";
 import { parseWorkflows, type WorkflowDef } from "./workflows";
 
 export interface SwarmConfig {
@@ -201,11 +209,45 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     protected_ports: "ask",
     no_foreign_worktree: "ask",
     claim_required_to_write: "off",
+    no_verify: "off",
+    dry_run_first: "off",
+    custom: [],
     protected: { ports: [] },
   },
 };
 
 const MODES: RuleMode[] = ["ask", "deny", "off"];
+const REWRITE_MODES: RewriteRuleMode[] = ["rewrite", "ask", "deny", "off"];
+
+/** `[[rules.custom]]` entries that are usable: a name, a regex that compiles, a known action. */
+export function parseCustomRules(raw: unknown): CustomRule[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomRule[] = [];
+  const seen = new Set<string>();
+  for (const v of raw) {
+    if (!isRecord(v)) continue;
+    const name = typeof v.name === "string" ? v.name.trim() : "";
+    const match = typeof v.match === "string" ? v.match : "";
+    if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/i.test(name) || !match || seen.has(name)) continue;
+    try {
+      new RegExp(match);
+    } catch {
+      continue;
+    }
+    const action = REWRITE_MODES.includes(v.action as RewriteRuleMode)
+      ? (v.action as RewriteRuleMode)
+      : "ask";
+    seen.add(name);
+    out.push({
+      name,
+      match,
+      action,
+      ...(typeof v.replace === "string" ? { replace: v.replace } : {}),
+      ...(typeof v.reason === "string" && v.reason.trim() ? { reason: v.reason.trim() } : {}),
+    });
+  }
+  return out;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -244,6 +286,8 @@ const days = (v: unknown, fallback: number) => {
 function validate(c: SwarmConfig): SwarmConfig {
   const mode = (v: unknown, fallback: RuleMode): RuleMode =>
     MODES.includes(v as RuleMode) ? (v as RuleMode) : fallback;
+  const rewriteMode = (v: unknown, fallback: RewriteRuleMode): RewriteRuleMode =>
+    REWRITE_MODES.includes(v as RewriteRuleMode) ? (v as RewriteRuleMode) : fallback;
   const port = Number(c.daemon?.port);
   const source = c.tasks?.source;
   const setup = c.worktree?.setup;
@@ -376,6 +420,9 @@ function validate(c: SwarmConfig): SwarmConfig {
       protected_ports: mode(c.rules?.protected_ports, "ask"),
       no_foreign_worktree: mode(c.rules?.no_foreign_worktree, "ask"),
       claim_required_to_write: mode(c.rules?.claim_required_to_write, "off"),
+      no_verify: rewriteMode(c.rules?.no_verify, "off"),
+      dry_run_first: rewriteMode(c.rules?.dry_run_first, "off"),
+      custom: parseCustomRules(c.rules?.custom),
       protected: {
         ports: Array.isArray(c.rules?.protected?.ports)
           ? c.rules.protected.ports.filter((p) => Number.isInteger(p) && p > 0 && p < 65536)

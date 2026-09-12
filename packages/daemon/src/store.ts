@@ -2463,10 +2463,17 @@ export class Store {
           return { decision: w, display: cmd };
         }
       }
-      const d = guardBash(cmd, current, this.liveSessions(), Date.now(), {
-        ...modes,
-        protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
-      });
+      const d = guardBash(
+        cmd,
+        current,
+        this.liveSessions(),
+        Date.now(),
+        {
+          ...modes,
+          protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
+        },
+        this.rewriteCtx(sessionId),
+      );
       if (d.action !== "allow" && recordIncident) this.openIncident(d, cwd, sessionId, cmd);
       return { decision: d, display: cmd };
     }
@@ -2497,7 +2504,7 @@ export class Store {
 
   guardHook(
     raw: Record<string, unknown>,
-  ): Extract<GuardDecision, { action: "ask" | "deny" }> | null {
+  ): Extract<GuardDecision, { action: "ask" | "deny" | "rewrite" }> | null {
     const tool = typeof raw.tool_name === "string" ? raw.tool_name : "";
     const input = (raw.tool_input ?? {}) as { command?: string; file_path?: string };
     const id = typeof raw.session_id === "string" ? raw.session_id : "";
@@ -2532,30 +2539,55 @@ export class Store {
       lastSeenAt: r.last_seen_at,
       state: r.state,
     }));
-    const d = guardBash(cmd, current, sessions, Date.now(), {
-      ...modes,
-      protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
-    });
+    const d = guardBash(
+      cmd,
+      current,
+      sessions,
+      Date.now(),
+      {
+        ...modes,
+        protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
+      },
+      this.rewriteCtx(id),
+    );
     if (d.action === "allow") return null;
     return this.openIncident(d, cwd, id, cmd);
   }
 
   /** Record a non-allow decision as an incident: visible on the dashboard and in the event stream. */
-  private openIncident(
-    d: Extract<GuardDecision, { action: "ask" | "deny" }>,
+  private openIncident<D extends Extract<GuardDecision, { action: "ask" | "deny" | "rewrite" }>>(
+    d: D,
     cwd: string,
     sessionId: string,
     command: string,
-  ) {
+  ): D {
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    // M13.5: a rewrite is recorded like a refusal — same feed, same rule effectiveness — with
+    // what actually ran beside what was asked; the session remembers one-time rewrites by key.
+    if (d.action === "rewrite" && d.key && sessionId) {
+      const done = this.rewritesDone.get(sessionId) ?? new Set<string>();
+      done.add(d.key);
+      this.rewritesDone.set(sessionId, done);
+    }
     this.append({
       ts: new Date().toISOString(),
       type: "incident.opened",
       projectId: project?.id ?? "p_unknown",
       sessionId: sessionId || null,
-      payload: { rule: d.rule, action: d.action, command: command.slice(0, 400), reason: d.reason },
+      payload: {
+        rule: d.rule,
+        action: d.action,
+        command: command.slice(0, 400),
+        reason: d.reason,
+        ...(d.action === "rewrite" ? { rewritten: d.command.slice(0, 400) } : {}),
+      },
     });
     return d;
+  }
+  /** M13.5: per session, the `dry_run_first` families already dry-run (in memory: a session's). */
+  private rewritesDone = new Map<string, Set<string>>();
+  rewriteCtx(sessionId: string) {
+    return { rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>() };
   }
 
   /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
