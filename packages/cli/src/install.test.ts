@@ -72,6 +72,29 @@ describe("install", () => {
   });
 });
 
+describe("wake waiter (M13.4)", () => {
+  it("arms an asyncRewake waiter on SessionStart and Stop only, and removes it with the rest", () => {
+    install();
+    const hooks = JSON.parse(readFileSync(settings, "utf8")).hooks as Record<
+      string,
+      Array<{ hooks: Array<{ command: string; asyncRewake?: boolean; timeout?: number }> }>
+    >;
+    const waiters = (ev: string) =>
+      (hooks[ev] ?? []).flatMap((g) => g.hooks).filter((h) => h.asyncRewake === true);
+    expect(waiters("SessionStart")).toHaveLength(1);
+    expect(waiters("Stop")).toHaveLength(1);
+    expect(waiters("Stop")[0]?.command).toMatch(/ wait$/);
+    expect(waiters("Stop")[0]?.timeout).toBe(3600);
+    expect(waiters("PreToolUse")).toHaveLength(0);
+    expect(status().coverage.complete).toBe(true);
+    install(); // idempotent: still one waiter per event
+    const again = JSON.parse(readFileSync(settings, "utf8")).hooks as typeof hooks;
+    expect((again.Stop ?? []).flatMap((g) => g.hooks).filter((h) => h.asyncRewake)).toHaveLength(1);
+    uninstall();
+    expect(JSON.parse(readFileSync(settings, "utf8")).hooks).toBeUndefined();
+  });
+});
+
 describe("statusline (M12.2, `swarm install --statusline`)", () => {
   it("sets statusLine only when none is set, refreshes its own, and never replaces another", () => {
     const read = () => JSON.parse(readFileSync(settings, "utf8"));

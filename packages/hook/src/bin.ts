@@ -4,7 +4,8 @@
  * daemon's decision on stdout. When the daemon is unreachable or slow it fails OPEN — except for
  * rules the org policy locks, which are evaluated from the daemon's integrity-checked
  * `~/.swarm/policy.cache.json` (M8.1c, OQ-3). Never starts the daemon — a hook must stay fast.
- * `swarm-hook statusline` is Claude Code's statusLine command under the same contract (M12.2).
+ * `swarm-hook statusline` is Claude Code's statusLine command under the same contract (M12.2);
+ * `swarm-hook wait` is the background waiter that wakes an idle session on a message (M13.4).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,6 +16,20 @@ const event = process.argv[2] ?? "Unknown";
 const input = await Bun.stdin.text();
 // M12.2: `swarm-hook statusline` shares the shim's contract (fast, fails open, never starts the
 // daemon) but prints a line for a human, not JSON for Claude Code.
+if (event === "wait") {
+  // M13.4: the asyncRewake waiter — exit 2 with the text wakes the idle session
+  const { waitForWake } = await import("./wait");
+  let sid = "";
+  try {
+    sid = String((JSON.parse(input || "{}") as { session_id?: unknown }).session_id ?? "");
+  } catch {
+    /* no session: nothing to wait for */
+  }
+  if (!sid) process.exit(0);
+  const out = await waitForWake(sid);
+  if (out.exit === 2) process.stderr.write(`${out.text}\n`);
+  process.exit(out.exit);
+}
 if (event === "statusline") {
   const { runStatusline } = await import("./statusline");
   process.stdout.write(`${await runStatusline(input)}\n`);

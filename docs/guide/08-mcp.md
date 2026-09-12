@@ -157,3 +157,7 @@ Telling agents to do this is a matter of a few lines in your `CLAUDE.md`, for ex
 ## Seeing it on the dashboard
 
 Claims and resources taken over MCP show on the [Board](02-dashboard.md) exactly like ones taken from the CLI, owned by `agent` (or your `SWARM_OWNER`). Tool calls to `swarm_*` also appear in the session's tool histogram.
+
+### Messages reach an idle session
+
+A session sitting idle at its prompt is woken when a message or an answer lands for it: `swarm install` arms a background hook after every turn (`swarm-hook wait`, an `asyncRewake` command hook) that exits with the text the moment the daemon has something deliverable, and Claude Code shows it as a system reminder. While a session is mid-turn, delivery still rides on its next hook as before. `[messages] wake = false` in `~/.swarm/config.toml` turns the waiter off. Each waiter gives up on its own after 55 minutes idle and is re-armed by the next turn.

@@ -21,6 +21,14 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Messages wake an idle session.** A message from another agent or from you (`swarm msg send`,
+  `swarm_send`) and an answer to a session's question used to arrive on that session's next tool
+  call, which for a session sitting idle at its prompt meant never. `swarm install` now arms a
+  background hook after every turn — Claude Code's `asyncRewake` — that the daemon holds open and
+  releases with the text the moment something is deliverable; Claude Code shows it as a system
+  reminder and the session picks it up. Mid-turn delivery is unchanged. `[messages] wake = false`
+  turns it off; the session log shows *woke*. Run `swarm install` once after updating.
+
 - **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
   third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
   `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the

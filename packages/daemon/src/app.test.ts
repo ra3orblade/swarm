@@ -335,6 +335,69 @@ describe("swarmd", () => {
     expect(await there("PostToolUse", "s_b", edit2)).toEqual({});
   });
 
+  it("holds a waiter until a message lands, then wakes it with the inbox (M13.4)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const IDLE = "11111111-aaaa-4bbb-8ccc-000000000001";
+    const LEAD = "22222222-aaaa-4bbb-8ccc-000000000002";
+    const cwd = mkdtempSync(join(tmpdir(), "swarm-wake-"));
+    const hook = (event: string, session_id: string) =>
+      app.request(`/v1/hook/${event}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id, cwd, hook_event_name: event, prompt: "hi" }),
+      });
+    await hook("SessionStart", IDLE);
+    await hook("SessionStart", LEAD);
+    const project = store.resolveProject(cwd);
+    const wake = async (sid: string) => {
+      const r = await app.request("/v1/wake", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
+      return (await r.json()) as { wake: boolean; text?: string; reason?: string };
+    };
+    // parked; a newer waiter replaces the older one
+    const first = wake(IDLE);
+    await new Promise((r) => setTimeout(r, 20));
+    const second = wake(IDLE);
+    expect(await first).toEqual({ wake: false, reason: "replaced" });
+    // a message to the session wakes it with the text and marks delivery
+    const sent = store.send(project.id, { to: IDLE, text: "please rebase", from: "andrew" });
+    expect(sent.ok).toBe(true);
+    const woke = await second;
+    expect(woke.wake).toBe(true);
+    expect(woke.text).toContain("please rebase");
+    expect(store.messageInbox(IDLE, { peek: true })).toEqual([]); // delivered
+    expect(store.since(0).some((e) => e.type === "message.delivered")).toBe(true);
+    // something already waiting: answered at once
+    store.send(project.id, { to: IDLE, text: "and run the tests", from: "andrew" });
+    expect((await wake(IDLE)).text).toContain("and run the tests");
+    // the session becomes active: the waiter steps aside, the next hook delivers
+    const third = wake(IDLE);
+    await new Promise((r) => setTimeout(r, 20));
+    await hook("UserPromptSubmit", IDLE);
+    expect(await third).toEqual({ wake: false, reason: "active" });
+    // gone: same
+    const fourth = wake(IDLE);
+    await new Promise((r) => setTimeout(r, 20));
+    await hook("SessionEnd", IDLE);
+    expect(await fourth).toEqual({ wake: false, reason: "ended" });
+    expect((await app.request("/v1/wake", { method: "POST", body: "{}" })).status).toBe(400);
+  });
+
+  it("does not hold a waiter when [messages] wake is off (M13.4)", async () => {
+    const home = tmpHome();
+    await Bun.write(join(home, "config.toml"), "[messages]\nwake = false\n");
+    const { app } = createApp(new Store(home));
+    const r = await app.request("/v1/wake", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: "s_x" }),
+    });
+    expect(await r.json()).toEqual({ wake: false, reason: "off" });
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {

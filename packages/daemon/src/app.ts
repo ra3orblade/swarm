@@ -893,6 +893,13 @@ export function createApp(
     );
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);
   });
+  // M13.4: the background waiter long-polls here; answered within 10 min either way
+  app.post("/v1/wake", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { session_id?: unknown };
+    const sid = typeof b.session_id === "string" ? b.session_id : "";
+    if (!sid) return c.json({ wake: false, reason: "no session" }, 400);
+    return c.json(await store.waitForWake(sid, 10 * 60_000));
+  });
   // M13.2: interactive sessions' permission prompts
   app.get("/v1/permissions", (c) => c.json({ permissions: store.pendingPermissions() }));
   app.post("/v1/permissions/:id", async (c) => {
