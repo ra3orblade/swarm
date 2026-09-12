@@ -575,7 +575,8 @@ export function createApp(
     if (!projectId) return c.json({ ok: false, error: "project required" }, 400);
     const overrides: Record<string, string> = {};
     for (const [k, v] of Object.entries(c.req.query()))
-      if (RULE_IDS.includes(k as RuleId) && ["ask", "deny", "off"].includes(v)) overrides[k] = v;
+      if (RULE_IDS.includes(k as RuleId) && ["ask", "deny", "off", "rewrite"].includes(v))
+        overrides[k] = v;
     const limit = Math.min(20_000, Math.max(100, Number(c.req.query("limit")) || 5000));
     return c.json(store.dryRun(projectId, overrides, limit));
   });
@@ -1214,6 +1215,21 @@ export function createApp(
     // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
     if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
       const guard = store.guardHook(raw);
+      if (guard?.action === "rewrite") {
+        // M13.5: allow, with the fixed command in place — PreToolUse honours `updatedInput`
+        // (verified 2026-09-12); the agent is told what changed and why.
+        const input = (raw.tool_input ?? {}) as Record<string, unknown>;
+        const note = `[swarm] rewrote the command (${guard.rule}): ${guard.reason}\nran: ${guard.command}`;
+        return c.json({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "allow",
+            permissionDecisionReason: `[swarm] rewritten by ${guard.rule}`,
+            updatedInput: { ...input, command: guard.command },
+            additionalContext: answers ? `${note}\n${answers}` : note,
+          },
+        });
+      }
       if (guard) {
         return c.json({
           hookSpecificOutput: {

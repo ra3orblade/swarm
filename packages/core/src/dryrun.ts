@@ -42,7 +42,7 @@ export interface DryRunHit {
   ts: string;
   sessionId: string;
   rule: RuleId;
-  action: "ask" | "deny";
+  action: "ask" | "deny" | "rewrite";
   display: string;
   completed: boolean;
 }
@@ -61,7 +61,7 @@ export interface DryRunReport {
   calls: number;
   evaluated: number;
   hits: DryRunHit[];
-  byRule: Record<RuleId, { ask: number; deny: number }>;
+  byRule: Record<RuleId, { ask: number; deny: number; rewrite: number }>;
   flaky: FlakySignal[];
 }
 
@@ -72,6 +72,8 @@ export const RULE_IDS: RuleId[] = [
   "protected_ports",
   "no_foreign_worktree",
   "claim_required_to_write",
+  "no_verify",
+  "dry_run_first",
 ];
 
 /** Collapse a display string so the same action with cosmetic differences groups together. */
@@ -97,10 +99,9 @@ export function dryRunRules(
   const minRepeat = ctx.minRepeat ?? 3;
   const maxHits = ctx.maxHits ?? 200;
   const live = new Map<string, LiveSession>();
-  const byRule = Object.fromEntries(RULE_IDS.map((r) => [r, { ask: 0, deny: 0 }])) as Record<
-    RuleId,
-    { ask: number; deny: number }
-  >;
+  const byRule = Object.fromEntries(
+    RULE_IDS.map((r) => [r, { ask: 0, deny: 0, rewrite: 0 }]),
+  ) as DryRunReport["byRule"];
   const hits: DryRunHit[] = [];
   const groups = new Map<string, FlakySignal & { done: number; sids: Set<string> }>();
   let evaluated = 0;
@@ -133,7 +134,9 @@ export function dryRunRules(
       }
     } else continue;
     if (d.action === "allow") continue;
-    byRule[d.rule][d.action]++;
+    const tally = byRule[d.rule] ?? { ask: 0, deny: 0, rewrite: 0 };
+    tally[d.action]++;
+    byRule[d.rule] = tally;
     const norm = normalizeDisplay(display);
     if (hits.length < maxHits)
       hits.push({
@@ -173,7 +176,7 @@ export function dryRunRules(
       completedRatio: Math.round(ratio * 100) / 100,
       sessions: g.sids.size,
       suggestion:
-        modes[g.rule] === "deny"
+        (modes as unknown as Record<string, unknown>)[g.rule] === "deny"
           ? `${g.rule} denies this but it ran ${g.done}/${g.fires} times anyway — the rule is being bypassed; check the hook is installed, or turn it off here.`
           : `${g.rule} asked ${g.fires} times on this and it was allowed ${g.done} times — pure friction here. Turn it off for this repo, or make it deny so it stops asking.`,
     });

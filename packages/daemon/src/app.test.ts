@@ -145,6 +145,62 @@ describe("swarmd", () => {
     expect(stopped).toBe(1);
   });
 
+  it("answers PreToolUse with updatedInput when a rule rewrites the command (M13.5)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const repo = mkdtempSync(join(tmpdir(), "swarm-rw-"));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
+    await Bun.write(
+      join(repo, ".swarm.toml"),
+      `[rules]\nno_verify = "rewrite"\ndry_run_first = "rewrite"\n\n[[rules.custom]]\nname = "pnpm"\nmatch = "\\\\bnpm i\\\\b"\naction = "rewrite"\nreplace = "pnpm add"\n`,
+    );
+    const pre = async (command: string) =>
+      (await (
+        await app.request("/v1/hook/PreToolUse", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            session_id: "s_rw",
+            cwd: repo,
+            tool_name: "Bash",
+            tool_input: { command, description: "x" },
+          }),
+        })
+      ).json()) as {
+        hookSpecificOutput?: {
+          permissionDecision?: string;
+          updatedInput?: { command?: string; description?: string };
+          additionalContext?: string;
+        };
+      };
+    const r = await pre("git commit -m x --no-verify");
+    expect(r.hookSpecificOutput?.permissionDecision).toBe("allow");
+    expect(r.hookSpecificOutput?.updatedInput).toEqual({
+      command: "git commit -m x",
+      description: "x",
+    });
+    expect(r.hookSpecificOutput?.additionalContext).toContain(
+      "[swarm] rewrote the command (no_verify)",
+    );
+    // recorded like a refusal, with what ran beside what was asked
+    const inc = store.since(0).find((e) => e.type === "incident.opened");
+    expect(inc?.payload).toMatchObject({
+      rule: "no_verify",
+      action: "rewrite",
+      command: "git commit -m x --no-verify",
+      rewritten: "git commit -m x",
+    });
+    // the custom rule, then the one-time dry run: first rewritten, second allowed
+    expect((await pre("npm i left-pad")).hookSpecificOutput?.updatedInput?.command).toBe(
+      "pnpm add left-pad",
+    );
+    expect((await pre("terraform apply")).hookSpecificOutput?.updatedInput?.command).toBe(
+      "terraform plan",
+    );
+    expect(await pre("terraform apply")).toEqual({});
+    // nothing to fix: plain allow
+    expect(await pre("git status")).toEqual({});
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {
@@ -669,12 +725,12 @@ describe("rule dry-run over history (M4.6)", () => {
     expect(r.status).toBe(200);
     let j = (await r.json()) as {
       evaluated: number;
-      byRule: Record<string, { ask: number; deny: number }>;
+      byRule: Record<string, { ask: number; deny: number; rewrite: number }>;
       flaky: Array<{ rule: string; display: string; fires: number }>;
       modes: Record<string, string>;
     };
     expect(j.evaluated).toBe(5);
-    expect(j.byRule.pattern_kill).toEqual({ ask: 3, deny: 0 });
+    expect(j.byRule.pattern_kill).toEqual({ ask: 3, deny: 0, rewrite: 0 });
     expect(j.byRule.shared_tree?.ask).toBe(1);
     expect(j.flaky).toEqual([
       expect.objectContaining({ rule: "pattern_kill", display: "pkill -f node", fires: 3 }),
@@ -682,8 +738,8 @@ describe("rule dry-run over history (M4.6)", () => {
     r = await app.request(`/v1/rules/dryrun?project=${p.id}&pattern_kill=deny&shared_tree=off`);
     j = (await r.json()) as typeof j;
     expect(j.modes.pattern_kill).toBe("deny");
-    expect(j.byRule.pattern_kill).toEqual({ ask: 0, deny: 3 });
-    expect(j.byRule.shared_tree).toEqual({ ask: 0, deny: 0 });
+    expect(j.byRule.pattern_kill).toEqual({ ask: 0, deny: 3, rewrite: 0 });
+    expect(j.byRule.shared_tree).toEqual({ ask: 0, deny: 0, rewrite: 0 });
     expect(store.incidents(50).length).toBe(0);
     r = await app.request("/v1/rules/dryrun");
     expect(r.status).toBe(400);

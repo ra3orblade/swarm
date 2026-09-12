@@ -33,7 +33,7 @@ describe("dryRunRules (M4.6)", () => {
     const r = dryRunRules(calls, modes(), { toplevel });
     expect(r.evaluated).toBe(4);
     expect(r.hits.map((h) => h.ts)).toEqual([at(2)]);
-    expect(r.byRule.shared_tree).toEqual({ ask: 1, deny: 0 });
+    expect(r.byRule.shared_tree).toEqual({ ask: 1, deny: 0, rewrite: 0 });
   });
 
   test("modes change the verdict without touching the data", () => {
@@ -44,10 +44,10 @@ describe("dryRunRules (M4.6)", () => {
     ];
     expect(
       dryRunRules(calls, modes({ pattern_kill: "deny" }), { toplevel }).byRule.pattern_kill,
-    ).toEqual({ ask: 0, deny: 1 });
+    ).toEqual({ ask: 0, deny: 1, rewrite: 0 });
     expect(
       dryRunRules(calls, modes({ pattern_kill: "off" }), { toplevel }).byRule.pattern_kill,
-    ).toEqual({ ask: 0, deny: 0 });
+    ).toEqual({ ask: 0, deny: 0, rewrite: 0 });
     expect(dryRunRules(calls, modes(), { toplevel }).byRule.destructive_git.ask).toBe(1);
   });
 

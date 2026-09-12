@@ -112,10 +112,35 @@ export type RuleId =
   | "destructive_git"
   | "protected_ports"
   | "no_foreign_worktree"
-  | "claim_required_to_write";
+  | "claim_required_to_write"
+  // M13.5 rewrite rules (default "off"): fix the call instead of refusing it
+  | "no_verify"
+  | "dry_run_first"
+  // M13.5 `[[rules.custom]]`: the user's own, named in config
+  | `custom:${string}`;
 export type GuardDecision =
   | { action: "allow" }
-  | { action: "ask" | "deny"; rule: RuleId; reason: string };
+  | { action: "ask" | "deny"; rule: RuleId; reason: string }
+  /** M13.5: allow, but with `command` in place of what the agent asked for; `key` names the
+   *  one-time rewrites (`dry_run_first`) so a session is not asked to dry-run twice. */
+  | { action: "rewrite"; rule: RuleId; reason: string; command: string; key?: string };
+
+/** Modes for rules that can rewrite: "rewrite" fixes the call, "ask" / "deny" refuse it. */
+export type RewriteMode = "rewrite" | "ask" | "deny" | "off";
+
+/**
+ * A user-defined rule over Bash commands (`[[rules.custom]]`, M13.5). `match` is a regex source
+ * tested against the whole command; with `action = "rewrite"` every match is replaced by
+ * `replace` (JS replacement syntax, `$1` works). Compiled once at config load; an invalid regex
+ * drops the rule with a warning rather than the daemon.
+ */
+export interface CustomRule {
+  name: string;
+  match: string;
+  action: RewriteMode;
+  replace?: string;
+  reason?: string;
+}
 
 /** Per-rule behavior; mirrors config.rules. */
 export interface RuleModes {
@@ -127,6 +152,14 @@ export interface RuleModes {
   no_foreign_worktree: "ask" | "deny" | "off";
   /** Writing into the shared checkout without holding a claim (opt-in: it demands a workflow). */
   claim_required_to_write: "ask" | "deny" | "off";
+  /** `git commit/push --no-verify` / `--no-gpg-sign`: the flags are dropped (M13.5). Optional:
+   *  a policy cache written by an older daemon has no such field, and absent means "off". */
+  no_verify?: RewriteMode;
+  /** The first `terraform apply` / `kubectl delete` / `helm uninstall` in a session runs as its
+   *  dry-run form; the second is allowed (M13.5). */
+  dry_run_first?: RewriteMode;
+  /** `[[rules.custom]]` in config order (M13.5). */
+  custom?: CustomRule[];
   protected: { ports: number[] };
 }
 
@@ -137,8 +170,61 @@ export const DEFAULT_MODES: RuleModes = {
   protected_ports: "ask",
   no_foreign_worktree: "ask",
   claim_required_to_write: "off",
+  no_verify: "off",
+  dry_run_first: "off",
+  custom: [],
   protected: { ports: [] },
 };
+
+// ---------- rewrites (M13.5): the built-in fixes, pure string → string
+
+/** `git … --no-verify` / `--no-gpg-sign` without the flags; null when there is nothing to drop. */
+export function rewriteNoVerify(cmd: string): string | null {
+  if (!/\bgit\b/.test(cmd) || !/--no-(verify|gpg-sign)\b/.test(cmd)) return null;
+  const out = cmd.replace(/\s+--no-(verify|gpg-sign)\b/g, "").replace(/ {2,}/g, " ");
+  return out === cmd ? null : out;
+}
+
+/**
+ * The dry-run form of an irreversible infrastructure command, keyed by family so the daemon can
+ * remember that this session already saw the dry run. Null when the command is not one, or is
+ * already a dry run.
+ */
+export function rewriteDryRun(cmd: string): { key: string; command: string } | null {
+  if (/\bterraform\s+apply\b/.test(cmd) && !/\bterraform\s+plan\b/.test(cmd))
+    return {
+      key: "terraform apply",
+      command: cmd
+        .replace(/\bterraform\s+apply\b/, "terraform plan")
+        .replace(/\s+-auto-approve\b/g, "")
+        .replace(/ {2,}/g, " "),
+    };
+  if (/\bkubectl\s+delete\b/.test(cmd) && !/--dry-run\b/.test(cmd))
+    return { key: "kubectl delete", command: `${cmd.trimEnd()} --dry-run=client` };
+  if (/\bhelm\s+(uninstall|delete)\b/.test(cmd) && !/--dry-run\b/.test(cmd))
+    return { key: "helm uninstall", command: `${cmd.trimEnd()} --dry-run` };
+  return null;
+}
+
+/** Apply one custom rule; null when it does not match (or a rewrite would change nothing). */
+export function applyCustomRule(rule: CustomRule, cmd: string): GuardDecision | null {
+  let re: RegExp;
+  try {
+    re = new RegExp(rule.match, rule.action === "rewrite" ? "g" : "");
+  } catch {
+    return null;
+  }
+  if (rule.action === "off" || !re.test(cmd)) return null;
+  const id: RuleId = `custom:${rule.name}`;
+  const reason = rule.reason ?? `matches custom rule "${rule.name}" (${rule.match})`;
+  if (rule.action !== "rewrite") return { action: rule.action, rule: id, reason };
+  re.lastIndex = 0;
+  const out = cmd
+    .replace(re, rule.replace ?? "")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  return out === cmd ? null : { action: "rewrite", rule: id, reason, command: out };
+}
 
 /** Evaluate a Bash command against the coordination rules. First match wins. */
 export function guardBash(
@@ -147,11 +233,30 @@ export function guardBash(
   sessions: LiveSession[],
   now: number,
   modes: RuleModes = DEFAULT_MODES,
+  /** M13.5: which one-time rewrites this session already went through (by `key`). */
+  ctx: { rewritesDone?: ReadonlySet<string> } = {},
 ): GuardDecision {
   const other = () => otherLiveInSameTree(current, sessions, now);
-  const hit = (rule: RuleId, reason: string): GuardDecision => {
+  const hit = (
+    rule: Exclude<RuleId, `custom:${string}` | "no_verify" | "dry_run_first">,
+    reason: string,
+  ): GuardDecision => {
     const mode = modes[rule];
     return mode === "off" ? { action: "allow" } : { action: mode, rule, reason };
+  };
+  /** A rewrite rule in "ask" / "deny" mode refuses instead of fixing. */
+  const fix = (
+    rule: "no_verify" | "dry_run_first",
+    reason: string,
+    command: string,
+    key?: string,
+  ): GuardDecision => {
+    // an older policy cache may predate these fields
+    const mode: RewriteMode = modes[rule] ?? "off";
+    if (mode === "off") return { action: "allow" };
+    if (mode === "rewrite")
+      return { action: "rewrite", rule, reason, command, ...(key ? { key } : {}) };
+    return { action: mode, rule, reason };
   };
   if (modes.protected_ports !== "off" && modes.protected.ports.length) {
     const target = killedPorts(cmd).filter((p) => modes.protected.ports.includes(p));
@@ -189,6 +294,32 @@ export function guardBash(
       );
       if (d.action !== "allow") return d;
     }
+  }
+  // M13.5: the user's own rules, in config order — after the coordination rules, so a deny above
+  // is never softened into a rewrite here.
+  for (const rule of modes.custom ?? []) {
+    const d = applyCustomRule(rule, cmd);
+    if (d) return d;
+  }
+  // M13.5 built-in rewrites, last: they only ever make a call safer.
+  const nv = rewriteNoVerify(cmd);
+  if (nv) {
+    const d = fix(
+      "no_verify",
+      "Hooks and signing exist for a reason: `--no-verify` / `--no-gpg-sign` was dropped. If a hook is wrong, fix the hook.",
+      nv,
+    );
+    if (d.action !== "allow") return d;
+  }
+  const dr = rewriteDryRun(cmd);
+  if (dr && !ctx.rewritesDone?.has(dr.key)) {
+    const d = fix(
+      "dry_run_first",
+      `The first \`${dr.key}\` in a session runs as a dry run so you can read what it would change; run the real one next.`,
+      dr.command,
+      dr.key,
+    );
+    if (d.action !== "allow") return d;
   }
   return { action: "allow" };
 }
@@ -255,7 +386,10 @@ export function guardWrite(
   modes: RuleModes = DEFAULT_MODES,
   kind: "file" | "bash" = "file",
 ): GuardDecision {
-  const hit = (rule: RuleId, reason: string): GuardDecision => {
+  const hit = (
+    rule: "no_foreign_worktree" | "claim_required_to_write",
+    reason: string,
+  ): GuardDecision => {
     const mode = modes[rule];
     return mode === "off" ? { action: "allow" } : { action: mode, rule, reason };
   };

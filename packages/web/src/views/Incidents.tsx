@@ -33,6 +33,7 @@ const field = (incident: IncidentEvent, key: string): string => {
 
 function ActionBadge({ action }: { action: string }) {
   if (action === "deny") return <Badge tone="warn">Denied</Badge>;
+  if (action === "rewrite") return <Badge tone="ok">Rewritten</Badge>;
   if (action === "orphaned") return <Badge tone="warn">Orphaned</Badge>;
   if (action === "failed") return <Badge tone="warn">Failed</Badge>;
   return <Badge tone="acc">Asked</Badge>;

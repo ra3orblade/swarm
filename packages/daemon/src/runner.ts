@@ -354,6 +354,14 @@ export class Runner {
       this.answerPermission(run.id, requestId, true);
       return;
     }
+    if (decision.action === "rewrite") {
+      // M13.5: approve with the fixed command in place (the incident feed shows before / after)
+      this.answerPermission(run.id, requestId, true, undefined, {
+        ...input,
+        command: decision.command,
+      });
+      return;
+    }
     // "ask": surface it to the dashboard and wait for a human decision.
     run.pending.push({
       requestId,
@@ -386,6 +394,8 @@ export class Runner {
     requestId: string,
     allow: boolean,
     message?: string,
+    /** M13.5: the input to run instead of what was asked (a rewrite). */
+    updatedInput?: Record<string, unknown>,
   ): { ok: boolean; reason?: string } {
     const entry = this.live.get(runId);
     if (!entry) return { ok: false, reason: "no live run" };
@@ -393,7 +403,7 @@ export class Runner {
     if (!stdin || typeof stdin === "number") return { ok: false, reason: "stdin not available" };
     const pend = entry.run.pending.find((p) => p.requestId === requestId);
     const response = allow
-      ? { behavior: "allow", updatedInput: pend?.input ?? {} }
+      ? { behavior: "allow", updatedInput: updatedInput ?? pend?.input ?? {} }
       : { behavior: "deny", message: message ?? "Denied from the Swarm dashboard" };
     stdin.write(
       `${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: requestId, response } })}\n`,

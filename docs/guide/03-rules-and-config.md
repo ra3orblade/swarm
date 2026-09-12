@@ -36,6 +36,13 @@ pattern_kill    = "ask"
 protected_ports = "ask"
 no_foreign_worktree     = "ask"
 claim_required_to_write = "off"
+no_verify     = "off"      # "rewrite": git loses --no-verify / --no-gpg-sign and runs
+dry_run_first = "off"      # "rewrite": first terraform apply / kubectl delete / helm uninstall runs dry
+
+# [[rules.custom]]         # your own: match (regex) → ask | deny | rewrite (with replace)
+# name = "no-force-push"
+# match = "git push .*--force"
+# action = "deny"
 
 [rules.protected]
 # Ports agents must not kill or free. Empty by default.
@@ -151,6 +158,28 @@ kill $(lsof -t -i :3000)
 fuser -k 3000/tcp
 npx kill-port 3000
 ```
+
+### Rules that rewrite instead of refusing
+
+Two rules have a third answer besides *ask* and *deny*: **rewrite**. The call runs, with the dangerous part taken out, and the agent is told what changed and why. `no_verify = "rewrite"` drops `--no-verify` and `--no-gpg-sign` from any `git` command. `dry_run_first = "rewrite"` turns the first `terraform apply`, `kubectl delete` or `helm uninstall` a session runs into its dry-run form (`terraform plan`, `--dry-run=client`, `--dry-run`); the second one is allowed, because the agent has now read what it would change. Both ship `off`; set them to `"rewrite"`, or to `"ask"` / `"deny"` if you would rather refuse. Every rewrite lands on the Incidents view as *Rewritten*, with the command that was asked for beside the one that ran, so rule effectiveness scores it like any rule.
+
+### Your own rules
+
+```toml
+[[rules.custom]]
+name = "no-force-push"
+match = "git push .*--force"       # a regex over the whole command
+action = "deny"                     # ask | deny | rewrite | off
+reason = "force pushes go through a PR"
+
+[[rules.custom]]
+name = "pnpm"
+match = "\\bnpm (install|i)\\b"
+action = "rewrite"
+replace = "pnpm add"                # every match becomes this ($1 works)
+```
+
+Custom rules run in config order after the built-in coordination rules, so a deny above is never softened into a rewrite. The incident names the rule (`custom:pnpm`), and Codify offers to tighten it from there. A regex that does not compile drops that rule with a warning, never the daemon. `swarm rules dryrun` replays the repo's history under any of these, so you can see what a rule would have done before turning it on.
 
 The protected list is the union of `rules.protected.ports` and every port currently held as a [runtime resource](05-runtime-resources.md). Acquiring `db` with `--port 5432` protects 5432 for every other agent with no config change; when the holding is released or reaped the protection goes with it.
 

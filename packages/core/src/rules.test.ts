@@ -223,3 +223,93 @@ describe("guardWrite (no_foreign_worktree, claim_required_to_write)", () => {
     expect(guardWrite("/x/y", { cwd: "/x", toplevel: null }, claims, on).action).toBe("allow");
   });
 });
+
+describe("rewrite rules (M13.5)", async () => {
+  const { DEFAULT_MODES, applyCustomRule, guardBash, rewriteDryRun, rewriteNoVerify } =
+    await import("./rules");
+  const cur = { id: "s1", toplevel: "/repo" };
+  const on = (over: Partial<typeof DEFAULT_MODES>) => ({ ...DEFAULT_MODES, ...over });
+
+  it("drops --no-verify / --no-gpg-sign and nothing else", () => {
+    expect(rewriteNoVerify("git commit -m x --no-verify")).toBe("git commit -m x");
+    expect(rewriteNoVerify("git push --no-verify origin main")).toBe("git push origin main");
+    expect(rewriteNoVerify("git commit --no-gpg-sign -m x")).toBe("git commit -m x");
+    expect(rewriteNoVerify("git commit -m x")).toBeNull();
+    expect(rewriteNoVerify("npm test --no-verify")).toBeNull(); // not git
+  });
+
+  it("turns the first infra change into its dry run, and knows what is already dry", () => {
+    expect(rewriteDryRun("terraform apply -auto-approve")).toEqual({
+      key: "terraform apply",
+      command: "terraform plan",
+    });
+    expect(rewriteDryRun("kubectl delete pod web-1 -n prod")).toEqual({
+      key: "kubectl delete",
+      command: "kubectl delete pod web-1 -n prod --dry-run=client",
+    });
+    expect(rewriteDryRun("helm uninstall api")).toEqual({
+      key: "helm uninstall",
+      command: "helm uninstall api --dry-run",
+    });
+    expect(rewriteDryRun("terraform plan")).toBeNull();
+    expect(rewriteDryRun("kubectl delete pod x --dry-run=server")).toBeNull();
+    expect(rewriteDryRun("kubectl get pods")).toBeNull();
+  });
+
+  it("is off by default, rewrites when on, and refuses in ask / deny mode", () => {
+    const cmd = "git commit -m x --no-verify";
+    expect(guardBash(cmd, cur, [], 0)).toEqual({ action: "allow" });
+    const rw = guardBash(cmd, cur, [], 0, on({ no_verify: "rewrite" }));
+    expect(rw).toMatchObject({ action: "rewrite", rule: "no_verify", command: "git commit -m x" });
+    expect(guardBash(cmd, cur, [], 0, on({ no_verify: "deny" }))).toMatchObject({
+      action: "deny",
+      rule: "no_verify",
+    });
+  });
+
+  it("dry-runs once per session, then lets the real command through", () => {
+    const modes = on({ dry_run_first: "rewrite" });
+    const first = guardBash("terraform apply", cur, [], 0, modes, { rewritesDone: new Set() });
+    expect(first).toMatchObject({
+      action: "rewrite",
+      rule: "dry_run_first",
+      command: "terraform plan",
+      key: "terraform apply",
+    });
+    const second = guardBash("terraform apply", cur, [], 0, modes, {
+      rewritesDone: new Set(["terraform apply"]),
+    });
+    expect(second).toEqual({ action: "allow" });
+  });
+
+  it("applies custom rules in order: deny, ask, rewrite with $1, off, and bad regexes never fire", () => {
+    const deny = { name: "no-force", match: "git push .*--force", action: "deny" as const };
+    expect(applyCustomRule(deny, "git push --force origin x")).toMatchObject({
+      action: "deny",
+      rule: "custom:no-force",
+    });
+    expect(applyCustomRule(deny, "git push origin x")).toBeNull();
+    const rw = {
+      name: "pnpm",
+      match: "\\bnpm (install|i)\\b",
+      action: "rewrite" as const,
+      replace: "pnpm add",
+      reason: "this repo uses pnpm",
+    };
+    expect(applyCustomRule(rw, "npm i left-pad")).toEqual({
+      action: "rewrite",
+      rule: "custom:pnpm",
+      reason: "this repo uses pnpm",
+      command: "pnpm add left-pad",
+    });
+    expect(applyCustomRule({ ...rw, action: "off" }, "npm i x")).toBeNull();
+    expect(applyCustomRule({ ...rw, match: "(" }, "npm i x")).toBeNull();
+    // a coordination deny is never softened by a later custom rewrite
+    const modes = on({ custom: [rw], pattern_kill: "deny" });
+    expect(guardBash("pkill -f node && npm i x", cur, [], 0, modes)).toMatchObject({
+      action: "deny",
+      rule: "pattern_kill",
+    });
+    expect(guardBash("npm i x", cur, [], 0, modes)).toMatchObject({ action: "rewrite" });
+  });
+});
