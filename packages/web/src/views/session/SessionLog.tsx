@@ -34,6 +34,7 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   "question.answered": "answer",
   "message.sent": "msg",
   "gate.recorded": "gate",
+  "gate.blocked": "refused",
   "session.stuck": "stuck",
   "permission.requested": "perm?",
   "permission.resolved": "perm",

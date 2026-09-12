@@ -32,6 +32,7 @@ export const AUDIT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   "process.started",
   "process.exited",
   "gate.recorded",
+  "gate.blocked",
   "handoff.recorded",
   "permission.requested",
   "permission.resolved",

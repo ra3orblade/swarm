@@ -29,6 +29,15 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
   already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
 
+- **The repair loop: a session cannot say it is done while a required gate fails.** With
+  `[gates] on_stop = "block"`, stopping inside a held worktree runs the executable required gates
+  first, and while one fails the stop is refused — Claude Code keeps working, and what it reads is
+  the gate's name and the tail of its output, not a hint. Bounded: at most `max_blocks` refusals
+  per session (three by default), then the stop goes through and a `gate_failed` incident opens.
+  Every refusal is a `gate.blocked` line in the session log. Default stays `record`, so nothing
+  changes until a repo opts in; subagents are never refused; the wait is capped by `stop_timeout`.
+  This is Claude Code's own `Stop` → `block` hook contract, verified against the current reference.
+
 - **Plan quota windows on Spend and in the status line.** Pro / Max plans are metered by a 5-hour
   and a 7-day window, not by dollars, and Claude Code reports both to its status line after every
   message. The daemon keeps those samples (a row when a window moves, never one per message) and

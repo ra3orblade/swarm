@@ -115,6 +115,13 @@ ports = []                # e.g. [3000, 5432, 7777]
 # When the daemon runs the executable required gates on its own inside a held worktree (M7.4):
 # "session-end" (default), "stop" (after every turn, at most every 2 min per task), or "off".
 # auto = "session-end"
+# Repair loop (M13.1): with "block", a Stop inside a held worktree runs the executable required
+# gates first and is refused while one fails — the agent reads the failing gate's output and keeps
+# working. At most `max_blocks` refusals per session (then a gate_failed incident opens and the stop
+# goes through); a Stop waits at most `stop_timeout` seconds for the gates. Never on subagents.
+# on_stop = "record"      # "record" (default) | "block"
+# max_blocks = 3
+# stop_timeout = 300
 
 # Executable gates (M7.4): any `[gates.<name>]` with a `cmd` can be run by `swarm gate run <task>`,
 # the swarm_gate_run MCP tool, or the Board. Exit 0 = pass; the rubric becomes the command and the

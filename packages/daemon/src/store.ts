@@ -146,6 +146,7 @@ import {
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
+  repairDecision,
   resourceGraph,
   reviewArgs,
   reviewGateInput,
@@ -2003,25 +2004,114 @@ export class Store {
     const cfg = this.gateDefs(held.projectId);
     if (!cfg || cfg.auto === "off") return;
     if (cfg.auto === "session-end" && event !== "SessionEnd") return;
+    // M13.1: with the repair loop on, the Stop hook itself runs the gates and waits for them.
+    if (event === "Stop" && cfg.on_stop === "block") return;
     if (!cfg.required.some((g) => cfg.defs[g])) return;
     const key = `${held.projectId}:${held.task}`;
     const now = Date.now();
     if (event === "Stop" && now - (this.autoGateAt.get(key) ?? 0) < 120_000) return; // a Stop per turn; don't re-test every minute
     this.autoGateAt.set(key, now);
     void this.runGates(held.projectId, held.task, undefined, { sessionId, owner: "auto" }).then(
-      (r) => {
-        if (!r.runs.length) return;
-        const line = r.runs
-          .map((x) => `${x.gate} ${x.verdict === "pass" ? "✓" : "✗"} (${x.rubric})`)
-          .join("; ");
-        this.db
-          .query(
-            "UPDATE handoffs SET verify = ? WHERE project_id = ? AND task = ? AND session_id = ? AND by LIKE 'auto%'",
-          )
-          .run(`auto-gates: ${line}`, held.projectId, held.task, sessionId);
-        this.touch();
-      },
+      (r) => this.writeAutoVerify(held.projectId, held.task, sessionId, r.runs),
     );
+  }
+
+  /** The auto-handoff's `verify` line from a batch of runs (M7.4). */
+  private writeAutoVerify(projectId: string, task: string, sessionId: string, runs: GateRun[]) {
+    if (!runs.length) return;
+    const line = runs
+      .map((x) => `${x.gate} ${x.verdict === "pass" ? "✓" : "✗"} (${x.rubric})`)
+      .join("; ");
+    this.db
+      .query(
+        "UPDATE handoffs SET verify = ? WHERE project_id = ? AND task = ? AND session_id = ? AND by LIKE 'auto%'",
+      )
+      .run(`auto-gates: ${line}`, projectId, task, sessionId);
+    this.touch();
+  }
+
+  // ---------- repair loop (M13.1)
+  /** Refusals issued to a session — `gate.blocked` events, so a daemon restart keeps the count. */
+  stopBlocks(sessionId: string): number {
+    const r = this.db
+      .query("SELECT COUNT(*) AS n FROM events WHERE type = 'gate.blocked' AND session_id = ?")
+      .get(sessionId) as { n: number };
+    return r.n;
+  }
+  private stopExhausted = new Set<string>();
+
+  /**
+   * The Stop hook's answer. Null = let the session stop (record mode, no claim, no executable
+   * required gates, every gate passed, the wait ran out, or the refusals are used up). A block
+   * carries the failing gate's output as the reason Claude keeps working on. Bounded by
+   * `[gates] max_blocks` per session (OQ-24); never for `SubagentStop`, which is not routed here.
+   */
+  async stopDecision(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ decision: "block"; reason: string } | null> {
+    if (!cwd || !existsSync(cwd)) return null;
+    const held = this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree));
+    if (!held) return null;
+    const cfg = this.gateDefs(held.projectId);
+    if (cfg?.on_stop !== "block" || cfg.max_blocks <= 0) return null;
+    const executable = cfg.required.filter((g) => cfg.defs[g]);
+    if (!executable.length) return null;
+    const blocksSoFar = this.stopBlocks(sessionId);
+    const batch = this.runGates(held.projectId, held.task, undefined, {
+      sessionId,
+      owner: "stop",
+    });
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), cfg.stop_timeout * 1000),
+    );
+    const r = await Promise.race([batch, timeout]);
+    if (!r) return null; // the gates outran the hook's budget: let the stop through, the runs still land
+    this.writeAutoVerify(held.projectId, held.task, sessionId, r.runs);
+    const d = repairDecision({
+      onStop: cfg.on_stop,
+      blocksSoFar,
+      maxBlocks: cfg.max_blocks,
+      runs: r.runs,
+      unexecutable: cfg.required.filter((g) => !cfg.defs[g]),
+    });
+    if (d.kind === "allow") return null;
+    const failed = d.failed.map((x) => x.gate);
+    if (d.kind === "exhausted") {
+      // one incident per session, not one per extra Stop
+      if (!this.stopExhausted.has(sessionId)) {
+        this.stopExhausted.add(sessionId);
+        this.append({
+          ts: new Date().toISOString(),
+          type: "incident.opened",
+          projectId: held.projectId,
+          sessionId,
+          payload: {
+            rule: "gate_failed",
+            action: "warn",
+            command: `stop on ${held.task}`,
+            reason: `${d.reason}. The session stopped with ${failed.join(", ")} failing; the runs are on the Board.`,
+            task: held.task,
+            gates: failed,
+          },
+        });
+      }
+      return null;
+    }
+    this.append({
+      ts: new Date().toISOString(),
+      type: "gate.blocked",
+      projectId: held.projectId,
+      sessionId,
+      payload: {
+        task: held.task,
+        gates: failed,
+        attempt: d.attempt,
+        maxBlocks: cfg.max_blocks,
+        summary: `stop refused (${d.attempt}/${cfg.max_blocks}): ${failed.join(", ")} failing on ${held.task}`,
+      },
+    });
+    return { decision: "block", reason: d.reason };
   }
 
   requiredGates(projectId: string): string[] {
@@ -3042,6 +3132,7 @@ export class Store {
     "dispatch.started",
     "dispatch.finished",
     "gate.recorded",
+    "gate.blocked",
     "handoff.recorded",
     "incident.opened",
     "incident.acked",
