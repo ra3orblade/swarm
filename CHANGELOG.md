@@ -2,7 +2,7 @@
 
 All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
 
-## [Unreleased]
+## [0.14.0] — 2026-09-12
 
 The **Act** release: Swarm stops only watching agents and starts steering them — every new
 capability below reaches an *interactive* session, not just a spawned run.
