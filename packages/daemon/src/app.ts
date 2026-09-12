@@ -34,6 +34,7 @@ import { worktreeDiff, worktreePatch } from "./git";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
+import { hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
 import { WorkflowEngine } from "./workflow";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.13.2";
@@ -520,7 +521,30 @@ export function createApp(
   });
 
   // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
-  app.get("/v1/team", (c) => c.json(team.status()));
+  // M13.12: the Team panel — status, plus hosting and joining without a terminal
+  app.get("/v1/team", (c) => c.json({ ...team.status(), ...hostingStatus(store) }));
+  app.post("/v1/team/host", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      mode?: "token" | "oidc" | "open";
+      port?: number;
+      name?: string | null;
+    };
+    const r = await hostTeam(store, b);
+    return c.json(r, r.ok ? 201 : 409);
+  });
+  app.post("/v1/team/join", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      invite?: string;
+      url?: string;
+      token?: string | null;
+    };
+    const r = await joinTeam(store, b);
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.post("/v1/team/leave", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { stopHosted?: boolean };
+    return c.json(await leaveTeam(store, b));
+  });
   // M8.3c: `swarm login` hands the daemon its machine token after registering with the team daemon
   app.post("/v1/team/credentials", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {

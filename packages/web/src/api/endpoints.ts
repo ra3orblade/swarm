@@ -30,6 +30,7 @@ import type {
 import type { TrialReport } from "@swarm/core/abtrial";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
+import type { TeamStatus } from "./actions";
 import { query } from "./client";
 
 /** `/v1/ab` answers with the list wrapped, not bare — the shape the Trials view got wrong. */
@@ -62,6 +63,8 @@ const byProject = <T>(path: string, project: string | null): Route<T> =>
 
 /** Every `/v1` path the dashboard reads, built once so encoding cannot drift between call sites. */
 export const routes = {
+  /** M13.12: forwarding status plus what this machine hosts. */
+  team: (): Route<TeamStatus> => "/v1/team" as Route<TeamStatus>,
   /** A folder's sub-folders. An empty or missing path lists the home directory. */
   fsList: (path: string): Route<DirListing> => `/v1/fs/ls${query({ path })}`,
   outcomes: (project: string | null) => byProject<OutcomeReport>("/v1/outcomes", project),

@@ -2530,6 +2530,14 @@ export class Store {
     return this.policyFor(repoRoot).config.rules;
   }
 
+  /**
+   * Forget the cached config. The 30 s cache is right for a file someone edits by hand, and wrong
+   * the moment the daemon itself writes one (M13.12 host / join): the next read must see it.
+   */
+  invalidateConfig(): void {
+    this.policyCache.clear();
+  }
+
   /** Config with provenance for a repo, cached 30 s (same cadence the rules always had). */
   policyFor(repoRoot: string | null): LoadedConfig {
     const key = repoRoot ?? "";

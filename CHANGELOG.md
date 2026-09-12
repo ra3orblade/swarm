@@ -38,6 +38,18 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   the worktree. Without a forge remote the branch stays and the card shows the push line.
   `[codify] target` picks the default file(s).
 
+- **Host or join a team from the app.** Running the team daemon meant a clone, environment
+  variables and two CLI commands; joining meant a third. The dashboard has a **Team** panel now:
+  **Host a team** mints a shared secret, writes `~/.swarm/team.toml`, starts `swarm-teamd`, points
+  this machine at it, registers, and shows an **invite link**; a teammate pastes that link into
+  **Join a team** and is done. The panel also shows forwarding lag, this machine's identity,
+  whether its credentials registered, and a Leave button (with *stop hosting* when this machine is
+  the host — stopped by pid, never by pattern). `swarm-teamd setup` writes the same file from a
+  terminal, and the environment still overrides it, so existing deployments are unaffected. Two
+  bugs found on the way: a wrong shared secret used to look like a successful join and then fail
+  to forward forever, and a config file the daemon wrote itself stayed invisible to it for 30
+  seconds.
+
 - **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
   third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
   `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the
