@@ -81,7 +81,7 @@ function HostForm({ busy, run }: RunProps) {
     <>
       <Section title="Host a team" spaced hint="runs swarm-teamd on this machine" />
       <div className="perm">
-        <div className="perm-c">
+        <div className="perm-t">
           A shared secret is minted for you; every teammate joins with the invite link. The team
           daemon is source-available (FSL-1.1-ALv2) and ships separately from this Apache-2.0
           bundle: it runs from a clone, or from <code>swarm-teamd</code> on your PATH.
