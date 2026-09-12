@@ -164,7 +164,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   tasks: { source: null, labels: [], team: null },
   gates: { required: [], auto: "session-end", defs: {} },
   workflows: {},
-  budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn" },
+  budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
@@ -276,6 +276,12 @@ function validate(c: SwarmConfig): SwarmConfig {
       weekly: usd(b.weekly),
       warn_at: Number.isFinite(warnAt) && warnAt > 0 && warnAt < 1 ? warnAt : 0.8,
       on_exceed: b.on_exceed === "ask" || b.on_exceed === "stop" ? b.on_exceed : "warn",
+      window_warn_at: (() => {
+        if (b.window_warn_at === false || b.window_warn_at === null || b.window_warn_at === 0)
+          return null;
+        const w = Number(b.window_warn_at);
+        return Number.isFinite(w) && w > 0 && w < 1 ? w : 0.8;
+      })(),
     },
     workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
     notify: {

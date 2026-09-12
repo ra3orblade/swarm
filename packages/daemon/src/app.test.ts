@@ -67,6 +67,7 @@ describe("swarmd", () => {
       incidents: 0,
       waitingOn: 0,
       inbox: 0,
+      quota: null,
     });
     expect(store.lastStatusline("s_sl")?.payload.model?.display_name).toBe("Opus");
     // A question this session asked and nobody answered shows as waiting.
@@ -79,6 +80,57 @@ describe("swarmd", () => {
     expect(waiting.waitingOn).toBe(1);
     // Garbage is a 400, never a crash on the render path.
     expect((await post([1, 2])).status).toBe(400);
+  });
+
+  it("stores plan windows from the statusline and warns once per reset period (M12.3)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const cwd = mkdtempSync(join(tmpdir(), "swarm-q-"));
+    const resets = Math.floor(Date.now() / 1000) + 3 * 3600;
+    const post = (five: number) =>
+      app.request("/v1/statusline", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          session_id: "s_q",
+          cwd,
+          rate_limits: { five_hour: { used_percentage: five, resets_at: resets } },
+        }),
+      });
+    await post(20);
+    await post(20); // unchanged and within ten minutes: not a second row
+    let q = (await (await app.request("/v1/quota")).json()) as {
+      windows: Array<{
+        window: string;
+        usedPct: number;
+        level: string;
+        burnPctPerHour: number | null;
+      }>;
+    };
+    expect(q.windows).toHaveLength(1);
+    expect(q.windows[0]).toMatchObject({ window: "five_hour", usedPct: 20, level: "ok" });
+    expect(q.windows[0]?.burnPctPerHour).toBeNull();
+    expect(store.checkQuota()).toEqual([]);
+    expect(store.openIncidents()).toBe(0);
+
+    await post(85); // past window_warn_at (0.8 by default)
+    q = (await (await app.request("/v1/quota")).json()) as typeof q;
+    expect(q.windows[0]?.level).toBe("warn");
+    expect(store.checkQuota()).toHaveLength(1);
+    expect(store.checkQuota()).toHaveLength(1); // still warn: no second incident
+    expect(store.openIncidents()).toBe(1);
+    await post(100);
+    store.checkQuota();
+    expect(store.openIncidents()).toBe(2); // exceeded is a new level
+    const inc = store
+      .since(0)
+      .filter((e) => e.type === "incident.opened")
+      .at(-1);
+    expect(inc?.payload).toMatchObject({ rule: "budget", command: "5-hour window (plan quota)" });
+    // the snapshot carries it for the Spend view
+    const snap = (await (await app.request("/v1/state")).json()) as {
+      quota: { windows: unknown[] };
+    };
+    expect(snap.quota.windows).toHaveLength(1);
   });
 
   it("appends events with a monotonic seq", async () => {

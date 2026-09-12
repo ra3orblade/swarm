@@ -115,6 +115,7 @@ Cost for the selected scope over the last 7, 14, 30 or 90 days:
 - KPIs: today's cost and turns, the period total and active days, today versus the average active day, and the agents involved.
 - *Daily cost* stacked by agent, and a *When the agents work* weekday × hour heatmap over the last four weeks (local time).
 - Tables: by agent (today / all time — only at the *All projects* scope), by project (today / all time), by model (today / all time). Each has cost, in+cache tokens, out tokens and turns.
+- *Plan windows* (Pro / Max, with the [status line](01-getting-started.md#a-status-line-optionally) installed): one tile per window — 5-hour, 7-day, and the gateway spend limit where one applies — with percent used, when it resets, the burn rate and whether the limit lands before the reset at the current pace. Absent until a session on a plan reports; API-key sessions never do.
 
 Costs use list prices from a built-in table, refreshed from LiteLLM's public price list when online; you can override any model in `~/.swarm/pricing.json`. Subscription-plan sessions still show what the tokens would cost at API rates.
 

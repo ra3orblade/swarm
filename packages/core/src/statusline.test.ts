@@ -24,6 +24,7 @@ const state: StatuslineState = {
   incidents: 2,
   waitingOn: 1,
   inbox: 3,
+  quota: null,
 };
 
 describe("statusline (M12.2)", () => {
@@ -51,6 +52,7 @@ describe("statusline (M12.2)", () => {
       incidents: 0,
       waitingOn: 0,
       inbox: 0,
+      quota: null,
     };
     expect(renderStatusline(payload, quiet)).toBe(renderStatusline(payload, null));
   });
@@ -64,6 +66,25 @@ describe("statusline (M12.2)", () => {
     expect(
       renderStatusline({ model: { display_name: "Sonnet" }, cost: { total_cost_usd: 12 } }, null),
     ).toBe("Sonnet · $12");
+  });
+
+  it("names the plan window that runs out first (M12.3)", () => {
+    const q = (hoursToLimit: number | null) =>
+      renderStatusline(
+        { model: { display_name: "Opus" } },
+        {
+          ...state,
+          task: null,
+          budget: null,
+          incidents: 0,
+          waitingOn: 0,
+          inbox: 0,
+          quota: { window: "five_hour", hoursToLimit },
+        },
+      );
+    expect(q(2.4)).toBe("Opus │ 5h limit in 2h");
+    expect(q(0.4)).toBe("Opus │ 5h limit in 24m");
+    expect(q(null)).toBe("Opus │ 5h limit reached");
   });
 
   it("colours only when asked", () => {

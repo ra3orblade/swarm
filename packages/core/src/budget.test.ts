@@ -6,6 +6,7 @@ const cfg = (o: Partial<Parameters<typeof budgetStatus>[1]> = {}) => ({
   weekly: null,
   warn_at: 0.8,
   on_exceed: "warn" as const,
+  window_warn_at: null as number | null,
   ...o,
 });
 

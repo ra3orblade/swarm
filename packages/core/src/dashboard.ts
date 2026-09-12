@@ -11,6 +11,7 @@
 
 import type { TrackedProcess } from "./processes";
 import type { Question } from "./questions";
+import type { QuotaReport } from "./quota";
 import type { Resource } from "./resources";
 import type { Project, SessionView } from "./types";
 import type { Worktree } from "./worktree";
@@ -107,6 +108,8 @@ export interface DashboardSnapshot {
   spend: SpendSummary;
   /** Keyed by project id: one cost bucket per day, oldest first. */
   spendSparks: Record<string, number[]>;
+  /** M12.3: the plan quota windows the statusline reported; empty windows when nothing did. */
+  quota: QuotaReport;
   claims: ClaimRow[];
   processes: TrackedProcess[];
   incidents: IncidentEvent[];

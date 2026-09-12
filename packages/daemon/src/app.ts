@@ -699,6 +699,8 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
       store.budgetFor(project) ?? { status: null, config: store.config(project).budget },
     );
   });
+  // M12.3: the plan quota windows the statusline reported (also in the snapshot)
+  app.get("/v1/quota", (c) => c.json(store.quota()));
   // ---- M7.10: the SessionStart context, refreshable mid-session
   app.get("/v1/context", (c) => {
     const cwd = c.req.query("cwd");
