@@ -38,6 +38,7 @@ export * from "./ruleeffect";
 export * from "./rules";
 export * from "./security";
 export * from "./stall";
+export * from "./statusline";
 export * from "./tasks";
 export * from "./team";
 export * from "./transitions";

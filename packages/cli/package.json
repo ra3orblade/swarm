@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@swarm/core": "workspace:*",
-    "@swarm/client": "workspace:*"
+    "@swarm/client": "workspace:*",
+    "@swarm/hook": "workspace:*"
   },
   "bin": {
     "swarm": "./src/bin.ts"

@@ -49,6 +49,38 @@ describe("swarmd", () => {
     expect(third.headers.get("etag")).not.toBe(etag);
   });
 
+  it("answers the statusline shim with what the daemon adds to the line (M12.2)", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const cwd = mkdtempSync(join(tmpdir(), "swarm-sl-"));
+    const post = (body: unknown) =>
+      app.request("/v1/statusline", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    // A session outside any claim: nothing held, nothing waiting.
+    const quiet = await post({ session_id: "s_sl", cwd, model: { display_name: "Opus" } });
+    expect(quiet.status).toBe(200);
+    expect(await quiet.json()).toEqual({
+      task: null,
+      budget: null,
+      incidents: 0,
+      waitingOn: 0,
+      inbox: 0,
+    });
+    expect(store.lastStatusline("s_sl")?.payload.model?.display_name).toBe("Opus");
+    // A question this session asked and nobody answered shows as waiting.
+    const project = store.resolveProject(cwd);
+    store.ingestHook("SessionStart", { session_id: "s_sl", cwd, hook_event_name: "SessionStart" });
+    expect(store.ask(project.id, { sessionId: "s_sl", text: "merge?" }).ok).toBe(true);
+    const waiting = (await (await post({ session_id: "s_sl", cwd })).json()) as {
+      waitingOn: number;
+    };
+    expect(waiting.waitingOn).toBe(1);
+    // Garbage is a 400, never a crash on the render path.
+    expect((await post([1, 2])).status).toBe(400);
+  });
+
   it("appends events with a monotonic seq", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
     const body = {

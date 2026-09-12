@@ -17,6 +17,7 @@ import {
   provenance,
   RULE_IDS,
   type RuleId,
+  type StatuslinePayload,
   type SwarmEvent,
   sinceToIso,
   taskPrompt,
@@ -1212,6 +1213,14 @@ export function createApp(store = new Store(), hooks: { restart?: () => void } =
         hookSpecificOutput: { hookEventName: event, additionalContext: answers },
       });
     return c.json({});
+  });
+  // M12.2: the statusline shim posts Claude Code's statusLine payload; the answer is what Swarm
+  // adds to the line. Fast path — no event is written.
+  app.post("/v1/statusline", async (c) => {
+    const raw = (await c.req.json().catch(() => null)) as StatuslinePayload | null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      return c.json({ ok: false, error: "expected the statusLine JSON object" }, 400);
+    return c.json(store.statuslineFor(raw));
   });
   app.post("/v1/events", async (c) => {
     const e = (await c.req.json()) as SwarmEvent;

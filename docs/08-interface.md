@@ -188,6 +188,8 @@ swarm ls                           list projects
 swarm ui                           open the dashboard
 swarm tail [--project p] [--session id]   follow the live event stream
 swarm install | uninstall          add/remove Swarm hooks (and the MCP server) in ~/.claude/settings.json
+swarm install --statusline         also set Claude Code's statusLine to `swarm statusline` (never replaces one you set)
+swarm statusline                   statusLine command: model · ctx % · cost · plan windows │ task · lease · budget · incidents · waiting (400 ms, fails open)
 
 swarm claim <task> [--owner n]     claim a task in a fresh isolated git worktree (fail-closed); runs `[worktree]` copy/setup (M7.1)
 swarm renew <task>                 extend the lease

@@ -19,7 +19,7 @@ import {
   swarmHome,
 } from "@swarm/client";
 import { loadConfigDetailed } from "@swarm/core";
-import { install, setTeamUrl, status, uninstall } from "./install";
+import { install, installStatusline, setTeamUrl, status, uninstall } from "./install";
 import * as procs from "./procs";
 
 /** Root of the git checkout we were run in, or null outside a repo. */
@@ -82,7 +82,8 @@ const help = `swarm — control plane for AI-agent development
   login [url] [--token t]   log in to the team daemon ([team].url) and register this machine (M8.3c)
   backup [dest] | restore <src>   snapshot ~/.swarm (VACUUM INTO, zero downtime) / restore it (daemon stopped)
 
-  install [--config-url <team url>] | uninstall     add/remove Swarm hooks in ~/.claude/settings.json (--config-url also points this machine at a team daemon)
+  install [--statusline] [--config-url <team url>] | uninstall     add/remove Swarm hooks in ~/.claude/settings.json (--statusline also sets Claude Code's status line; --config-url points this machine at a team daemon)
+  statusline              Claude Code's statusLine command: its JSON on stdin → one line (model, context, cost, plan windows │ task, lease, budget, incidents, waiting). Installed by: install --statusline
 
 Env: SWARM_URL, SWARM_PORT (default 7777), SWARM_HOME (~/.swarm)`;
 
@@ -147,6 +148,16 @@ try {
     case "install": {
       const evs = install();
       console.log(`installed hooks for ${evs.length} events in ${status().path}`);
+      // M12.2: the status line is opt-in — it replaces Claude Code's footer hints, and someone
+      // else's statusLine is never overwritten.
+      if (rest.includes("--statusline")) {
+        const r = installStatusline();
+        console.log(
+          r === "kept"
+            ? "statusLine left alone — another status line is set; remove it first, then rerun with --statusline"
+            : `statusLine ${r}: swarm statusline (restart claude to see it)`,
+        );
+      }
       // M8.3f / M8.5 fleet install: point this machine at the team daemon in one flag
       const cuIdx = rest.indexOf("--config-url");
       const configUrl = cuIdx >= 0 ? rest[cuIdx + 1] : null;
@@ -163,6 +174,12 @@ try {
     case "uninstall":
       console.log(`removed ${uninstall()} hook entries`);
       break;
+    case "statusline": {
+      // M12.2: never ensureDaemon — this runs on Claude Code's render path and must fail open.
+      const { runStatusline } = await import("@swarm/hook");
+      process.stdout.write(`${await runStatusline(await Bun.stdin.text())}\n`);
+      break;
+    }
     case "doctor": {
       // M8.5: --migrate ensures the daemon is up — opening the store runs any pending
       // versioned migrations; the schema line below then reports what the database is on.
@@ -214,6 +231,13 @@ try {
           );
       }
       line(st.mcp, "MCP server registered", "run: swarm install");
+      if (st.statusline === "ours") console.log("✓ statusLine: swarm statusline");
+      else
+        console.log(
+          st.statusline === "other"
+            ? "· statusLine: another status line is set (swarm install --statusline would leave it alone)"
+            : "· statusLine not set — swarm install --statusline puts task, lease, budget and plan windows in Claude Code's footer",
+        );
       if (st.otherAgents.length)
         console.log(
           `✓ MCP server also registered for ${st.otherAgents.join(", ")} (swarm_* tools in those CLIs too)`,

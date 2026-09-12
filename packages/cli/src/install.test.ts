@@ -23,7 +23,8 @@ writeFileSync(
   process.env.GEMINI_SETTINGS,
   '{"theme":"dark","mcpServers":{"other":{"command":"y"}}}\n',
 );
-const { install, setTeamUrl, status, uninstall } = await import("./install");
+const { install, installStatusline, setTeamUrl, status, uninstall, uninstallStatusline } =
+  await import("./install");
 
 afterEach(() => {});
 
@@ -68,6 +69,37 @@ describe("install", () => {
     expect(after.hooks).toBeUndefined();
     expect(JSON.parse(readFileSync(claudeJson, "utf8")).mcpServers?.swarm).toBeUndefined();
     expect(status().mcp).toBe(false);
+  });
+});
+
+describe("statusline (M12.2, `swarm install --statusline`)", () => {
+  it("sets statusLine only when none is set, refreshes its own, and never replaces another", () => {
+    const read = () => JSON.parse(readFileSync(settings, "utf8"));
+    // start clean
+    uninstallStatusline();
+    expect(status().statusline).toBe("none");
+    expect(installStatusline()).toBe("installed");
+    expect(read().statusLine.type).toBe("command");
+    expect(read().statusLine.command).toMatch(/statusline$/);
+    expect(status().statusline).toBe("ours");
+    expect(installStatusline()).toBe("refreshed");
+
+    // uninstall removes exactly ours and counts it
+    expect(uninstallStatusline()).toBe(true);
+    expect(read().statusLine).toBeUndefined();
+    expect(uninstallStatusline()).toBe(false);
+
+    // someone else's status line is left alone, by install and by uninstall
+    const s = read();
+    s.statusLine = { type: "command", command: "~/.claude/statusline.sh" };
+    writeFileSync(settings, JSON.stringify(s));
+    expect(installStatusline()).toBe("kept");
+    expect(status().statusline).toBe("other");
+    install();
+    uninstall();
+    expect(read().statusLine.command).toBe("~/.claude/statusline.sh");
+    delete s.statusLine;
+    writeFileSync(settings, JSON.stringify(s));
   });
 });
 

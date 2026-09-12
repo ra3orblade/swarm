@@ -145,6 +145,8 @@ import {
   ruleEffect,
   type SessionView,
   type Stall,
+  type StatuslinePayload,
+  type StatuslineState,
   type SwarmConfig,
   type SwarmEvent,
   scoreTrial,
@@ -1443,6 +1445,55 @@ export class Store {
     );
     if (open && !base?.includes(open)) parts.push(open);
     return { text: parts.length ? parts.join("\n") : null, parts };
+  }
+
+  // ---------- statusline (M12.2)
+  /** The last statusLine payload each live session sent, for views that want context % or the
+   *  plan windows without waiting for a transcript turn. In memory: it arrives after every
+   *  assistant message and is not worth a row. */
+  private readonly statuslines = new Map<string, { at: number; payload: StatuslinePayload }>();
+
+  /**
+   * What the statusline shows beside Claude Code's own fields: the task whose worktree holds the
+   * session's cwd and its lease, the project's budget standing, open incidents, and whether the
+   * session is waiting on a person or has an inbox. Cheap by design — it runs after every
+   * assistant message on every session.
+   */
+  statuslineFor(payload: StatuslinePayload): StatuslineState {
+    const sessionId = typeof payload.session_id === "string" ? payload.session_id : null;
+    const cwd =
+      typeof payload.cwd === "string" ? payload.cwd : (payload.workspace?.current_dir ?? "");
+    if (sessionId) this.statuslines.set(sessionId, { at: Date.now(), payload });
+    const held = cwd ? this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree)) : null;
+    const project = held
+      ? this.project(held.projectId)
+      : cwd && existsSync(cwd)
+        ? this.resolveProject(cwd)
+        : null;
+    const budget = project ? this.budgetFor(project.id) : null;
+    return {
+      task: held
+        ? {
+            id: held.task,
+            leftMin: Math.max(
+              0,
+              Math.round((new Date(held.expiresAt).getTime() - Date.now()) / 60_000),
+            ),
+          }
+        : null,
+      budget:
+        budget?.status.limit != null
+          ? { level: budget.status.level, pct: budget.status.pct }
+          : null,
+      incidents: project ? this.openIncidents(project.id) : 0,
+      waitingOn: sessionId ? this.questions({ sessionId, open: true }).length : 0,
+      inbox: sessionId ? this.inbox(sessionId, { peek: true }).length : 0,
+    };
+  }
+
+  /** The last statusline payload a session sent, if any. */
+  lastStatusline(sessionId: string): { at: number; payload: StatuslinePayload } | null {
+    return this.statuslines.get(sessionId) ?? null;
   }
 
   // ---------- gates (M2.2): latest run wins, fails are never deleted, rubric required

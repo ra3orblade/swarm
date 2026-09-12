@@ -43,6 +43,20 @@ Prefer a native window with a tray icon and auto-updates? Use the [desktop app](
 
 Hooks are installed at the Claude Code user level, so every session on the machine reports in — any folder, any repo. Sessions that were already running need a restart before they appear.
 
+### A status line, optionally
+
+```sh
+swarm install --statusline
+```
+
+adds one thing more: Claude Code's `statusLine` becomes `swarm statusline`, and the footer of every session shows the model, context used, session cost and (for Pro / Max plans) the 5-hour and 7-day windows, then a bar, then what only Swarm knows — the task whose worktree you are in and its lease, the budget when it is not fine, open incidents, and whether a question of yours is waiting for an answer:
+
+```
+Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you
+```
+
+It is opt-in because a custom status line replaces Claude Code's footer hints. If you already have a status line it is left alone (doctor tells you), and `swarm uninstall` removes exactly ours. Like the hooks it has a 400 ms budget, falls back to the left half when the daemon is down, and never starts it.
+
 ## First look
 
 Start `claude` in any folder. Within a few seconds it shows up in the **Fleet** view with its project, model, current tool call, token counts and cost. Click a row to open the session and watch its reasoning and tool calls stream live.
