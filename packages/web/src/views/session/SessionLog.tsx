@@ -11,7 +11,9 @@
  */
 import type { SwarmEvent } from "@swarm/core/types";
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { Markdown } from "../../components/Markdown";
 import { hhmm, tokens } from "../../lib/format";
+import { plain } from "../../lib/markdown";
 import type { Turn } from "./types";
 
 /** Short labels for a narrow column; a dotted event type falls back to its last segment. */
@@ -54,6 +56,8 @@ interface Row {
   kind: string;
   text: string;
   className: string;
+  /** What the agent said is markdown; a hook's summary is a line of plain text. */
+  markdown?: true;
   output?: number;
   cost?: number | null;
 }
@@ -65,13 +69,29 @@ const isResultHalf = (event: SwarmEvent): boolean =>
 /** A turn with no text is bookkeeping — its tokens and cost are already in the sidebar. */
 const isSilent = (turn: Turn): boolean => !turn.text;
 
+/**
+ * Events whose summary is prose someone wrote — a prompt, a question, an answer, a message.
+ *
+ * Their marks come off rather than being rendered: a summary is one clipped line, and half a
+ * `**bold**` that the 120-character cut ran through is worse rendered than stripped. Every other
+ * summary is a command or a tool call, where a backtick is part of the text and must survive.
+ */
+const PROSE = new Set([
+  "prompt.submitted",
+  "question.asked",
+  "question.answered",
+  "message.sent",
+  "message.delivered",
+]);
+
 function eventRow(event: SwarmEvent): Row {
   const payload = event.payload as { hook?: string; summary?: string } | undefined;
+  const summary = payload?.summary ?? "";
   return {
     key: `e${event.seq}`,
     ts: event.ts,
     kind: payload?.hook ?? event.type,
-    text: payload?.summary ?? "",
+    text: PROSE.has(event.type) ? plain(summary) : summary,
     className: event.type,
   };
 }
@@ -83,6 +103,7 @@ function turnRow(turn: Turn): Row {
     kind: turn.sidechain ? "subagent" : "assistant",
     text: turn.text ?? "",
     className: "assistant",
+    markdown: true,
     output: turn.output,
     cost: turn.costUsd,
   };
@@ -143,8 +164,10 @@ export function SessionLog({ events, turns }: SessionLogProps) {
           <span className="k" title={row.kind}>
             {label(row.kind)}
           </span>
-          <span className="m">
-            {row.text}
+          {/* A div, not a span: a rendered message is paragraphs and lists, which a span
+              cannot legally hold. The grid cell behaves the same either way. */}
+          <div className="m">
+            {row.markdown ? <Markdown text={row.text} /> : row.text}
             {row.output ? (
               <span className="dim">
                 {" "}
@@ -152,7 +175,7 @@ export function SessionLog({ events, turns }: SessionLogProps) {
                 {row.cost != null && ` · $${row.cost.toFixed(3)}`}
               </span>
             ) : null}
-          </span>
+          </div>
         </div>
       ))}
     </div>

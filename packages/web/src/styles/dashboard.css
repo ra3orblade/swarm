@@ -912,6 +912,20 @@ button.pk-row {
 .wn b {
   color: var(--fg);
 }
+/* The release notes are rendered by the shared `.md` renderer, but they are a page-sized read,
+     not a log row: the section heading keeps its accent, and the bullets keep their air. */
+.wn .md h4 {
+  margin: 14px 0 4px;
+  font: 600 var(--fs-md) var(--sans);
+  color: var(--acc);
+}
+.wn .md > *:first-child {
+  margin-top: 0;
+}
+.wn .md li {
+  margin: 5px 0;
+  line-height: 1.55;
+}
 .wn .snip {
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -1811,6 +1825,100 @@ main:has(> .sess) > h2.hrow {
 .ev.prompt\.submitted .m {
   color: var(--fg);
   font-weight: 500;
+}
+
+/* Rendered markdown (M11.14): what `components/Markdown.tsx` builds.
+
+     Tight on purpose. A message is one row of a log, not a document, so blocks are separated by
+     6px, the first has no space above it and the last none below. `.ev .m` sets `pre-wrap` for the
+     plain one-line summaries; inside `.md` the parser has already decided where the lines break,
+     so normal wrapping comes back. */
+.md {
+  white-space: normal;
+}
+.md > * {
+  margin: 0 0 6px;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md h4,
+.md h5 {
+  color: var(--fg);
+  font-size: var(--fs-menu);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.md h5 {
+  font-size: var(--fs-md);
+  color: var(--fg-2);
+}
+.md > h4:not(:first-child),
+.md > h5:not(:first-child) {
+  margin-top: 10px;
+}
+.md ul,
+.md ol {
+  padding-left: 18px;
+}
+.md li {
+  margin: 2px 0;
+}
+.md li.md-in1 {
+  margin-left: 14px;
+}
+.md li.md-in2 {
+  margin-left: 28px;
+}
+.md li.md-in3 {
+  margin-left: 42px;
+}
+.md li::marker {
+  color: var(--faint);
+}
+.md pre.md-code {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  /* A model can emit a very long file; the block scrolls rather than owning the page. */
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre;
+  font: var(--fs-mono) / 1.55 var(--mono);
+  color: var(--fg-2);
+}
+.md blockquote {
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  color: var(--dim);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.md del {
+  color: var(--dim);
+}
+.md table.md-table {
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.md .md-table th,
+.md .md-table td {
+  border-bottom: 1px solid var(--line-2);
+  padding: 4px 10px 4px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.md .md-table th {
+  color: var(--dim);
+  font-weight: 500;
+}
+/* The token/cost tail sits after the message, so it gets its own line under it. */
+.ev .m > .dim {
+  display: block;
+  margin-top: 4px;
 }
 
 .side {
