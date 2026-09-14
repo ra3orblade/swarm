@@ -1,20 +1,22 @@
 /**
  * Release notes (M11.13).
  *
- * `tools/build.ts` renders `CHANGELOG.md` into `public/release-notes.js`, which assigns
+ * `tools/build.ts` splits `CHANGELOG.md` into `public/release-notes.js`, which assigns
  * `window.RELEASE_NOTES`. It is a plain script rather than an import because the notes change with
  * every release and bundling them would rebuild the whole dashboard to fix a typo in a changelog.
+ *
+ * What it carries is markdown, rendered by the dashboard's own renderer when the panel opens.
  */
 export interface ReleaseNote {
   version: string;
   date?: string;
-  /** Pre-rendered by tools/build.ts from our own CHANGELOG.md — not user input. */
-  html: string;
+  /** One version's entry, as markdown, straight out of our own CHANGELOG.md. */
+  md: string;
 }
 
 declare global {
   interface Window {
-    RELEASE_NOTES?: Record<string, { date?: string; html: string }>;
+    RELEASE_NOTES?: Record<string, { date?: string; md: string }>;
     /** Called by the desktop app's Help menu. */
     swarmWhatsNew?: ((version?: string) => void) | undefined;
   }

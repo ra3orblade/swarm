@@ -21,6 +21,7 @@ import { Absent, Badge, Empty, Section } from "../components/ui";
 import { agentColor, agentName, agentSort } from "../lib/agents";
 import { ago, modelName, sumBy, tokens, usd } from "../lib/format";
 import { icon } from "../lib/icon";
+import { firstLine as mdLine } from "../lib/markdown";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
 
@@ -267,9 +268,14 @@ export function Fleet() {
   );
 }
 
-/** What the session is doing right now, or its last words once it has ended. */
+/**
+ * What the session is doing right now, or its last words once it has ended.
+ *
+ * One line in a narrow cell, so the markdown comes off rather than being rendered: "**Done.**" in
+ * a table cell is noise, and a fenced block would be a cell full of backticks.
+ */
 function Now({ session }: { session: SessionView }) {
-  const firstLine = session.lastText?.split("\n").find((l) => l.trim()) ?? "";
+  const firstLine = session.lastText ? mdLine(session.lastText) : "";
   if (session.state === "ended") {
     return firstLine ? (
       <span className="now dim" title={firstLine}>
