@@ -22,6 +22,7 @@ describe("planDispatch", () => {
     t("D", { status: "done", ready: false }),
     t("E", { ready: false }),
     t("F", { status: "active", ready: false }),
+    t("G", { status: "dropped", ready: false }),
   ];
   test("ready: fills slots, queues the rest", () => {
     const p = planDispatch(tasks, "ready", { maxParallel: 2, running: 1 });
@@ -30,7 +31,7 @@ describe("planDispatch", () => {
     expect(p.rejected).toEqual([]);
   });
   test("explicit ids: every refusal has a reason", () => {
-    const p = planDispatch(tasks, ["A", "C", "D", "E", "F", "Z", "A"], {
+    const p = planDispatch(tasks, ["A", "C", "D", "E", "F", "G", "Z", "A"], {
       maxParallel: 4,
       running: 0,
     });
@@ -40,6 +41,8 @@ describe("planDispatch", () => {
       { id: "D", reason: "already done" },
       { id: "E", reason: "blocked by dependencies" },
       { id: "F", reason: "in progress" },
+      // Not "blocked by dependencies": a dropped task is never going to be unblocked.
+      { id: "G", reason: "dropped" },
       { id: "Z", reason: "not in the task source" },
       { id: "A", reason: "listed twice" },
     ]);

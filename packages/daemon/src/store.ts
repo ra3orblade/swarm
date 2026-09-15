@@ -290,6 +290,19 @@ CREATE TABLE IF NOT EXISTS claims (
 `;
 
 const IDLE_MS = 10 * 60_000;
+/**
+ * How long a session may go without a single hook before it is presumed dead (M13 follow-up).
+ *
+ * A Claude Code session's row only reaches `ended` when a SessionEnd hook arrives, so a closed
+ * terminal, a crash, a reboot or a laptop that slept leaves it non-ended for ever — `idle` is
+ * only a display label and has no upper bound. Sessions last seen days ago were still being
+ * listed as live, and `leadSession` would route messages to them.
+ *
+ * Six hours is deliberately generous: a real session can sit untouched over a lunch, a meeting
+ * or a night, and ending one that is merely quiet is the worse error. The transcript-backed
+ * adapters do not need this — they already derive `ended` from file mtime.
+ */
+const SESSION_STALE_MS = 6 * 60 * 60_000;
 
 export type TaskBoardRow = TaskView & {
   gates: Array<{ gate: string; verdict: "pass" | "fail" | null; fails: number; runs: number }>;
@@ -1413,13 +1426,21 @@ export class Store {
       .run(new Date().toISOString(), sessionId, id);
   }
 
-  /** Latest live interactive session in a project — the "lead". */
+  /**
+   * Latest live interactive session in a project — the "lead".
+   *
+   * Bounded by the stale window as well as by `state`: before the sweep below existed, a session
+   * that died without a SessionEnd stayed non-ended for ever and could win this ORDER BY, so
+   * messages addressed to the project went to a session that was long gone.
+   */
   private leadSession(projectId: string): string | null {
     const r = this.db
       .query(
-        "SELECT id FROM sessions WHERE project_id = ? AND kind = 'interactive' AND state != 'ended' ORDER BY last_seen_at DESC LIMIT 1",
+        "SELECT id FROM sessions WHERE project_id = ? AND kind = 'interactive' AND state != 'ended' AND last_seen_at > ? ORDER BY last_seen_at DESC LIMIT 1",
       )
-      .get(projectId) as { id: string } | null;
+      .get(projectId, new Date(Date.now() - SESSION_STALE_MS).toISOString()) as {
+      id: string;
+    } | null;
     return r?.id ?? null;
   }
   private sessionByPrefix(prefix: string): string | null {
@@ -1434,9 +1455,12 @@ export class Store {
     if (!claim?.worktree) return null;
     const rows = this.db
       .query(
-        "SELECT id, cwd FROM sessions WHERE project_id = ? AND state != 'ended' ORDER BY last_seen_at DESC",
+        "SELECT id, cwd FROM sessions WHERE project_id = ? AND state != 'ended' AND last_seen_at > ? ORDER BY last_seen_at DESC",
       )
-      .all(projectId) as Array<{ id: string; cwd: string }>;
+      .all(projectId, new Date(Date.now() - SESSION_STALE_MS).toISOString()) as Array<{
+      id: string;
+      cwd: string;
+    }>;
     return rows.find((r) => isInside(r.cwd, claim.worktree))?.id ?? null;
   }
 
@@ -5660,6 +5684,54 @@ export class Store {
     const after = JSON.stringify([...this.stalls].map(([id, v]) => [id, v.kind, v.reason]));
     if (after !== before) this.touch();
     return flagged;
+  }
+
+  /**
+   * End sessions that stopped reporting. Runs on boot and once a minute, like `sweepOrphans`.
+   *
+   * `ended_at` is the last time the session was actually heard from, not the moment the sweep
+   * noticed — the session ended somewhere around then, and stamping "now" would put a fake tail
+   * on every timeline.
+   *
+   * Every agent, not just the hook-driven ones: `ingestLog` gives up on a log it can no longer
+   * read, so a rotated or deleted transcript strands a Codex / Grok / Gemini row non-ended in
+   * exactly the same way. There is no race with the tailers — a session they are still reading
+   * has its `last_seen_at` moved forward on every poll, so it cannot be this far behind.
+   */
+  sweepStaleSessions(): number {
+    const cutoff = new Date(Date.now() - SESSION_STALE_MS).toISOString();
+    const rows = this.db
+      .query(
+        "SELECT id, project_id, last_seen_at, ended_at FROM sessions WHERE state != 'ended' AND last_seen_at <= ?",
+      )
+      .all(cutoff) as Array<{
+      id: string;
+      project_id: string;
+      last_seen_at: string;
+      ended_at: string | null;
+    }>;
+    if (!rows.length) return 0;
+    for (const r of rows) {
+      // The append has to come first. `session.ended` is one of the types that writes back to the
+      // sessions row, and it stamps `ended_at` with the event's own `ts` — so appending after the
+      // UPDATE would immediately replace the honest timestamp with the moment the sweep ran.
+      this.append({
+        ts: new Date().toISOString(),
+        type: "session.ended",
+        projectId: r.project_id,
+        sessionId: r.id,
+        payload: {
+          reason: "stale",
+          lastSeenAt: r.last_seen_at,
+          summary: `session ended (no hooks since ${r.last_seen_at})`,
+        },
+      });
+      this.db
+        .query("UPDATE sessions SET state = 'ended', ended_at = ? WHERE id = ?")
+        .run(r.ended_at ?? r.last_seen_at, r.id);
+    }
+    this.touch();
+    return rows.length;
   }
 
   sweepOrphans(): number {

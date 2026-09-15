@@ -680,6 +680,38 @@ describe("auto-renew + orphan detection (M1.2)", () => {
     store.release(p.id, "dirty-task", true);
     store.release(p.id, "clean-task", true);
   });
+  it("sweepStaleSessions ends sessions that stopped reporting, and leaves recent ones alone", async () => {
+    // A Claude Code session only reaches 'ended' on a SessionEnd hook, so a closed terminal, a
+    // crash or a reboot used to leave the row non-ended for ever — sessions last seen days ago
+    // were still listed as live, and leadSession would route messages to them.
+    const { app, store } = createApp(new Store(tmpHome()));
+    const repo = tmpRepo();
+    const hook = (session: string) =>
+      app.request("/v1/hook/PreToolUse", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          session_id: session,
+          cwd: repo,
+          tool_name: "Read",
+          tool_input: {},
+        }),
+      });
+    await hook("s_zombie");
+    await hook("s_live");
+
+    // Age one of them past the threshold; the other stays where it is.
+    const long = new Date(Date.now() - 20 * 60 * 60_000).toISOString();
+    store.db.query("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(long, "s_zombie");
+
+    expect(store.sweepStaleSessions()).toBe(1);
+    const by = Object.fromEntries(store.sessions().map((x) => [x.id, x]));
+    expect(by.s_zombie?.state).toBe("ended");
+    // ended_at is when it was last heard from, not when the sweep happened to notice.
+    expect(by.s_zombie?.endedAt).toBe(long);
+    expect(by.s_live?.state).not.toBe("ended");
+    expect(store.sweepStaleSessions()).toBe(0); // idempotent
+  });
 });
 
 describe("permission broker (M3.2)", () => {

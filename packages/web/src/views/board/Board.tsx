@@ -10,7 +10,7 @@
  * because a board of empty tables says less than a board of the three things actually happening.
  */
 
-import type { TaskView } from "@swarm/core/tasks";
+import { isResolved, type TaskView } from "@swarm/core/tasks";
 import { useCallback, useMemo, useState } from "react";
 import { query } from "../../api/client";
 import { useResource } from "../../api/useResource";
@@ -95,7 +95,7 @@ export function Board() {
           taskSet?.source
             ? {
                 ready: tasks.filter((t) => t.ready).length,
-                open: tasks.filter((t) => t.status !== "done").length,
+                open: tasks.filter((t) => !isResolved(t)).length,
               }
             : null
         }
