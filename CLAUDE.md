@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository.
 
 **Swarm** — an open-source (Apache-2.0), local-first control plane for AI-agent development on *any* repository. One daemon watches every Claude Code session on the machine (via hooks, stream-json, and MCP), keeps a ledger of task claims, worktrees, runtime resources and verification gates, enforces rules as hook denials instead of prose, and streams everything to a dashboard. It is repo-agnostic: it must never require files inside a monitored repository; state lives in `~/.swarm/`.
 
-Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing surface (dashboard, CLI, MCP tools) is specified in `docs/08-interface.md`. Nothing is built from a doc still marked `draft` without flagging it. Open questions are `OQ-N` in `docs/07-open-questions.md`; decisions are recorded there as `> **Decision:**`, never inline in chat only. Task IDs in `docs/06-roadmap.md` are immutable; flip status the same turn work lands.
+Docs-first: start at [`docs/00-index.md`](docs/00-index.md); the user-facing surface (dashboard, CLI, MCP tools, and the in-session surface Claude Code renders — status line, permission cards, rewrites, wake) is specified in `docs/08-interface.md`. Nothing is built from a doc still marked `draft` without flagging it. Open questions are `OQ-N` in `docs/07-open-questions.md`; decisions are recorded there as `> **Decision:**`, never inline in chat only. Task IDs in `docs/06-roadmap.md` are immutable; flip status the same turn work lands.
 
 ## Status
 

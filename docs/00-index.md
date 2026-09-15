@@ -11,7 +11,7 @@ Status: living. Design docs plus the shipped surface; each doc carries its own s
 | 05 | [repo-layout](05-repo-layout.md) | Monorepo packages and their boundaries |
 | 06 | [roadmap](06-roadmap.md) | Milestones, each ending in something usable on real projects |
 | 07 | [open-questions](07-open-questions.md) | `OQ-N` — resolve here, never inline |
-| 08 | [interface](08-interface.md) | Dashboard views (wireframes), CLI surface, MCP tools |
+| 08 | [interface](08-interface.md) | The four surfaces: dashboard views, CLI, MCP tools, and what Claude Code shows in-session (status line, permission cards, rewrites, wake) |
 | 09 | [features](09-features.md) | Feature catalog: available, in progress, planned |
 | 10 | [development-guidelines](10-development-guidelines.md) | Invariants, boundaries, definition of done, discipline |
 | 11 | [desktop-signing](11-desktop-signing.md) | Signing, notarization & autoupdate (reusing Apple creds) |
