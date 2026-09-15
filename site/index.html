@@ -146,6 +146,63 @@
   .brands b{font-weight:500;font-size:13px;color:var(--fg-2);background:var(--panel);
     border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 12px}
 
+  /* ── the replay: a Claude Code session with Swarm in it ──────────────────────
+     Screenshots show the dashboard, which is the half of Swarm you look at. This is the
+     half that looks back — a hook answering a tool call in the session's own transcript.
+     Typed out rather than recorded because the text has to stay legible at phone width and
+     stay true when the rule texts change: every line below is the string `core/src/rules.ts`
+     actually returns. */
+  .demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:start}
+  @media (max-width:860px){.demo{grid-template-columns:minmax(0,1fr)}}
+  .term{background:#0a0c10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line-2);background:var(--panel)}
+  .term .bar i{width:10px;height:10px;border-radius:50%;background:#2c313b;display:block}
+  .term .bar b{font:500 12px/1 var(--mono);color:var(--dim);margin-left:4px;letter-spacing:.02em}
+  .term .body{font:13px/1.65 var(--mono);padding:14px 14px 12px;min-height:326px;white-space:pre-wrap;word-break:break-word}
+  @media (max-width:640px){.term .body{font-size:12px;min-height:300px}}
+  .term .ln{display:block}
+  .term .ln.u{color:var(--fg)}
+  .term .ln.u em{color:var(--acc);font-style:normal}
+  .term .ln.t{color:var(--fg-2);margin-top:7px}
+  .term .ln.t b{color:var(--fg);font-weight:500}
+  .term .ln.ok{color:#7fb069}
+  .term .ln.sw{color:var(--fg-2);border-left:2px solid var(--acc);padding:5px 0 5px 10px;margin:6px 0 2px;background:var(--acc-soft);border-radius:0 var(--r-sm) var(--r-sm) 0}
+  .term .ln.sw b{color:var(--acc);font-weight:600}
+  .term .ln.sw.deny{border-left-color:#e0563f;background:rgba(224,86,63,.10)}
+  .term .ln.sw.deny b{color:#e0563f}
+  .term .cur{display:inline-block;width:7px;height:14px;background:var(--acc);vertical-align:-2px;animation:bl 1s steps(2) infinite}
+  @keyframes bl{50%{opacity:0}}
+  /* The status line is the footer Claude Code draws, so it sits under the terminal, not in it. */
+  .term .sl{display:flex;flex-wrap:wrap;gap:0 7px;font:12px/1 var(--mono);color:var(--dim);padding:9px 12px;border-top:1px solid var(--line-2);background:var(--panel)}
+  .term .sl s{text-decoration:none;color:var(--faint)}
+  .term .sl u{text-decoration:none;color:var(--fg-2)}
+  .term .sl mark{background:none;color:var(--acc)}
+  .term .sl mark.warn{color:#e0a53f}
+  .demo .side{display:grid;gap:10px}
+  .demo .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 13px;transition:opacity .25s,border-color .25s}
+  /* Dimming only exists while the replay runs. Default-dim meant anyone who never scrolled it
+     into view, or who has JS off, saw four washed-out cards for no stated reason. */
+  .demo .side.running .step{opacity:.42}
+  .demo .side.running .step.on{opacity:1;border-color:var(--acc)}
+  .demo .step b{display:block;font-size:13.5px;margin-bottom:3px}
+  .demo .step span{display:block;font-size:12.5px;color:var(--dim);line-height:1.45}
+  .demo .step code{font:12px/1 var(--mono);color:var(--fg-2)}
+  .demo .col{display:grid;gap:11px;justify-items:start;min-width:0}
+  .demo .col .term{width:100%}
+  .demo .replay{justify-self:start;font:500 12px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:9px 15px;cursor:pointer}
+  .demo .replay:hover{color:var(--fg);border-color:var(--acc)}
+  /* The clips. One <video> and three tabs rather than three autoplaying at once: the page
+     already runs a canvas, and three simultaneous decodes on a phone is how a landing page
+     ends up janky. Recorded from `swarm demo` by tools/reel.ts — invented projects, real app. */
+  /* <figure> carries the UA's 40px side margin, which indents it out of line with the terminal. */
+  .reel{margin:22px 0 0}
+  .reel .tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+  .reel .tabs button{font:500 12.5px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 14px;cursor:pointer}
+  .reel .tabs button:hover{color:var(--fg)}
+  .reel .tabs button[aria-selected=true]{color:var(--acc-contrast);background:var(--acc);border-color:var(--acc)}
+  .reel .frame{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+  .reel video{display:block;width:100%;height:auto;background:#0c0e12}
+  .reel figcaption{font-size:13px;color:var(--dim);padding:10px 13px;border-top:1px solid var(--line-2)}
   .chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
   @media (max-width:640px){.chips{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .chips .chip{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;text-align:center}
@@ -225,6 +282,43 @@
       <div class="dots"><i data-i="0" class="on"></i><i data-i="1" class=""></i><i data-i="2" class=""></i><i data-i="3" class=""></i><i data-i="4" class=""></i><i data-i="5" class=""></i><i data-i="6" class=""></i><i data-i="7" class=""></i></div>
     </div>
   </div>
+
+  <section id="how">
+    <div class="grp">
+      <h2>How it works</h2>
+      <p>Everything above is the dashboard — the half of Swarm you look at. This is the half that looks back: the same rules, answering a tool call inside the session's own transcript, before it runs.</p>
+    </div>
+    <div class="demo">
+      <div class="col">
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i><b>claude — acme-app</b></div>
+        <div class="body" id="termBody" role="img" aria-label="A Claude Code session in which Swarm refuses a sweeping git add, rewrites a commit that skipped hooks, and reports the task and lease in the status line."></div>
+        <div class="sl" id="termSl" aria-hidden="true"></div>
+      </div>
+      <button type="button" class="replay" id="termReplay" hidden>↻ replay</button>
+      </div>
+      <div class="side">
+        <div class="step" data-s="0"><b>It watches the call</b><span>Every tool call passes the <code>PreToolUse</code> hook first. No wrapper, no proxy — the hook Claude Code already fires.</span></div>
+        <div class="step" data-s="1"><b>It refuses the sweep</b><span>Another session is live in this checkout, so <code>git add -A</code> would take its uncommitted work. The rule says so and names the session.</span></div>
+        <div class="step" data-s="2"><b>It fixes what it can</b><span>Dropping <code>--no-verify</code> doesn't need a refusal — the call runs, with the flag removed and a line saying why.</span></div>
+        <div class="step" data-s="3"><b>It reports back</b><span>The footer carries what only Swarm knows: the task you hold, the lease left on it, and anything the rules opened.</span></div>
+      </div>
+    </div>
+    <figure class="reel" id="reel">
+      <div class="tabs" role="tablist" aria-label="Dashboard clips">
+        <button type="button" role="tab" aria-selected="true" data-r="fleet">Fleet</button>
+        <button type="button" role="tab" aria-selected="false" data-r="board">Board</button>
+        <button type="button" role="tab" aria-selected="false" data-r="incidents">Incidents</button>
+      </div>
+      <div class="frame">
+        <video id="reelV" muted loop playsinline preload="none" poster="/reel/fleet.jpg" aria-label="The Swarm dashboard, recorded from its built-in demo">
+          <source src="/reel/fleet.webm" type="video/webm">
+          <source src="/reel/fleet.mp4" type="video/mp4">
+        </video>
+        <figcaption id="reelC">Every agent session on the machine, live — across every repository.</figcaption>
+      </div>
+    </figure>
+  </section>
 
   <section id="why">
     <div class="chips">
@@ -566,6 +660,141 @@ daily = 25                   <span class="c"># USD; warn | ask | stop</span></pr
   document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
   let t = 0;
   addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { stop(); start(); }, 150); });
+})();
+</script>
+<script>
+// The replay. Every Swarm line here is the string core/src/rules.ts actually returns — shortened
+// only where a sentence ran past the frame, never reworded. If a rule's text changes, this is a
+// second copy of it, so it changes here too.
+(() => {
+  const body = document.getElementById("termBody");
+  const sl = document.getElementById("termSl");
+  const replay = document.getElementById("termReplay");
+  if (!body) return;
+  const steps = [...document.querySelectorAll(".demo .step")];
+  const calm = matchMedia("(prefers-reduced-motion: reduce)");
+
+  // type: characters typed one by one · line: appears whole after a beat · sl: the footer
+  const SCRIPT = [
+    { s: 0, type: "u", text: "&gt; <em>tidy up and commit the parser fix</em>", pause: 520 },
+    { s: 0, line: "t", text: "● <b>Bash</b>(git add -A &amp;&amp; git commit -m \"parser fix\")", pause: 420 },
+    { s: 1, line: "sw deny", text: "<b>⨯ swarm · shared_tree</b>\nAnother session (a41f9c2b) is active in this same checkout. `git add -A` will sweep its uncommitted changes into your commit. Stage explicit paths, or give each session its own git worktree.", pause: 1500 },
+    { s: 1, line: "t", text: "● <b>Bash</b>(git add src/parser.ts src/parser.test.ts)", pause: 380 },
+    { s: 1, line: "ok", text: "  ✓ 2 files staged", pause: 620 },
+    { s: 2, line: "t", text: "● <b>Bash</b>(git commit --no-verify -m \"fix: parser drops trailing commas\")", pause: 420 },
+    { s: 2, line: "sw", text: "<b>✎ swarm · no_verify</b>\nHooks and signing exist for a reason: `--no-verify` was dropped. If a hook is wrong, fix the hook.", pause: 1250 },
+    { s: 2, line: "ok", text: "  ✓ pre-commit passed · 1 commit on wt/parser-fix", pause: 700 },
+    { s: 3, sl: 1, pause: 900 },
+  ];
+
+  const FOOT = [
+    '<u>Opus 5</u>', '<s>·</s>', '<u>42%</u>', '<s>·</s>', '<u>$1.18</u>',
+    '<s>│</s>', '<mark>PARSER-8</mark>', '<s>·</s>', '<u>38m left</u>',
+    '<s>·</s>', '<mark class="warn">1 incident</mark>',
+  ].join(" ");
+
+  let timer = 0;
+  const wait = (ms) => new Promise((r) => { timer = setTimeout(r, calm.matches ? Math.min(ms, 220) : ms); });
+  const hold = () => clearTimeout(timer);
+  const side = document.querySelector(".demo .side");
+  const mark = (i) => { for (const [n, el] of steps.entries()) el.classList.toggle("on", n === i); };
+
+  async function typeInto(el, html) {
+    // Type the visible characters, not the markup: walk the parsed nodes and reveal text.
+    el.innerHTML = html;
+    const nodes = [];
+    const walk = (n) => { for (const c of n.childNodes) c.nodeType === 3 ? nodes.push(c) : walk(c); };
+    walk(el);
+    const full = nodes.map((n) => n.data);
+    for (const n of nodes) n.data = "";
+    for (let i = 0; i < nodes.length; i++) {
+      for (let c = 0; c <= full[i].length; c++) {
+        nodes[i].data = full[i].slice(0, c);
+        if (!calm.matches) await new Promise((r) => { timer = setTimeout(r, 16); });
+      }
+    }
+  }
+
+  let run = 0;
+  async function play() {
+    const me = ++run;
+    hold();
+    body.innerHTML = "";
+    sl.innerHTML = "";
+    replay.hidden = true;
+    side.classList.add("running");
+    mark(-1);
+    for (const step of SCRIPT) {
+      if (me !== run) return;
+      mark(step.s);
+      if (step.sl) { sl.innerHTML = FOOT; }
+      else {
+        const el = document.createElement("span");
+        el.className = `ln ${step.type || step.line}`;
+        body.append(el);
+        if (step.type) await typeInto(el, step.text);
+        else el.innerHTML = step.text;
+      }
+      await wait(step.pause);
+      if (me !== run) return;
+    }
+    const cur = document.createElement("span");
+    cur.className = "cur";
+    body.append(cur);
+    mark(-1);
+    side.classList.remove("running");
+    replay.hidden = false;
+  }
+
+  replay.addEventListener("click", play);
+  // Start when it scrolls into view, once; the rain canvas next door already owns the frame budget.
+  let started = false;
+  new IntersectionObserver(([e], io) => {
+    if (!e.isIntersecting || started) return;
+    started = true;
+    io.disconnect();
+    play();
+  }, { threshold: 0.35 }).observe(body);
+})();
+</script>
+<script>
+// The clip tabs. The videos are silent 6-9 second loops of `swarm demo` — the real dashboard with
+// invented projects in it — so they autoplay, but only while on screen and only after a tab has
+// actually been chosen or scrolled to. preload="none" keeps them off the critical path.
+(() => {
+  const v = document.getElementById("reelV");
+  const cap = document.getElementById("reelC");
+  const reel = document.getElementById("reel");
+  if (!v) return;
+  const CAPS = {
+    fleet: "Every agent session on the machine, live — across every repository.",
+    board: "One project: tasks, claims, worktrees and the ports being held.",
+    incidents: "Every ask and deny the rules made — acknowledged once you have seen it.",
+  };
+  const tabs = [...reel.querySelectorAll("[data-r]")];
+  const pick = (name) => {
+    for (const t of tabs) t.setAttribute("aria-selected", String(t.dataset.r === name));
+    v.poster = `/reel/${name}.jpg`;
+    v.innerHTML = `<source src="/reel/${name}.webm" type="video/webm"><source src="/reel/${name}.mp4" type="video/mp4">`;
+    cap.textContent = CAPS[name];
+    v.load();
+    // A rejected play() is normal (data saver, low power mode): the poster stays, nothing breaks.
+    v.play().catch(() => {});
+  };
+  for (const t of tabs) t.addEventListener("click", () => pick(t.dataset.r));
+  // Arrow keys across a tablist, as the role promises.
+  reel.querySelector(".tabs").addEventListener("keydown", (e) => {
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0 || (e.key !== "ArrowRight" && e.key !== "ArrowLeft")) return;
+    e.preventDefault();
+    const n = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    n.focus();
+    pick(n.dataset.r);
+  });
+  new IntersectionObserver(([e]) => {
+    if (e.isIntersecting) v.play().catch(() => {});
+    else v.pause();
+  }, { threshold: 0.25 }).observe(v);
 })();
 </script>
 </body>
