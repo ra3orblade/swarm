@@ -305,6 +305,17 @@ export function applyCustomRule(rule: CustomRule, cmd: string): GuardDecision | 
 }
 
 /** Evaluate a Bash command against the coordination rules. First match wins. */
+/**
+ * The two rule messages the website's replay quotes verbatim. They are exported because the
+ * landing page used to carry a hand-typed second copy of each, which drifts the moment a
+ * sentence here is edited — `tools/build-site.ts` now injects these strings instead.
+ */
+export const sharedTreeReason = (sessionId: string): string =>
+  `Another session (${sessionId.slice(0, 8)}) is active in this same checkout. \`git add -A\` / \`git commit -a\` will sweep its uncommitted changes into your commit. Stage explicit paths (\`git add <path>\`), or give each session its own git worktree.`;
+
+export const NO_VERIFY_REASON =
+  "Hooks and signing exist for a reason: `--no-verify` / `--no-gpg-sign` was dropped. If a hook is wrong, fix the hook.";
+
 export function guardBash(
   cmd: string,
   current: { id: string; toplevel: string | null },
@@ -356,10 +367,7 @@ export function guardBash(
   if (modes.shared_tree !== "off" && isBroadStage(cmd)) {
     const o = other();
     if (o) {
-      const d = hit(
-        "shared_tree",
-        `Another session (${o.id.slice(0, 8)}) is active in this same checkout. \`git add -A\` / \`git commit -a\` will sweep its uncommitted changes into your commit. Stage explicit paths (\`git add <path>\`), or give each session its own git worktree.`,
-      );
+      const d = hit("shared_tree", sharedTreeReason(o.id));
       if (d.action !== "allow") return d;
     }
   }
@@ -382,11 +390,7 @@ export function guardBash(
   // M13.5 built-in rewrites, last: they only ever make a call safer.
   const nv = rewriteNoVerify(cmd);
   if (nv) {
-    const d = fix(
-      "no_verify",
-      "Hooks and signing exist for a reason: `--no-verify` / `--no-gpg-sign` was dropped. If a hook is wrong, fix the hook.",
-      nv,
-    );
+    const d = fix("no_verify", NO_VERIFY_REASON, nv);
     if (d.action !== "allow") return d;
   }
   const dr = rewriteDryRun(cmd);

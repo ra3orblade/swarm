@@ -50,7 +50,8 @@ const blurb = meta("og:description");
 // ── the mark: the same rows every other icon is cut from ────────────────────
 const mark = artSvg(trimArt([...HEAD]), ART_PALETTE, { cell: 6, title: "Swarm" });
 
-// Design tokens copied from nowhere: these are the values in site/index.html's :root.
+// Design tokens: these are the values in site/src/site.css's :root, repeated here because this
+// card is rendered standalone by Chrome and never loads the site's stylesheet.
 const card = `<!doctype html><meta charset="utf-8">
 <style>
   @font-face { font-family: x; src: local("SF Pro Display"), local("Helvetica Neue"); }
