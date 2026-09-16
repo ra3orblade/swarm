@@ -1,7 +1,10 @@
 .vercel
 .env*
-docs/
-changelog.html
-screens/
-sitemap.xml
-robots.txt
+/docs/
+/changelog.html
+/screens/
+/sitemap.xml
+/robots.txt
+/index.html
+/site.css
+/site.js

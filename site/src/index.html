@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swarm — one dashboard for every AI coding agent on your machine</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Swarm shows every Claude Code, Codex, Gemini, Grok, Aider and opencode session running on your machine: what each one is doing, what it costs, and what it is about to break. Local-first, open source, no account.">
+<meta property="og:title" content="Swarm — see every agent, stop the collisions">
+<meta property="og:description" content="One dashboard for every AI coding agent on your machine: what they are doing, what they cost, and what they are about to break. No account, no telemetry.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://getswarm.vercel.app/">
+<meta property="og:image" content="https://getswarm.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Swarm — see every agent, stop the collisions">
+<meta name="twitter:description" content="One dashboard for every AI coding agent on your machine: what they are doing, what they cost, and what they are about to break.">
+<meta name="twitter:image" content="https://getswarm.vercel.app/og.png">
+<meta name="google-site-verification" content="uU32AJFjQBkHR9pOl_a3olAgDNoMRF3CMn6rJ8hQiIg">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<!-- Every icon used more than once lives here once. Pixelarticons, same set as the app. -->
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M7 19H5V17H7V19ZM19 19H17V17H19V19ZM9 15V17H7V15H9ZM17 17H15V15H17V17ZM11 15H9V13H11V15ZM15 15H13V13H15V15ZM13 13H11V11H13V13ZM11 11H9V9H11V11ZM15 11H13V9H15V11ZM9 9H7V7H9V9ZM17 9H15V7H17V9ZM7 7H5V5H7V7ZM19 7H17V5H19V7Z"/></symbol>
+  <symbol id="i-observe" viewBox="0 0 24 24"><path d="M22 22H4v-2h18v2ZM4 20H2V2h2v18Zm4-6H6v-2h2v2Zm8 0h-2v-2h2v2Zm-6-2H8v-2h2v2Zm4 0h-2v-2h2v2Zm4 0h-2v-2h2v2Zm-6-2h-2V8h2v2Zm8 0h-2V8h2v2Zm2-2h-2V6h2v2Z"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></symbol>
+  <symbol id="i-guard" viewBox="0 0 24 24"><path d="M4 2h16v2H4zM2 4h2v10H2zm18 0h2v10h-2zM4 14h2v2H4zm2 2h2v2H6zm4 4h4v2h-4zm10-6h-2v2h2zm-2 2h-2v2h2zm-2 2h-2v2h2zm-6 0H8v2h2z"/></symbol>
+  <symbol id="i-mac" viewBox="0 0 24 24"><path d="M11 8h3v2h-3zm3-2h4v2h-4zm4 2h2v3h-2zm-2 3h2v4h-2zm2 4h2v5h-2zm-4 5h4v2h-4zm-3-2h3v2h-3zm-4 2h4v2H7zm-2-2h2v2H5zm-2-8h2v8H3zm2-2h2v2H5zm2-2h4v2H7zm5-3h2v2h-2zm2-2h2v2h-2z"/></symbol>
+  <symbol id="i-win" viewBox="0 0 24 24"><path d="M4 3h16v2H4zm0 16h16v2H4zM2 5h2v14H2zm18 0h2v14h-2zM4 7h16v2H4zm8-2h2v2h-2zm4 0h2v2h-2z"/></symbol>
+  <symbol id="i-linux" viewBox="0 0 24 24"><path d="M15 22H9v-2h6v2Zm-6-2H7v-2h2v2Zm8 0h-2v-2h2v2ZM3 14h4v4H5v-2H1v-4h2v2Zm20 2h-4v2h-2v-4h4v-2h2v4Zm-10-3h-2v-2H9V9h6v2h-2v2Zm-8-1H3v-2h2v2Zm16 0h-2v-2h2v2ZM7 10H5V8h2v2Zm12 0h-2V8h2v2ZM9 8H7V4h2v4Zm8 0h-2V4h2v4Zm-2-4H9V2h6v2Z"/></symbol>
+  <symbol id="i-cli" viewBox="0 0 24 24"><path d="M4 2h16v2H4zm0 18h16v2H4zM2 4h2v16H2zm18 0h2v16h-2zM6 16h2v2H6zm2-2h2v2H8zm-2-2h2v2H6z"/></symbol>
+</defs></svg>
+
+<div class="wrap">
+  <header>
+    <img class="mark" src="/mark.png" width="24" height="24" alt="Swarm" decoding="async">
+    <b>Swarm</b>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#what">What you get</a>
+      <a href="/docs/">Docs</a>
+      <a href="/changelog">Changelog</a>
+      <a href="https://github.com/ra3orblade/swarm">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div class="sky" aria-hidden="true"><canvas id="rain"></canvas></div><img class="mark" src="/head.png" width="282" height="222" alt="Swarm" fetchpriority="high" decoding="async">
+    <h1>See every agent. Stop the collisions.</h1>
+    <p class="tag">One dashboard for every AI coding agent on your machine — what each one is doing, what it costs, and what it is about to break.</p>
+
+    <button type="button" class="install" id="cli" title="Copy to clipboard">
+      <span class="p">$</span><span class="cmd">{{INSTALL}}</span><span class="copy" aria-hidden="true">Copy</span>
+    </button>
+    <p class="sub">Takes about a minute. Free, open source, no account — and nothing is added to your repositories.</p>
+
+    <div class="cta">
+      <a class="btn" id="dlMain" href="#downloads">Download the app</a>
+      <a class="btn ghost" href="https://github.com/ra3orblade/swarm">View on GitHub</a>
+    </div>
+    <div class="ver" id="ver">&nbsp;</div>
+
+    <div class="brands"><em>Watches</em><b>Claude Code</b><b>Codex CLI</b><b>Gemini CLI</b><b>Grok</b><b>Aider</b><b>opencode</b></div>
+
+    <div class="gal" id="gal">
+      <button type="button" class="arr l" data-dir="-1" aria-label="Previous"><svg aria-hidden="true"><use href="#i-prev"/></svg></button>
+      <div class="track">
+      <figure data-i="0"><img src="/screens/thumbs/fleet.png" data-full="/screens/fleet.png" width="1512" height="860" alt="Fleet view" loading="eager"><figcaption><b>Fleet.</b> Every session on the machine, live — and a <b>Stuck</b> badge when one starts looping.</figcaption></figure>
+      <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> What the agent was thinking, next to what the turn cost.</figcaption></figure>
+      <figure data-i="2"><img src="/screens/thumbs/board.png" data-full="/screens/board.png" width="1512" height="860" alt="Board view" loading="lazy"><figcaption><b>Board.</b> A kanban of your tasks: who holds which, and whether its checks passed.</figcaption></figure>
+      <figure data-i="3"><img src="/screens/thumbs/outcomes.png" data-full="/screens/outcomes.png" width="1512" height="860" alt="Outcomes view" loading="lazy"><figcaption><b>Outcomes.</b> Which model actually ships work that survives review.</figcaption></figure>
+      <figure data-i="4"><img src="/screens/thumbs/incidents.png" data-full="/screens/incidents.png" width="1512" height="860" alt="Incidents view" loading="lazy"><figcaption><b>Incidents.</b> Everything Swarm stopped, with the command that tried it.</figcaption></figure>
+      <figure data-i="5"><img src="/screens/thumbs/timeline.png" data-full="/screens/timeline.png" width="1512" height="860" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Who worked on what, when — a lane per session.</figcaption></figure>
+      <figure data-i="6"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> What today cost, by agent, model and project — while it is still today.</figcaption></figure>
+      <figure data-i="7"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend, streaks, a year of activity.</figcaption></figure>
+      </div>
+      <button type="button" class="arr r" data-dir="1" aria-label="Next"><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+      <div class="dots"><i data-i="0" class="on"></i><i data-i="1"></i><i data-i="2"></i><i data-i="3"></i><i data-i="4"></i><i data-i="5"></i><i data-i="6"></i><i data-i="7"></i></div>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="grp">
+      <h2>How it works</h2>
+      <p>Those are the screens. This is the part that looks back — Swarm answering a tool call inside the session itself, before it runs.</p>
+    </div>
+    <div class="demo">
+      <div class="col">
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i><b>claude — acme-app</b></div>
+        <div class="body" id="termBody" role="img" aria-label="A Claude Code session in which Swarm refuses a sweeping git add, rewrites a commit that skipped hooks, and reports the task and lease in the status line."></div>
+        <div class="sl" id="termSl" aria-hidden="true"></div>
+      </div>
+      <button type="button" class="replay" id="termReplay" hidden>↻ replay</button>
+      </div>
+      <div class="side">
+        <div class="step" data-s="0"><b>It sees the call first</b><span>Every command an agent runs passes Swarm before it happens. Nothing to wrap, nothing to configure.</span></div>
+        <div class="step" data-s="1"><b>It stops the bad one</b><span>Another session is working in this folder, so this commit would have swallowed their unfinished work. Swarm refuses it and says whose.</span></div>
+        <div class="step" data-s="2"><b>It quietly fixes the rest</b><span>Skipping your commit hooks doesn't need a refusal — Swarm drops the flag, lets the command run, and tells you it did.</span></div>
+        <div class="step" data-s="3"><b>It tells you where you are</b><span>The footer carries what only Swarm knows: the task you hold, the time left on it, and anything it stopped.</span></div>
+      </div>
+    </div>
+    <figure class="reel" id="reel">
+      <div class="tabs" role="tablist" aria-label="Dashboard clips">
+        <button type="button" role="tab" aria-selected="true" data-r="fleet">Fleet</button>
+        <button type="button" role="tab" aria-selected="false" data-r="board">Board</button>
+        <button type="button" role="tab" aria-selected="false" data-r="incidents">Incidents</button>
+      </div>
+      <div class="frame">
+        <video id="reelV" muted loop playsinline preload="none" poster="/reel/fleet.jpg" aria-label="The Swarm dashboard, recorded from its built-in demo">
+          <source src="/reel/fleet.webm" type="video/webm">
+          <source src="/reel/fleet.mp4" type="video/mp4">
+        </video>
+        <figcaption id="reelC">Every agent session on the machine, live — across every repository.</figcaption>
+      </div>
+    </figure>
+  </section>
+
+  <section id="what">
+    <div class="grp">
+      <h2>What you get</h2>
+      <p>Run more than one agent at a time and you lose the thread by lunchtime. Swarm gives you the three things you stop having.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <svg class="ic" aria-hidden="true"><use href="#i-observe"/></svg>
+        <b>You can see them</b>
+        <p>Every agent on the machine in one list: what it is running right now, how much it has spent, and whether it is stuck in a loop. It reads what your agents already write, so there is nothing to install in your projects and nothing to keep updated.</p>
+      </div>
+      <div class="card">
+        <svg class="ic" aria-hidden="true"><use href="#i-drive"/></svg>
+        <b>They stay out of each other's way</b>
+        <p>Hand Swarm a task and it starts an agent on it in a copy of your repo that is its own, so two agents can never edit the same files. When one says it has finished, Swarm doesn't take its word for it — it runs your tests itself before calling the task done.</p>
+      </div>
+      <div class="card">
+        <svg class="ic" aria-hidden="true"><use href="#i-guard"/></svg>
+        <b>They can't do the dangerous thing</b>
+        <p>“Never force-push”, “never delete that folder” — written in a prompt, that's a wish. Swarm turns it into an answer at the moment the agent tries, and keeps a record of every one. It's a guardrail against accidents, not a cage: if Swarm isn't running, your agents carry on as normal.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="why">
+    <div class="chips">
+      <div class="chip"><b>6</b><span>agent CLIs, one dashboard</span></div>
+      <div class="chip"><b>0</b><span>accounts, telemetry, cloud</span></div>
+      <div class="chip"><b>Local</b><span>all of it stays on your machine</span></div>
+      <div class="chip"><b>Apache-2.0</b><span>open source, all of it</span></div>
+    </div>
+  </section>
+
+  <section id="get">
+    <div class="band">
+      <b class="h">Try it on whatever you're working on now</b>
+      <p>One command. It sets itself up, starts watching every agent session on the machine, and opens the dashboard. Uninstalling leaves your repositories byte-for-byte untouched.</p>
+      <button type="button" class="install" id="cli2" title="Copy to clipboard">
+        <span class="p">$</span><span class="cmd">{{INSTALL}}</span><span class="copy" aria-hidden="true">Copy</span>
+      </button>
+      <p class="lic">Prefer a desktop app? <a href="#downloads">Download it below</a>. Working in a team? <a href="/docs/11-teams">Swarm has a self-hosted team server</a> — one machine is free and always will be.</p>
+    </div>
+  </section>
+
+  <section id="downloads">
+    <h2>Downloads <span id="rel"></span> <a href="/changelog" class="notes">release notes →</a></h2>
+    <div class="dl card">
+      <div class="row" data-os="mac"><svg class="ic" aria-hidden="true"><use href="#i-mac"/></svg><div class="who"><b>macOS</b><span>Apple silicon · signed &amp; notarized · auto-updates</span></div><div class="links"></div></div>
+      <div class="row" data-os="win"><svg class="ic" aria-hidden="true"><use href="#i-win"/></svg><div class="who"><b>Windows</b><span>x64 · auto-updates</span></div><div class="links"></div></div>
+      <div class="row" data-os="linux"><svg class="ic" aria-hidden="true"><use href="#i-linux"/></svg><div class="who"><b>Linux</b><span>x86_64 · AppImage, .deb and .rpm</span></div><div class="links"></div></div>
+      <div class="row"><svg class="ic" aria-hidden="true"><use href="#i-cli"/></svg><div class="who"><b>CLI</b><span>any platform with <a href="https://bun.sh">Bun</a></span></div><div class="links"><a class="pill mono" href="https://www.npmjs.com/package/@ra3orblade/swarm">{{INSTALL}}</a></div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Apache-2.0</span>
+    <a href="https://github.com/ra3orblade/swarm">github.com/ra3orblade/swarm</a>
+    <a href="/docs/">Docs</a>
+    <a href="/changelog">Changelog</a>
+    <a href="https://github.com/ra3orblade/swarm/releases">All releases</a>
+    <a href="https://github.com/ra3orblade/swarm/issues">Issues</a>
+  </footer>
+</div>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true">
+  <button type="button" class="x" data-lb="close" aria-label="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+  <button type="button" class="n l" data-lb="-1" aria-label="Previous"><svg aria-hidden="true"><use href="#i-prev"/></svg></button>
+  <img id="lbImg" alt="">
+  <div class="cap" id="lbCap"></div>
+  <button type="button" class="n r" data-lb="1" aria-label="Next"><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+</div>
+
+<script type="module" src="/site.js"></script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
