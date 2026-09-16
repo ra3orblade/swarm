@@ -992,11 +992,13 @@ button.pk-row {
   display: flex;
   gap: 8px;
 }
-.perm-b .ok {
+.perm-b .ok,
+.setup-row .ok {
   color: var(--acc);
   border-color: var(--acc-soft);
 }
-.perm-b .danger {
+.perm-b .danger,
+.setup-row .danger {
   color: var(--warn);
   border-color: var(--warn-soft);
 }
@@ -1007,8 +1009,8 @@ button.pk-row {
   margin-top: 10px;
   align-items: center;
 }
-.stdin input {
-  flex: 1;
+.stdin input,
+.setup-row input {
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--fg);
@@ -1017,7 +1019,11 @@ button.pk-row {
   font: var(--fs-md) var(--sans);
   outline: none;
 }
-.stdin input:focus {
+.stdin input {
+  flex: 1;
+}
+.stdin input:focus,
+.setup-row input:focus {
   border-color: var(--acc);
 }
 .stdin button.danger {
@@ -1027,6 +1033,29 @@ button.pk-row {
 .stdin .hint {
   color: var(--dim);
   font-size: var(--fs-sm);
+}
+/* Setting something up (Team: host, join, leave) — deliberately NOT `.perm`. That card is the
+   amber "an agent needs approval" prompt; a page that only offers to start a daemon must not
+   read as a warning, and a paragraph of explanation is not a `.perm-t` card title. */
+.setup {
+  margin-top: 10px;
+  max-width: 68ch;
+}
+.setup p {
+  margin: 0 0 12px;
+  color: var(--fg-2);
+}
+.setup p:last-child {
+  margin-bottom: 0;
+}
+.setup-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.setup-row label {
+  color: var(--dim);
 }
 .pk-f {
   display: flex;
