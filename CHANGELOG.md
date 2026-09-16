@@ -6,6 +6,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Changed
 
+- **The Team panel stops shouting.** It was built out of `.perm` — the amber card that means *an
+  agent needs your approval* — so a page whose only job is to offer to start a daemon read as two
+  stacked warnings, and the paragraph explaining the team daemon was set in `.perm-t`, a card
+  *title*, at full brightness across the whole window. The port field matched no rule in the
+  stylesheet at all (`.stdin input` was the only styled input in it), so it fell back to the
+  browser's own white control in a dark UI, and `.perm-b` never set `align-items`, so "port" sat
+  off the button's centre line. Host and Join are now a neutral `.card` bounded at a readable
+  measure, the explanation is a paragraph, the two fields share one input rule, the rows align,
+  and Join and Leave have lost the box that wrapped nothing.
+
 - **Markdown renders as markdown.** Everything an agent writes is markdown, and until now the
   dashboard showed the source: a session-log line arrived with its asterisks and backticks intact,
   and a fenced code block was a wall of text between two rows of backticks. Assistant and subagent
