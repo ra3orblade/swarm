@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/art/swarm-icon.svg" alt="Swarm" width="96" height="96"></p>
+<p align="center"><img src="docs/art/swarm-mark.svg" alt="Swarm" width="180"></p>
 
 <h1 align="center">Swarm</h1>
 
@@ -32,7 +32,7 @@ It runs entirely on your machine. No account, no telemetry, works offline. Nothi
 bunx @ra3orblade/swarm setup
 ```
 
-> Status: early, but real, and shipping fast — eleven releases so far. Observability across six agent CLIs, task claims in isolated worktrees, runtime resources, rules and incidents, a cross-forge merge queue, spawned agents (`swarm run` / `swarm dispatch`), declarative workflows, executed verification gates (including a built-in reviewer), handoffs, agent-to-agent messaging, session replay, outcome tracking, the collision graph, search, budgets, signed org policy and a self-hosted team daemon are all built and dogfooded daily — Swarm dispatches its own tasks. What's next is on the [roadmap](ROADMAP.md).
+> Status: early, but real, and shipping fast — twenty-one releases so far. Observability across six agent CLIs, task claims in isolated worktrees, runtime resources, rules and incidents, a cross-forge merge queue, spawned agents (`swarm run` / `swarm dispatch`), declarative workflows, executed verification gates (including a built-in reviewer), handoffs, agent-to-agent messaging, session replay, outcome tracking, the collision graph, search, budgets, a status line and permission cards inside Claude Code itself, signed org policy and a self-hosted team daemon are all built and dogfooded daily — Swarm dispatches its own tasks. What's next is on the [roadmap](ROADMAP.md).
 
 ---
 
@@ -44,27 +44,27 @@ bunx @ra3orblade/swarm setup
 
 <p align="center"><img src="docs/art/screens/session.png" alt="Session view — live reasoning stream with a stats panel" width="100%"></p>
 
-**Board** — the coordination ledger for a project: **tasks** from your backlog (a markdown file, GitHub Issues or Linear) with a ✓ / ✗ per gate and **Run** / **Dispatch** actions, task **claims** (each in an isolated git worktree), **worktrees** with branch, drift, dirty/unpushed state and which session is inside — plus **Diff**, **PR** (push + open a pull/merge request prefilled from the task and handoff), **Open** and **Remove** per row — **runtime resources** (ports, dev servers, databases held as named singletons), **dispatch** status, recent **gates**, and **incidents** — every command the rules asked about or denied, with the rule and the command, and a **Codify** action that turns one into a `.swarm.toml` rule and a `CLAUDE.md` lesson.
+**Board** — the coordination ledger for a project: **tasks** from your backlog (a markdown file, GitHub Issues or Linear) with a ✓ / ✗ per gate and **Run** / **Dispatch** actions, task **claims** (each in an isolated git worktree), **worktrees** with branch, drift, dirty/unpushed state and which session is inside — plus **Diff**, **PR** (push + open a pull/merge request prefilled from the task and handoff), **Open** and **Remove** per row — **runtime resources** (ports, dev servers, databases held as named singletons), **dispatch** status, recent **gates**, and **incidents** — every command the rules asked about or denied, with the rule and the command, and a **Codify** action that turns one into a `.swarm.toml` rule and a `CLAUDE.md` lesson — **Apply** commits it on a branch and opens the PR, never into your checkout.
 
 <p align="center"><img src="docs/art/screens/board.png" alt="Board view — worktrees and incidents" width="100%"></p>
 
-**Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, plus `no_foreign_worktree` and the opt-in `claim_required_to_write` on file writes; each `ask | deny | off` per repo in `.swarm.toml`. A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
+**Rules** — guardrails on the Bash commands a Claude Code session runs: `shared_tree`, `destructive_git`, `pattern_kill`, `protected_ports`, plus `no_foreign_worktree` and the opt-in `claim_required_to_write` on file writes; each `ask | deny | off` per repo in `.swarm.toml`. Two more have a third answer: `no_verify` strips `--no-verify` from a git command and lets it run, `dry_run_first` turns the first `terraform apply` or `kubectl delete` in a session into its dry run — and `[[rules.custom]]` takes your own (`match` regex, `ask | deny | rewrite`). A `deny` is returned to Claude Code as a real permission denial. Ports held as resources are protected automatically. Guardrails against accidents, not a sandbox — see [what rules are and aren't](https://getswarm.vercel.app/docs/03-rules-and-config#what-rules-are--and-arent).
 
 **Run & Dispatch** — start an agent from Swarm: `swarm run --task X` (or **Run** on a task row) claims the task and spawns `claude -p` in its worktree; steer it by stdin, stop it by pid. Its permission prompts go through the same rules as your interactive sessions — `deny` auto-denies, `ask` becomes an **Allow / Deny** card on the session, nothing else blocks. `swarm dispatch --ready` hands every claimable task to its own run, N at a time; when a run ends Swarm re-runs the gates and looks for the PR, and reports done / gates-failed / no-pr / crashed. Run profiles (`full | no-edits | read-only`) narrow what a spawned agent may do.
 
 **Gates & handoffs** — `.swarm.toml` declares the gates every task must pass; a gate with a `cmd` is executed in the task's worktree (exit 0 passes, the output tail is the evidence) — on demand, from the agent, or automatically when a session in a held worktree ends. The latest run decides, failed runs are never deleted. Every session that pauses leaves an auto-handoff (files edited, last verification command, last request); the next session in that worktree gets it, the lease left, gate status and held resources injected at start.
 
+**In your terminal, not just the dashboard** — Swarm answers Claude Code's hooks with more than yes/no. A **status line** shows the project, the claim, gate state, today's spend and how much of your plan window is left. A permission prompt appears as an **Allow / Deny card** on the session page and the terminal never asks — but only while a dashboard is actually open and visible, and only for `[broker] interactive_wait` seconds. With `[gates] on_stop = "block"` a session **cannot say it is done while a required gate fails**: the stop is refused, the agent gets the gate's name and the tail of its output, and after `max_blocks` refusals it goes through with an incident. And when two live sessions touch the same file, the second one is told so on its next tool call.
+
 **Ask the human** — an agent that hits a decision only you can make calls `swarm_ask`; the question shows on the session page with the options as buttons, Fleet shows an **Asking** badge, a desktop notification fires, and the answer reaches the agent on its own.
 
 **Workflows** — `[[workflows]] name = "ship" steps = ["implement", "gate:tests", "gate:review", "pr"]` in `.swarm.toml`, and the daemon advances it: run steps spawn an agent in the task's worktree, gate steps must pass to continue, `pr` pushes the branch and opens the pull request. A failed step stops with an incident that says which one.
 
-**Messaging** — `swarm_send(to, text)` reaches another session by id, whoever holds a task, or `"lead"` (your interactive session in the project). It arrives as injected context on the recipient's next tool call, over stdin to a spawned run, or via `swarm_inbox` — exactly once.
+**Messaging** — `swarm_send(to, text)` reaches another session by id, whoever holds a task, or `"lead"` (your interactive session in the project). It arrives as injected context on the recipient's next tool call, over stdin to a spawned run, or via `swarm_inbox` — exactly once. A session sitting idle at its prompt is **woken** when a message or an answer lands for it, rather than waiting for you to type something (`[messages] wake = false` turns that off).
 
 **PRs** — one merge queue across GitHub and GitLab, read through your already-authenticated `gh` / `glab`. Merge from the dashboard when checks and review are clear. No tokens stored.
 
 **Timeline** — session lanes per project, coloured by agent, 3–72 h.
-
-<p align="center"><img src="docs/art/screens/timeline.png" alt="Timeline view — session lanes per project" width="100%"></p>
 
 **Spend & Stats** — cost by project, model, agent and **task**, today and all-time, with a context-budget table that ranks sessions by how much context they re-read; per-repo **budgets** (`daily` / `weekly` ceilings that warn, ask or stop); plus the fun numbers: tokens, turns, streaks, activity calendar, words written, what it adds up to in novels and coffee.
 
@@ -73,10 +73,6 @@ bunx @ra3orblade/swarm setup
 **Outcomes** — did the work survive? Sessions join to a branch, the branch to its PR, the PR to merged or reverted, scored per model and per agent: merge rate, median time from session start to merge, dollars per merge.
 
 **Graphs** — a live bipartite graph of running sessions against the files they touch. A file two sessions hold with at least one writer turns red: a merge conflict you can still prevent.
-
-<p align="center"><img src="docs/art/screens/outcomes.png" alt="Outcomes view — merge rate, median time to merge and dollars per merge, per model and per agent" width="100%"></p>
-
-<p align="center"><img src="docs/art/screens/stats.png" alt="Stats view" width="100%"></p>
 
 **Multi-agent** — six brands, one ledger: Claude Code via its hooks and transcripts (the full picture — rules, MCP, spawned runs), and Codex CLI (`~/.codex`), Gemini CLI (`~/.gemini`), Grok (ACP `updates.jsonl`), Aider (`.aider.chat.history.md`) and opencode (its SQLite database, read-only) by reading the session logs they already write. Every session is tagged with its agent; Spend, Timeline and Outcomes break down per agent.
 
@@ -108,12 +104,15 @@ pattern_kill    = "ask"      # pkill -f and friends
 protected_ports = "ask"      # freeing a port listed below (or held as a resource)
 no_foreign_worktree     = "ask"  # file writes into a worktree another claim holds
 claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a claim
+no_verify       = "rewrite"  # also "rewrite": strip --no-verify and run it anyway
+dry_run_first   = "off"      # first terraform apply / kubectl delete becomes its dry run
 
 [rules.protected]
 ports = [5432]
 
 [gates]                      # what every task must pass; a gate with a cmd is executed, not vouched for
 required = ["tests", "review"]
+on_stop  = "block"           # a session can't say it's done while a required gate fails
 [gates.tests]
 cmd = "bun test"
 
@@ -142,6 +141,7 @@ swarm status                   # live sessions in the terminal
 swarm doctor                   # check setup, print the fix for each gap
 swarm add <path> · ls · ui     # pin a project · list projects · open the dashboard
 swarm tail                     # follow the live event stream
+swarm statusline               # the Claude Code status line (swarm install wires it up)
 
 swarm tasks [--ready]          # the repo's task source; --ready = claimable now
 swarm claim <task> [--owner n] # claim a task in a fresh isolated worktree (fail-closed)
@@ -158,6 +158,8 @@ swarm run ls | send <task> "…" | stop <task>   # steer (stdin) or stop a spawn
 swarm run resume <session-id>  # pick up where a dead session stopped (its handoff + tail)
 swarm dispatch --ready | <task…> · status · clear   # claim + spawn a run per task, max_parallel at a time
 swarm questions · answer <id> <text>   # what agents are waiting on a human for
+swarm workflow <name> <task> · ls · stop <task>   # run a [[workflows]] pipeline over a task
+swarm msg send <to> "…" · ls                     # message a session, a task holder, or "lead"
 
 swarm res ls | acquire <name> [--pid n] [--port n] | release <name> [--force]
 swarm serve start [--name web] -- <cmd>   # dev server: port allocated, PORT set, pid tracked, port protected
@@ -180,6 +182,7 @@ swarm install | uninstall      # add/remove Swarm hooks in ~/.claude/settings.js
 - `swarm_pr_open` — push the branch and open a PR/MR prefilled from the task and handoff
 - `swarm_dispatch` — a lead agent hands ready tasks to autonomous runs in their own worktrees
 - `swarm_ask` / `swarm_inbox` — ask the human a question (with options); the answer arrives on its own
+- `swarm_send` — message another session by id, whoever holds a task, or the project's lead
 - `swarm_acquire_resource` / `swarm_release_resource` / `swarm_resources` — hold a port, dev server or database as a named singleton; held ports are protected from other agents automatically
 - `swarm_search` — memory over handoffs, incidents, gates and what sessions said
 
@@ -206,7 +209,7 @@ Design docs (architecture, data model, protocol, interface, roadmap) are rendere
 
 ## Teams
 
-One machine is free and always will be. When it outgrows one laptop, `swarm-teamd` is a second, self-hosted service your machines *forward* to — audit events, spend rollups and claims, never transcript text unless a machine opts in, and always after your redaction rules. You get one view of the fleet (machines, cluster-wide claims, spend by person, project, machine and day), a claim taken on one laptop is refused on another with the holder's name, org `policy.toml` is ed25519-signed and verified against a key pinned at `swarm login`, team budgets enforce warn / ask / stop, and monthly chargeback exports come out by user, machine, model or **ticket id**. Every laptop stays local-first and keeps working offline. [Teams guide](https://getswarm.vercel.app/docs/11-teams).
+One machine is free and always will be. When it outgrows one laptop, `swarm-teamd` is a second, self-hosted service your machines *forward* to — hosted or joined from the dashboard's **Team** panel, or from `swarm login` — audit events, spend rollups and claims, never transcript text unless a machine opts in, and always after your redaction rules. You get one view of the fleet (machines, cluster-wide claims, spend by person, project, machine and day), a claim taken on one laptop is refused on another with the holder's name, org `policy.toml` is ed25519-signed and verified against a key pinned at `swarm login`, team budgets enforce warn / ask / stop, and monthly chargeback exports come out by user, machine, model or **ticket id**. Every laptop stays local-first and keeps working offline. [Teams guide](https://getswarm.vercel.app/docs/11-teams).
 
 *Licensing: `packages/team` is the single source-available package ([FSL-1.1-ALv2](packages/team/LICENSE.md), Apache-2.0 after two years). Everything else is and stays Apache-2.0.*
 

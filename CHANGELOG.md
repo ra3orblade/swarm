@@ -6,6 +6,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Changed
 
+- **The README shows the robot.** Every mark Swarm ships is generated from the one grid in
+  `core/src/art.ts` — the app icons, the tray template, the favicons, the site's hero, the share
+  image, the desktop splash. `docs/art/swarm-icon.svg` and `swarm-mark.svg` were the two that never
+  were: hand-authored from an earlier motif entirely and left untouched when the robot was drawn,
+  so the repository's front page was the last place still showing the old brand. `tools/icons.ts`
+  now writes them like the rest. The text caught up too — the status line, the interactive
+  permission card, the repair loop, rewrite rules and wake had all shipped without reaching the
+  README, `swarm statusline`, `workflow`, `msg` and `swarm_send` were missing from the command and
+  tool lists, and "eleven releases" was written at v0.7.0. Six screenshots are three.
+
 - **The Team panel stops shouting.** It was built out of `.perm` — the amber card that means *an
   agent needs your approval* — so a page whose only job is to offer to start a daemon read as two
   stacked warnings, and the paragraph explaining the team daemon was set in `.perm-t`, a card
