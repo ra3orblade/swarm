@@ -5,7 +5,12 @@
  * "first unclaimed task whose dependencies are done". Markdown tables only (OQ-5).
  */
 
-export type TaskStatus = "done" | "active" | "todo";
+/**
+ * `dropped` is a task the backlog explicitly cancelled (`❌`, `~~struck through~~`, "wontfix").
+ * It exists because everything that is not done or active used to fall through to `todo`, which
+ * made cancelled work look ready and let `nextTask` hand it to an agent.
+ */
+export type TaskStatus = "done" | "active" | "todo" | "dropped";
 
 export interface Task {
   id: string;
@@ -47,8 +52,19 @@ export function statusOf(cell: string): TaskStatus {
   const c = cell.trim();
   if (/^(✅|☑|✔|\[x\]|done|shipped|complete)/i.test(c)) return "done";
   if (/^(🟡|🟠|🔵|\[~\]|wip|active|doing|in[- ]progress|held)/i.test(c)) return "active";
+  // Checked before the fallthrough, so a cancelled row never reads as an open one.
+  if (
+    /^(❌|✖|✗|🚫|⛔|\[-\]|~~|dropped|cancell?ed|won'?t[- ]?(do|fix)|wontfix|abandoned|skipped|obsolete)/i.test(
+      c,
+    )
+  )
+    return "dropped";
   return "todo";
 }
+
+/** Done or dropped: a task nobody should be handed or wait on. */
+export const isResolved = (t: { status: TaskStatus }): boolean =>
+  t.status === "done" || t.status === "dropped";
 
 /** Parse every `ID | Task | … | Status` table in a markdown document. */
 export function parseMarkdownTasks(text: string): Task[] {
@@ -105,9 +121,9 @@ export function parseMarkdownTasks(text: string): Task[] {
 export function depsDone(task: Task, all: Task[]): boolean {
   return task.depends.every((d) => {
     const exact = all.find((t) => t.id === d);
-    if (exact) return exact.status === "done";
+    if (exact) return isResolved(exact);
     const under = all.filter((t) => t.id.startsWith(`${d}.`));
-    return under.length === 0 || under.every((t) => t.status === "done");
+    return under.length === 0 || under.every(isResolved);
   });
 }
 
@@ -220,7 +236,9 @@ export function normalizeLinearIssues(issues: LinearIssue[]): Task[] {
     .filter((i) => typeof i.identifier === "string" && typeof i.title === "string")
     .map((i) => {
       const type = i.state?.type ?? "unstarted";
-      const done = type === "completed" || type === "canceled";
+      // Linear distinguishes the two, and so do we: a cancelled issue is dropped, not completed.
+      const done = type === "completed";
+      const dropped = type === "canceled";
       const active = type === "started";
       const depends = (i.inverseRelations?.nodes ?? [])
         .filter((r) => r.type === "blocks")
@@ -230,7 +248,7 @@ export function normalizeLinearIssues(issues: LinearIssue[]): Task[] {
         id: i.identifier,
         title: i.title,
         depends: [...new Set(depends)],
-        status: done ? "done" : active ? "active" : "todo",
+        status: done ? "done" : dropped ? "dropped" : active ? "active" : "todo",
         statusText,
         milestone:
           i.cycle?.name ?? (i.cycle ? `Cycle ${i.cycle.number}` : (i.project?.name ?? null)),

@@ -16,6 +16,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   README, `swarm statusline`, `workflow`, `msg` and `swarm_send` were missing from the command and
   tool lists, and "eleven releases" was written at v0.7.0. Six screenshots are three.
 
+- **The Team panel stops shouting.** It was built out of `.perm` — the amber card that means *an
+  agent needs your approval* — so a page whose only job is to offer to start a daemon read as two
+  stacked warnings, and the paragraph explaining the team daemon was set in `.perm-t`, a card
+  *title*, at full brightness across the whole window. The port field matched no rule in the
+  stylesheet at all (`.stdin input` was the only styled input in it), so it fell back to the
+  browser's own white control in a dark UI, and `.perm-b` never set `align-items`, so "port" sat
+  off the button's centre line. Host and Join are now a neutral `.card` bounded at a readable
+  measure, the explanation is a paragraph, the two fields share one input rule, the rows align,
+  and Join and Leave have lost the box that wrapped nothing.
+
 - **Markdown renders as markdown.** Everything an agent writes is markdown, and until now the
   dashboard showed the source: a session-log line arrived with its asterisks and backticks intact,
   and a fenced code block was a wall of text between two rows of backticks. Assistant and subagent
@@ -29,6 +39,31 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   sentence the changelog had wrapped arrived as three. It now ships the changelog's markdown and
   renders it with the same renderer as the log. The renderer builds elements and checks every
   link, so text a model wrote never reaches `dangerouslySetInnerHTML`.
+
+### Fixed
+
+- **Sessions that died without a `SessionEnd` no longer haunt the dashboard.** A session's row only
+  reached `ended` when the hook fired, so a closed terminal, a crash, a reboot or a slept laptop
+  left it non-ended for ever — `idle` is a display label with no upper bound, and Fleet was listing
+  sessions last seen days ago as though they were live. `sweepStaleSessions()` now ends anything
+  that has gone `SESSION_STALE_MS` (6 hours) without a single event, on daemon boot and once a
+  minute, stamping `ended_at` with the moment the session was last actually heard from rather than
+  the moment the sweep noticed. It covers every agent, not only the hook-driven ones: `ingestLog`
+  gives up on a transcript it can no longer read, which strands Codex / Grok / Gemini rows the same
+  way. On one real machine this ended 11 of 15 stranded sessions, the oldest last seen 25 days
+  earlier, and left every genuinely live one alone.
+- **`leadSession` and `sessionForTask` can no longer resolve to a dead session.** Both selected on
+  `state != 'ended'` with no time bound, so once every real session had ended cleanly a stranded
+  one won the `ORDER BY last_seen_at` and messages addressed to the project went nowhere.
+- **A cancelled task is no longer offered as work.** `statusOf` only recognised "done" and "active";
+  everything else fell through to `todo`, so a row marked `❌ dropped` came back `ready: true`, sat
+  in the Board's **Ready** lane with a green badge, and was eligible for `nextTask`,
+  `swarm_next_task` and dispatch — Swarm would hand an agent work the backlog had explicitly
+  cancelled. `dropped` is now its own `TaskStatus` (`❌`, `🚫`, `[-]`, `~~struck~~`, "cancelled",
+  "wontfix", "abandoned", …): never ready, rejected by dispatch with the reason `dropped`, shown
+  with a **Dropped** badge, and excluded from the open count. A dropped *dependency* counts as
+  resolved, so it does not block its dependents for ever. Linear's `canceled` issues map to
+  `dropped` rather than `done`.
 
 ## [0.14.0] — 2026-09-12
 

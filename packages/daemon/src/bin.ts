@@ -90,6 +90,7 @@ const tailer = setInterval(() => {
   store.reapResources(); // dead pids / expired leases; the hook path never probes
   store.reapProcesses(); // registered processes that exited on their own
   if (tick % 12 === 0) store.sweepOrphans(); // every minute: expired leases holding work → incident
+  if (tick % 12 === 0) store.sweepStaleSessions(); // every minute: sessions that died without a SessionEnd
   if (tick % 6 === 0) store.checkBudgets(); // every 30 s: [budget] + team ceilings → incident / ask / stop
   if (tick % 6 === 0) store.checkQuota(); // every 30 s: [budget] window_warn_at on the plan windows (M12.3)
   if (tick % 12 === 0) store.checkModels(); // every minute: [models] allow-list observation (M8.4)
@@ -97,6 +98,8 @@ const tailer = setInterval(() => {
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
 }, 5000);
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path
+// A daemon that was down while sessions ended comes back with them still non-ended.
+store.sweepStaleSessions();
 void store.refreshAllWorktrees();
 const wtRefresh = setInterval(() => void store.refreshAllWorktrees(), 15_000);
 // retention: drop events older than 30 days, clear raw hook input after 7, once a day
