@@ -1,17 +1,18 @@
 # 08 · Interface
 
-Status: draft
+Status: living. The four surfaces below are shipped unless a line says otherwise; the wireframes in section A describe where the dashboard is still going.
 
-Three doors into the same state: the **dashboard** (for the human watching), the **CLI** (for the human in a terminal and for scripts), and **MCP tools** (for agents). They share vocabulary exactly — a *claim* is a claim everywhere — and every dashboard action has a CLI equivalent.
+**Four** doors into the same state: the **dashboard** (for the human watching), the **CLI** (for the human in a terminal and for scripts), **MCP tools** (for agents), and the **in-session surface** — the status line, permission cards, rewrites and blocks Claude Code renders *while* an agent works (section E). They share vocabulary exactly — a *claim* is a claim everywhere — and every dashboard action has a CLI equivalent.
 
-## Shipped today (0.3.0)
+The first three are surfaces you *go to*. The fourth comes to you: it is the only one an agent cannot ignore, because it arrives in the session's own footer and tool results. When a capability has to reach someone mid-task, it belongs in section E.
 
-This document is the spec; the wireframes below describe where the product is going. What exists now:
+## Shipped today (0.14.0)
 
-- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs · Insight: Outcomes / Spend / Stats / Search · Guard: Incidents — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
+- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs / Trials / Hygiene · Insight: Outcomes / Gates / MCP / Context / Files / Spend / Stats / Search · Guard: Security / Provenance / Incidents / Rules / Team — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
 - **Board** = a KPI strip (live / held / worktrees / ready or projects / incidents) + Tasks as a kanban (Ready · In progress · Blocked · Done) + Dispatch + Gates + Processes + Resources + Claims + a Worktree map (one tile per worktree, grouped by project, colored by live / dirty / unpushed / merged) + Incidents. Tasks and Worktrees carry a Cards/Table toggle (persisted). Every row, card and tile has one menu — the hover kebab, right-click, or Enter when focused — instead of inline action links; the menu carries the row's actions (open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy …) with destructive ones last and confirmed. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.
-- **Not yet**: the full keyboard map (`g f`, `j/k`, `?`), the permission-broker Allow/Deny on Fleet rows, the Settings page. The ⌘K palette shipped with M9.1. The Session input box exists for spawned runs (M3.3).
-- **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves.
+- **Steering** (M13): Fleet rows carry the permission-broker Allow/Deny card for *interactive* sessions, not just spawned runs, and Incidents carry Codify → Apply. The Session input box exists for spawned runs (M3.3).
+- **Not yet**: the full keyboard map (`g f`, `j/k`, `?`) and the Settings page — project settings live in the sidebar menu, hook/rule status in `swarm doctor`. The ⌘K palette shipped with M9.1.
+- **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves and section E the in-session surface.
 
 ---
 
@@ -226,6 +227,13 @@ swarm run resume <session-id> [--model] [--permission-mode]   spawn a run that p
 swarm rules dryrun [--set rule=mode,…] [--limit n]        replay this repo's history under rule modes; what would fire + flaky signals
 swarm search <query…> [-p] [--kind handoff|incident|gate|session]   memory over Swarm's own data (never the codebase)
 swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
+swarm workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
+swarm msg send <to> <text…> [-p] | msg ls [-p]   message a session id, a task's holder, or "lead" (M7.6)
+swarm audit export [--since 30d|ISO] [-p] [--type t] [--format jsonl|csv|json]   the audit log to stdout (M8.2c)
+swarm login [url] [--token t]      log in to the team daemon ([team].url) and register this machine (M8.3c)
+swarm backup [dest] | restore <src>   snapshot ~/.swarm (VACUUM INTO, zero downtime) / restore it (daemon stopped)
+swarm doctor --migrate             apply pending db migrations
+swarm demo                         open a seeded demo dashboard (own home + port; real data untouched)
 ```
 
 Env: `SWARM_URL`, `SWARM_PORT` (default 7777), `SWARM_HOME` (`~/.swarm`).
@@ -279,13 +287,15 @@ Server name `swarm` (stdio, `swarm-mcp`, registered user-wide by `swarm install`
 | `swarm_pr_open` | `{task, title?, body?, draft?}` | pushes the worktree branch and opens a PR/MR via `gh`/`glab`, drafted from task + handoff + gates + files; refuses dirty (M7.3) |
 | `swarm_gates` | `{task?}` | required gates (`.swarm.toml [gates]`) and the latest verdict per gate |
 | `swarm_next_task` | `{all?}` | first unclaimed task whose dependencies are done (needs `[tasks] source`); `all` lists every ready task |
+| `swarm_send` | `{to, text, from?}` | message another session by id, a task's holder, or `lead`; delivered via inbox, hook context or a live run's stdin (M7.6) |
 
 **Planned**
 
 | Tool | Input | Returns |
 |------|-------|---------|
 | `swarm_note` | `{text}` | attaches a note to the session, visible in the dashboard |
-| `swarm_permission` | *(internal, `--permission-prompt-tool`)* | allow/deny from rules or human |
+
+The permission broker is *not* a tool — it is the `PreToolUse` hook (section E), so it applies to every session without an agent having to opt in.
 
 Context injection (shipped on `SessionStart`, built by `store.sessionContext(cwd)`; per-prompt injection not built) — the hook returns `additionalContext` like:
 
@@ -339,13 +349,61 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/spend` | the spend rollup on its own (also inside `/v1/state`) |
 | `POST /v1/hook/:event` | hook ingestion; on `PreToolUse` returns the rule decision (`permissionDecision` ask / deny) |
 | `POST /v1/events` · `GET /v1/events?since=&full=` | append a normalized event (smoke/tests); SSE stream replayable by `seq` (wire shape — no `raw`/tool I/O unless `full=1`; `since=0` replays the last 200) |
+| `GET /v1/permissions` · `POST /v1/permissions/:id` | M13.2: permission requests waiting on a human (interactive sessions), and the answer (`{decision: "allow"|"deny", reason?}`); the hook holds the session for `[broker] interactive_wait` only while a dashboard is watching |
+| `POST /v1/runs/:id/permissions/:reqId` | the same answer for a *spawned* run (M3.2), over its stream-json channel |
+| `GET /v1/repair?cwd=` | M13.1: `{block}` — does a `Stop` in this repo have to wait for the repair loop? The shim asks before spending a long timeout |
+| `POST /v1/wake` | M13.4: the `swarm-hook wait` long-poll — answers when a message, answer or nudge lands for the session, else after ~10 min |
+| `POST /v1/statusline` | M12.2: the status line's payload in, the rendered line out; also the only source of plan quota windows |
+| `GET /v1/quota` | M12.3: the plan's 5-hour / 7-day windows as last reported, with burn rate and projected exhaustion |
+| `GET /v1/waiting` | every session currently waiting on a human (question, permission, gate) — the Fleet "waiting" badge |
+| `GET /v1/tasks?project=` | the repo's task source (`swarm tasks`) |
+| `GET /v1/handoffs?project=&task=` · `POST /v1/handoffs` | handoffs (M1.3); `POST` records one, `auto:` handoffs are derived by the daemon at Stop/SessionEnd |
+| `GET /v1/runs` · `POST /v1/runs` · `DELETE /v1/runs/:id` | spawned runs (M3.1): list, start (`RunInput`), stop by pid |
+| `GET /v1/processes` · `POST /v1/processes` · `DELETE /v1/processes/:pid` · `POST /v1/ports/allocate` | the process registry (M1.x): servers and workers this project started, by pid and start time, never by pattern |
+| `POST /v1/incidents/:seq/ack` · `POST /v1/incidents/ack` · `POST /v1/incidents/:seq/apply` | ack one / ack all; `apply` is M13.11 **Codify → Apply**: turn a lesson into a repo change on its own branch, committed and PR'd, never in the main checkout |
+| `GET /v1/hygiene?project=` · `POST /v1/hygiene/reclaim` | M10: reclaimable build output and stale worktrees; `reclaim` clears the ones you name |
+| `GET /v1/heat?project=` | M9.13 file heat: which files the fleet touches most, and who contends for them |
+| `GET /v1/security?project=` | M9.16 security audit: what rules stopped, what got through, secrets-adjacent tool calls |
+| `GET /v1/rules/effect?project=` | M9.17 rule effectiveness: per rule, how often it fired, was acked, or was worked around |
+| `GET /v1/provenance?project=` | M9.14: which session, model and prompt produced each shipped line |
+| `GET /v1/attribution?project=` | the same join rolled up per author/agent |
+| `GET /v1/ab?project=` · `POST /v1/ab` | M9.15 A/B trials: model/prompt arms and their outcomes |
+| `GET /v1/mcp/health` · `GET /v1/gates/health` | M9.5 / M9.8: MCP server reachability per session, and gate flakiness |
+| `GET /v1/graphs/lineage` · `GET /v1/graphs/resources` · `GET /v1/graphs/transitions` | the other three M9 graphs: task lineage, resource holding, tool transitions |
+| `GET /v1/team` · `POST /v1/team/host|join|leave|credentials` | M13.13: host or join a team from the app (`~/.swarm/team.toml`); see [14-teams](14-teams.md) |
+| `POST /v1/backup` | `swarm backup` over HTTP (VACUUM INTO, zero downtime) |
+| `POST /v1/shutdown` | evict whoever holds `daemon.json` — how the desktop app always runs *its own* daemon rather than serving a clone's stale bundle |
 | `GET /` · `GET /:file.(js|css)` | the dashboard |
 
 Not built: a unix socket. Stdin for spawned runs is `POST /v1/runs/:id/send`.
 
-## E. Design constraints shared by all three
+## E. In-session surfaces (what Claude Code shows while an agent works)
+
+The fourth door, and the only one that reaches a session that never opens a dashboard. All of it rides Claude Code's own hook response fields — **33 hook events exist; Swarm installs 11** (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd`, `Notification`, `PreCompact`, `PermissionRequest`) plus one `asyncRewake` waiter on `Stop`. Verify the field names against the current Claude Code reference before changing any of this; do not rely on memory.
+
+Every one of these shares the hook shim's contract: a **fast budget** (400 ms, `SWARM_HOOK_TIMEOUT_MS`), **fails open** on any error or timeout, and **never starts the daemon** — a hook must stay fast. Only the two surfaces that legitimately wait on a human or a gate get a longer one, and each asks first: `Stop` keeps the fast budget unless `GET /v1/repair` says this repo armed the loop, and `PermissionRequest` waits only while a dashboard is watching. A wedged or absent daemon therefore costs a session nothing but the loss of these surfaces.
+
+| Surface | Where it appears | How |
+|---------|------------------|-----|
+| **Status line** (M12.2) | Claude Code's footer, after every assistant message | `statusLine` → `swarm-hook statusline`. Left of the bar is what Claude Code already knows (model · context % · session cost · plan windows); right of it is what only Swarm knows — the task whose worktree you are in and its lease, the budget when it is not fine, open incidents, and whether a question of yours is waiting. **Opt-in**: `swarm install --statusline`, because a custom status line replaces Claude Code's own footer hints. One you set yourself is never replaced (`swarm doctor` says so), and `swarm uninstall` removes exactly ours |
+| **Permission card** (M13.2) | the tool-approval prompt, and a card on the dashboard's Fleet row | `PreToolUse` / `PermissionRequest`. Rules answer allow/deny outright; anything left to a human is held open for `[broker] interactive_wait` **only while a dashboard is watching**, so a session with nobody at the console is never made to wait. Works for interactive sessions, not just spawned runs |
+| **Repair block** (M13.1) | the session refuses to stop | `Stop` → `decision: "block"` while a required gate fails (`[gates] on_stop = "block"`), bounded by `[gates] max_blocks` per session; never on `SubagentStop` (OQ-24). The block text is the failing gate's rubric, so the agent knows what to fix |
+| **Rewrites** (M13.5) | the tool call runs, fixed | `PreToolUse` → `updatedInput`. `no_verify` strips `--no-verify`; `dry_run_first` makes a destructive command dry-run once before it runs for real (once per session, by key); `[[rules.custom]]` with `action = "rewrite"` does the same for your own patterns. All default to **off**, and a rewrite only ever touches a command it can reason about whole — one invocation, no chaining |
+| **Collision context** (M13.3) | a note attached to the tool result | `PostToolUse` → `additionalContext`. Right after a session edits a file, it is told which other *live* session edited the same file in the last 15 minutes, and on what task. Once per pair of sessions per file per window |
+| **Wake** (M13.4) | an idle session resumes on its own | an `asyncRewake` hook on `Stop` (`swarm-hook wait`) long-polls `POST /v1/wake`; exit 2 with text wakes the session at the prompt with that text as a system reminder. This is how `swarm msg send` and an answered `swarm_ask` reach a session that has already stopped |
+| **SessionStart context** (M1.3) | the session's opening context | `SessionStart` → `additionalContext`: the holds and lease, the previous holder's handoff, required gates, held resources, and the rules in force for this repo. Also on demand via `swarm_context` |
+
+Two consequences worth stating plainly:
+
+- **A rule is a denial, not a paragraph.** Anything Swarm wants an agent to stop doing is a hook decision here, not prose in a `CLAUDE.md` it may or may not read. This is why the repo-agnostic constraint holds: none of the above needs a file inside the monitored repository.
+- **Discoverability is the open weakness.** The status line is opt-in and `bun run setup` does not mention it, so a machine onboarded the normal way silently never gets a footer. `swarm doctor` reports the gap; nothing else does.
+
+---
+
+## F. Design constraints shared by all four
 
 - Same nouns, same verbs, same error texts. A denial in the session log, the CLI and the MCP result is the same sentence.
 - Nothing destructive without a typed confirmation in the UI or `--force` in the CLI; both are logged as incidents.
 - Every list is filterable by project and copyable as JSON.
 - The dashboard never invents state the CLI can't show: if you can't get it from `swarm status --json`, it doesn't belong in the UI.
+- Anything that has to reach a session *mid-task* goes in section E. A capability that only exists in the dashboard is a capability the agent doing the work will never see.

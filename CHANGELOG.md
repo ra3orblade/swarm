@@ -4,6 +4,22 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- **Markdown renders as markdown.** Everything an agent writes is markdown, and until now the
+  dashboard showed the source: a session-log line arrived with its asterisks and backticks intact,
+  and a fenced code block was a wall of text between two rows of backticks. Assistant and subagent
+  turns are now rendered — paragraphs, headings, bullet and numbered lists, fenced code, quotes,
+  tables, inline code, bold, links. Where there is room for
+  one line and no more (Fleet's *now* column, search snippets, the prompt/question/answer/message
+  summaries) the marks come off instead, because a `<b>` inside a one-line cell is just noise.
+
+- **What's New reads like release notes.** The panel used to inject HTML generated from
+  `CHANGELOG.md` at build time, which wrapped every *source* line in its own paragraph — a
+  sentence the changelog had wrapped arrived as three. It now ships the changelog's markdown and
+  renders it with the same renderer as the log. The renderer builds elements and checks every
+  link, so text a model wrote never reaches `dangerouslySetInnerHTML`.
+
 ### Fixed
 
 - **Sessions that died without a `SessionEnd` no longer haunt the dashboard.** A session's row only
