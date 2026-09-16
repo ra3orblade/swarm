@@ -20,6 +20,31 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   renders it with the same renderer as the log. The renderer builds elements and checks every
   link, so text a model wrote never reaches `dangerouslySetInnerHTML`.
 
+### Fixed
+
+- **Sessions that died without a `SessionEnd` no longer haunt the dashboard.** A session's row only
+  reached `ended` when the hook fired, so a closed terminal, a crash, a reboot or a slept laptop
+  left it non-ended for ever — `idle` is a display label with no upper bound, and Fleet was listing
+  sessions last seen days ago as though they were live. `sweepStaleSessions()` now ends anything
+  that has gone `SESSION_STALE_MS` (6 hours) without a single event, on daemon boot and once a
+  minute, stamping `ended_at` with the moment the session was last actually heard from rather than
+  the moment the sweep noticed. It covers every agent, not only the hook-driven ones: `ingestLog`
+  gives up on a transcript it can no longer read, which strands Codex / Grok / Gemini rows the same
+  way. On one real machine this ended 11 of 15 stranded sessions, the oldest last seen 25 days
+  earlier, and left every genuinely live one alone.
+- **`leadSession` and `sessionForTask` can no longer resolve to a dead session.** Both selected on
+  `state != 'ended'` with no time bound, so once every real session had ended cleanly a stranded
+  one won the `ORDER BY last_seen_at` and messages addressed to the project went nowhere.
+- **A cancelled task is no longer offered as work.** `statusOf` only recognised "done" and "active";
+  everything else fell through to `todo`, so a row marked `❌ dropped` came back `ready: true`, sat
+  in the Board's **Ready** lane with a green badge, and was eligible for `nextTask`,
+  `swarm_next_task` and dispatch — Swarm would hand an agent work the backlog had explicitly
+  cancelled. `dropped` is now its own `TaskStatus` (`❌`, `🚫`, `[-]`, `~~struck~~`, "cancelled",
+  "wontfix", "abandoned", …): never ready, rejected by dispatch with the reason `dropped`, shown
+  with a **Dropped** badge, and excluded from the open count. A dropped *dependency* counts as
+  resolved, so it does not block its dependents for ever. Linear's `canceled` issues map to
+  `dropped` rather than `done`.
+
 ## [0.14.0] — 2026-09-12
 
 The **Act** release: Swarm stops only watching agents and starts steering them — every new

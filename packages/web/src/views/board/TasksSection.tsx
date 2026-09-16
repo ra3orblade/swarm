@@ -5,7 +5,7 @@
  * "Ready" is the useful filter and the default: todo, dependencies done, nobody holding it. It is
  * the only list that answers "what can I start right now".
  */
-import type { TaskView } from "@swarm/core/tasks";
+import { isResolved, type TaskView } from "@swarm/core/tasks";
 import { useState } from "react";
 import { claimTask, runGates } from "../../api/actions";
 import { type Column, DataGrid } from "../../components/DataGrid";
@@ -21,6 +21,7 @@ type Filter = "ready" | "open" | "all";
 function StateBadge({ task }: { task: TaskView }) {
   if (task.claimedBy) return <Badge tone="ok">Held · {task.claimedBy}</Badge>;
   if (task.status === "done") return <Badge>Done</Badge>;
+  if (task.status === "dropped") return <Badge>Dropped</Badge>;
   if (task.status === "active") return <Badge tone="acc">In progress</Badge>;
   return task.ready ? <Badge tone="ok">Ready</Badge> : <Badge>Blocked</Badge>;
 }
@@ -37,7 +38,9 @@ const DONE_CAP = 6;
 
 function lane(task: TaskView): Lane {
   if (task.claimedBy) return "held";
-  if (task.status === "done") return "done";
+  // Dropped sits with done: it is finished with, and showing it as Ready is what let an agent
+  // be handed work the backlog had explicitly cancelled.
+  if (isResolved(task)) return "done";
   if (task.ready) return "ready";
   return task.status === "active" ? "held" : "blocked";
 }
@@ -98,7 +101,7 @@ function rank(task: TaskView): number {
   if (task.claimedBy) return 0;
   if (task.ready) return 1;
   if (task.status === "active") return 2;
-  return task.status === "done" ? 4 : 3;
+  return isResolved(task) ? 4 : 3;
 }
 
 const COLUMNS: Column<TaskView>[] = [
@@ -196,7 +199,7 @@ export function TasksSection({
   }
 
   const ready = tasks.filter((t) => t.ready);
-  const open = tasks.filter((t) => t.status !== "done");
+  const open = tasks.filter((t) => !isResolved(t));
   const shown = filter === "ready" ? ready : filter === "open" ? open : tasks;
   const chips: [Filter, string, number][] = [
     ["ready", "Ready", ready.length],
@@ -317,7 +320,13 @@ function openTaskMenu(
                 },
               ]),
         ]
-      : [{ label: task.status === "done" ? "Done" : "Blocked", disabled: true }];
+      : [
+          {
+            label:
+              task.status === "done" ? "Done" : task.status === "dropped" ? "Dropped" : "Blocked",
+            disabled: true,
+          },
+        ];
 
   openMenu(
     anchor,
