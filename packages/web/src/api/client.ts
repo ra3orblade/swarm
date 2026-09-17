@@ -144,13 +144,17 @@ export async function send<T>(
   return (await response.json()) as T;
 }
 
-/** Build a query string from parameters, dropping the ones that are absent. */
+/**
+ * Build a query string from parameters, dropping the ones that are absent. A list becomes a
+ * repeated key (`expand=a&expand=b`), which is what Hono's `queries()` reads.
+ */
 export function query(
-  params: Record<string, string | number | boolean | null | undefined>,
+  params: Record<string, string | number | boolean | null | undefined | readonly string[]>,
 ): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== null && value !== undefined && value !== "") search.set(key, String(value));
+    if (Array.isArray(value)) for (const v of value) search.append(key, v);
+    else if (value !== null && value !== undefined && value !== "") search.set(key, String(value));
   }
   const rendered = search.toString();
   return rendered ? `?${rendered}` : "";

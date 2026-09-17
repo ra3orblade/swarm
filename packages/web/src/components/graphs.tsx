@@ -11,6 +11,7 @@
  * read at a glance, and shows asymmetry (A→B far heavier than B→A) as a visibly lopsided pair.
  */
 import { agentColor, agentName } from "../lib/agents";
+import { textWidth, uiFontFamily } from "../lib/measure";
 
 /** A node on the left: a session, or whoever is holding something. */
 export interface HolderNode {
@@ -148,7 +149,8 @@ export interface MatrixEdge {
 
 const CELL = 26;
 const ROW_LABEL_W = 150;
-const COL_LABEL_H = 96;
+const COL_LABEL_PX = 10.5;
+const COL_LABEL_TILT = 55;
 
 export function Matrix({
   tools,
@@ -162,8 +164,13 @@ export function Matrix({
   if (tools.length === 0) return null;
   const at = new Map(edges.map((e) => [`${e.from} ${e.to}`, e]));
   const heaviest = edges.reduce((m, e) => Math.max(m, e.weight), 0);
+  // The column labels are rotated, so the header is as tall as the longest one is long, scaled by
+  // the tilt. A fixed height clipped `tabs_context_mcp` at the top of the card.
+  const font = `${COL_LABEL_PX}px ${uiFontFamily()}`;
+  const longest = Math.max(0, ...tools.map((t) => textWidth(label(t), font)));
+  const colLabelH = Math.ceil(longest * Math.sin((COL_LABEL_TILT * Math.PI) / 180)) + 14;
   const width = ROW_LABEL_W + tools.length * CELL + 8;
-  const height = COL_LABEL_H + tools.length * CELL + 8;
+  const height = colLabelH + tools.length * CELL + 8;
 
   return (
     <div className="matrix-scroll">
@@ -178,8 +185,8 @@ export function Matrix({
         {tools.map((tool, i) => (
           <text
             key={tool}
-            transform={`translate(${ROW_LABEL_W + i * CELL + CELL / 2} ${COL_LABEL_H - 6}) rotate(-55)`}
-            fontSize={10.5}
+            transform={`translate(${ROW_LABEL_W + i * CELL + CELL / 2} ${colLabelH - 6}) rotate(-${COL_LABEL_TILT})`}
+            fontSize={COL_LABEL_PX}
             fill="var(--dim)"
             textAnchor="start"
           >
@@ -190,7 +197,7 @@ export function Matrix({
           <g key={from}>
             <text
               x={ROW_LABEL_W - 8}
-              y={COL_LABEL_H + r * CELL + CELL / 2 + 3.5}
+              y={colLabelH + r * CELL + CELL / 2 + 3.5}
               fontSize={11}
               fill="var(--fg-2)"
               textAnchor="end"
@@ -201,7 +208,7 @@ export function Matrix({
               <Cell
                 key={to}
                 x={ROW_LABEL_W + c * CELL}
-                y={COL_LABEL_H + r * CELL}
+                y={colLabelH + r * CELL}
                 edge={at.get(`${from} ${to}`)}
                 heaviest={heaviest}
                 diagonal={from === to}

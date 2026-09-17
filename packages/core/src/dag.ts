@@ -56,11 +56,18 @@ export interface DagOptions {
   passes: number;
   /** Previous ordering (`id -> order`) to seed from, so live updates stay stable. */
   seed?: Record<string, number>;
+  /**
+   * How rows are assigned. `layer` centres every layer against the widest one — right for a
+   * general DAG. `tree` walks each root depth-first and gives a node the row of its first child, so
+   * a parent sits level with what it started and the edge between them is a straight line; a
+   * forest of hubs with a fan each reads as a tree instead of two columns joined by a bundle.
+   */
+  align: "layer" | "tree";
 }
 
 // dy must match the renderer's row height in viz.dag, or the drawn canvas is sized for spacing it
 // is not using and the last rows fall outside it.
-export const DAG_DEFAULTS: DagOptions = { dx: 190, dy: 34, passes: 2 };
+export const DAG_DEFAULTS: DagOptions = { dx: 190, dy: 34, passes: 2, align: "layer" };
 
 /** Stable key for an edge; ids are opaque, so the separator must be one they cannot contain. */
 const edgeKey = (from: string, to: string): string => JSON.stringify([from, to]);
@@ -189,22 +196,84 @@ export function layoutDag(
     }
   }
 
-  const widest = Math.max(1, ...groups.map((g) => g.length));
   const placed: PositionedNode[] = [];
-  groups.forEach((group, l) => {
-    // Centre each layer vertically against the widest one, so the picture is not top-heavy.
-    const offset = ((widest - group.length) * o.dy) / 2;
-    group.forEach((id, i) => {
-      placed.push({ id, layer: l, order: i, x: l * o.dx, y: offset + i * o.dy });
+  let rows: number;
+  if (o.align === "tree") {
+    const row = treeRows(groups, forward);
+    rows = Math.max(0, ...row.values()) + 1;
+    groups.forEach((group, l) => {
+      // Within a layer, order follows the row; the barycenter order only chose the DFS order.
+      const byRow = [...group].sort((a, b) => (row.get(a) ?? 0) - (row.get(b) ?? 0));
+      byRow.forEach((id, i) => {
+        placed.push({ id, layer: l, order: i, x: l * o.dx, y: (row.get(id) ?? 0) * o.dy });
+      });
     });
-  });
+  } else {
+    rows = Math.max(1, ...groups.map((g) => g.length));
+    groups.forEach((group, l) => {
+      // Centre each layer vertically against the widest one, so the picture is not top-heavy.
+      const offset = ((rows - group.length) * o.dy) / 2;
+      group.forEach((id, i) => {
+        placed.push({ id, layer: l, order: i, x: l * o.dx, y: offset + i * o.dy });
+      });
+    });
+  }
   placed.sort((a, b) => a.layer - b.layer || a.order - b.order);
 
   return {
     nodes: placed,
     edges: clean.map((e) => ({ ...e, back: isBack(e) })),
     width: maxLayer * o.dx,
-    height: Math.max(0, (widest - 1) * o.dy),
+    height: Math.max(0, (rows - 1) * o.dy),
     layers: maxLayer + 1,
   };
+}
+
+/**
+ * Rows for `align: "tree"`: a depth-first walk from every node in layer order, where a node takes
+ * the next free row and its first unplaced child shares it. Every leaf costs one row and nothing
+ * else does, so the picture is exactly as tall as it has leaves. A node with two parents belongs
+ * to whichever the walk reached first; the other edge simply bends to it.
+ */
+function treeRows(groups: string[][], forward: DagEdge[]): Map<string, number> {
+  const children = new Map<string, string[]>();
+  for (const e of forward) children.set(e.from, [...(children.get(e.from) ?? []), e.to]);
+  // Children in their own layer's order, so siblings keep the crossing-reduced arrangement.
+  const rank = new Map<string, number>();
+  for (const [l, group] of groups.entries())
+    for (const [i, id] of group.entries()) rank.set(id, l * 1e6 + i);
+  for (const list of children.values())
+    list.sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0));
+
+  const row = new Map<string, number>();
+  let next = 0;
+  const place = (start: string) => {
+    // Explicit stack, as in `findBackEdges`: a long chain must not recurse.
+    const stack: Array<{ id: string; i: number; leaf: boolean }> = [
+      { id: start, i: 0, leaf: true },
+    ];
+    row.set(start, next);
+    while (stack.length) {
+      const top = stack[stack.length - 1] as { id: string; i: number; leaf: boolean };
+      const kids = children.get(top.id) ?? [];
+      let advanced = false;
+      while (top.i < kids.length) {
+        const kid = kids[top.i++] as string;
+        if (row.has(kid)) continue;
+        // The first child shares its parent's row; each leaf below closes one, so by the time a
+        // later sibling is reached `next` already points past everything the earlier one used.
+        top.leaf = false;
+        row.set(kid, next);
+        stack.push({ id: kid, i: 0, leaf: true });
+        advanced = true;
+        break;
+      }
+      if (advanced) continue;
+      stack.pop();
+      // A leaf closes its row. A parent whose children all took rows already closed the last one.
+      if (top.leaf) next++;
+    }
+  };
+  for (const group of groups) for (const id of group) if (!row.has(id)) place(id);
+  return row;
 }

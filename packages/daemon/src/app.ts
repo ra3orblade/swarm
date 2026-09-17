@@ -9,6 +9,7 @@ import {
   formatAudit,
   formatHandoff,
   hookCoverage,
+  type LineageNode,
   MEMORY_KINDS,
   type MemoryKind,
   type OutcomePR,
@@ -236,15 +237,6 @@ export function createApp(
   app.get("/v1/graphs/collisions", (c) =>
     c.json(store.collisions(c.req.query("project") || undefined)),
   );
-  app.get("/v1/graphs/lineage", (c) =>
-    c.json(
-      store.lineage(
-        c.req.query("project") || undefined,
-        Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
-        c.req.queries("expand") ?? [],
-      ),
-    ),
-  );
   app.get("/v1/rules/effect", (c) =>
     c.json(
       store.ruleEffect(
@@ -386,6 +378,25 @@ export function createApp(
   app.get("/v1/outcomes", async (c) =>
     c.json(await outcomesFor(c.req.query("project") || undefined)),
   );
+  // M9.13 promised the lineage nodes their outcome "once M9.2 lands"; the ring around a node is
+  // that outcome. It comes from the cached join — a graph must never wait on `gh`.
+  app.get("/v1/graphs/lineage", async (c) => {
+    const project = c.req.query("project") || undefined;
+    const graph = store.lineage(
+      project,
+      Math.max(1, Math.min(90, Number(c.req.query("days") ?? 14) || 14)),
+      c.req.queries("expand") ?? [],
+    );
+    if (graph.nodes.length === 0) return c.json(graph);
+    const outcome = new Map<string, LineageNode["outcome"]>();
+    const report = await outcomesFor(project, { blocking: false });
+    for (const row of report.branches)
+      if (row.outcome !== "no-pr") for (const id of row.sessions) outcome.set(id, row.outcome);
+    return c.json({
+      ...graph,
+      nodes: graph.nodes.map((n) => ({ ...n, outcome: outcome.get(n.id) ?? n.outcome })),
+    });
+  });
 
   // M9.14 provenance: issue → task → claim → session → worktree → branch → PR → outcome. The
   // branch→PR half is `outcomesFor` above; this adds the task board and the claim ledger in front

@@ -12,6 +12,7 @@
  */
 import type { LineageEdgeKind, LineageGraph, LineageNode } from "@swarm/core/lineage";
 import { agentColor, agentName } from "../lib/agents";
+import { textWidth, uiFontFamily } from "../lib/measure";
 
 /** How each kind of relationship is drawn. Dashes distinguish them without relying on colour. */
 export const EDGE_STYLE: Readonly<Record<string, { color: string; dash: string }>> = {
@@ -29,28 +30,38 @@ export const EDGE_LEGEND: [LineageEdgeKind, string][] = [
   ["handoff", "handed the task on"],
 ];
 
-const OUTCOME_RING: Readonly<Record<string, string>> = {
-  merged: "var(--ok)",
-  reverted: "var(--bad)",
-  open: "var(--warn)",
-};
+/** The ring around a session whose branch has a PR, by what became of it. Exported for the legend. */
+export const OUTCOME_RING: readonly [outcome: string, color: string][] = [
+  ["merged", "var(--ok)"],
+  ["open", "var(--warn)"],
+  ["reverted", "var(--bad)"],
+];
+const ringOf = (outcome: string | null) => OUTCOME_RING.find(([o]) => o === outcome)?.[1] ?? null;
 
 const NODE_W = 190;
 const ROW_H = 34;
 const PAD = 20;
-/** Rough advance width of the label font, for measuring without a canvas. */
-const CHAR_W = 6.6;
+const LABEL_PX = 11.5;
+/** Inside a group pill: the padding at both ends, the gap before the `+`, and the `+` itself. */
+const PILL_PAD = 9;
+const PILL_GAP = 6;
+const PLUS = 8;
 
 const truncate = (t: string, n = 22) => (t.length <= n ? t : `${t.slice(0, n - 1)}…`);
 const labelOf = (n: LineageNode) => truncate(n.title ?? n.id.slice(0, 8));
+/** The label as drawn: pills are semibold, sessions regular — the width differs by a few px. */
+const labelWidth = (n: LineageNode) =>
+  textWidth(labelOf(n), `${n.groupSize ? 600 : 400} ${LABEL_PX}px ${uiFontFamily()}`);
+/** A pill's width is what it holds, so the `+` sits the same distance from both ends. */
+const pillWidth = (n: LineageNode) => PILL_PAD + labelWidth(n) + PILL_GAP + PLUS + PILL_PAD;
 /** Hubs are drawn larger, so the eye finds the busy sessions first. */
 const radiusOf = (n: LineageNode) => (n.degree > 3 ? 8 : n.degree > 1 ? 6.5 : 5);
 
 export interface DagProps {
   graph: LineageGraph;
   onOpenSession: (id: string) => void;
-  /** Called with the parent id of a collapsed group when it is clicked. */
-  onExpand: (groupOf: string) => void;
+  /** Called with a collapsed group's own id (`group:<parent>:<kind>`) when it is clicked. */
+  onExpand: (groupId: string) => void;
 }
 
 export function Dag({ graph, onOpenSession, onExpand }: DagProps) {
@@ -74,20 +85,10 @@ export function Dag({ graph, onOpenSession, onExpand }: DagProps) {
         const b = byId.get(edge.to);
         if (!a || !b) return null;
         const style = EDGE_STYLE[edge.kind] ?? EDGE_STYLE.handoff;
-        const x1 = labelEnd(a);
-        const y1 = cy(a);
-        const x2 = cx(b) - 8;
-        const y2 = cy(b);
-        // A back edge closed a cycle; it bows the other way so the pair reads as a round trip.
-        const bow = edge.back ? -Math.max(24, Math.abs(y2 - y1) * 0.6) : 0;
-        const mx = (x1 + x2) / 2;
-        const d = edge.back
-          ? `M ${x1} ${y1} C ${mx} ${y1 + bow}, ${mx} ${y2 + bow}, ${x2} ${y2}`
-          : `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
         return (
           <path
             key={`${edge.from}->${edge.to}:${edge.kind}:${edge.at}`}
-            d={d}
+            d={edgePath(a, b, edge.back)}
             fill="none"
             stroke={style?.color}
             strokeWidth={edge.back ? 1 : 1.6}
@@ -110,6 +111,24 @@ export function Dag({ graph, onOpenSession, onExpand }: DagProps) {
   );
 }
 
+/** The path from after `a`'s label to just before `b`'s dot or pill. */
+function edgePath(a: LineageNode, b: LineageNode, back: boolean): string {
+  const x1 = labelEnd(a);
+  const y1 = cy(a);
+  const x2 = cx(b) - (b.groupSize ? 10 : radiusOf(b) + 4);
+  const y2 = cy(b);
+  const mx = (x1 + x2) / 2;
+  // A back edge closed a cycle; it bows the other way so the pair reads as a round trip.
+  if (back) {
+    const bow = -Math.max(24, Math.abs(y2 - y1) * 0.6);
+    return `M ${x1} ${y1} C ${mx} ${y1 + bow}, ${mx} ${y2 + bow}, ${x2} ${y2}`;
+  }
+  // Level with its parent (the tree layout's first child): a straight line, not a curve that
+  // wobbles through two control points on the same row.
+  if (Math.abs(y2 - y1) < 1) return `M ${x1} ${y1} L ${x2} ${y2}`;
+  return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+}
+
 /** A node's centre. The layout gives a top-left corner; everything here draws from the middle. */
 function cx(n: LineageNode): number {
   return PAD + n.x + 7;
@@ -121,8 +140,7 @@ function cy(n: LineageNode): number {
 
 /** Where a node's label ends — an edge must leave from beyond it, or it strikes through the text. */
 function labelEnd(n: LineageNode): number {
-  const text = labelOf(n);
-  const w = n.groupSize ? text.length * CHAR_W + 26 : radiusOf(n) + 6 + text.length * CHAR_W;
+  const w = n.groupSize ? pillWidth(n) - 7 : radiusOf(n) + 6 + labelWidth(n);
   return cx(n) + w + 6;
 }
 
@@ -132,11 +150,17 @@ function labelEnd(n: LineageNode): number {
  */
 function GroupPill({ node, onExpand }: { node: LineageNode; onExpand: (id: string) => void }) {
   const label = labelOf(node);
-  const w = label.length * CHAR_W + 26;
-  const expand = () => node.groupOf && onExpand(node.groupOf);
+  const w = pillWidth(node);
+  const left = cx(node) - 7;
+  // The `+` is two strokes on the row's centre line, not a glyph: a text `+` sits on the font's
+  // math axis, which is not the middle of the pill, and its advance width is the font's to decide.
+  const plusX = left + w - PILL_PAD - PLUS / 2;
+  // The engine matches `expand` against the group's id, not its parent's. Sending the parent
+  // meant the pill never opened, whatever the legend promised.
+  const expand = () => onExpand(node.id);
   return (
     <g
-      data-tip={`${label} — click to expand`}
+      data-tip={groupTip(node)}
       className="dag-node"
       role="button"
       tabIndex={0}
@@ -147,7 +171,7 @@ function GroupPill({ node, onExpand }: { node: LineageNode; onExpand: (id: strin
       }}
     >
       <rect
-        x={cx(node) - 7}
+        x={left}
         y={cy(node) - 10}
         width={w}
         height={20}
@@ -157,12 +181,22 @@ function GroupPill({ node, onExpand }: { node: LineageNode; onExpand: (id: strin
         strokeWidth={1}
         opacity={0.95}
       />
-      <text x={cx(node) + 6} y={cy(node) + 4} fontSize={11.5} fontWeight={600} fill="var(--acc)">
+      <text
+        x={left + PILL_PAD}
+        y={cy(node) + 4}
+        fontSize={LABEL_PX}
+        fontWeight={600}
+        fill="var(--acc)"
+      >
         {label}
       </text>
-      <text x={cx(node) + w - 16} y={cy(node) + 4} fontSize={11} fill="var(--acc)">
-        +
-      </text>
+      <path
+        d={`M ${plusX - PLUS / 2} ${cy(node)} H ${plusX + PLUS / 2} M ${plusX} ${cy(node) - PLUS / 2} V ${cy(node) + PLUS / 2}`}
+        stroke="var(--acc)"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        fill="none"
+      />
     </g>
   );
 }
@@ -175,12 +209,18 @@ function nodeTip(node: LineageNode): string {
   return `${node.title ?? node.id.slice(0, 8)}<br><span class='dim'>${meta}</span>`;
 }
 
+/** What the tooltip says about a group: how many it hides, what they cost, that it opens. */
+function groupTip(node: LineageNode): string {
+  const cost = node.costUsd ? ` · $${node.costUsd.toFixed(2)} together` : "";
+  return `${labelOf(node)}<br><span class='dim'>collapsed${cost} · click to expand</span>`;
+}
+
 /** One session: a dot sized by cost, ringed by its outcome, outlined while it is still running. */
 function SessionNode({ node, onOpen }: { node: LineageNode; onOpen: (id: string) => void }) {
   const label = labelOf(node);
   const live = node.state === "active" || node.state === "waiting";
   const r = radiusOf(node);
-  const ring = node.outcome ? OUTCOME_RING[node.outcome] : null;
+  const ring = ringOf(node.outcome);
   return (
     <g
       className="dag-node"
@@ -217,7 +257,7 @@ function SessionNode({ node, onOpen }: { node: LineageNode; onOpen: (id: string)
       <text
         x={cx(node) + r + 6}
         y={cy(node) + 4}
-        fontSize={11.5}
+        fontSize={LABEL_PX}
         fill="var(--fg-2)"
         stroke="var(--panel)"
         strokeWidth={3}

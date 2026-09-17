@@ -4877,7 +4877,9 @@ export class Store {
       sessions.push({
         id,
         projectId: parent.projectId,
-        title: `subagent ${a.agent_id.slice(0, 8)} · ${a.turns} turn${a.turns === 1 ? "" : "s"}`,
+        // Turns first: the edge already says it is a subagent, and a 22-character label was
+        // cutting off the one number worth reading.
+        title: `${a.turns} turn${a.turns === 1 ? "" : "s"} · ${a.agent_id.slice(0, 8)}`,
         agent: parent.agent,
         kind: "subagent",
         state: "ended",
