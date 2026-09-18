@@ -152,9 +152,6 @@ jobs:
           name: swarm-teamd-binaries
           path: npm-team/bin/*
           if-no-files-found: error
-      - name: Publish @ra3orblade/swarm-team to npm
-        run: npm publish --access public
-        working-directory: npm-team
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -171,11 +168,18 @@ jobs:
           tags: |
             ghcr.io/ra3orblade/swarm-teamd:${{ github.ref_name }}
             ghcr.io/ra3orblade/swarm-teamd:latest
+      # Last, so a package without its trusted-publisher rule yet (the first release) fails only
+      # this step — the image and the binaries still ship.
+      - name: Publish @ra3orblade/swarm-team to npm
+        run: npm publish --access public
+        working-directory: npm-team
 
   team-release-assets:
     # The binaries go on the same draft release tauri-action creates, so wait for it to exist.
     needs: [desktop, team]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # the binaries are an artifact of `team` uploaded before its npm step, so a failed npm publish
+    # must not keep them off the release
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.desktop.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
