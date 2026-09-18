@@ -1,10 +1,21 @@
 import { describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TEAMD_SUMS, teamdAsset } from "@swarm/core";
 import { createApp } from "./app";
 import { Store } from "./store";
-import { hostingStatus, hostTeam, joinTeam, leaveTeam, readSetup } from "./teamctl";
+import {
+  fetchTeamd,
+  hostingStatus,
+  hostTeam,
+  joinTeam,
+  leaveTeam,
+  readSetup,
+  teamdCommand,
+} from "./teamctl";
 
 const home = () => mkdtempSync(join(tmpdir(), "swarm-team-"));
 
@@ -155,5 +166,42 @@ describe("host or join a team from the app (M13.12)", () => {
     } finally {
       team.stop();
     }
+  });
+});
+
+describe("swarm-teamd download (M13.13)", () => {
+  const bytes = new TextEncoder().encode("#!/bin/sh\necho teamd\n");
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const asset = teamdAsset(process.platform, process.arch) ?? "none";
+  const stub = (sums: string, body: Uint8Array) =>
+    (async (url: string) =>
+      String(url).endsWith(TEAMD_SUMS)
+        ? new Response(sums)
+        : String(url).endsWith(asset)
+          ? new Response(body)
+          : new Response("no", { status: 404 })) as unknown as typeof fetch;
+
+  it("installs the binary into ~/.swarm/bin only when the checksum matches", async () => {
+    const store = new Store(mkdtempSync(join(tmpdir(), "swarm-teamd-dl-")));
+    const bad = await fetchTeamd(store, "0.15.0", stub(`${"0".repeat(64)}  ${asset}\n`, bytes));
+    expect(bad).toEqual({ ok: false, error: `checksum mismatch for ${asset} — not installed` });
+    expect(fs.existsSync(join(store.home, "bin"))).toBe(false); // nothing written at all
+
+    const good = await fetchTeamd(store, "0.15.0", stub(`${sha}  ${asset}\nffff  other\n`, bytes));
+    expect(good.ok).toBe(true);
+    if (!good.ok) return;
+    expect(fs.readFileSync(good.path, "utf8")).toContain("echo teamd");
+    expect(fs.statSync(good.path).mode & 0o111).not.toBe(0);
+    expect(teamdCommand(store.home)?.source).toMatch(/clone|downloaded/); // a clone wins when present
+  });
+
+  it("the route refuses without the license accepted", async () => {
+    const { app } = createApp(new Store(mkdtempSync(join(tmpdir(), "swarm-teamd-route-"))));
+    const r = await app.request("/v1/team/teamd", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(r.status).toBe(400);
   });
 });

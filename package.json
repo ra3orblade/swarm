@@ -50,7 +50,8 @@
     "desktop:build": "bun tools/desktop.ts --bundle",
     "build:pkg": "bun tools/build-pkg.ts",
     "version:set": "bun tools/version.ts",
-    "check:classes": "bun packages/web/tools/check-classes.ts"
+    "check:classes": "bun packages/web/tools/check-classes.ts",
+    "build:team": "bun tools/build-team.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.9",

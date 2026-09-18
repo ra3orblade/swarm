@@ -1004,6 +1004,11 @@ button.pk-row {
   color: var(--warn);
   border-color: var(--warn-soft);
 }
+/* a setup action that cannot run yet (Host before swarm-teamd is here) must not look ready */
+.setup-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 /* a structured tool input: named fields instead of one truncated line */
 .perm-kv {
   margin: 6px 0 8px;

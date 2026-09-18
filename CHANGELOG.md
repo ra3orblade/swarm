@@ -6,6 +6,12 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Host a team without a clone.** The team daemon now ships three ways, each the same version
+  as the app: `npm i -g @ra3orblade/swarm-team`, the `ghcr.io/ra3orblade/swarm-teamd` image,
+  and a `swarm-teamd` binary per platform on every GitHub release. The Team panel shows its
+  license (FSL-1.1-ALv2, source-available, not the app's Apache-2.0) and, once you accept,
+  downloads the binary for your machine, checked against the release's checksums, into
+  `~/.swarm/bin`. It is never bundled into the app.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means
@@ -62,6 +68,8 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Fixed
 
+- **The team daemon kept its database outside `SWARM_HOME`.** `team.toml` followed `SWARM_HOME`,
+  `team.db` did not; it now sits beside the settings wherever they are.
 - **A session's log no longer shows `<task-notification>` and calls it "you".** Claude Code fires
   `UserPromptSubmit` for more than what a person types: a background task finishing, a subagent
   handing back its report and a message from another session all arrive as prompts, wrapped in a

@@ -1,0 +1,4 @@
+# M13.13: the swarm-teamd image needs only the built bundle (packages/team/Dockerfile)
+*
+!npm-team/dist/swarm-teamd.js
+!npm-team/LICENSE.md

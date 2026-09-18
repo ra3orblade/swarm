@@ -38,19 +38,33 @@ const SHARED_WEB = (() => {
   return existsSync(join(dev, "table.js")) ? dev : join(HERE, "../web");
 })();
 
+/**
+ * M13.13: a compiled `swarm-teamd` binary has no files beside it, so `tools/build-team.ts` puts
+ * the page's assets on `globalThis` before this module loads. A clone or an npm install reads
+ * them from disk as before.
+ */
+const EMBEDDED =
+  (globalThis as { __SWARM_TEAM_ASSETS?: Record<string, string> }).__SWARM_TEAM_ASSETS ?? null;
+const asset = (dir: string, f: string): string | null => {
+  const p = join(dir, f);
+  if (existsSync(p)) return readFileSync(p, "utf8");
+  return EMBEDDED?.[f] ?? null;
+};
+
 export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   const app = new Hono<Vars>();
 
   // ---------- dashboard shell (static, holds no data — everything comes from authed /t1/state)
-  app.get("/", (c) => c.html(readFileSync(join(TEAM_WEB, "index.html"), "utf8")));
+  app.get("/", (c) => {
+    const html = asset(TEAM_WEB, "index.html");
+    return html === null ? c.text("team page not found", 404) : c.html(html);
+  });
   const MIME: Record<string, string> = { js: "text/javascript", css: "text/css" };
   app.get("/:file{[a-z0-9-]+\\.(js|css)}", (c) => {
     const f = c.req.param("file");
-    const own = join(TEAM_WEB, f);
-    const shared = join(SHARED_WEB, f);
-    const p = existsSync(own) ? own : shared;
-    if (!existsSync(p)) return c.text("not found", 404);
-    return c.body(readFileSync(p, "utf8"), 200, {
+    const body = asset(TEAM_WEB, f) ?? asset(SHARED_WEB, f);
+    if (body === null) return c.text("not found", 404);
+    return c.body(body, 200, {
       "content-type": MIME[f.split(".").pop() ?? ""] ?? "text/plain",
     });
   });

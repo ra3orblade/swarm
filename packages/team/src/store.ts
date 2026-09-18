@@ -81,7 +81,11 @@ CREATE TABLE IF NOT EXISTS spend_tasks (
 `;
 
 export function defaultDbPath(): string {
-  return process.env.SWARM_TEAM_DB ?? join(homedir(), ".swarm", "team.db");
+  // beside team.toml: SWARM_HOME moves both (the container keeps them on its /data volume)
+  return (
+    process.env.SWARM_TEAM_DB ??
+    join(process.env.SWARM_HOME ?? join(homedir(), ".swarm"), "team.db")
+  );
 }
 
 export class TeamStore {

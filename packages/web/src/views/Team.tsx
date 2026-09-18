@@ -7,6 +7,7 @@
  */
 import { useState } from "react";
 import {
+  fetchTeamd,
   hostTeam,
   joinTeam,
   leaveTeam,
@@ -75,17 +76,40 @@ interface RunProps {
   run: (fn: () => Promise<TeamActionResult>) => void;
 }
 
-function HostForm({ busy, run }: RunProps) {
+const FSL = "https://github.com/ra3orblade/swarm/blob/main/packages/team/LICENSE.md";
+
+function HostForm({ busy, run, teamd }: RunProps & { teamd: TeamStatus["teamd"] }) {
   const [port, setPort] = useState("7878");
   return (
     <>
       <Section title="Host a team" spaced hint="runs swarm-teamd on this machine" />
       <div className="card card-pad setup">
-        <p>
-          A shared secret is minted for you; every teammate joins with the invite link. The team
-          daemon is source-available (FSL-1.1-ALv2) and ships separately from this Apache-2.0
-          bundle: it runs from a clone, or from <code>swarm-teamd</code> on your PATH.
-        </p>
+        <p>A shared secret is minted for you; every teammate joins with the invite link.</p>
+        {teamd === null ? (
+          <p>
+            Hosting runs <code>swarm-teamd</code>, the team daemon. It is source-available under the{" "}
+            <a href={FSL} target="_blank" rel="noopener noreferrer">
+              Functional Source License (FSL-1.1-ALv2)
+            </a>
+            , not the Apache-2.0 license of this app, so it is not bundled: download it for this
+            machine (about 60 MB, checked against the release&apos;s checksums), or install it
+            yourself — <code>npm i -g @ra3orblade/swarm-team</code>, or the{" "}
+            <code>ghcr.io/ra3orblade/swarm-teamd</code> image on a server.{" "}
+            <button type="button" disabled={busy} onClick={() => run(fetchTeamd)}>
+              {busy ? "Downloading…" : "Accept the license and download"}
+            </button>
+          </p>
+        ) : (
+          <p className="dim">
+            <code>swarm-teamd</code> is here (
+            {teamd === "downloaded"
+              ? "downloaded into ~/.swarm/bin"
+              : teamd === "path"
+                ? "on PATH"
+                : "from this clone"}
+            ); it is source-available under FSL-1.1-ALv2.
+          </p>
+        )}
         <div className="setup-row">
           <label htmlFor="team-port">port</label>
           <input
@@ -98,7 +122,7 @@ function HostForm({ busy, run }: RunProps) {
           <button
             type="button"
             className="ok"
-            disabled={busy}
+            disabled={busy || teamd === null}
             onClick={() => run(() => hostTeam({ mode: "token", port: Number(port) || 7878 }))}
           >
             {busy ? "Starting…" : "Host a team"}
@@ -196,7 +220,7 @@ export function Team() {
         <Leave data={data} busy={busy} run={run} />
       ) : (
         <>
-          <HostForm busy={busy} run={run} />
+          <HostForm busy={busy} run={run} teamd={data.teamd} />
           <JoinForm busy={busy} run={run} />
         </>
       )}

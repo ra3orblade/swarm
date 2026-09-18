@@ -35,7 +35,7 @@ import { worktreeDiff, worktreePatch } from "./git";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
-import { hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
+import { fetchTeamd, hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
 import { WorkflowEngine } from "./workflow";
 
 export const VERSION = process.env.SWARM_VERSION ?? "0.14.0";
@@ -545,6 +545,14 @@ export function createApp(
     };
     const r = await hostTeam(store, b);
     return c.json(r, r.ok ? 201 : 409);
+  });
+  // M13.13: fetch swarm-teamd for this machine — only with the license acknowledged
+  app.post("/v1/team/teamd", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { accept?: unknown };
+    if (b.accept !== true)
+      return c.json({ ok: false, error: "the FSL-1.1-ALv2 license has to be accepted first" }, 400);
+    const r = await fetchTeamd(store, VERSION);
+    return c.json(r, r.ok ? 200 : 502);
   });
   app.post("/v1/team/join", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {

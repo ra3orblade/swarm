@@ -112,3 +112,79 @@ jobs:
       - name: Publish to npm
         run: npm publish --access public
         working-directory: npm
+
+  team:
+    # M13.13 (OQ-27): the team daemon ships beside the free package, never inside it — its own
+    # npm package, a ghcr image, and per-platform binaries the desktop app downloads when someone
+    # chooses to host. FSL-1.1-ALv2. Two one-time steps live outside this file (docs/14): the
+    # first `npm publish` of @ra3orblade/swarm-team is done by hand, after which a trusted-publisher
+    # rule like the one for @ra3orblade/swarm authorizes this job; and the ghcr package is made
+    # public once after its first push.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # ghcr.io/ra3orblade/swarm-teamd
+      id-token: write # npm trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build:team --binaries
+      - name: Tag must match package version
+        run: |
+          PKG=$(node -p "require('./npm-team/package.json').version")
+          test "v$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != npm-team $PKG"; exit 1; }
+      - name: Smoke — the bundle answers health
+        run: |
+          SWARM_HOME="$RUNNER_TEMP/teamd" SWARM_TEAM_PORT=7899 SWARM_TEAM_TOKEN=smoke bun npm-team/dist/swarm-teamd.js &
+          for _ in $(seq 1 30); do curl -sf localhost:7899/t1/health && break; sleep 0.5; done
+          curl -sf localhost:7899/t1/health
+          kill %1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swarm-teamd-binaries
+          path: npm-team/bin/*
+          if-no-files-found: error
+      - name: Publish @ra3orblade/swarm-team to npm
+        run: npm publish --access public
+        working-directory: npm-team
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/team/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/ra3orblade/swarm-teamd:${{ github.ref_name }}
+            ghcr.io/ra3orblade/swarm-teamd:latest
+
+  team-release-assets:
+    # The binaries go on the same draft release tauri-action creates, so wait for it to exist.
+    needs: [desktop, team]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: swarm-teamd-binaries
+          path: bin
+      - name: Attach swarm-teamd binaries to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" bin/* --clobber --repo "$GITHUB_REPOSITORY"

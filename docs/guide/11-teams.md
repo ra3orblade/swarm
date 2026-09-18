@@ -14,14 +14,27 @@ and hands you an **invite link**. A teammate opens their own Team panel, pastes 
 **Join a team**, and that is the whole setup — no terminal, no exported secrets on either side.
 
 The team daemon is source-available (FSL-1.1-ALv2) and ships separately from the Apache-2.0
-bundle, so hosting needs it present: run Swarm from a clone, or put `swarm-teamd` on your PATH.
-The panel says so, and names the log, when it cannot start one.
+app, so it is never bundled. When it is not on the machine yet, the Team panel says so, links the
+license, and offers **Accept the license and download**: Swarm fetches the `swarm-teamd` binary
+for your platform from the GitHub release that matches its own version, checks it against the
+release's `swarm-teamd-SHA256SUMS`, and keeps it in `~/.swarm/bin`. A clone or a `swarm-teamd` on
+your PATH is used as it is. The panel names the log when a daemon cannot start.
 
 Leaving is on the same panel: **Leave the team** stops forwarding (your ledger, claims and
 worktrees are untouched), and **Leave and stop hosting** also stops the daemon this machine
 started — by pid, never by pattern.
 
 ## Running the team daemon yourself
+
+Three ways to get it, all the same version as the app:
+
+```sh
+npm i -g @ra3orblade/swarm-team     # needs Bun; puts swarm-teamd on PATH
+docker run -d -p 7878:7878 -v swarm-team:/data -e SWARM_TEAM_TOKEN=… ghcr.io/ra3orblade/swarm-teamd
+# or the swarm-teamd-<os>-<arch> binary from the GitHub release (the one the app downloads)
+```
+
+The image keeps `team.toml` and `team.db` on its `/data` volume; `docker run -it -v swarm-team:/data ghcr.io/ra3orblade/swarm-teamd setup` writes the settings once.
 
 ```sh
 swarm-teamd setup                   # interactive: mode, port, secret → ~/.swarm/team.toml
