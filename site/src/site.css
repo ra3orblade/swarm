@@ -143,18 +143,37 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
 .demo .replay:hover{color:var(--fg);border-color:var(--acc)}
 .hero .demo{margin:36px 0 0;text-align:left}
 
-/* The clips. One <video> and three tabs rather than three autoplaying at once: the page
-   already runs a canvas, and three simultaneous decodes on a phone is how a landing page
-   ends up janky. Recorded from `swarm demo` by tools/reel.ts — invented projects, real app. */
-/* <figure> carries the UA's 40px side margin, which indents it out of line with the terminal. */
-.reel{margin:22px 0 0}
-.reel .tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
-.reel .tabs button{font:500 12.5px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 14px;cursor:pointer}
-.reel .tabs button:hover{color:var(--fg)}
-.reel .tabs button[aria-selected=true]{color:var(--acc-contrast);background:var(--acc);border-color:var(--acc)}
-.reel .frame{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
-.reel video{display:block;width:100%;height:auto;background:#0c0e12}
-.reel figcaption{font-size:13px;color:var(--dim);padding:10px 13px;border-top:1px solid var(--line-2)}
+/* ── screenshots: carousel + lightbox ──────────────────────────────────────── */
+.gal{margin:44px auto 0;max-width:980px;position:relative}
+.gal .track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px}
+.gal .track::-webkit-scrollbar{display:none}
+.gal figure{flex:0 0 100%;scroll-snap-align:center;margin:0;cursor:zoom-in}
+.gal img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);background:var(--panel)}
+.gal figcaption{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.5;text-align:center}
+.gal figcaption b{color:var(--fg-2);font-weight:600}
+.gal .arr{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s;z-index:2;padding:0;font:inherit}
+.gal .arr:hover{opacity:1;border-color:var(--acc);color:var(--acc)}
+.gal .arr.l{left:-20px}
+.gal .arr.r{right:-20px}
+.gal .arr svg{width:18px;height:18px}
+.gal .dots{display:flex;justify-content:center;gap:8px;margin-top:14px}
+.gal .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s,transform .15s}
+.gal .dots i.on{background:var(--acc);transform:scale(1.25)}
+@media (max-width:1040px){.gal .arr.l{left:6px}.gal .arr.r{right:6px}}
+
+.lb{position:fixed;inset:0;background:rgba(6,8,11,.94);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;padding:28px}
+.lb.open{display:flex}
+.lb img{max-width:min(1600px,100%);max-height:calc(100vh - 110px);width:auto;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.lb .cap{color:var(--dim);margin-top:14px;font-size:14px;text-align:center}
+.lb .cap b{color:var(--fg)}
+.lb .x,.lb .n{position:absolute;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;font:inherit}
+.lb .x{top:18px;right:18px}
+.lb .n{top:calc(50% - 22px)}
+.lb .n.l{left:18px}
+.lb .n.r{right:18px}
+.lb .x:hover,.lb .n:hover{border-color:var(--acc);color:var(--acc)}
+.lb .x svg,.lb .n svg{width:20px;height:20px}
 
 /* ── the closing ask ───────────────────────────────────────────────────────── */
 .band{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:26px 24px;text-align:center}

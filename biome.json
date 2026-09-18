@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/*.tsbuildinfo", "!packages/web/public"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/*.tsbuildinfo",
+      "!packages/web/public",
+      "!site/src/index.html"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
@@ -26,6 +33,19 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["site/src/**"],
+      "formatter": {
+        "enabled": false
+      },
+      "linter": {
+        "rules": {
+          "style": {
+            "noDescendingSpecificity": "off"
+          }
+        }
+      }
+    },
     {
       "includes": [
         "packages/web/src/components/Dag.tsx",

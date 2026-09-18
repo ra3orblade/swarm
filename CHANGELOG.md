@@ -14,6 +14,35 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   Codex's `apply_patch` is checked file by file. None of these agents can ask from a hook, so a
   rule set to `ask` refuses there and tells the agent to hand the command to you. The Rules view
   and `swarm doctor` show where the rules hold.
+- **Five rules for the commands nobody can take back.** `destructive_fs` (`rm -rf` of `/`, `~`,
+  `..`, `"$VAR"/` or anything outside the repo; `mkfs`; `dd` onto a device), `destructive_infra`
+  (`terraform destroy`, `kubectl delete ns`, `helm uninstall`, cloud deletes, SQL `DROP` /
+  `TRUNCATE`), `pipe_to_shell` (`curl … | sh`), `secrets` (reading, printing or copying `.env`,
+  keys and cloud credentials — the `Read` tool included — and writing `.env*` / key files) and
+  `config_tamper` (editing Claude Code's settings, `~/.swarm`, `.swarm.toml`, or `swarm uninstall`).
+  All five ship **off**. Meanwhile the Security view shows what each would have caught, with an
+  example and its current mode, so you can see whether turning one on stops something real
+  before you do. Set any of them to `"ask"` or `"deny"` under `[rules]`; an org policy can lock
+  them, and then the hook enforces them even with the daemon down.
+- **Worktrees Claude Code makes are claimed too.** A session started with `claude --worktree`,
+  a subagent with `isolation: "worktree"` or a background session works in a worktree Claude Code
+  created under `<repo>/.claude/worktrees/`, and the ledger used to know nothing about it. Now the
+  first hook from inside one claims it as `cc/<name>` for that session: the status line shows it,
+  the session is told what it holds at startup, and another session writing
+  into it gets the same `no_foreign_worktree` question as for any claimed worktree. The claim
+  ends when the session does. Swarm never removes these worktrees — releasing, reaping and
+  `swarm wt gc` only end the record; whether the directory stays is Claude Code's call.
+- **Three strikes, and Swarm says what it knows.** When a Claude Code session runs the same
+  failing Bash command a third time, the failure comes back with the verify command from the
+  held task's handoff and the lesson from any incident on the same command — through the
+  `PostToolUseFailure` hook, which Swarm now installs (re-run `swarm install`; `swarm doctor`
+  lists it as missing until you do). It speaks once per command, and not at all when it has
+  nothing to add. A failed call now shows in the session log as *failed*.
+- **A compacted session is told again what it holds.** Compaction drops the context Swarm gave a
+  session at startup. Claude Code fires `SessionStart` again with `source: "compact"` after it
+  compacts, and Swarm's answer now leads with *context was compacted* before the held task, the
+  lease, the handoff and the rules — so the agent knows it is being reminded, not told something
+  new.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means
