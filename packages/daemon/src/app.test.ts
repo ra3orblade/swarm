@@ -867,6 +867,126 @@ describe("handoffs + SessionStart context (M1.3)", () => {
   });
 });
 
+describe("compaction memory + failure coaching (M13.9)", () => {
+  const setup = () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-coach-")));
+    const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    sh("git", "init", "-q", "-b", "main");
+    sh("git", "config", "user.email", "t@t");
+    sh("git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    sh("git", "add", "README.md");
+    sh("git", "commit", "-qm", "init");
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "parser", "alice");
+    if (!c.ok) throw new Error(c.error);
+    const hook = async (event: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hook_event_name: event, ...body }),
+        })
+      ).json()) as {
+        additionalContext?: string;
+        hookSpecificOutput?: { additionalContext?: string };
+      };
+    return { app, store, p, worktree: c.worktree, hook };
+  };
+
+  it("says the held context again after a compaction, and why", async () => {
+    const { store, p, worktree, hook } = setup();
+    const start = await hook("SessionStart", {
+      session_id: "s1",
+      cwd: worktree,
+      source: "startup",
+    });
+    expect(start.additionalContext).toContain("you hold parser");
+    expect(start.additionalContext).not.toContain("compacted");
+    const after = await hook("SessionStart", {
+      session_id: "s1",
+      cwd: worktree,
+      source: "compact",
+    });
+    expect(after.additionalContext?.split("\n")[0]).toContain("context was compacted");
+    expect(after.additionalContext).toContain("you hold parser");
+    expect(after.hookSpecificOutput?.additionalContext).toBe(after.additionalContext);
+    store.release(p.id, "parser", true);
+  });
+
+  it("coaches on the third failure of the same command, once, with the handoff's verify line", async () => {
+    const { store, p, worktree, hook } = setup();
+    store.recordHandoff(p.id, {
+      task: "parser",
+      done: "tokenizer",
+      remaining: "trailing commas",
+      verify: "bun test src/parser.test.ts",
+      by: "alice",
+    });
+    const fail = (command: string, n = 0) =>
+      hook("PostToolUseFailure", {
+        session_id: "s2",
+        cwd: worktree,
+        tool_name: "Bash",
+        tool_input: { command },
+        tool_use_id: `t${n}`,
+        error: "Exit code 1\nerror: 3 tests failed",
+      });
+    expect((await fail("bun test", 1)).additionalContext).toBeUndefined();
+    expect((await fail("bun   test ", 2)).additionalContext).toBeUndefined(); // spacing differs
+    expect((await fail("bun run lint", 3)).additionalContext).toBeUndefined(); // another command
+    const third = await fail("bun test", 4);
+    expect(third.additionalContext).toContain("`bun test` has failed 3 times");
+    expect(third.additionalContext).toContain("verify with: bun test src/parser.test.ts");
+    expect(third.hookSpecificOutput?.additionalContext).toBe(third.additionalContext);
+    expect((await fail("bun test", 5)).additionalContext).toBeUndefined(); // said once
+    // the failure closed the call like a completion does, and says how it ended
+    const done = store.sessionEvents("s2").filter((e) => e.type === "tool.completed");
+    expect(done).toHaveLength(5);
+    expect(done[0]?.payload).toMatchObject({ failed: true, tool: "Bash" });
+    expect((done[0]?.payload as { summary?: string } | undefined)?.summary).toContain("failed");
+    store.release(p.id, "parser", true);
+  });
+
+  it("stays silent with nothing to add and on interrupts; a matching incident's lesson counts", async () => {
+    const { store, p, hook } = setup();
+    const fail = (session: string, command: string, extra: Record<string, unknown> = {}) =>
+      hook("PostToolUseFailure", {
+        session_id: session,
+        cwd: p.root,
+        tool_name: "Bash",
+        tool_input: { command },
+        error: "Exit code 2",
+        ...extra,
+      });
+    for (let i = 0; i < 3; i++)
+      expect((await fail("s3", "make")).additionalContext).toBeUndefined();
+    for (let i = 0; i < 3; i++)
+      expect(
+        (await fail("s4", "git push", { is_interrupt: true })).additionalContext,
+      ).toBeUndefined();
+    store.append({
+      ts: new Date().toISOString(),
+      type: "incident.opened",
+      projectId: p.id,
+      sessionId: "s-old",
+      payload: {
+        rule: "destructive_git",
+        action: "deny",
+        command: "git push --force origin main",
+        reason: "force-push rewrites shared history",
+      },
+    });
+    await fail("s5", "git push origin main");
+    await fail("s5", "git push origin main");
+    const third = await fail("s5", "git push origin main");
+    expect(third.additionalContext).toContain("lesson from an earlier incident:");
+    store.release(p.id, "parser", true);
+  });
+});
+
 describe("auto-handoff + resume plan (M4.4)", () => {
   it("writes one auto handoff per session on Stop, defers to a manual one, and plans a resume", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
@@ -1796,13 +1916,16 @@ describe("runtime resources (Phase 1)", () => {
 });
 
 describe("event storage and wire shape (perf)", () => {
+  // not process.cwd(): run from a Claude Code worktree, that cwd gets adopted (M13.7) and the
+  // claim event shifts every seq these tests count
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "swarm-perf-")));
   const hook = (app: ReturnType<typeof createApp>["app"], event: string, extra: object) =>
     app.request(`/v1/hook/${event}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         session_id: "s_big",
-        cwd: process.cwd(),
+        cwd,
         tool_name: "Read",
         ...extra,
       }),
@@ -2249,5 +2372,99 @@ describe("project order", () => {
       body: JSON.stringify({ ids: "x" }),
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("claim what Claude Code creates (M13.7)", () => {
+  const setup = () => {
+    const fs = require("node:fs");
+    const sh = (cwd: string, ...args: string[]) =>
+      Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-ccwt-")));
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@t");
+    sh(dir, "git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# repo\n");
+    sh(dir, "git", "add", "README.md");
+    sh(dir, "git", "commit", "-qm", "init");
+    // what `claude --worktree bold-oak` leaves behind
+    const wt = join(dir, ".claude", "worktrees", "bold-oak");
+    sh(dir, "git", "worktree", "add", "-q", "-b", "worktree-bold-oak", wt);
+    const { app, store } = createApp(new Store(tmpHome()));
+    const p = store.resolveProject(dir, true);
+    const post = async (event: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hook_event_name: event, ...body }),
+        })
+      ).json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    const cc = () => store.claims(p.id).find((c) => c.task === "cc/bold-oak");
+    return { fs, dir, wt, store, p, post, cc };
+  };
+
+  it("adopts the worktree for the session working in it; others are foreign to it", async () => {
+    const { fs, wt, store, p, post, cc } = setup();
+    await post("SessionStart", { session_id: "s-cc", cwd: join(wt, "src"), source: "startup" });
+    expect(cc()).toMatchObject({
+      owner: "session:s-cc",
+      worktree: wt,
+      branch: "worktree-bold-oak",
+      state: "held",
+      origin: "claude-code",
+      sessionId: "s-cc",
+    });
+    // the holder writes freely; a session in the main checkout is asked
+    const mine = await post("PreToolUse", {
+      session_id: "s-cc",
+      cwd: wt,
+      tool_name: "Write",
+      tool_input: { file_path: "a.ts", content: "x" },
+    });
+    expect(mine.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    const foreign = await post("PreToolUse", {
+      session_id: "s-other",
+      cwd: store.project(p.id)?.root,
+      tool_name: "Write",
+      tool_input: { file_path: join(wt, "a.ts"), content: "x" },
+    });
+    expect(foreign.hookSpecificOutput?.permissionDecision).toBe("ask");
+    // a second session starting in it does not take it over while the first is live
+    await post("SessionStart", { session_id: "s-late", cwd: wt, source: "startup" });
+    expect(cc()?.owner).toBe("session:s-cc");
+    // SessionEnd lets go — and the directory is Claude Code's to keep
+    await post("SessionEnd", { session_id: "s-cc", cwd: wt, reason: "exit" });
+    expect(cc()?.state).toBe("released");
+    expect(fs.existsSync(wt)).toBe(true);
+  });
+
+  it("release, reap and gc never touch an adopted worktree, even a clean one", async () => {
+    const { fs, wt, store, p, post, cc } = setup();
+    await post("UserPromptSubmit", { session_id: "s1", cwd: wt, prompt: "hi" });
+    expect(store.release(p.id, "cc/bold-oak").ok).toBe(true);
+    expect(fs.existsSync(wt)).toBe(true);
+    expect((await store.gcWorktrees(p.id)).candidates.map((g) => g.path)).not.toContain(wt);
+    // a lapsed adoption is closed by reap without removal, and the next session re-adopts it
+    await post("SessionStart", { session_id: "s2", cwd: wt, source: "resume" });
+    expect(cc()?.owner).toBe("session:s2");
+    store.db
+      .query("UPDATE claims SET expires_at = ? WHERE task = 'cc/bold-oak'")
+      .run("2000-01-01T00:00:00.000Z");
+    expect(store.reap(p.id)).toEqual([
+      { task: "cc/bold-oak", projectId: p.id, action: "released" },
+    ]);
+    expect(fs.existsSync(wt)).toBe(true);
+    await post("SessionStart", { session_id: "s3", cwd: wt, source: "startup" });
+    expect(cc()).toMatchObject({ owner: "session:s3", state: "held" });
+  });
+
+  it("leaves Swarm's own worktrees and non-worktree folders alone", async () => {
+    const { fs, dir, store, p, post } = setup();
+    const plain = join(dir, ".claude", "worktrees", "not-a-worktree");
+    fs.mkdirSync(plain, { recursive: true });
+    await post("SessionStart", { session_id: "s4", cwd: plain, source: "startup" });
+    await post("SessionStart", { session_id: "s4", cwd: dir, source: "startup" });
+    expect(store.claims(p.id)).toHaveLength(0);
   });
 });

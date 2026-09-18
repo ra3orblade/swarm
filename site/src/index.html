@@ -27,6 +27,9 @@
 
 <!-- Every icon used more than once lives here once. Pixelarticons, same set as the app. -->
 <svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M8 13v-2h2v2H8Zm2-2V9h2v2h-2Zm0 4v-2h2v2h-2Zm2-6V7h2v2h-2Zm0 8v-2h2v2h-2Zm2-10V5h2v2h-2Zm0 12v-2h2v2h-2Z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M16 13v-2h-2v2h2Zm-2-2V9h-2v2h2Zm0 4v-2h-2v2h2Zm-2-6V7h-2v2h2Zm0 8v-2h-2v2h2ZM10 7V5H8v2h2Zm0 12v-2H8v2h2Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M7 19H5V17H7V19ZM19 19H17V17H19V19ZM9 15V17H7V15H9ZM17 17H15V15H17V17ZM11 15H9V13H11V15ZM15 15H13V13H15V15ZM13 13H11V11H13V13ZM11 11H9V9H11V11ZM15 11H13V9H15V11ZM9 9H7V7H9V9ZM17 9H15V7H17V9ZM7 7H5V5H7V7ZM19 7H17V5H19V7Z"/></symbol>
   <symbol id="i-observe" viewBox="0 0 24 24"><path d="M22 22H4v-2h18v2ZM4 20H2V2h2v18Zm4-6H6v-2h2v2Zm8 0h-2v-2h2v2Zm-6-2H8v-2h2v2Zm4 0h-2v-2h2v2Zm4 0h-2v-2h2v2Zm-6-2h-2V8h2v2Zm8 0h-2V8h2v2Zm2-2h-2V6h2v2Z"/></symbol>
   <symbol id="i-drive" viewBox="0 0 24 24"><path d="M15 11h-2V9h2zm0 4h-2v-2h2zm-2 2h-2v-2h2zm0-8h-2V7h2zm-2-2H9V5h2zM9 21H7V3h2zm6-8h2v-2h-2zm-6 4h2v2H9z"/></symbol>
   <symbol id="i-guard" viewBox="0 0 24 24"><path d="M4 2h16v2H4zM2 4h2v10H2zm18 0h2v10h-2zM4 14h2v2H4zm2 2h2v2H6zm4 4h4v2h-4zm10-6h-2v2h2zm-2 2h-2v2h2zm-2 2h-2v2h2zm-6 0H8v2h2z"/></symbol>
@@ -90,20 +93,21 @@
       <h2>The dashboard</h2>
       <p>Everything those sessions do lands in one place, live, across every repository on the machine.</p>
     </div>
-    <figure class="reel" id="reel">
-      <div class="tabs" role="tablist" aria-label="Dashboard clips">
-        <button type="button" role="tab" aria-selected="true" data-r="fleet">Fleet</button>
-        <button type="button" role="tab" aria-selected="false" data-r="board">Board</button>
-        <button type="button" role="tab" aria-selected="false" data-r="incidents">Incidents</button>
+    <div class="gal" id="gal">
+      <button type="button" class="arr l" data-dir="-1" aria-label="Previous"><svg aria-hidden="true"><use href="#i-prev"/></svg></button>
+      <div class="track">
+      <figure data-i="0"><img src="/screens/thumbs/fleet.png" data-full="/screens/fleet.png" width="1512" height="860" alt="Fleet view" loading="eager"><figcaption><b>Fleet.</b> Every agent session on the machine, live — across every repository.</figcaption></figure>
+      <figure data-i="1"><img src="/screens/thumbs/session.png" data-full="/screens/session.png" width="1512" height="860" alt="Session view" loading="lazy"><figcaption><b>Session.</b> What the agent was thinking, next to what the turn cost.</figcaption></figure>
+      <figure data-i="2"><img src="/screens/thumbs/board.png" data-full="/screens/board.png" width="1512" height="860" alt="Board view" loading="lazy"><figcaption><b>Board.</b> One project: who holds which task, in which worktree, and what needs a look.</figcaption></figure>
+      <figure data-i="3"><img src="/screens/thumbs/outcomes.png" data-full="/screens/outcomes.png" width="1512" height="860" alt="Outcomes view" loading="lazy"><figcaption><b>Outcomes.</b> Which model actually ships work that survives review.</figcaption></figure>
+      <figure data-i="4"><img src="/screens/thumbs/incidents.png" data-full="/screens/incidents.png" width="1512" height="860" alt="Incidents view" loading="lazy"><figcaption><b>Incidents.</b> Everything Swarm stopped, with the command that tried it.</figcaption></figure>
+      <figure data-i="5"><img src="/screens/thumbs/timeline.png" data-full="/screens/timeline.png" width="1512" height="860" alt="Timeline view" loading="lazy"><figcaption><b>Timeline.</b> Who worked on what, when — a lane per session.</figcaption></figure>
+      <figure data-i="6"><img src="/screens/thumbs/spend.png" data-full="/screens/spend.png" width="1512" height="860" alt="Spend view" loading="lazy"><figcaption><b>Spend.</b> What today cost, by agent, model and project — while it is still today.</figcaption></figure>
+      <figure data-i="7"><img src="/screens/thumbs/stats.png" data-full="/screens/stats.png" width="1512" height="860" alt="Stats view" loading="lazy"><figcaption><b>Stats.</b> The long view: all-time spend, streaks, a year of activity.</figcaption></figure>
       </div>
-      <div class="frame">
-        <video id="reelV" muted loop playsinline preload="none" poster="/reel/fleet.jpg" aria-label="The Swarm dashboard, recorded from its built-in demo">
-          <source src="/reel/fleet.webm" type="video/webm">
-          <source src="/reel/fleet.mp4" type="video/mp4">
-        </video>
-        <figcaption id="reelC">Every agent session on the machine, live — across every repository.</figcaption>
-      </div>
-    </figure>
+      <button type="button" class="arr r" data-dir="1" aria-label="Next"><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+      <div class="dots"><i data-i="0" class="on"></i><i data-i="1"></i><i data-i="2"></i><i data-i="3"></i><i data-i="4"></i><i data-i="5"></i><i data-i="6"></i><i data-i="7"></i></div>
+    </div>
   </section>
 
   <section id="what">
@@ -170,6 +174,13 @@
   </footer>
 </div>
 
+<div class="lb" id="lb" role="dialog" aria-modal="true">
+  <button type="button" class="x" data-lb="close" aria-label="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+  <button type="button" class="n l" data-lb="-1" aria-label="Previous"><svg aria-hidden="true"><use href="#i-prev"/></svg></button>
+  <img id="lbImg" alt="">
+  <div class="cap" id="lbCap"></div>
+  <button type="button" class="n r" data-lb="1" aria-label="Next"><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+</div>
 
 <script type="module" src="/site.js"></script>
 <script defer src="/_vercel/insights/script.js"></script>
