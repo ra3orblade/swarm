@@ -32,6 +32,7 @@ import { applyCodify } from "./codify";
 import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
+import { OtelExporter } from "./otel";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
@@ -118,6 +119,7 @@ export function createApp(
   const dispatcher = new Dispatcher(store, runner, forge);
   const workflows = new WorkflowEngine(store, runner, forge);
   const team = new TeamForwarder(store, VERSION);
+  const otel = new OtelExporter(store, VERSION);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
   store.onBudgetStop((projectId) => {
     dispatcher.clear(projectId);
@@ -537,6 +539,8 @@ export function createApp(
   // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
   // M13.12: the Team panel — status, plus hosting and joining without a terminal
   app.get("/v1/team", (c) => c.json({ ...team.status(), ...hostingStatus(store) }));
+  // M12.1: OTLP export status (doctor)
+  app.get("/v1/otel", (c) => c.json(otel.status()));
   app.post("/v1/team/host", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {
       mode?: "token" | "oidc" | "open";
@@ -1492,5 +1496,5 @@ export function createApp(
     });
   });
 
-  return { app, store, forge, runner, dispatcher, workflows, team };
+  return { app, store, forge, runner, dispatcher, workflows, team, otel };
 }

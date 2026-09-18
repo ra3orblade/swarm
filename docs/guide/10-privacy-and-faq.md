@@ -31,13 +31,14 @@ Nothing is written inside your repositories. The dashboard is served on `127.0.0
 
 ## What can leave the machine
 
-Five things, each optional and under your control:
+Six things, each optional and under your control:
 
 1. **Model prices.** On start, the daemon fetches LiteLLM's public price list from GitHub so costs stay current (and *Refresh pricing* in settings does it on demand). The request carries nothing about you. Set `SWARM_OFFLINE=1` to never make it; costs then use the built-in table plus `~/.swarm/pricing.json`.
 2. **`gh` and `glab`.** The [PRs view](06-pull-requests.md) runs those CLIs, which talk to GitHub/GitLab with their own credentials. Swarm stores no tokens and makes no forge requests itself. Without the CLIs installed, nothing happens.
 3. **Desktop updater.** The desktop app contacts GitHub Releases only when you click *Check for Updates…*.
 4. **Team forwarding** — only if you set `[team] url` to your own self-hosted [team daemon](11-teams.md). What is sent is the `forward` list: audit events (claims, gates, incidents, with actors) and daily spend rollups by default; transcript titles/text only if you opt in, and always after your `[privacy] redact` rules. Off entirely by default.
 5. **Incident webhook** — only if you set `[notify] webhook`; each incident is POSTed to that URL as `{text}` JSON.
+6. **OTLP export** — only if you set `[otel] endpoint` to a collector of your choosing. Session spans (tool names, timings, success) and token / cost metrics go there; commands, file paths and prompt text do not unless you also set `include_content = true`.
 
 With none of those configured, no session content, command, transcript, token count or cost ever leaves your machine.
 

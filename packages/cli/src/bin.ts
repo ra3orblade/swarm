@@ -274,6 +274,20 @@ try {
             `last error: ${t.lastError} — check the team daemon and [team].url`,
           );
         }
+        // M12.1: OTLP export, only when [otel] endpoint is set
+        const o = (await api("/v1/otel").catch(() => null)) as {
+          configured?: boolean;
+          endpoint?: string;
+          compat?: string;
+          lastOkAt?: string | null;
+          lastError?: string | null;
+        } | null;
+        if (o?.configured)
+          line(
+            !o.lastError,
+            `OTLP export → ${o.endpoint} (${o.compat}${o.lastOkAt ? `, last sent ${o.lastOkAt}` : ", nothing sent yet"})`,
+            `last error: ${o.lastError} — check the collector and [otel].endpoint`,
+          );
       }
       if (process.env.GITLAB_TOKEN)
         console.log(

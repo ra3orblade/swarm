@@ -6,6 +6,13 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **OTLP export.** Set `[otel] endpoint` and Swarm sends every session — Claude Code, Codex,
+  Gemini CLI, Grok, Aider, opencode — to your own OpenTelemetry backend: one trace per session,
+  a span per tool call (failed ones marked), a span for each wait on you, claims, incidents and
+  gates as events, plus token and cost metrics. It speaks the OpenTelemetry GenAI conventions by
+  default, or Claude Code's own metric names with `compat = "claude-code"`. Commands and paths
+  stay out unless `include_content = true`. A collector that is down loses nothing, and `swarm
+  doctor` shows whether the last export got through. Off unless you set the endpoint.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means

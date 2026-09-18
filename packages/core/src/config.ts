@@ -133,6 +133,19 @@ export interface SwarmConfig {
    *  JSON — works for Slack incoming webhooks and any generic JSON receiver (Jira/PagerDuty via
    *  their webhook bridges). Fire-and-forget, never on the hook path. Global only. */
   notify: { webhook: string | null };
+  /** M12.1 OTLP export (OQ-20): off unless `endpoint` is set. Global only. */
+  otel: {
+    /** OTLP/HTTP base URL, e.g. `http://localhost:4318` — `/v1/traces` and `/v1/metrics` are appended. */
+    endpoint: string | null;
+    /** Extra request headers, e.g. `{ Authorization = "Basic …" }` for a hosted backend. */
+    headers: Record<string, string>;
+    /** "genai" (OpenTelemetry GenAI conventions) or "claude-code" (Claude Code's own names). */
+    compat: "genai" | "claude-code";
+    /** Export commands and file paths on tool spans (off: names and timings only). */
+    include_content: boolean;
+    /** Seconds between exports. */
+    interval: number;
+  };
   /** M13.4: messages and answers wake an idle interactive session (asyncRewake waiter). */
   messages: { wake: boolean };
   /** M13.6 Codify → Apply: which file(s) a suggestion is written to. */
@@ -203,6 +216,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
+  otel: { endpoint: null, headers: {}, compat: "genai", include_content: false, interval: 30 },
   messages: { wake: true },
   codify: { target: "both" },
   broker: { interactive_wait: 30 },
@@ -376,6 +390,22 @@ function validate(c: SwarmConfig): SwarmConfig {
         return typeof w === "string" && /^https?:\/\//.test(w.trim()) ? w.trim() : null;
       })(),
     },
+    otel: (() => {
+      const o = (c.otel ?? {}) as Record<string, unknown>;
+      const e = typeof o.endpoint === "string" ? o.endpoint.trim().replace(/\/+$/, "") : "";
+      const h =
+        o.headers && typeof o.headers === "object" ? (o.headers as Record<string, unknown>) : {};
+      const n = Number(o.interval);
+      return {
+        endpoint: /^https?:\/\//.test(e) ? e : null,
+        headers: Object.fromEntries(
+          Object.entries(h).filter((kv): kv is [string, string] => typeof kv[1] === "string"),
+        ),
+        compat: o.compat === "claude-code" ? ("claude-code" as const) : ("genai" as const),
+        include_content: o.include_content === true,
+        interval: Number.isFinite(n) && n >= 5 && n <= 3600 ? Math.round(n) : 30,
+      };
+    })(),
     messages: {
       wake: (c.messages as { wake?: unknown } | undefined)?.wake !== false,
     },
