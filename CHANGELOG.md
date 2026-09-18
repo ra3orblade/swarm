@@ -6,6 +6,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Five rules for the commands nobody can take back.** `destructive_fs` (`rm -rf` of `/`, `~`,
+  `..`, `"$VAR"/` or anything outside the repo; `mkfs`; `dd` onto a device), `destructive_infra`
+  (`terraform destroy`, `kubectl delete ns`, `helm uninstall`, cloud deletes, SQL `DROP` /
+  `TRUNCATE`), `pipe_to_shell` (`curl … | sh`), `secrets` (reading, printing or copying `.env`,
+  keys and cloud credentials — the `Read` tool included — and writing `.env*` / key files) and
+  `config_tamper` (editing Claude Code's settings, `~/.swarm`, `.swarm.toml`, or `swarm uninstall`).
+  All five ship **off**. Meanwhile the Security view shows what each would have caught, with an
+  example and its current mode, so you can see whether turning one on stops something real
+  before you do. Set any of them to `"ask"` or `"deny"` under `[rules]`; an org policy can lock
+  them, and then the hook enforces them even with the daemon down.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means

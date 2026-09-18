@@ -57,6 +57,7 @@ import {
   detectStall,
   dryRunRules,
   executedGateInput,
+  FAMILY_RULES,
   fileHeat,
   formatAnswers,
   formatHandoff,
@@ -72,6 +73,7 @@ import {
   gateStatus,
   gatesSatisfied,
   guardBash,
+  guardFile,
   guardWrite,
   type Handoff,
   type HeldRow,
@@ -1064,6 +1066,11 @@ export class Store {
         "protected_ports",
         "no_foreign_worktree",
         "claim_required_to_write",
+        "destructive_fs",
+        "destructive_infra",
+        "pipe_to_shell",
+        "secrets",
+        "config_tamper",
       ] as const
     )
       .filter((k) => modes[k] !== "off")
@@ -2862,6 +2869,15 @@ export class Store {
     const cmd = tool === "Bash" ? input.command : undefined;
     const current = { id: sessionId, cwd, toplevel: this.toplevel(cwd) };
     const modes = this.rulesFor(current.toplevel);
+    // M12.5: secrets (Read / Write / Edit) and config tamper (Write / Edit)
+    if (typeof input.file_path === "string" && (isWrite || tool === "Read")) {
+      const target = absolutePath(input.file_path, cwd);
+      const f = guardFile(tool, target, modes, homedir());
+      if (f.action !== "allow") {
+        if (recordIncident) this.openIncident(f, cwd, sessionId, `${tool} ${target}`);
+        return { decision: f, display: `${tool} ${target}` };
+      }
+    }
     if (
       isWrite &&
       (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off")
@@ -2929,9 +2945,18 @@ export class Store {
     const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
     const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
     const cmd = tool === "Bash" ? input.command : undefined;
-    if (!isWrite && !cmd) return null;
+    const isRead = tool === "Read" && typeof input.file_path === "string";
+    if (!isWrite && !cmd && !isRead) return null;
     const current = { id, cwd, toplevel: this.toplevel(cwd) };
     const modes = this.rulesFor(current.toplevel);
+    // M12.5: secrets (Read / Write / Edit) and config tamper (Write / Edit)
+    if (isWrite || isRead) {
+      const target = absolutePath(input.file_path as string, cwd);
+      const f = guardFile(tool, target, modes, homedir());
+      if (f.action === "ask" || f.action === "deny")
+        return this.openIncident(f, cwd, id, `${tool} ${target}`);
+      if (isRead) return null;
+    }
     // Worktree ownership: a file write (or a Bash cwd) inside a claimed worktree the session
     // doesn't hold, and — opt-in — writes into the shared checkout without a claim.
     if (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off") {
@@ -3005,7 +3030,10 @@ export class Store {
   /** M13.5: per session, the `dry_run_first` families already dry-run (in memory: a session's). */
   private rewritesDone = new Map<string, Set<string>>();
   rewriteCtx(sessionId: string) {
-    return { rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>() };
+    return {
+      rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>(),
+      home: homedir(), // M12.5: the families expand ~ against the daemon user's home
+    };
   }
 
   /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
@@ -5556,7 +5584,7 @@ export class Store {
       command: string | null;
       path: string | null;
     }>;
-    return securityScan(
+    const report = securityScan(
       rows.map((r) => ({
         sessionId: r.session_id ?? "",
         tool: r.tool ?? "",
@@ -5564,7 +5592,13 @@ export class Store {
         path: r.path,
         at: r.ts,
       })),
+      homedir(),
     );
+    // M12.5: next to what each family would have caught, what it is set to here
+    const root = projectId ? (this.project(projectId)?.root ?? null) : null;
+    const rules = this.rulesFor(root);
+    report.modes = Object.fromEntries(FAMILY_RULES.map((r) => [r, rules[r]]));
+    return report;
   }
 
   /**

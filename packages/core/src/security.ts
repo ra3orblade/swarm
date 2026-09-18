@@ -19,6 +19,8 @@
  * an obfuscated command will not match, and a comment mentioning `.env` will. Sold as what it is.
  */
 
+import { FAMILY_RULES, type FamilyRule, familyHitsBash, familyHitsFile } from "./rules";
+
 /** One tool call worth scanning, from a `tool.requested` event. */
 export interface ScanRow {
   sessionId: string;
@@ -54,10 +56,23 @@ export interface SecretHit {
   sessions: number;
 }
 
+/** M12.5: what one of the new rule families would have caught, whatever its mode. */
+export interface RuleWatch {
+  rule: FamilyRule;
+  hits: number;
+  sessions: number;
+  /** Up to three distinct reasons, most frequent first ("`rm -r ~` removes the home directory"). */
+  examples: string[];
+}
+
 export interface SecurityReport {
   egress: EgressHost[];
   installs: InstallHit[];
   secrets: SecretHit[];
+  /** M12.5 families, every one listed (zero hits included) so the view can say "nothing". */
+  rules: RuleWatch[];
+  /** The families' current modes for this scope; the daemon fills it in. */
+  modes?: Partial<Record<FamilyRule, string>>;
   totals: {
     scanned: number;
     /** Hosts that are not loopback. */
@@ -156,7 +171,11 @@ export function secretsIn(text: string): string[] {
   return SECRETS.filter((s) => s.re.test(text)).map((s) => s.what);
 }
 
-export function securityScan(rows: readonly ScanRow[]): SecurityReport {
+export function securityScan(rows: readonly ScanRow[], home = ""): SecurityReport {
+  const watch = new Map<
+    FamilyRule,
+    { hits: number; sessions: Set<string>; whats: Map<string, number> }
+  >(FAMILY_RULES.map((r) => [r, { hits: 0, sessions: new Set<string>(), whats: new Map() }]));
   const egress = new Map<string, { hits: number; sessions: Set<string> }>();
   const installs = new Map<
     string,
@@ -190,6 +209,21 @@ export function securityScan(rows: readonly ScanRow[]): SecurityReport {
       cur.sessions.add(r.sessionId);
       secrets.set(what, cur);
     }
+    // M12.5: the families, as the rules would see this call (no toplevel here, so destructive_fs
+    // counts only the always-dangerous targets — the audit under-reports that one, never over)
+    const fam =
+      r.tool === "Bash" && r.command
+        ? familyHitsBash(r.command, home, null)
+        : r.path
+          ? familyHitsFile(r.tool, r.path, home)
+          : [];
+    for (const h of fam) {
+      const w = watch.get(h.rule);
+      if (!w) continue;
+      w.hits++;
+      w.sessions.add(r.sessionId);
+      w.whats.set(h.what, (w.whats.get(h.what) ?? 0) + 1);
+    }
   }
 
   const egressList: EgressHost[] = [...egress.entries()]
@@ -215,6 +249,15 @@ export function securityScan(rows: readonly ScanRow[]): SecurityReport {
     secrets: [...secrets.entries()]
       .map(([what, s]) => ({ what, hits: s.hits, sessions: s.sessions.size }))
       .sort((a, b) => b.hits - a.hits || a.what.localeCompare(b.what)),
+    rules: [...watch.entries()].map(([rule, w]) => ({
+      rule,
+      hits: w.hits,
+      sessions: w.sessions.size,
+      examples: [...w.whats.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 3)
+        .map(([what]) => what),
+    })),
     totals: {
       scanned,
       remoteHosts: egressList.filter((h) => !h.local).length,

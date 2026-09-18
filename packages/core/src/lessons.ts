@@ -116,6 +116,42 @@ export function suggestFromIncident(inc: IncidentLike): LessonSuggestion {
         lesson:
           "Run `terraform plan` / `kubectl … --dry-run=client` / `helm … --dry-run` and read it before the real apply, delete or uninstall.",
       };
+    // M12.5 families: a hit in "ask" that keeps coming back is a candidate for "deny"
+    case "destructive_fs":
+      return {
+        title: "Deny out-of-bounds deletes",
+        toml: `[rules]\ndestructive_fs = "deny"`,
+        lesson:
+          "Never `rm -rf` /, ~, .., a path built from a variable that may be unset, or anything outside this repository — name the exact paths.",
+      };
+    case "destructive_infra":
+      return {
+        title: "Deny infrastructure and data deletes",
+        toml: `[rules]\ndestructive_infra = "deny"`,
+        lesson:
+          "Never destroy infrastructure or data (terraform destroy, kubectl delete ns, cloud deletes, SQL DROP / TRUNCATE) without the owner's go-ahead.",
+      };
+    case "pipe_to_shell":
+      return {
+        title: "Deny piping downloads into a shell",
+        toml: `[rules]\npipe_to_shell = "deny"`,
+        lesson:
+          "Never pipe a download into a shell (`curl … | sh`) — save it to a file, read it, then run it.",
+      };
+    case "secrets":
+      return {
+        title: "Deny reading credential files",
+        toml: `[rules]\nsecrets = "deny"`,
+        lesson:
+          "Don't read, print or copy credential files (.env, keys, ~/.aws/credentials) — reference variables by name; ask the owner for a value.",
+      };
+    case "config_tamper":
+      return {
+        title: "Deny changes to agent and Swarm settings",
+        toml: `[rules]\nconfig_tamper = "deny"`,
+        lesson:
+          "Never edit Claude Code settings, Swarm's config or ledger, or uninstall Swarm — those decide what agents may do; ask the owner.",
+      };
     case "orphaned_claim":
       return {
         title: "A claim expired with unfinished work",

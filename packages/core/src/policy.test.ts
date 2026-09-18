@@ -102,6 +102,37 @@ describe("policy cache — fail-closed for locked rules (M8.1c)", () => {
       "deny",
     );
   });
+  test("M12.5: a locked family is enforced offline, file tools included", () => {
+    const org = {
+      config: {
+        ...DEFAULT_CONFIG,
+        rules: {
+          ...DEFAULT_CONFIG.rules,
+          secrets: "deny" as const,
+          destructive_fs: "ask" as const,
+        },
+      },
+      policy: { path: "/p", locked: ["rules.secrets", "rules.destructive_fs"] },
+    };
+    const c = buildPolicyCache(org, [], []);
+    const top = () => "/repo";
+    expect(
+      evaluateOffline(
+        c,
+        { tool_name: "Read", tool_input: { file_path: ".env" }, cwd: "/repo" },
+        top,
+      ),
+    ).toMatchObject({ action: "deny", rule: "secrets" });
+    expect(
+      evaluateOffline(
+        c,
+        { tool_name: "Bash", tool_input: { command: "rm -rf /" }, cwd: "/repo", session_id: "s" },
+        top,
+      ),
+    ).toMatchObject({ action: "ask", rule: "destructive_fs" });
+    // not locked → off offline, even though the default config names it
+    expect(offlineModes(loaded).secrets).toBe("off");
+  });
   test("build → verify round-trips; any edit breaks the hash", () => {
     const c = buildPolicyCache(loaded, [], [], new Date("2026-08-23T00:00:00Z"));
     expect(verifyPolicyCache(JSON.parse(JSON.stringify(c)))).toEqual(c);
