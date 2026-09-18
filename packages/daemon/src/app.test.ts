@@ -867,6 +867,126 @@ describe("handoffs + SessionStart context (M1.3)", () => {
   });
 });
 
+describe("compaction memory + failure coaching (M13.9)", () => {
+  const setup = () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const fs = require("node:fs");
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-coach-")));
+    const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    sh("git", "init", "-q", "-b", "main");
+    sh("git", "config", "user.email", "t@t");
+    sh("git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    sh("git", "add", "README.md");
+    sh("git", "commit", "-qm", "init");
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "parser", "alice");
+    if (!c.ok) throw new Error(c.error);
+    const hook = async (event: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hook_event_name: event, ...body }),
+        })
+      ).json()) as {
+        additionalContext?: string;
+        hookSpecificOutput?: { additionalContext?: string };
+      };
+    return { app, store, p, worktree: c.worktree, hook };
+  };
+
+  it("says the held context again after a compaction, and why", async () => {
+    const { store, p, worktree, hook } = setup();
+    const start = await hook("SessionStart", {
+      session_id: "s1",
+      cwd: worktree,
+      source: "startup",
+    });
+    expect(start.additionalContext).toContain("you hold parser");
+    expect(start.additionalContext).not.toContain("compacted");
+    const after = await hook("SessionStart", {
+      session_id: "s1",
+      cwd: worktree,
+      source: "compact",
+    });
+    expect(after.additionalContext?.split("\n")[0]).toContain("context was compacted");
+    expect(after.additionalContext).toContain("you hold parser");
+    expect(after.hookSpecificOutput?.additionalContext).toBe(after.additionalContext);
+    store.release(p.id, "parser", true);
+  });
+
+  it("coaches on the third failure of the same command, once, with the handoff's verify line", async () => {
+    const { store, p, worktree, hook } = setup();
+    store.recordHandoff(p.id, {
+      task: "parser",
+      done: "tokenizer",
+      remaining: "trailing commas",
+      verify: "bun test src/parser.test.ts",
+      by: "alice",
+    });
+    const fail = (command: string, n = 0) =>
+      hook("PostToolUseFailure", {
+        session_id: "s2",
+        cwd: worktree,
+        tool_name: "Bash",
+        tool_input: { command },
+        tool_use_id: `t${n}`,
+        error: "Exit code 1\nerror: 3 tests failed",
+      });
+    expect((await fail("bun test", 1)).additionalContext).toBeUndefined();
+    expect((await fail("bun   test ", 2)).additionalContext).toBeUndefined(); // spacing differs
+    expect((await fail("bun run lint", 3)).additionalContext).toBeUndefined(); // another command
+    const third = await fail("bun test", 4);
+    expect(third.additionalContext).toContain("`bun test` has failed 3 times");
+    expect(third.additionalContext).toContain("verify with: bun test src/parser.test.ts");
+    expect(third.hookSpecificOutput?.additionalContext).toBe(third.additionalContext);
+    expect((await fail("bun test", 5)).additionalContext).toBeUndefined(); // said once
+    // the failure closed the call like a completion does, and says how it ended
+    const done = store.sessionEvents("s2").filter((e) => e.type === "tool.completed");
+    expect(done).toHaveLength(5);
+    expect(done[0]?.payload).toMatchObject({ failed: true, tool: "Bash" });
+    expect((done[0]?.payload as { summary?: string } | undefined)?.summary).toContain("failed");
+    store.release(p.id, "parser", true);
+  });
+
+  it("stays silent with nothing to add and on interrupts; a matching incident's lesson counts", async () => {
+    const { store, p, hook } = setup();
+    const fail = (session: string, command: string, extra: Record<string, unknown> = {}) =>
+      hook("PostToolUseFailure", {
+        session_id: session,
+        cwd: p.root,
+        tool_name: "Bash",
+        tool_input: { command },
+        error: "Exit code 2",
+        ...extra,
+      });
+    for (let i = 0; i < 3; i++)
+      expect((await fail("s3", "make")).additionalContext).toBeUndefined();
+    for (let i = 0; i < 3; i++)
+      expect(
+        (await fail("s4", "git push", { is_interrupt: true })).additionalContext,
+      ).toBeUndefined();
+    store.append({
+      ts: new Date().toISOString(),
+      type: "incident.opened",
+      projectId: p.id,
+      sessionId: "s-old",
+      payload: {
+        rule: "destructive_git",
+        action: "deny",
+        command: "git push --force origin main",
+        reason: "force-push rewrites shared history",
+      },
+    });
+    await fail("s5", "git push origin main");
+    await fail("s5", "git push origin main");
+    const third = await fail("s5", "git push origin main");
+    expect(third.additionalContext).toContain("lesson from an earlier incident:");
+    store.release(p.id, "parser", true);
+  });
+});
+
 describe("auto-handoff + resume plan (M4.4)", () => {
   it("writes one auto handoff per session on Stop, defers to a manual one, and plans a resume", async () => {
     const { app, store } = createApp(new Store(tmpHome()));
