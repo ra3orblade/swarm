@@ -99,6 +99,41 @@ describe("layoutDag", () => {
     expect(l.height).toBe(20); // two rows in the widest layer
   });
 
+  test("tree alignment puts a parent level with its first child and stacks the rest", () => {
+    const l = layoutDag(n("hub", "a", "b", "c"), e("hub>a", "hub>b", "hub>c"), {
+      dy: 10,
+      align: "tree",
+    });
+    const y = (id: string) => l.nodes.find((x) => x.id === id)?.y;
+    expect(y("hub")).toBe(0);
+    expect(y("a")).toBe(0); // shares the row: the edge between them is a straight line
+    expect(y("b")).toBe(10);
+    expect(y("c")).toBe(20);
+    expect(l.height).toBe(20); // three leaves, three rows — the hub costs none of its own
+  });
+
+  test("tree alignment gives each root its own rows, in layer order", () => {
+    const l = layoutDag(n("r1", "k1", "r2", "k2", "lone"), e("r1>k1", "r2>k2"), {
+      dy: 10,
+      align: "tree",
+      seed: { r1: 0, r2: 1, lone: 2 },
+    });
+    const y = (id: string) => l.nodes.find((x) => x.id === id)?.y;
+    expect([y("r1"), y("k1")]).toEqual([0, 0]);
+    expect([y("r2"), y("k2")]).toEqual([10, 10]);
+    expect(y("lone")).toBe(20);
+    expect(l.height).toBe(20);
+  });
+
+  test("tree alignment places a node with two parents once, under the first", () => {
+    const l = layoutDag(n("a", "b", "c"), e("a>c", "b>c"), { dy: 10, align: "tree" });
+    const y = (id: string) => l.nodes.find((x) => x.id === id)?.y;
+    expect(y("a")).toBe(0);
+    expect(y("c")).toBe(0);
+    expect(y("b")).toBe(10); // its only child was taken, so it is a leaf of its own
+    expect(l.height).toBe(10);
+  });
+
   test("an empty graph is an empty layout, not a crash", () => {
     expect(layoutDag([], [])).toMatchObject({ nodes: [], edges: [], layers: 0 });
   });

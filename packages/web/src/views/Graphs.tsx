@@ -7,11 +7,11 @@
  */
 import type { LineageGraph } from "@swarm/core/lineage";
 import type { ResourceGraph } from "@swarm/core/resourcegraph";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { query } from "../api/client";
 import { useResource } from "../api/useResource";
 import { Legend } from "../components/charts";
-import { Dag, EDGE_LEGEND, EDGE_STYLE } from "../components/Dag";
+import { Dag, EDGE_LEGEND, EDGE_STYLE, OUTCOME_RING } from "../components/Dag";
 import {
   Bipartite,
   type HeldNode,
@@ -63,10 +63,10 @@ export function Graphs() {
   const collisions = useResource<CollisionGraph>(
     tab === "collisions" ? `/v1/graphs/collisions${query({ project })}` : null,
   );
+  // One query builder for both: appending `&expand=` to a `query()` that had produced nothing
+  // (no project selected) sent `/lineage&expand=…`, a path that does not exist.
   const lineage = useResource<LineageGraph>(
-    tab === "lineage"
-      ? `/v1/graphs/lineage${query({ project })}${expanded.map((id) => `&expand=${encodeURIComponent(id)}`).join("")}`
-      : null,
+    tab === "lineage" ? `/v1/graphs/lineage${query({ project, expand: expanded })}` : null,
   );
   const transitions = useResource<TransitionGraph>(
     tab === "tools" ? `/v1/graphs/transitions${query({ project })}` : null,
@@ -75,21 +75,27 @@ export function Graphs() {
     tab === "resources" ? `/v1/graphs/resources${query({ project })}` : null,
   );
 
-  const tabs: [Tab, string, number][] = [
-    ["collisions", "Collisions", collisions.data?.contested ?? 0],
-    ["lineage", "Lineage", lineage.data?.edges.length ?? 0],
-    ["tools", "Tools", transitions.data?.loops.length ?? 0],
-    ["resources", "Resources", resources.data?.totals.orphaned ?? 0],
+  // No counts on the chips. Only the open tab has data, so a count could only ever appear on the
+  // chip just clicked — and it widened that chip and shoved the rest sideways on every switch. The
+  // numbers live in the heading's hint instead, which sits on its own line.
+  const tabs: [Tab, string][] = [
+    ["collisions", "Collisions"],
+    ["lineage", "Lineage"],
+    ["tools", "Tools"],
+    ["resources", "Resources"],
   ];
+  const hints: Record<Tab, ReactNode> = {
+    collisions: <CollisionsHint graph={collisions.data} />,
+    lineage: <LineageHint graph={lineage.data} />,
+    tools: <TransitionsHint graph={transitions.data} />,
+    resources: <ResourcesHint graph={resources.data} />,
+  };
 
   return (
     <>
-      <Section
-        title="Graphs"
-        hint={tab === "collisions" ? <CollisionsHint graph={collisions.data} /> : HINT[tab]}
-      />
+      <Section title="Graphs" hint={hints[tab]} />
       <div className="chips">
-        {tabs.map(([key, label, count]) => (
+        {tabs.map(([key, label]) => (
           <button
             type="button"
             key={key}
@@ -97,7 +103,6 @@ export function Graphs() {
             onClick={() => setTab(key)}
           >
             {label}
-            {count > 0 && <b> {count}</b>}
           </button>
         ))}
       </div>
@@ -119,10 +124,12 @@ export function Graphs() {
 
 const HINT: Record<Tab, string> = {
   collisions: "live file collisions",
-  lineage: "session lineage",
-  tools: "tool transitions",
+  lineage: "session lineage · last 14 days",
+  tools: "tool transitions · last 7 days",
   resources: "who holds what",
 };
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /**
  * The collisions summary line, the same one the vanilla view printed: how many live sessions, how
@@ -141,6 +148,43 @@ function CollisionsHint({ graph: g }: { graph: CollisionGraph | null }) {
           · {files} file{files === 1 ? "" : "s"} ·{" "}
           {g.contested > 0 ? <b className="navcount">{g.contested} contested</b> : "no collisions"}
         </>
+      )}
+    </>
+  );
+}
+
+/** How much of the fortnight the picture holds, and how much the node cap left out. */
+function LineageHint({ graph: g }: { graph: LineageGraph | null }) {
+  if (!g || g.nodes.length === 0) return HINT.lineage;
+  const sessions = g.nodes.filter((n) => !n.groupSize).length;
+  return (
+    <>
+      {plural(sessions, "session")} · {plural(g.edges.length, "link")} · last 14 days
+      {g.truncated > 0 && <> · {g.truncated} older not shown</>}
+    </>
+  );
+}
+
+function TransitionsHint({ graph: g }: { graph: TransitionGraph | null }) {
+  if (!g || g.nodes.length === 0) return HINT.tools;
+  return (
+    <>
+      {g.transitions.toLocaleString()} transitions · {plural(g.sessions, "session")} ·{" "}
+      {plural(g.loops.length, "round trip")} · last 7 days
+    </>
+  );
+}
+
+/** Held and orphaned — orphaned as the same warning pill contested wears on Collisions. */
+function ResourcesHint({ graph: g }: { graph: ResourceGraph | null }) {
+  if (!g || g.resources.length === 0) return HINT.resources;
+  return (
+    <>
+      {plural(g.holders.length, "holder")} · {g.totals.held} held ·{" "}
+      {g.totals.orphaned > 0 ? (
+        <b className="navcount">{g.totals.orphaned} orphaned</b>
+      ) : (
+        "none orphaned"
       )}
     </>
   );
@@ -242,9 +286,19 @@ function Lineage({
             </span>
           );
         })}
+        {OUTCOME_RING.filter(([outcome]) => graph.nodes.some((n) => n.outcome === outcome)).map(
+          ([outcome, color]) => (
+            <span className="edge-key" key={outcome}>
+              <svg width={12} height={12} aria-hidden="true">
+                <circle cx={6} cy={6} r={4} fill="none" stroke={color} strokeWidth={1.5} />
+              </svg>
+              <span className="dim">{outcome}</span>
+            </span>
+          ),
+        )}
         <span className="dim">
-          a green pill is a collapsed group — click to open it · ring = outcome · thicker dot = more
-          links · a bowed edge closed a loop
+          a green pill is a collapsed group — click to open it · a ring is what became of the branch
+          · thicker dot = more links · a bowed edge closed a loop
         </span>
       </div>
     </>

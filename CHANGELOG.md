@@ -64,6 +64,26 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   with a **Dropped** badge, and excluded from the open count. A dropped *dependency* counts as
   resolved, so it does not block its dependents for ever. Linear's `canceled` issues map to
   `dropped` rather than `done`.
+- **Lineage showed the wrong fortnight.** The graph kept the *best-connected* sessions when it hit
+  its node cap, so a hub from two weeks ago outranked every session started today, and the ones
+  that made the cut were ordered by id — the picture looked stale because it was. It could also keep
+  a parent and drop its only child, leaving a dot with nothing attached. The cap now keeps the
+  newest relationships and never strands a node, roots run newest-first, and the heading says how
+  many older sessions were left out instead of hiding the count.
+- **Lineage is drawn as a tree, not two columns joined by a bundle.** A parent now sits level with
+  the first thing it started, siblings stack beneath, and the layer gap gives an edge room to bend;
+  the straight ones are straight. A collapsed group's tooltip carries what its children cost, and
+  the outcome ring the legend promised finally appears — the node was always sent without one.
+- **The `+` on a collapsed group sits where it should.** The pill was sized from an estimate of the
+  label's width, so the `+` landed 2px from one end and 13px from the other. Labels are measured
+  now and the `+` is drawn on the row's centre line.
+- **A collapsed group on Lineage opens when clicked.** Two faults, either enough: the pill sent
+  its parent's id where the engine expected the group's own, and with no project selected the
+  request went to `/lineage&expand=…`, a path that does not exist.
+- **Graph tabs no longer jump when clicked.** A count appeared on the chip just switched to (only
+  the open tab has data), widening it and pushing the others sideways. The numbers moved to the
+  heading, where each tab has a summary line of its own.
+
 
 ## [0.14.0] — 2026-09-12
 

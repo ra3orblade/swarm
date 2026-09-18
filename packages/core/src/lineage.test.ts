@@ -187,7 +187,78 @@ describe("lineageGraph", () => {
     expect(g.nodes.some((n) => n.id === "other")).toBe(true);
   });
 
-  test("a huge graph is capped at the best-connected nodes, and says how many it dropped", () => {
+  test("the cap keeps the newest relationships, not the oldest hub", () => {
+    // An old hub with 6 children, and three sessions that spawned one subagent each today.
+    const kids = Array.from({ length: 6 }, (_, i) => `old-k${i}`);
+    const g = lineageGraph(
+      [
+        sess("old-hub"),
+        ...kids.map((k) => sess(k)),
+        ...["n1", "n2", "n3", "s1", "s2", "s3"].map((id) => sess(id)),
+      ],
+      [
+        ...kids.map((k) => edge("old-hub", k, "subagent", 1)),
+        edge("n1", "s1", "subagent", 50),
+        edge("n2", "s2", "subagent", 51),
+        edge("n3", "s3", "subagent", 52),
+      ],
+      { maxNodes: 6, fanout: Number.POSITIVE_INFINITY },
+    );
+    const ids = new Set(g.nodes.map((n) => n.id));
+    expect([...ids].sort()).toEqual(["n1", "n2", "n3", "s1", "s2", "s3"]);
+    expect(g.truncated).toBe(7);
+  });
+
+  test("the cap never strands a node: everything drawn is on an edge that is drawn", () => {
+    // Degree ranking kept parents and dropped their only children, leaving dots with no edge.
+    const pairs = Array.from({ length: 9 }, (_, i) => [`p${i}`, `c${i}`] as const);
+    const g = lineageGraph(
+      pairs.flatMap(([p, c]) => [sess(p), sess(c)]),
+      pairs.map(([p, c], i) => edge(p, c, "subagent", i)),
+      { maxNodes: 7, fanout: Number.POSITIVE_INFINITY },
+    );
+    expect(g.nodes).toHaveLength(6); // three whole pairs fit in seven, a seventh node would dangle
+    expect(g.nodes.every((n) => n.degree > 0)).toBe(true);
+    expect(g.truncated).toBe(12);
+  });
+
+  test("roots are ordered newest first", () => {
+    const g = lineageGraph(
+      [
+        sess("old", { startedAt: T(0) }),
+        sess("new", { startedAt: T(30) }),
+        sess("mid", { startedAt: T(15) }),
+        sess("ko"),
+        sess("kn"),
+        sess("km"),
+      ],
+      [edge("old", "ko"), edge("new", "kn"), edge("mid", "km")],
+    );
+    const roots = g.nodes.filter((n) => n.layer === 0).sort((a, b) => a.y - b.y);
+    expect(roots.map((n) => n.id)).toEqual(["new", "mid", "old"]);
+  });
+
+  test("a parent sits level with its first child, so the edge is straight", () => {
+    const g = lineageGraph(
+      [sess("hub"), sess("a"), sess("b")],
+      [edge("hub", "a"), edge("hub", "b")],
+    );
+    const y = (id: string) => g.nodes.find((n) => n.id === id)?.y;
+    expect(y("hub")).toBe(y("a"));
+    expect(y("b")).toBeGreaterThan(y("a") as number);
+  });
+
+  test("a group carries the cost of the children it hides", () => {
+    const kids = Array.from({ length: 6 }, (_, i) => `k${i}`);
+    const g = lineageGraph(
+      [sess("hub"), ...kids.map((k) => sess(k, { costUsd: 0.5 }))],
+      kids.map((k) => edge("hub", k)),
+      { fanout: 4 },
+    );
+    expect(g.nodes.find((n) => n.groupSize)?.costUsd).toBe(3);
+  });
+
+  test("a huge graph is capped at the newest nodes, and says how many it dropped", () => {
     // one hub with 30 children, capped to 10 nodes
     const kids = Array.from({ length: 30 }, (_, i) => `k${String(i).padStart(2, "0")}`);
     const g = lineageGraph(
