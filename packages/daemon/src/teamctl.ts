@@ -10,7 +10,9 @@
  * The hosted pid lives in `meta`, not in the process registry: that registry is keyed by project
  * and a team daemon belongs to the machine, not to a repo.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { resolveBin } from "@swarm/client";
@@ -22,8 +24,11 @@ import {
   parseInvite,
   parseTeamSetup,
   renderTeamSetup,
+  sumFor,
+  TEAMD_SUMS,
   type TeamAuthMode,
   type TeamSetup,
+  teamdAsset,
   withTeamUrl,
 } from "@swarm/core";
 import type { Store } from "./store";
@@ -182,6 +187,66 @@ export interface HostResult {
   address: string | null;
 }
 
+// ---------- M13.13 (OQ-27): where swarm-teamd comes from
+
+const localTeamd = (home: string) =>
+  join(home, "bin", process.platform === "win32" ? "swarm-teamd.exe" : "swarm-teamd");
+
+/**
+ * How to run `swarm-teamd` on this machine, or null: a clone's source or a sibling bundle, the
+ * binary downloaded into `~/.swarm/bin`, or one on PATH (npm install -g, Homebrew, a package).
+ */
+export function teamdCommand(
+  home: string,
+): { cmd: string[]; source: "clone" | "downloaded" | "path" } | null {
+  const r = resolveBin("swarm-teamd");
+  if (r.length > 1) return { cmd: r, source: "clone" };
+  if (existsSync(localTeamd(home))) return { cmd: [localTeamd(home)], source: "downloaded" };
+  const onPath = Bun.which("swarm-teamd");
+  return onPath ? { cmd: [onPath], source: "path" } : null;
+}
+
+/** Release download base for this version; `SWARM_TEAMD_BASE` points tests at a stub. */
+const releaseBase = (version: string) =>
+  process.env.SWARM_TEAMD_BASE ??
+  `https://github.com/ra3orblade/swarm/releases/download/v${version}`;
+
+/**
+ * Download this platform's `swarm-teamd` from the release matching this daemon's version into
+ * `~/.swarm/bin`, checked against the release's SHA256SUMS. Only on an explicit request that
+ * says the license was shown — the FSL binary never arrives unasked.
+ */
+export async function fetchTeamd(
+  store: Store,
+  version: string,
+  get: typeof fetch = fetch,
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  const asset = teamdAsset(process.platform, process.arch);
+  if (!asset)
+    return { ok: false, error: `no swarm-teamd build for ${process.platform}-${process.arch}` };
+  const base = releaseBase(version);
+  try {
+    const sums = await get(`${base}/${TEAMD_SUMS}`, { signal: AbortSignal.timeout(20_000) });
+    if (!sums.ok) return { ok: false, error: `${base}/${TEAMD_SUMS} answered ${sums.status}` };
+    const want = sumFor(await sums.text(), asset);
+    if (!want) return { ok: false, error: `${TEAMD_SUMS} has no line for ${asset}` };
+    const bin = await get(`${base}/${asset}`, { signal: AbortSignal.timeout(300_000) });
+    if (!bin.ok) return { ok: false, error: `${base}/${asset} answered ${bin.status}` };
+    const bytes = new Uint8Array(await bin.arrayBuffer());
+    const got = createHash("sha256").update(bytes).digest("hex");
+    if (got !== want) return { ok: false, error: `checksum mismatch for ${asset} — not installed` };
+    const dest = localTeamd(store.home);
+    mkdirSync(join(store.home, "bin"), { recursive: true });
+    const tmp = `${dest}.part`;
+    writeFileSync(tmp, bytes);
+    chmodSync(tmp, 0o755);
+    renameSync(tmp, dest);
+    return { ok: true, path: dest };
+  } catch (e) {
+    return { ok: false, error: `download failed: ${(e as Error).message}` };
+  }
+}
+
 /**
  * Write the settings, start `swarm-teamd` under the process registry, wait for it, point this
  * machine at it and register. Refuses rather than starting a second one.
@@ -214,7 +279,14 @@ export async function hostTeam(
   if (await healthy(loopback))
     return { ok: false, error: `something is already listening on port ${setup.port}` };
 
-  const [cmd, ...args] = resolveBin("swarm-teamd");
+  const teamd = teamdCommand(store.home);
+  if (!teamd)
+    return {
+      ok: false,
+      error:
+        "swarm-teamd is not on this machine. It is source-available (FSL-1.1-ALv2) and ships separately — download it from the Team panel, run it from a clone, or install it on PATH.",
+    };
+  const [cmd, ...args] = teamd.cmd;
   const logDir = join(store.home, "logs");
   mkdirSync(logDir, { recursive: true });
   const log = join(logDir, "teamd.log");
@@ -310,6 +382,8 @@ export async function leaveTeam(
 
 /** What the Team panel shows beyond the forwarder's own status. */
 export function hostingStatus(store: Store): {
+  /** M13.13: whether hosting can start swarm-teamd here, and from where. */
+  teamd: "clone" | "downloaded" | "path" | null;
   hosting: boolean;
   pid: number | null;
   port: number | null;
@@ -318,11 +392,21 @@ export function hostingStatus(store: Store): {
   address: string | null;
 } {
   const pid = hostedPid(store);
+  const teamd = teamdCommand(store.home)?.source ?? null;
   if (!pid)
-    return { hosting: false, pid: null, port: null, invite: null, mode: null, address: null };
+    return {
+      teamd,
+      hosting: false,
+      pid: null,
+      port: null,
+      invite: null,
+      mode: null,
+      address: null,
+    };
   const setup = readSetup(store.home);
   const address = lanAddress();
   return {
+    teamd,
     hosting: true,
     pid,
     port: setup.port,

@@ -238,6 +238,8 @@ export interface TeamStatus {
   invite: string | null;
   mode: "token" | "oidc" | "open" | null;
   address: string | null;
+  /** M13.13: where hosting would start swarm-teamd from; null = not on this machine. */
+  teamd: "clone" | "downloaded" | "path" | null;
 }
 export interface TeamActionResult {
   ok: boolean;
@@ -252,6 +254,10 @@ export async function hostTeam(body: {
   name?: string | null;
 }): Promise<TeamActionResult> {
   return (await send("/v1/team/host", "POST", body)) as TeamActionResult;
+}
+/** M13.13: download swarm-teamd for this machine; `accept` says the FSL license was shown. */
+export async function fetchTeamd(): Promise<TeamActionResult> {
+  return (await send("/v1/team/teamd", "POST", { accept: true })) as TeamActionResult;
 }
 export async function joinTeam(body: { invite: string }): Promise<TeamActionResult> {
   return (await send("/v1/team/join", "POST", body)) as TeamActionResult;

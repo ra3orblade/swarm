@@ -195,3 +195,31 @@ export function withTeamUrl(text: string, url: string | null): string {
       : body;
   return text.replace(section[0], `${section[1]}[team]${next}`);
 }
+
+// ---------- M13.13: the swarm-teamd binaries a release carries (OQ-27)
+
+/** Per-platform `swarm-teamd` binaries on each GitHub release, and the Bun compile target for each. */
+export const TEAMD_TARGETS = [
+  { os: "darwin", arch: "arm64", target: "bun-darwin-arm64", asset: "swarm-teamd-darwin-arm64" },
+  { os: "darwin", arch: "x64", target: "bun-darwin-x64", asset: "swarm-teamd-darwin-x64" },
+  { os: "linux", arch: "x64", target: "bun-linux-x64", asset: "swarm-teamd-linux-x64" },
+  { os: "linux", arch: "arm64", target: "bun-linux-arm64", asset: "swarm-teamd-linux-arm64" },
+  { os: "win32", arch: "x64", target: "bun-windows-x64", asset: "swarm-teamd-windows-x64.exe" },
+] as const;
+
+/** The checksum file beside them on the release. */
+export const TEAMD_SUMS = "swarm-teamd-SHA256SUMS";
+
+/** Which binary this machine needs, or null when no release carries one for it. */
+export function teamdAsset(os: string, arch: string): string | null {
+  return TEAMD_TARGETS.find((t) => t.os === os && t.arch === arch)?.asset ?? null;
+}
+
+/** The expected sha256 for `asset` from a SHA256SUMS body (`<hex>  <name>` lines), or null. */
+export function sumFor(sums: string, asset: string): string | null {
+  for (const line of sums.split("\n")) {
+    const m = /^([0-9a-f]{64})\s+\*?(\S+)$/.exec(line.trim());
+    if (m && m[2] === asset) return m[1] ?? null;
+  }
+  return null;
+}
