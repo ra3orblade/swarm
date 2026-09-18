@@ -123,6 +123,11 @@ import {
   nextExpiry,
   normalizeCommand,
   normalizeHook,
+  type OtelMark,
+  type OtelSession,
+  type OtelToolCall,
+  type OtelTurn,
+  type OtelWait,
   opencodeTurn,
   POLICY_CACHE_FILE,
   type PolicyFinding,
@@ -393,6 +398,190 @@ export class Store {
       .run(key, value);
   }
   /** Public meta access for collaborators (TeamForwarder); empty string reads as null. */
+  /**
+   * M12.1: what the OTLP exporter has not sent yet. Spans come from events after `afterSeq`
+   * (finished tool calls, resolved waits, ended sessions with their claims / incidents / gates as
+   * marks); metrics from turns after `afterTurn` (rowid). Bounded, so a first export after a long
+   * history goes out in slices rather than one enormous request.
+   */
+  otelBatch(afterSeq: number, afterTurn: number, includeContent: boolean, limit = 2000) {
+    const rows = this.db
+      .query(
+        `SELECT seq, ts, type, session_id, project_id, payload,
+                json_extract(raw, '$.tool_use_id') AS call
+         FROM events WHERE seq > ? AND session_id IS NOT NULL
+           AND type IN ('tool.completed', 'permission.resolved', 'question.answered', 'session.ended')
+         ORDER BY seq LIMIT ?`,
+      )
+      .all(afterSeq, limit) as Array<{
+      seq: number;
+      ts: string;
+      type: string;
+      session_id: string;
+      project_id: string | null;
+      payload: string;
+      call: string | null;
+    }>;
+    const agents = new Map<string, string>();
+    const agentOf = (sid: string) => {
+      let a = agents.get(sid);
+      if (a === undefined) {
+        const r = this.db.query("SELECT agent FROM sessions WHERE id = ?").get(sid) as {
+          agent: string | null;
+        } | null;
+        a = r?.agent ?? "claude-code";
+        agents.set(sid, a);
+      }
+      return a;
+    };
+    const tools: OtelToolCall[] = [];
+    const waits: OtelWait[] = [];
+    const ended: OtelSession[] = [];
+    const marks: OtelMark[] = [];
+    for (const r of rows) {
+      const p = JSON.parse(r.payload || "{}") as Record<string, unknown>;
+      if (r.type === "tool.completed") {
+        const start = this.db
+          .query(
+            `SELECT seq, ts FROM events WHERE session_id = ? AND type = 'tool.requested' AND seq < ?
+               AND (? IS NULL OR json_extract(raw, '$.tool_use_id') = ?)
+             ORDER BY seq DESC LIMIT 1`,
+          )
+          .get(r.session_id, r.seq, r.call, r.call) as { seq: number; ts: string } | null;
+        const input = (p.toolInput ?? {}) as { command?: unknown; file_path?: unknown };
+        tools.push({
+          sessionId: r.session_id,
+          callId: r.call ?? `seq-${start?.seq ?? r.seq}`,
+          tool: String(p.tool ?? "?"),
+          start: start?.ts ?? r.ts,
+          end: r.ts,
+          failed: p.failed === true,
+          ...(includeContent
+            ? {
+                command: typeof input.command === "string" ? input.command : null,
+                filePath: typeof input.file_path === "string" ? input.file_path : null,
+              }
+            : {}),
+        });
+      } else if (r.type === "permission.resolved" || r.type === "question.answered") {
+        const perm = r.type === "permission.resolved";
+        const key = String((perm ? p.requestId : p.id) ?? "");
+        if (!key) continue;
+        const asked = this.db
+          .query(
+            `SELECT ts FROM events WHERE session_id = ? AND type = ? AND seq < ?
+               AND COALESCE(json_extract(payload, '$.requestId'), json_extract(payload, '$.id')) = ?
+             ORDER BY seq DESC LIMIT 1`,
+          )
+          .get(r.session_id, perm ? "permission.requested" : "question.asked", r.seq, key) as {
+          ts: string;
+        } | null;
+        if (!asked) continue;
+        waits.push({
+          sessionId: r.session_id,
+          kind: perm ? "permission" : "question",
+          callId: perm ? key : null,
+          key,
+          start: asked.ts,
+          end: r.ts,
+        });
+      } else {
+        const s = this.db
+          .query("SELECT started_at, model, agent FROM sessions WHERE id = ?")
+          .get(r.session_id) as {
+          started_at: string | null;
+          model: string | null;
+          agent: string | null;
+        } | null;
+        ended.push({
+          id: r.session_id,
+          agent: s?.agent ?? agentOf(r.session_id),
+          model: s?.model ?? null,
+          project: r.project_id ? (this.project(r.project_id)?.name ?? null) : null,
+          startedAt: s?.started_at ?? r.ts,
+          endedAt: r.ts,
+        });
+        const ms = this.db
+          .query(
+            `SELECT ts, type, payload FROM events WHERE session_id = ?
+               AND type IN ('claim.acquired','claim.released','incident.opened','gate.recorded')
+             ORDER BY seq LIMIT 200`,
+          )
+          .all(r.session_id) as Array<{ ts: string; type: string; payload: string }>;
+        for (const m of ms) {
+          const mp = JSON.parse(m.payload || "{}") as Record<string, unknown>;
+          const pick = (k: string) => (typeof mp[k] === "string" ? (mp[k] as string) : undefined);
+          const a: Record<string, string> = {};
+          const put = (k: string, v: string | undefined) => {
+            if (v) a[k] = v;
+          };
+          put("swarm.task", pick("task"));
+          put("swarm.rule", pick("rule"));
+          put("swarm.action", pick("action"));
+          put("swarm.gate", pick("gate"));
+          put("swarm.verdict", pick("verdict"));
+          if (includeContent) put("swarm.command", pick("command"));
+          marks.push({ sessionId: r.session_id, ts: m.ts, name: m.type, attrs: a });
+        }
+      }
+    }
+    const turns = this.db
+      .query(
+        `SELECT t.rowid AS rid, t.session_id, t.model, t.input, t.output, t.cache_read,
+                t.cache_write + COALESCE(t.cache_write_1h, 0) AS cache_write, t.cost_usd, s.agent
+         FROM turns t LEFT JOIN sessions s ON s.id = t.session_id
+         WHERE t.rowid > ? ORDER BY t.rowid LIMIT ?`,
+      )
+      .all(afterTurn, limit * 5) as Array<{
+      rid: number;
+      session_id: string;
+      model: string | null;
+      input: number | null;
+      output: number | null;
+      cache_read: number | null;
+      cache_write: number | null;
+      cost_usd: number | null;
+      agent: string | null;
+    }>;
+    return {
+      tools,
+      waits,
+      ended,
+      marks,
+      agentOf,
+      maxSeq: rows.length ? (rows[rows.length - 1]?.seq ?? afterSeq) : this.maxSeqNow(afterSeq),
+      turns: turns.map(
+        (t): OtelTurn => ({
+          sessionId: t.session_id,
+          agent: t.agent ?? "claude-code",
+          model: t.model,
+          input: t.input ?? 0,
+          output: t.output ?? 0,
+          cacheRead: t.cache_read ?? 0,
+          cacheWrite: t.cache_write ?? 0,
+          costUsd: t.cost_usd ?? 0,
+        }),
+      ),
+      maxTurn: turns.length ? (turns[turns.length - 1]?.rid ?? afterTurn) : afterTurn,
+    };
+  }
+
+  /** The newest turn rowid — where a first export starts counting. */
+  otelTurnHead(): number {
+    const r = this.db.query("SELECT MAX(rowid) AS m FROM turns").get() as { m: number | null };
+    return r.m ?? 0;
+  }
+
+  /** The newest event seq — a cursor with nothing to send still moves past the quiet stretch. */
+  private maxSeqNow(fallback: number): number {
+    const r = this.db.query("SELECT MAX(seq) AS m FROM events").get() as { m: number | null };
+    return r.m ?? fallback;
+  }
+  /** Where a first export starts: now, not the whole history. */
+  otelSeqHead(): number {
+    return this.maxSeqNow(0);
+  }
+
   metaValue(key: string): string | null {
     return this.meta(key) || null;
   }

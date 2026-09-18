@@ -28,6 +28,7 @@ export * from "./lineage";
 export * from "./mcphealth";
 export * from "./memory";
 export * from "./messages";
+export * from "./otel";
 export * from "./outcomes";
 export * from "./permissions";
 export * from "./policy";

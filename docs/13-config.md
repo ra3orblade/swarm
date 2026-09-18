@@ -80,6 +80,18 @@ redact = []               # regexes replaced by "[redacted]" in every stored str
 # Fire-and-forget, never on the hook path. Global only.
 # webhook = "https://hooks.slack.com/services/…"
 
+[otel]
+# OTLP export (M12.1, OQ-20): every session as an OpenTelemetry trace plus token and cost metrics,
+# OTLP/HTTP JSON to /v1/traces and /v1/metrics under `endpoint`. Off unless endpoint is set. Global only.
+# endpoint = "http://localhost:4318"        # an OpenTelemetry Collector, Grafana Alloy, a vendor's OTLP intake…
+# headers = { Authorization = "Basic …" }   # whatever your backend asks for
+# compat = "genai"          # "genai": OpenTelemetry GenAI conventions (invoke_agent / execute_tool spans,
+#                           #   gen_ai.client.token.usage) — every agent, one vocabulary.
+#                           # "claude-code": Claude Code's own names (claude_code.token.usage, claude_code.cost.usage,
+#                           #   claude_code.tool spans, session.id), for dashboards built on Claude Code's telemetry.
+# include_content = false   # true adds commands and file paths to tool spans
+# interval = 30             # seconds between exports (5–3600)
+
 [messages]
 # M13.4: a message (swarm msg send / swarm_send) or an answer to a session's question wakes that
 # session while it sits idle at its prompt — a background hook armed after every turn exits with

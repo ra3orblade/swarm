@@ -74,6 +74,10 @@ Where the daemon has seen a rule change land it also compares the incident rate 
 
 The nav badge counts the rules that are **not settling** — firing as much as ever, or more.
 
+## Sending it to your own observability stack
+
+Everything above can also go to the tracing and metrics backend you already use. Set `[otel] endpoint` in `~/.swarm/config.toml` to an OTLP/HTTP address — a local OpenTelemetry Collector, Grafana Alloy, or a vendor's OTLP intake with `headers` for its key — and Swarm sends each session as one trace: a root span for the session, a span per tool call (red when it failed), a span for each wait on you, and claims, incidents and gates as events on the root. Token and cost metrics go with it. The default vocabulary is the OpenTelemetry GenAI conventions, which read the same for every agent Swarm watches; `compat = "claude-code"` uses Claude Code's own metric and span names instead, for dashboards built for those. Commands and paths stay out unless you set `include_content = true`. `swarm doctor` says whether the last export got through; a collector that is down loses nothing — the next export picks up where the last accepted one stopped.
+
 ## Waiting on you
 
 At the bottom of [Stats](02-dashboard.md#stats): how long agents spent blocked on a person over the last 7 days, split by what blocked them — a permission prompt, a question the agent asked, or a notification — with median and longest waits and the sessions that waited most. Blocked time is not idle time; it is an agent standing still with the work half-done, which is why it gets a number rather than a footnote.
