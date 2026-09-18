@@ -43,7 +43,7 @@ header nav a:hover{color:var(--acc)}
 .hero::after{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
   background:radial-gradient(ellipse 55% 50% at 50% 28%,var(--acc-soft),transparent 65%)}
 .hero>*{position:relative;z-index:1}
-.hero .mark{width:282px;height:auto;image-rendering:pixelated;margin-bottom:24px}
+.hero .mark{width:160px;height:auto;image-rendering:pixelated;margin-bottom:18px}
 h1{font-size:40px;margin:0 0 12px;letter-spacing:-.01em}
 @media (max-width:560px){h1{font-size:31px}}
 .tag{color:var(--fg-2);font-size:19px;line-height:1.5;max-width:600px;margin:0 auto 28px}
@@ -99,42 +99,11 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
 .chips .chip b{display:block;font-size:19px;color:var(--acc);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .chips .chip span{display:block;font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.45}
 
-/* ── screenshots: carousel + lightbox ──────────────────────────────────────── */
-.gal{margin:44px auto 0;max-width:980px;position:relative}
-.gal .track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px}
-.gal .track::-webkit-scrollbar{display:none}
-.gal figure{flex:0 0 100%;scroll-snap-align:center;margin:0;cursor:zoom-in}
-.gal img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);background:var(--panel)}
-.gal figcaption{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.5;text-align:center}
-.gal figcaption b{color:var(--fg-2);font-weight:600}
-.gal .arr{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s;z-index:2;padding:0;font:inherit}
-.gal .arr:hover{opacity:1;border-color:var(--acc);color:var(--acc)}
-.gal .arr.l{left:-20px}
-.gal .arr.r{right:-20px}
-.gal .arr svg{width:18px;height:18px}
-.gal .dots{display:flex;justify-content:center;gap:8px;margin-top:14px}
-.gal .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s,transform .15s}
-.gal .dots i.on{background:var(--acc);transform:scale(1.25)}
-@media (max-width:1040px){.gal .arr.l{left:6px}.gal .arr.r{right:6px}}
-
-.lb{position:fixed;inset:0;background:rgba(6,8,11,.94);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;padding:28px}
-.lb.open{display:flex}
-.lb img{max-width:min(1600px,100%);max-height:calc(100vh - 110px);width:auto;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 30px 80px rgba(0,0,0,.6)}
-.lb .cap{color:var(--dim);margin-top:14px;font-size:14px;text-align:center}
-.lb .cap b{color:var(--fg)}
-.lb .x,.lb .n{position:absolute;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;font:inherit}
-.lb .x{top:18px;right:18px}
-.lb .n{top:calc(50% - 22px)}
-.lb .n.l{left:18px}
-.lb .n.r{right:18px}
-.lb .x:hover,.lb .n:hover{border-color:var(--acc);color:var(--acc)}
-.lb .x svg,.lb .n svg{width:20px;height:20px}
-
 /* ── the replay: a Claude Code session with Swarm in it ─────────────────────
    Typed out rather than recorded because the text has to stay legible at phone width. The
    two Swarm messages are injected from core/src/rules.ts at build time, so they cannot
    drift from what the product actually says. */
+.hero .demo{margin:36px 0 0;text-align:left}
 .demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:start}
 @media (max-width:860px){.demo{grid-template-columns:minmax(0,1fr)}}
 .term{background:#0a0c10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
