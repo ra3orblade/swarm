@@ -4,6 +4,7 @@
  * object is always kept under `raw` so nothing is lost if the schema drifts.
  */
 import { askedQuestions } from "../../permissions";
+import { describePrompt, type PromptOrigin } from "../../prompt";
 import type { EventType, SwarmEvent } from "../../types";
 
 export type HookEventName =
@@ -75,6 +76,8 @@ export interface HookPayload {
   agentId?: string;
   agentType?: string;
   prompt?: string;
+  /** Who the prompt came from, when it was not a person (core/prompt.ts). Absent means `user`. */
+  origin?: Exclude<PromptOrigin, "user">;
   /** M13.2 PermissionRequest: what the card and the notification show. */
   requestId?: string;
   display?: string;
@@ -166,7 +169,7 @@ export function normalizeHook(
       summary = `session started (${raw.source ?? "startup"})`;
       break;
     case "UserPromptSubmit":
-      summary = (raw.prompt ?? "").split("\n")[0]?.slice(0, 120) ?? "";
+      summary = describePrompt(raw.prompt).summary;
       break;
     case "PreToolUse":
     case "PostToolUse":
@@ -210,5 +213,9 @@ export function normalizeHook(
   if (raw.agent_id) payload.agentId = raw.agent_id;
   if (raw.agent_type) payload.agentType = raw.agent_type;
   if (raw.prompt) payload.prompt = raw.prompt;
+  if (event === "UserPromptSubmit") {
+    const { origin } = describePrompt(raw.prompt);
+    if (origin !== "user") payload.origin = origin;
+  }
   return { ts, type, projectId, sessionId: raw.session_id ?? null, payload, raw };
 }

@@ -168,6 +168,28 @@ describe("deriveHandoff (M4.4)", () => {
     expect(validateHandoff(h as Handoff).ok).toBe(true);
   });
 
+  test("the last request is the last thing a person typed, not a task finishing", () => {
+    const h = deriveHandoff(
+      "T-1",
+      [
+        prompt("add the thing"),
+        t("Edit", "a.ts"),
+        prompt("<task-notification>\n<status>completed</status>\n</task-notification>"),
+        // a row stored before `origin` existed, read back without its prompt
+        {
+          type: "prompt.submitted",
+          payload: { hook: "UserPromptSubmit", summary: '<agent-message from="a1">' },
+        },
+        {
+          type: "prompt.submitted",
+          payload: { hook: "UserPromptSubmit", summary: "x done", origin: "agent" },
+        },
+      ],
+      {},
+    );
+    expect(h?.remaining).toContain('last request: "add the thing"');
+  });
+
   test("returns null when the session touched nothing and said nothing", () => {
     expect(deriveHandoff("T-1", [t("Read", "a.ts"), t("Bash", "ls")], {})).toBeNull();
   });

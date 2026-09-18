@@ -32,6 +32,7 @@ export * from "./policy";
 export * from "./pricing";
 export * from "./processes";
 export * from "./project-id";
+export * from "./prompt";
 export * from "./provenance";
 export * from "./questions";
 export * from "./quota";

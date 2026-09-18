@@ -104,4 +104,42 @@ describe("actor on ledger records (M8.2a)", () => {
       { task: "t3", duration_ms: null }, // no duration in the prose: stays null, never 0
     ]);
   });
+  it("migration v3 re-derives the summary of prompts nobody typed and marks their origin", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-home-"));
+    const db = new Database(join(home, "swarm.db"));
+    db.exec(
+      "CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT, project_id TEXT, session_id TEXT, payload TEXT, raw TEXT)",
+    );
+    const ins = db.query(
+      "INSERT INTO events (ts, type, payload) VALUES ('t', 'prompt.submitted', ?)",
+    );
+    const row = (summary: string, prompt: string) =>
+      ins.run(JSON.stringify({ hook: "UserPromptSubmit", cwd: null, summary, prompt }));
+    row(
+      "<task-notification>",
+      '<task-notification>\n<status>completed</status>\n<summary>Agent "x" finished</summary>\n</task-notification>',
+    );
+    row('<agent-message from="a1">', '<agent-message from="a1">\n  the report\n</agent-message>');
+    row("<user_query>", "<user_query>\nmake pr\n</user_query>");
+    row('<a href="https://e.com">', '<a href="https://e.com">\nmake this a button');
+    row("<task-notification>", "[not stored]");
+    row("plain", "plain");
+    db.close();
+    const store = new Store(home);
+    expect(store.schemaVersion()).toBe(Store.SCHEMA_VERSION);
+    expect(
+      store.db
+        .query(
+          "SELECT json_extract(payload,'$.summary') AS summary, json_extract(payload,'$.origin') AS origin FROM events ORDER BY seq",
+        )
+        .all(),
+    ).toEqual([
+      { summary: 'Agent "x" finished', origin: "task" },
+      { summary: "the report", origin: "agent" },
+      { summary: "make pr", origin: null },
+      { summary: '<a href="https://e.com">', origin: null },
+      { summary: "<task-notification>", origin: null }, // the prompt was never kept: nothing to read
+      { summary: "plain", origin: null },
+    ]);
+  });
 });

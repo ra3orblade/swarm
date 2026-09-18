@@ -34,6 +34,8 @@ Latency budget 50 ms; the shim times out at 400 ms and fails open — except for
 
 Every event also carries `actor` (`{kind: human|agent|run|daemon, id, session?}`, M8.2a) on the wire and in the DB.
 
+`prompt.submitted` is not always a person: Claude Code fires `UserPromptSubmit` for a finished background task (`<task-notification>`), a subagent's report (`<agent-message>`) and a message from another session (`<cross-session-message>`) too. Those carry `payload.origin` = `task` | `agent` | `session` and a `summary` read from inside the wrapper (`core/src/prompt.ts`); a prompt with no `origin` is one somebody typed.
+
 Payloads carry the raw Claude Code object under `raw` so nothing is lost when the upstream schema changes; the normalized fields are the ones the UI depends on.
 
 ## Versioning

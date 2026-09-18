@@ -1959,6 +1959,15 @@ main:has(> .sess) > h2.hrow {
   color: var(--fg);
   font-weight: 500;
 }
+/* A prompt nobody typed — a task finishing, a subagent's report — is not the reader's own line,
+   so it does not get the "you" green or the weight. */
+.ev.prompt\.submitted.relayed .k {
+  color: var(--dim);
+}
+.ev.prompt\.submitted.relayed .m {
+  color: var(--fg-2);
+  font-weight: 400;
+}
 
 /* Rendered markdown (M11.14): what `components/Markdown.tsx` builds.
 
