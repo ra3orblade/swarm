@@ -36,6 +36,28 @@ Some prose.
 `;
 
 describe("task source", () => {
+  it("never offers a dropped task: not ready, not next, not dispatchable", () => {
+    // The bug this covers: everything that was not done or active fell through to "todo", so a
+    // row the backlog had explicitly cancelled came back ready:true, sat in the kanban's Ready
+    // lane and could be handed to an agent by nextTask / swarm_next_task / dispatch.
+    const doc = `## Backlog
+| ID | Task | Depends | Status |
+|----|------|---------|--------|
+| B-1 | Ship it | — | ⚪ open |
+| B-2 | Rewrite in Rust | — | ❌ dropped |
+| B-3 | Depends on the dropped one | B-2 | ⚪ open |
+`;
+    const tasks = parseMarkdownTasks(doc);
+    expect(tasks.map((t) => t.status)).toEqual(["todo", "dropped", "todo"]);
+    expect(tasks[1]?.statusText).toBe("❌ dropped");
+
+    const board = taskBoard(tasks, []);
+    expect(board.find((t) => t.id === "B-2")?.ready).toBe(false);
+    // …and a dropped dependency resolves rather than blocking its dependents for ever.
+    expect(board.find((t) => t.id === "B-3")?.ready).toBe(true);
+    expect(nextTask(tasks, [])?.id).toBe("B-1");
+  });
+
   it("parses every ID|Task table with milestone, deps and status", () => {
     const t = parseMarkdownTasks(DOC);
     expect(t.map((x) => x.id)).toEqual(["M0.1", "M0.2", "M1.1", "M1.2", "M1.3", "M1.4"]);
@@ -53,6 +75,14 @@ describe("task source", () => {
     expect(statusOf("in progress")).toBe("active");
     expect(statusOf("⚪")).toBe("todo");
     expect(statusOf("")).toBe("todo");
+    // A cancelled row used to fall through to todo, which made it look ready to start.
+    expect(statusOf("❌ dropped")).toBe("dropped");
+    expect(statusOf("🚫")).toBe("dropped");
+    expect(statusOf("[-] not doing this")).toBe("dropped");
+    expect(statusOf("cancelled")).toBe("dropped");
+    expect(statusOf("canceled")).toBe("dropped");
+    expect(statusOf("wontfix")).toBe("dropped");
+    expect(statusOf("won't fix")).toBe("dropped");
   });
   it("milestone-prefix deps resolve against every task under it", () => {
     const t = parseMarkdownTasks(DOC);
@@ -137,7 +167,7 @@ describe("external task sources (M4.8)", () => {
       "ENG-1:done",
       "ENG-2:active",
       "ENG-3:todo",
-      "ENG-4:done",
+      "ENG-4:dropped",
     ]);
     expect(tasks[1]).toMatchObject({
       depends: ["ENG-1"],

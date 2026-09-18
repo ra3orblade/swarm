@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { marked } from "marked";
+import { NO_VERIFY_REASON, sharedTreeReason } from "../packages/core/src/rules";
 
 const root = join(import.meta.dir, "..");
 const docsDir = join(root, "docs");
@@ -37,6 +38,41 @@ const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).ver
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// ── the landing page ────────────────────────────────────────────────────────
+// site/src/{index.html,site.css,site.js} are the source; site/index.html and its two assets
+// are generated and gitignored, like every other page here. The three tokens below are the
+// reason this is a build step at all: the install command and the two rule messages the
+// replay quotes each have exactly one home, and the page borrows them rather than keeping a
+// second copy that goes quietly out of date.
+{
+  const src = join(root, "site", "src");
+  const pkg = JSON.parse(readFileSync(join(root, "npm", "package.json"), "utf8")).name as string;
+  const tokens: Record<string, string> = {
+    "{{INSTALL}}": `bunx ${pkg} setup`,
+    // The id is the one the replay's own transcript shows; slice(0, 8) in the rule makes it 8 chars.
+    "{{RULE_SHARED_TREE}}": sharedTreeReason("a41f9c2b"),
+    "{{RULE_NO_VERIFY}}": NO_VERIFY_REASON,
+  };
+  // A token lands inside a JS string literal in site.js and inside markup everywhere else, so
+  // it is escaped for where it lands — otherwise the day a rule message grows a quote or a
+  // backslash is the day the landing page stops parsing.
+  const forJs = (v: string) => JSON.stringify(v).slice(1, -1);
+  const forHtml = (v: string) => esc(v);
+  const fill = (text: string, js: boolean): string => {
+    const encode = js ? forJs : forHtml;
+    let out = text;
+    for (const [token, value] of Object.entries(tokens)) out = out.replaceAll(token, encode(value));
+    const left = out.match(/\{\{[A-Z_]+\}\}/);
+    if (left) throw new Error(`site: unreplaced token ${left[0]} — add it to tokens above`);
+    return out;
+  };
+  for (const f of ["index.html", "site.css", "site.js"])
+    writeFileSync(
+      join(root, "site", f),
+      fill(readFileSync(join(src, f), "utf8"), f.endsWith(".js")),
+    );
+}
 
 /** NN-slug.md → { slug, title, status, body } in numeric order. */
 type Doc = { file: string; slug: string; title: string; status: string; body: string };
@@ -155,7 +191,7 @@ const mark = `<img class="mark" src="/mark.png" width="24" height="24" alt="Swar
 
 // the same icon files the landing page links (site/favicon.svg, favicon.ico, apple-touch-icon.png)
 const favicon =
-  readFileSync(join(root, "site", "index.html"), "utf8")
+  readFileSync(join(root, "site", "src", "index.html"), "utf8")
     .match(/<link rel="(?:icon|apple-touch-icon)"[^>]*>/g)
     ?.join("\n") ?? "";
 
@@ -330,7 +366,7 @@ writeFileSync(
 // not from the build clock, so re-running the build does not tell crawlers everything changed.
 const mtime = (p: string): string => statSync(join(root, p)).mtime.toISOString().slice(0, 10);
 const urls: Array<{ loc: string; lastmod: string; priority: string }> = [
-  { loc: "/", lastmod: mtime("site/index.html"), priority: "1.0" },
+  { loc: "/", lastmod: mtime("site/src/index.html"), priority: "1.0" },
   { loc: "/docs/", lastmod: mtime("docs/guide"), priority: "0.9" },
   { loc: "/changelog", lastmod: mtime("CHANGELOG.md"), priority: "0.8" },
   { loc: "/docs/design/", lastmod: mtime("docs/00-index.md"), priority: "0.4" },

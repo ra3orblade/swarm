@@ -22,10 +22,10 @@ import { ago } from "../lib/format";
 function Invite({ invite, address }: { invite: string; address: string | null }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="perm">
-      <div className="perm-t">Invite link — a teammate pastes this into their Team panel</div>
+    <div className="card card-pad setup">
+      <p>Invite link — a teammate pastes this into their Team panel.</p>
       <div className="perm-c">{invite}</div>
-      <div className="perm-b">
+      <div className="setup-row">
         <button
           type="button"
           className="ok"
@@ -80,23 +80,21 @@ function HostForm({ busy, run }: RunProps) {
   return (
     <>
       <Section title="Host a team" spaced hint="runs swarm-teamd on this machine" />
-      <div className="perm">
-        <div className="perm-t">
+      <div className="card card-pad setup">
+        <p>
           A shared secret is minted for you; every teammate joins with the invite link. The team
           daemon is source-available (FSL-1.1-ALv2) and ships separately from this Apache-2.0
           bundle: it runs from a clone, or from <code>swarm-teamd</code> on your PATH.
-        </div>
-        <div className="perm-b">
-          <label className="dim" htmlFor="team-port">
-            port{" "}
-            <input
-              id="team-port"
-              size={6}
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              inputMode="numeric"
-            />
-          </label>
+        </p>
+        <div className="setup-row">
+          <label htmlFor="team-port">port</label>
+          <input
+            id="team-port"
+            size={6}
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+            inputMode="numeric"
+          />
           <button
             type="button"
             className="ok"
@@ -118,21 +116,19 @@ function JoinForm({ busy, run }: RunProps) {
   };
   return (
     <>
-      <Section title="Join a team" spaced hint="paste an invite link, a URL, or a host name" />
-      <div className="perm">
-        <div className="perm-b stdin">
-          <input
-            placeholder="swarm+team://join?url=… — or http://nas.local:7878"
-            value={invite}
-            onChange={(e) => setInvite(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") join();
-            }}
-          />
-          <button type="button" className="ok" disabled={busy || !invite.trim()} onClick={join}>
-            Join
-          </button>
-        </div>
+      <Section title="Join a team" spaced hint="from whoever is hosting" />
+      <div className="setup stdin">
+        <input
+          placeholder="swarm+team://join?url=… — or http://nas.local:7878"
+          value={invite}
+          onChange={(e) => setInvite(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") join();
+          }}
+        />
+        <button type="button" className="ok" disabled={busy || !invite.trim()} onClick={join}>
+          Join
+        </button>
       </div>
     </>
   );
@@ -140,28 +136,26 @@ function JoinForm({ busy, run }: RunProps) {
 
 function Leave({ data, busy, run }: RunProps & { data: TeamStatus }) {
   return (
-    <div className="perm">
-      <div className="perm-b">
+    <div className="setup setup-row">
+      <button
+        type="button"
+        className="danger"
+        disabled={busy}
+        title="Stop forwarding. Your local ledger, claims and worktrees are untouched."
+        onClick={() => run(() => leaveTeam(false))}
+      >
+        Leave the team
+      </button>
+      {data.hosting && (
         <button
           type="button"
           className="danger"
           disabled={busy}
-          title="Stop forwarding. Your local ledger, claims and worktrees are untouched."
-          onClick={() => run(() => leaveTeam(false))}
+          onClick={() => run(() => leaveTeam(true))}
         >
-          Leave the team
+          Leave and stop hosting
         </button>
-        {data.hosting && (
-          <button
-            type="button"
-            className="danger"
-            disabled={busy}
-            onClick={() => run(() => leaveTeam(true))}
-          >
-            Leave and stop hosting
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -185,14 +179,12 @@ export function Team() {
 
   return (
     <>
-      <Section
-        title="Team"
-        hint={
-          data.configured
-            ? `forwarding to ${data.url}`
-            : "one machine is free and needs no account — a team is a second person"
-        }
-      />
+      <Section title="Team" hint={data.configured ? `forwarding to ${data.url}` : "not set up"} />
+      {!data.configured && (
+        <div className="setup">
+          <p>One machine is free and needs no account — a team is a second person.</p>
+        </div>
+      )}
       {data.configured && <Forwarding data={data} />}
       {data.lastError && (
         <p className="dim">

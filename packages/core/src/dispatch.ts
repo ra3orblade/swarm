@@ -38,6 +38,7 @@ export function planDispatch(
     else if (queued.has(id)) rejected.push({ id, reason: "already queued" });
     else if (t.claimedBy) rejected.push({ id, reason: `held by ${t.claimedBy}` });
     else if (t.status === "done") rejected.push({ id, reason: "already done" });
+    else if (t.status === "dropped") rejected.push({ id, reason: "dropped" });
     else if (!t.ready)
       rejected.push({
         id,

@@ -12,6 +12,7 @@ import { get, query } from "../api/client";
 import { Badge, Empty, Section } from "../components/ui";
 import { ago } from "../lib/format";
 import { icon } from "../lib/icon";
+import { plain } from "../lib/markdown";
 import { useSnapshot } from "../state/snapshot";
 import { useUiStore } from "../state/ui";
 
@@ -65,8 +66,13 @@ function splitSnippet(text: string): Run[] {
   return runs;
 }
 
+/**
+ * A snippet is a fragment of a transcript, so it arrives full of markdown the fragment cut in
+ * half. `plain` takes the marks off before the highlight runs are split out — the sentinels are
+ * control characters, which no markdown rule touches, so the highlights survive it.
+ */
 function Snippet({ text }: { text: string }) {
-  const runs = useMemo(() => splitSnippet(text), [text]);
+  const runs = useMemo(() => splitSnippet(plain(text)), [text]);
   return (
     <div className="hs">
       {runs.map((run, i) =>

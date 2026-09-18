@@ -1,0 +1,220 @@
+/* The landing page's stylesheet. Assembled into site/site.css by tools/build-site.ts.
+   Written against site/src/index.html — `bun run check:site` fails on a class with no rule. */
+
+:root{
+  --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --line:#242932; --line-2:#1e222a;
+  --fg:#e6e9ee; --fg-2:#c2c8d0; --dim:#7c8592; --faint:#5a626e;
+  --acc:#a3e635; --acc-soft:rgba(163,230,53,.14); --acc-contrast:#0e1013;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
+  --r:9px; --r-sm:6px; --r-pill:20px;
+}
+*{box-sizing:border-box}
+html{overflow-x:clip}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:clip}
+a{color:var(--acc);text-decoration:none}
+.wrap{max-width:880px;margin:0 auto;padding:0 24px}
+
+/* The icon sprite is hidden by size, not by `display:none` — some browsers refuse to
+   resolve a <use> into a subtree that was never laid out. */
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+svg{fill:currentColor;shape-rendering:crispEdges}
+
+header{padding:18px 0;display:flex;align-items:center;gap:10px}
+/* 24px is the file's own size — a 12-cell grid shown at 32 is 2.67px a cell and blurs. The
+   nudge is optical: two of the twelve rows are antennae, so the head sits low in the box. */
+header .mark{width:24px;height:auto;image-rendering:pixelated;transform:translateY(-2px)}
+header b{font-size:16px;letter-spacing:.02em}
+header nav{margin-left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px 18px;font-size:14px}
+header nav a{color:var(--fg-2)}
+header nav a:hover{color:var(--acc)}
+
+/* ── hero ──────────────────────────────────────────────────────────────────── */
+.hero{padding:60px 0 56px;text-align:center;position:relative}
+/* Matrix rain. Real rain is a dense character grid with long trails — a few thousand
+   glyph cells a second, which the DOM cannot carry — so it is one canvas and one rAF
+   loop. The mask keeps it out of the middle, where the headline has to stay readable. */
+.hero .sky{position:absolute;inset:-80px -120px 0;z-index:0;overflow:hidden;pointer-events:none;
+  -webkit-mask-image:radial-gradient(ellipse 50% 54% at 50% 46%,transparent 0%,transparent 38%,#000 88%);
+  mask-image:radial-gradient(ellipse 50% 54% at 50% 46%,transparent 0%,transparent 38%,#000 88%)}
+.hero .sky canvas{display:block;width:100%;height:100%;opacity:.72}
+@media (prefers-reduced-motion: reduce){.hero .sky{display:none}}
+.hero::after{content:"";position:absolute;inset:-80px -120px 0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 55% 50% at 50% 28%,var(--acc-soft),transparent 65%)}
+.hero>*{position:relative;z-index:1}
+.hero .mark{width:282px;height:auto;image-rendering:pixelated;margin-bottom:24px}
+h1{font-size:40px;margin:0 0 12px;letter-spacing:-.01em}
+@media (max-width:560px){h1{font-size:31px}}
+.tag{color:var(--fg-2);font-size:19px;line-height:1.5;max-width:600px;margin:0 auto 28px}
+@media (max-width:560px){.tag{font-size:17px}}
+
+/* The install box is the page's primary call to action, so it is sized like one: a real
+   button, not a decorated <div>, and wide enough that the command is the thing you see. */
+.install{display:inline-flex;align-items:center;gap:10px;margin:0 auto;cursor:pointer;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:15px 18px;font:15px/1 var(--mono);color:var(--fg);text-align:left;
+  transition:border-color .15s,background .15s}
+.install:hover{border-color:var(--acc);background:var(--panel-2)}
+.install .p{color:var(--faint);user-select:none}
+.install .cmd{overflow-x:auto;scrollbar-width:none}
+.install .cmd::-webkit-scrollbar{display:none}
+.install .copy{margin-left:4px;padding:5px 10px;border-radius:var(--r-sm);background:var(--panel-2);
+  border:1px solid var(--line);color:var(--dim);font-size:12px;user-select:none;flex:none}
+.install:hover .copy{color:var(--acc);border-color:var(--acc)}
+.install.done .copy{color:var(--acc-contrast);background:var(--acc);border-color:var(--acc)}
+@media (max-width:560px){.install{font-size:13px;padding:13px 14px;max-width:100%}}
+
+.sub{color:var(--dim);font-size:14px;margin:14px auto 26px;max-width:520px}
+.cta{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:12px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:var(--r);
+  font-weight:600;font-size:15px;border:1px solid var(--line);color:var(--fg-2);background:var(--panel)}
+.btn:hover{border-color:var(--acc);color:var(--fg)}
+.btn.ghost{background:none}
+.ver{color:var(--faint);font-size:13px;margin-top:14px;font-variant-numeric:tabular-nums;min-height:1.2em}
+
+.brands{margin:30px auto 0;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;max-width:660px}
+.brands em{font-style:normal;font-size:13px;color:var(--faint);width:100%;margin-bottom:2px}
+.brands b{font-weight:500;font-size:13px;color:var(--fg-2);background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 12px}
+
+/* ── sections ──────────────────────────────────────────────────────────────── */
+section{padding:44px 0}
+h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin:0 0 16px}
+.grp{margin:0 0 20px}
+.grp h2{margin:0 0 8px}
+.grp p{margin:0;color:var(--fg-2);font-size:17px;line-height:1.55;max-width:640px}
+.ic{width:22px;height:22px;color:var(--acc);display:block}
+
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px 20px}
+.card .ic{margin-bottom:12px}
+.card>b{display:block;margin-bottom:6px;font-size:16px}
+.card p{margin:0;color:var(--dim);font-size:14.5px;line-height:1.6}
+
+.chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+@media (max-width:640px){.chips{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.chips .chip{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;text-align:center}
+.chips .chip b{display:block;font-size:19px;color:var(--acc);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.chips .chip span{display:block;font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.45}
+
+/* ── screenshots: carousel + lightbox ──────────────────────────────────────── */
+.gal{margin:44px auto 0;max-width:980px;position:relative}
+.gal .track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px}
+.gal .track::-webkit-scrollbar{display:none}
+.gal figure{flex:0 0 100%;scroll-snap-align:center;margin:0;cursor:zoom-in}
+.gal img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);background:var(--panel)}
+.gal figcaption{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.5;text-align:center}
+.gal figcaption b{color:var(--fg-2);font-weight:600}
+.gal .arr{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s;z-index:2;padding:0;font:inherit}
+.gal .arr:hover{opacity:1;border-color:var(--acc);color:var(--acc)}
+.gal .arr.l{left:-20px}
+.gal .arr.r{right:-20px}
+.gal .arr svg{width:18px;height:18px}
+.gal .dots{display:flex;justify-content:center;gap:8px;margin-top:14px}
+.gal .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s,transform .15s}
+.gal .dots i.on{background:var(--acc);transform:scale(1.25)}
+@media (max-width:1040px){.gal .arr.l{left:6px}.gal .arr.r{right:6px}}
+
+.lb{position:fixed;inset:0;background:rgba(6,8,11,.94);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;padding:28px}
+.lb.open{display:flex}
+.lb img{max-width:min(1600px,100%);max-height:calc(100vh - 110px);width:auto;height:auto;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.lb .cap{color:var(--dim);margin-top:14px;font-size:14px;text-align:center}
+.lb .cap b{color:var(--fg)}
+.lb .x,.lb .n{position:absolute;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;font:inherit}
+.lb .x{top:18px;right:18px}
+.lb .n{top:calc(50% - 22px)}
+.lb .n.l{left:18px}
+.lb .n.r{right:18px}
+.lb .x:hover,.lb .n:hover{border-color:var(--acc);color:var(--acc)}
+.lb .x svg,.lb .n svg{width:20px;height:20px}
+
+/* ── the replay: a Claude Code session with Swarm in it ─────────────────────
+   Typed out rather than recorded because the text has to stay legible at phone width. The
+   two Swarm messages are injected from core/src/rules.ts at build time, so they cannot
+   drift from what the product actually says. */
+.demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:start}
+@media (max-width:860px){.demo{grid-template-columns:minmax(0,1fr)}}
+.term{background:#0a0c10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.term .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line-2);background:var(--panel)}
+.term .bar i{width:10px;height:10px;border-radius:50%;background:#2c313b;display:block}
+.term .bar b{font:500 12px/1 var(--mono);color:var(--dim);margin-left:4px;letter-spacing:.02em}
+.term .body{font:13px/1.65 var(--mono);padding:14px 14px 12px;min-height:326px;white-space:pre-wrap;word-break:break-word}
+@media (max-width:640px){.term .body{font-size:12px;min-height:300px}}
+.term .ln{display:block}
+.term .ln.u{color:var(--fg)}
+.term .ln.u em{color:var(--acc);font-style:normal}
+.term .ln.t{color:var(--fg-2);margin-top:7px}
+.term .ln.t b{color:var(--fg);font-weight:500}
+.term .ln.ok{color:#7fb069}
+.term .ln.sw{color:var(--fg-2);border-left:2px solid var(--acc);padding:5px 0 5px 10px;margin:6px 0 2px;background:var(--acc-soft);border-radius:0 var(--r-sm) var(--r-sm) 0}
+.term .ln.sw b{color:var(--acc);font-weight:600}
+.term .ln.sw.deny{border-left-color:#e0563f;background:rgba(224,86,63,.10)}
+.term .ln.sw.deny b{color:#e0563f}
+.term .cur{display:inline-block;width:7px;height:14px;background:var(--acc);vertical-align:-2px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+/* The status line is the footer Claude Code draws, so it sits under the terminal, not in it. */
+.term .sl{display:flex;flex-wrap:wrap;gap:0 7px;font:12px/1 var(--mono);color:var(--dim);padding:9px 12px;border-top:1px solid var(--line-2);background:var(--panel);min-height:31px}
+.term .sl s{text-decoration:none;color:var(--faint)}
+.term .sl u{text-decoration:none;color:var(--fg-2)}
+.term .sl mark{background:none;color:var(--acc)}
+.term .sl mark.warn{color:#e0a53f}
+.demo .side{display:grid;gap:10px}
+.demo .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 13px;transition:opacity .25s,border-color .25s}
+/* Dimming only exists while the replay runs. Default-dim meant anyone who never scrolled it
+   into view, or who has JS off, saw four washed-out cards for no stated reason. */
+.demo .side.running .step{opacity:.42}
+.demo .side.running .step.on{opacity:1;border-color:var(--acc)}
+.demo .step b{display:block;font-size:13.5px;margin-bottom:3px}
+.demo .step span{display:block;font-size:12.5px;color:var(--dim);line-height:1.45}
+.demo .col{display:grid;gap:11px;justify-items:start;min-width:0}
+.demo .col .term{width:100%}
+.demo .replay{justify-self:start;font:500 12px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:9px 15px;cursor:pointer}
+.demo .replay:hover{color:var(--fg);border-color:var(--acc)}
+
+/* The clips. One <video> and three tabs rather than three autoplaying at once: the page
+   already runs a canvas, and three simultaneous decodes on a phone is how a landing page
+   ends up janky. Recorded from `swarm demo` by tools/reel.ts — invented projects, real app. */
+/* <figure> carries the UA's 40px side margin, which indents it out of line with the terminal. */
+.reel{margin:22px 0 0}
+.reel .tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+.reel .tabs button{font:500 12.5px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 14px;cursor:pointer}
+.reel .tabs button:hover{color:var(--fg)}
+.reel .tabs button[aria-selected=true]{color:var(--acc-contrast);background:var(--acc);border-color:var(--acc)}
+.reel .frame{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.reel video{display:block;width:100%;height:auto;background:#0c0e12}
+.reel figcaption{font-size:13px;color:var(--dim);padding:10px 13px;border-top:1px solid var(--line-2)}
+
+/* ── the closing ask ───────────────────────────────────────────────────────── */
+.band{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:26px 24px;text-align:center}
+.band b.h{display:block;font-size:21px;color:var(--fg);margin-bottom:10px;letter-spacing:-.01em}
+.band>p{margin:0 auto 20px;color:var(--dim);font-size:15px;line-height:1.6;max-width:560px}
+.band .install{background:var(--panel-2)}
+.band .lic{color:var(--faint);font-size:13.5px;margin:20px auto 0;max-width:600px;line-height:1.6}
+
+/* ── downloads ─────────────────────────────────────────────────────────────── */
+#downloads h2 #rel,#downloads h2 .notes{text-transform:none;letter-spacing:0}
+#downloads h2 .notes{font-weight:500;margin-left:8px}
+.dl{padding:0;overflow:hidden}
+.dl .row{display:flex;align-items:center;gap:16px;padding:16px 18px;border-bottom:1px solid var(--line-2)}
+.dl .row:last-child{border-bottom:0}
+.dl .row.mine{background:var(--acc-soft)}
+.dl .row .ic{width:20px;height:20px;flex:none}
+.dl .who b{display:block;font-size:15px}
+.dl .who span{color:var(--dim);font-size:13px}
+.dl .links{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.dl .pill{display:inline-flex;align-items:baseline;gap:6px;padding:6px 13px;border-radius:var(--r-pill);
+  border:1px solid var(--line);color:var(--fg-2);font-size:13.5px;font-weight:600;background:var(--panel-2)}
+.dl .pill small{color:var(--dim);font-weight:500;font-size:12px}
+.dl .pill:hover{border-color:var(--acc);color:var(--fg)}
+.dl .pill.primary{background:var(--acc);border-color:var(--acc);color:var(--acc-contrast)}
+.dl .pill.primary small{color:var(--acc-contrast);opacity:.7}
+.dl .pill.primary:hover{filter:brightness(1.06)}
+.dl .pill.mono{font-family:var(--mono);font-weight:500}
+@media (max-width:680px){.dl .row{flex-wrap:wrap}.dl .links{margin-left:36px;justify-content:flex-start}}
+
+footer{padding:36px 0 44px;color:var(--faint);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
+footer a{color:var(--dim)}
+footer a:hover{color:var(--acc)}

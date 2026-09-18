@@ -327,6 +327,26 @@ writeFileSync(
   }),
 );
 
+// ── the README's marks ──────────────────────────────────────────────────────
+// GitHub renders docs/art/*.svg and cannot run a generator, so these are the only committed
+// copies of the drawing — which is exactly why they need to come from here. The pair that used to
+// sit there was hand-authored from a different motif altogether (streaming activity rows) and
+// never moved when the robot was drawn; it was the last mark still showing the old brand.
+const art = join(root, "docs/art");
+writeFileSync(
+  join(art, "swarm-mark.svg"),
+  artSvg(BIG.rows, ART_PALETTE, { title: "Swarm", cell: 6 }),
+);
+writeFileSync(
+  join(art, "swarm-icon.svg"),
+  artSvg(SMALL.rows, ART_PALETTE, {
+    title: "Swarm",
+    cell: 8,
+    // The macOS corner, 185.4/824, so the README icon matches the one in the Dock.
+    tile: { fill: "#0e1013", pad: 2, radius: 29 },
+  }),
+);
+
 // ── the dashboard's own favicon ─────────────────────────────────────────────
 // It used to be a data: URL pasted into index.html, which is exactly the kind of second copy that
 // goes stale — it was still the pre-redraw robot long after everything else had changed. The
@@ -344,6 +364,7 @@ writeFileSync(
 console.log(
   `icons: ${files.length} png + icon.ico + tray.png${icns ? " + icon.icns" : ""} → ${out}\n` +
     "       favicon.ico, favicon.svg → packages/web/public\n" +
-    `       head.png, mark.png, apple-touch-icon.png, favicon.ico, favicon.svg → ${site}` +
+    `       head.png, mark.png, apple-touch-icon.png, favicon.ico, favicon.svg → ${site}\n` +
+    "       swarm-mark.svg, swarm-icon.svg → docs/art" +
     (icns ? "" : "\n       (icon.icns needs macOS iconutil)"),
 );
