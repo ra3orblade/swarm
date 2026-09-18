@@ -124,6 +124,13 @@ claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a 
 # the incident feed shows before / after — "ask" / "deny" refuse it, "off" (default) ignores it.
 no_verify     = "off"     # `git commit/push --no-verify` / `--no-gpg-sign` → the flags are dropped
 dry_run_first = "off"     # the first terraform apply / kubectl delete / helm uninstall per session runs as its dry-run form; the next one is allowed
+# Destructive, secrets and tamper families (M12.5): "ask" / "deny" / "off". All ship "off" for one
+# release; the Security view counts what each would have caught meanwhile, so you can decide.
+destructive_fs    = "off" # rm -rf on /, ~, .., a path from a maybe-unset variable, or outside the repo; mkfs; dd to a device
+destructive_infra = "off" # terraform destroy, kubectl delete ns / --all, helm uninstall, cloud deletes, SQL DROP / TRUNCATE
+pipe_to_shell     = "off" # curl … | sh, bash <(curl …), sh -c "$(curl …)"
+secrets           = "off" # reading / printing / copying credential files (Read included); writing .env* or key files
+config_tamper     = "off" # changing Claude Code settings, ~/.swarm, .swarm.toml, other agents' hook config; swarm uninstall
 
 # Your own rules (M13.5): tested in order against every Bash command, after the rules above (a deny
 # above is never softened here). `match` is a regex over the whole command; with action = "rewrite"
