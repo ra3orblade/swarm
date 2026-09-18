@@ -18,6 +18,8 @@ import { useEffect } from "react";
 interface TauriWindow {
   startDragging?: () => void;
   toggleMaximize?: () => void;
+  /** The dock / taskbar badge; `undefined` clears it. See `attention.ts`. */
+  setBadgeCount?: (count?: number) => Promise<void>;
 }
 
 /** The notification plugin, present only inside the desktop shell. */

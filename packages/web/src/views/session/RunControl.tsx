@@ -9,12 +9,13 @@
  * correct place; a text box here would be a second, worse one.
  */
 
-import type { InteractivePermission } from "@swarm/core/permissions";
+import { askedQuestions, type InteractivePermission } from "@swarm/core/permissions";
 import { useEffect, useState } from "react";
 import { send } from "../../api/client";
 import { usd } from "../../lib/format";
 import { icon } from "../../lib/icon";
 import { refreshSnapshot } from "../../state/snapshot";
+import { QuestionForm, ToolInput } from "./PermissionDetail";
 
 /** A permission prompt the rules flagged as `ask`, waiting on a person. */
 export interface PendingPermission {
@@ -84,12 +85,43 @@ export function InteractivePermissionCard({ ask }: { ask: InteractivePermission 
     const t = setInterval(() => setLeft(secondsLeft(ask.terminalAt)), 1000);
     return () => clearInterval(t);
   }, [ask.terminalAt]);
-  const answer = async (body: { allow?: boolean; terminal?: boolean }) => {
+  const answer = async (body: {
+    allow?: boolean;
+    terminal?: boolean;
+    answers?: Record<string, string>;
+  }) => {
     setBusy(true);
     await send(`/v1/permissions/${encodeURIComponent(ask.id)}`, "POST", body);
     await refreshSnapshot();
     setBusy(false);
   };
+  const terminal = (
+    <>
+      <button type="button" disabled={busy} onClick={() => void answer({ terminal: true })}>
+        Answer in terminal
+      </button>
+      <span className="dim now">terminal takes over in {left}s</span>
+    </>
+  );
+  // A question is answered, not allowed: "Allow" alone would run the tool with no answer in it.
+  const questions = ask.tool === "AskUserQuestion" ? askedQuestions(ask.input) : [];
+  if (questions.length > 0) {
+    return (
+      <div className="perm">
+        <div className="perm-t">
+          {icon("comment-text", 13)} The agent has{" "}
+          {questions.length === 1 ? "a question" : "questions"}
+        </div>
+        <QuestionForm
+          questions={questions}
+          busy={busy}
+          onAnswer={(answers) => void answer({ allow: true, answers })}
+        >
+          {terminal}
+        </QuestionForm>
+      </div>
+    );
+  }
   return (
     <div className="perm">
       <div className="perm-t">
@@ -100,7 +132,7 @@ export function InteractivePermissionCard({ ask }: { ask: InteractivePermission 
           {ask.reason}
         </span>
       </div>
-      <div className="perm-c">{ask.display}</div>
+      <ToolInput tool={ask.tool} display={ask.display} input={ask.input} />
       <div className="perm-b">
         <button
           type="button"
@@ -118,10 +150,7 @@ export function InteractivePermissionCard({ ask }: { ask: InteractivePermission 
         >
           Deny
         </button>
-        <button type="button" disabled={busy} onClick={() => void answer({ terminal: true })}>
-          Answer in terminal
-        </button>
-        <span className="dim now">terminal takes over in {left}s</span>
+        {terminal}
       </div>
     </div>
   );

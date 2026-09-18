@@ -968,11 +968,19 @@ export function createApp(
       allow?: boolean;
       terminal?: boolean;
       message?: string;
+      answers?: Record<string, unknown>;
       by?: "dashboard" | "cli";
     };
+    // AskUserQuestion: the picks ride back to the hook as `updatedInput.answers`
+    const answers = Object.fromEntries(
+      Object.entries(b.answers ?? {}).filter(
+        (e): e is [string, string] => typeof e[1] === "string",
+      ),
+    );
     const r = store.answerInteractive(c.req.param("id"), {
       behavior: b.terminal ? null : b.allow === true ? "allow" : "deny",
       ...(b.message ? { message: b.message } : {}),
+      ...(b.allow === true && Object.keys(answers).length ? { answers } : {}),
       by: b.terminal ? "terminal" : (b.by ?? "dashboard"),
     });
     return r.ok ? c.json(r) : c.json({ ok: false, error: r.reason }, 404);

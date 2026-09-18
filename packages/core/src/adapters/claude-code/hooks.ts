@@ -3,6 +3,7 @@
  * Field names follow the hook input contract as observed; the full upstream
  * object is always kept under `raw` so nothing is lost if the schema drifts.
  */
+import { askedQuestions } from "../../permissions";
 import type { EventType, SwarmEvent } from "../../types";
 
 export type HookEventName =
@@ -93,6 +94,28 @@ export function permissionReason(raw: HookInput): string {
   return `Claude Code is asking before it runs this (${typeof raw.permission_mode === "string" ? raw.permission_mode : "default"} mode)`;
 }
 
+/** Tools `summarizeToolInput` has a real one-liner for; the rest get `firstKey=value…`. */
+const OWN_SUMMARY = new Set([
+  "Bash",
+  "Read",
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
+  "Glob",
+  "Grep",
+  "Agent",
+  "Task",
+  "WebFetch",
+  "WebSearch",
+  "AskUserQuestion",
+]);
+
+/** False when the summary is only the fallback, so a card should draw the input itself instead. */
+export function hasOwnSummary(tool: string | undefined): boolean {
+  return tool !== undefined && OWN_SUMMARY.has(tool);
+}
+
 export function summarizeToolInput(tool: string | undefined, input: unknown): string {
   const i = (input ?? {}) as Record<string, unknown>;
   const s = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v ?? ""));
@@ -115,6 +138,13 @@ export function summarizeToolInput(tool: string | undefined, input: unknown): st
       return s(i.url);
     case "WebSearch":
       return s(i.query);
+    case "AskUserQuestion": {
+      // the question itself, not `questions=[{"question":…` cut off at 80 characters
+      const asked = askedQuestions(i);
+      const first = asked[0];
+      if (!first) return "";
+      return first.question + (asked.length > 1 ? ` (+${asked.length - 1} more)` : "");
+    }
     default: {
       const first = Object.entries(i)[0];
       return first ? `${first[0]}=${s(first[1]).slice(0, 80)}` : "";

@@ -4,6 +4,26 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- **An agent's question is a question you can answer.** When a Claude Code session called
+  `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
+  input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means
+  anything for a question. The card now draws the questions: header, text, each option with its
+  description, *pick any* where several are allowed, and a *Something else…* field. **Answer**
+  sends the picks back the way the hooks reference documents it — the original input echoed as
+  `updatedInput` with `answers` mapping each question's text to the chosen label(s) — so the agent
+  carries on without anyone touching the terminal; *Answer in terminal* and the countdown are
+  still there. The session log and the desktop notification say the question instead of the JSON
+  too. Any other tool without a one-line summary (every MCP tool) shows its input as named
+  fields, with JSON indented — including JSON that arrived as a string.
+- **A badge when something waits on you.** The desktop app's dock icon carries the number of
+  agents blocked on a person — questions asked through `swarm_ask` plus parked permission
+  prompts — and clears when they are answered. A browser tab has no icon badge, so it gets the
+  count in its title: `(2) Swarm`. The dock badge needs the new
+  `core:window:allow-set-badge-count` capability, so it arrives with the next desktop build; an
+  older shell just shows no badge.
+
 ### Changed
 
 - **The README shows the robot.** Every mark Swarm ships is generated from the one grid in
