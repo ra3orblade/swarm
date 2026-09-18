@@ -24,6 +24,7 @@ export * from "./lessons";
 export * from "./lessons-apply";
 export * from "./lineage";
 export * from "./mcphealth";
+export * from "./mdns";
 export * from "./memory";
 export * from "./messages";
 export * from "./outcomes";

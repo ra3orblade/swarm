@@ -5,6 +5,7 @@
  * joining takes that link. Everything else on this page is the forwarder's own status, which used
  * to be readable only through `swarm doctor`.
  */
+import type { FoundTeam } from "@swarm/core/mdns";
 import { useState } from "react";
 import {
   fetchTeamd,
@@ -133,6 +134,46 @@ function HostForm({ busy, run, teamd }: RunProps & { teamd: TeamStatus["teamd"] 
   );
 }
 
+/** M13.13: teams announcing themselves on this network (mDNS), one click from the input. */
+function OnThisNetwork({ use }: { use: (url: string) => void }) {
+  const { data, reload } = useResource<{ teams: FoundTeam[] }>(routes.teamDiscover());
+  if (!data) return <p className="dim">Looking for teams on this network…</p>;
+  if (!data.teams.length)
+    return (
+      <p className="dim">
+        No team is announcing itself on this network.{" "}
+        <button type="button" className="link" onClick={reload}>
+          Look again
+        </button>
+      </p>
+    );
+  return (
+    <div className="setup">
+      <p className="dim">On this network</p>
+      <ul className="plainlist">
+        {data.teams.map((t) => (
+          <li key={t.url}>
+            <b>{t.name}</b>
+            <span className="dim">{t.url}</span>
+            {t.txt.auth && <Badge>{t.txt.auth}</Badge>}
+            <button type="button" onClick={() => use(t.url)}>
+              Use
+            </button>
+            {t.txt.auth === "token" && (
+              <span
+                className="dim"
+                title="token teams share a secret; it travels in the invite link, never on the network"
+              >
+                invite secret needed
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function JoinForm({ busy, run }: RunProps) {
   const [invite, setInvite] = useState("");
   const join = () => {
@@ -154,6 +195,7 @@ function JoinForm({ busy, run }: RunProps) {
           Join
         </button>
       </div>
+      <OnThisNetwork use={setInvite} />
     </>
   );
 }

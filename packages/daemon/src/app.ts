@@ -29,6 +29,7 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCodify } from "./codify";
+import { discoverTeams } from "./discover";
 import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
@@ -546,6 +547,8 @@ export function createApp(
     const r = await hostTeam(store, b);
     return c.json(r, r.ok ? 201 : 409);
   });
+  // M13.13: teams announced on this network, for Join
+  app.get("/v1/team/discover", async (c) => c.json({ teams: await discoverTeams() }));
   // M13.13: fetch swarm-teamd for this machine — only with the license acknowledged
   app.post("/v1/team/teamd", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as { accept?: unknown };
