@@ -18,6 +18,8 @@ export type HookEventName =
   | "SessionEnd"
   | "Notification"
   | "PreCompact"
+  // M13.9: a tool that started and failed; may return additionalContext (verified 2026-09-18)
+  | "PostToolUseFailure"
   // M13.2: fires before the permission dialog; the daemon may answer it (verified 2026-09-12)
   | "PermissionRequest";
 
@@ -33,6 +35,7 @@ export const HOOK_EVENTS: HookEventName[] = [
   "Notification",
   "PreCompact",
   "PermissionRequest",
+  "PostToolUseFailure",
 ];
 
 export interface HookInput {
@@ -64,6 +67,8 @@ const MAP: Record<HookEventName, EventType> = {
   Notification: "session.notification",
   PreCompact: "agent.text",
   PermissionRequest: "permission.requested",
+  // a failure closes the tool call like a success does; `failed` + `error` say how it ended
+  PostToolUseFailure: "tool.completed",
 };
 
 export interface HookPayload {
@@ -78,6 +83,9 @@ export interface HookPayload {
   prompt?: string;
   /** Who the prompt came from, when it was not a person (core/prompt.ts). Absent means `user`. */
   origin?: Exclude<PromptOrigin, "user">;
+  /** PostToolUseFailure: the call ran and failed; `error` is the head of what Claude saw. */
+  failed?: true;
+  error?: string;
   /** M13.2 PermissionRequest: what the card and the notification show. */
   requestId?: string;
   display?: string;
@@ -175,6 +183,13 @@ export function normalizeHook(
     case "PostToolUse":
       summary = `${tool ?? "?"} ${summarizeToolInput(tool, raw.tool_input)}`.trim();
       break;
+    case "PostToolUseFailure":
+      summary =
+        `${tool ?? "?"} ${summarizeToolInput(tool, raw.tool_input)} — ${raw.is_interrupt ? "interrupted" : "failed"}`.replace(
+          /\s+—/,
+          " —",
+        );
+      break;
     case "SubagentStart":
       summary = `subagent ${raw.agent_type ?? ""} started`.trim();
       break;
@@ -210,6 +225,11 @@ export function normalizeHook(
   if (tool) payload.tool = tool;
   if (raw.tool_input !== undefined) payload.toolInput = raw.tool_input;
   if (raw.tool_response !== undefined) payload.toolResponse = raw.tool_response;
+  if (event === "PostToolUseFailure") {
+    payload.failed = true;
+    // the reference says treat it as display text; keep the head, the whole thing is under raw
+    if (typeof raw.error === "string") payload.error = raw.error.slice(0, 2000);
+  }
   if (raw.agent_id) payload.agentId = raw.agent_id;
   if (raw.agent_type) payload.agentType = raw.agent_type;
   if (raw.prompt) payload.prompt = raw.prompt;

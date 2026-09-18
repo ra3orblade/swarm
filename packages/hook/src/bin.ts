@@ -10,7 +10,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_PORT, authedFetch as fetch, resolveBaseUrl, swarmHome } from "@swarm/client";
-import { evaluateOffline, POLICY_CACHE_FILE, verifyPolicyCache } from "@swarm/core";
+import {
+  detectAgent,
+  evaluateOffline,
+  POLICY_CACHE_FILE,
+  renderAgentDecision,
+  toToolRequests,
+  verifyPolicyCache,
+} from "@swarm/core";
 
 const event = process.argv[2] ?? "Unknown";
 const input = await Bun.stdin.text();
@@ -90,7 +97,7 @@ if (out === null && base !== fallback) {
     /* fail open */
   }
 }
-if (out === null && event === "PreToolUse") out = offline();
+if (out === null && (event === "PreToolUse" || event === "BeforeTool")) out = offline();
 process.stdout.write(`${out ?? "{}"}\n`);
 
 /** Locked rules from the policy cache; null (= allow) when there is no valid cache or no hit. */
@@ -101,6 +108,23 @@ function offline(): string | null {
     const cache = verifyPolicyCache(JSON.parse(readFileSync(file, "utf8")));
     if (!cache) return null;
     const raw = input ? (JSON.parse(input) as Record<string, unknown>) : {};
+    // M12.4: Codex / Gemini CLI / Cursor — same locked rules, answered in their own shape
+    const agent = detectAgent(raw);
+    if (agent !== "claude-code") {
+      for (const r of toToolRequests(agent, raw)) {
+        const d = evaluateOffline(
+          cache,
+          { tool_name: r.tool, tool_input: r.input, session_id: r.sessionId, cwd: r.cwd },
+          gitToplevel,
+        );
+        if (d.action !== "allow")
+          return renderAgentDecision(agent, {
+            ...d,
+            reason: `(daemon unreachable, policy-locked rule) ${d.reason}`,
+          });
+      }
+      return null;
+    }
     const d = evaluateOffline(cache, raw, gitToplevel);
     if (d.action === "allow") return null;
     return JSON.stringify({

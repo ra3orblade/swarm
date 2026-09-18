@@ -6,6 +6,16 @@
  * destructive git command discards it. Two sessions in *separate worktrees* have different
  * toplevels and never conflict — so this rule also nudges toward worktree isolation.
  */
+import {
+  configTamperCommand,
+  destructiveFs,
+  destructiveInfra,
+  type FamilyHit,
+  guardConfigFile,
+  pipeToShell,
+  secretCommand,
+  secretFile,
+} from "./guards";
 
 export interface LiveSession {
   id: string;
@@ -116,6 +126,12 @@ export type RuleId =
   // M13.5 rewrite rules (default "off"): fix the call instead of refusing it
   | "no_verify"
   | "dry_run_first"
+  // M12.5 families (default "off", watched on Security for a release first)
+  | "destructive_fs"
+  | "destructive_infra"
+  | "pipe_to_shell"
+  | "secrets"
+  | "config_tamper"
   // M13.5 `[[rules.custom]]`: the user's own, named in config
   | `custom:${string}`;
 export type GuardDecision =
@@ -160,6 +176,12 @@ export interface RuleModes {
   dry_run_first?: RewriteMode;
   /** `[[rules.custom]]` in config order (M13.5). */
   custom?: CustomRule[];
+  /** M12.5 families — optional for the same reason as `no_verify`: absent means "off". */
+  destructive_fs?: "ask" | "deny" | "off";
+  destructive_infra?: "ask" | "deny" | "off";
+  pipe_to_shell?: "ask" | "deny" | "off";
+  secrets?: "ask" | "deny" | "off";
+  config_tamper?: "ask" | "deny" | "off";
   /** M13.3, read by the daemon only; optional here so older policy caches still evaluate. */
   collision_context?: boolean;
   collision_window?: number;
@@ -176,8 +198,92 @@ export const DEFAULT_MODES: RuleModes = {
   no_verify: "off",
   dry_run_first: "off",
   custom: [],
+  destructive_fs: "off",
+  destructive_infra: "off",
+  pipe_to_shell: "off",
+  secrets: "off",
+  config_tamper: "off",
   protected: { ports: [] },
 };
+
+/** The M12.5 families, in the order `guardBash` checks them. */
+export const FAMILY_RULES = [
+  "destructive_fs",
+  "destructive_infra",
+  "pipe_to_shell",
+  "secrets",
+  "config_tamper",
+] as const;
+export type FamilyRule = (typeof FAMILY_RULES)[number];
+
+/** Bash hits for every family, whatever the modes — the Security view counts these. */
+export function familyHitsBash(
+  cmd: string,
+  home: string,
+  toplevel: string | null,
+): Array<{ rule: FamilyRule; what: string }> {
+  const out: Array<{ rule: FamilyRule; what: string }> = [];
+  const add = (rule: FamilyRule, h: FamilyHit | null) => h && out.push({ rule, what: h.what });
+  add("destructive_fs", destructiveFs(cmd, home, toplevel));
+  add("destructive_infra", destructiveInfra(cmd));
+  add("pipe_to_shell", pipeToShell(cmd));
+  add("secrets", secretCommand(cmd));
+  add("config_tamper", configTamperCommand(cmd, home));
+  return out;
+}
+
+/** File-tool hits (Read / Write / Edit …) for the families that concern a path. */
+export function familyHitsFile(
+  tool: string,
+  path: string,
+  home: string,
+): Array<{ rule: FamilyRule; what: string }> {
+  const out: Array<{ rule: FamilyRule; what: string }> = [];
+  const secret = secretFile(tool, path);
+  if (secret) out.push({ rule: "secrets", what: secret.what });
+  if (WRITE_TOOLS.has(tool)) {
+    const what = guardConfigFile(path, home);
+    if (what) out.push({ rule: "config_tamper", what: `changes ${what} (${path})` });
+  }
+  return out;
+}
+
+const FAMILY_REASON: Record<FamilyRule, (what: string) => string> = {
+  destructive_fs: (w) =>
+    `This ${w}. Nothing gets that back — name the exact paths you mean, inside this repository.`,
+  destructive_infra: (w) =>
+    `This is ${w} — outside this checkout, and not something git can undo. Confirm with the owner first.`,
+  pipe_to_shell: (w) => `This ${w}. Download it to a file, read it, then run it.`,
+  secrets: (w) =>
+    `This ${w}. Credentials stay out of the transcript: use the variable by name, or ask the owner.`,
+  config_tamper: (w) =>
+    `This ${w} — the settings that decide what agents may do. Ask the owner to change them.`,
+};
+
+/** A family hit as a decision under `modes` (first hit whose mode is not off). */
+function familyDecision(
+  hits: Array<{ rule: FamilyRule; what: string }>,
+  modes: RuleModes,
+): GuardDecision | null {
+  for (const h of hits) {
+    const mode = modes[h.rule] ?? "off";
+    if (mode !== "off")
+      return { action: mode, rule: h.rule, reason: FAMILY_REASON[h.rule](h.what) };
+  }
+  return null;
+}
+
+/** M12.5: the file-tool side — secrets (read / write) and config tamper (write). */
+export function guardFile(
+  tool: string,
+  path: string,
+  modes: RuleModes = DEFAULT_MODES,
+  home: string = process.env.HOME ?? "",
+): GuardDecision {
+  if ((modes.secrets ?? "off") === "off" && (modes.config_tamper ?? "off") === "off")
+    return { action: "allow" };
+  return familyDecision(familyHitsFile(tool, path, home), modes) ?? { action: "allow" };
+}
 
 // ---------- rewrites (M13.5): the built-in fixes, pure string → string
 
@@ -322,12 +428,13 @@ export function guardBash(
   sessions: LiveSession[],
   now: number,
   modes: RuleModes = DEFAULT_MODES,
-  /** M13.5: which one-time rewrites this session already went through (by `key`). */
-  ctx: { rewritesDone?: ReadonlySet<string> } = {},
+  /** M13.5: which one-time rewrites this session already went through (by `key`); M12.5: the
+   *  home directory the families expand `~` against (defaults to $HOME). */
+  ctx: { rewritesDone?: ReadonlySet<string>; home?: string } = {},
 ): GuardDecision {
   const other = () => otherLiveInSameTree(current, sessions, now);
   const hit = (
-    rule: Exclude<RuleId, `custom:${string}` | "no_verify" | "dry_run_first">,
+    rule: Exclude<RuleId, `custom:${string}` | "no_verify" | "dry_run_first" | FamilyRule>,
     reason: string,
   ): GuardDecision => {
     const mode = modes[rule];
@@ -380,6 +487,14 @@ export function guardBash(
       );
       if (d.action !== "allow") return d;
     }
+  }
+  // M12.5 families: before the user's rules, so a custom rewrite never softens one of these.
+  if (FAMILY_RULES.some((r) => (modes[r] ?? "off") !== "off")) {
+    const d = familyDecision(
+      familyHitsBash(cmd, ctx.home ?? process.env.HOME ?? "", current.toplevel),
+      modes,
+    );
+    if (d) return d;
   }
   // M13.5: the user's own rules, in config order — after the coordination rules, so a deny above
   // is never softened into a rewrite here.

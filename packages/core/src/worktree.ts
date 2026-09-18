@@ -131,10 +131,14 @@ export interface GcCandidate {
  */
 export function planGc(
   worktrees: WorktreeFacts[],
-  claims: Array<{ worktree: string; task: string; state: string }>,
+  claims: Array<{ worktree: string; task: string; state: string; origin?: string | null }>,
 ): GcCandidate[] {
   const held = new Map(claims.filter((c) => c.state === "held").map((c) => [c.worktree, c.task]));
-  const stale = new Set(claims.filter((c) => c.state !== "held").map((c) => c.worktree));
+  // An adopted claim (M13.7) never created its directory, so its release leaves nothing of ours
+  // behind: Claude Code decides whether that worktree stays.
+  const stale = new Set(
+    claims.filter((c) => c.state !== "held" && c.origin !== ADOPTED).map((c) => c.worktree),
+  );
   const out: GcCandidate[] = [];
   for (const w of worktrees) {
     if (w.main || held.has(w.path)) continue;
@@ -150,4 +154,28 @@ export function planGc(
     });
   }
   return out;
+}
+
+// ---------- M13.7: worktrees Claude Code made itself
+
+/** `claims.origin` for a worktree the ledger recorded but did not create. */
+export const ADOPTED = "claude-code";
+
+/**
+ * Where Claude Code puts the worktrees it makes (`claude --worktree`, a subagent with
+ * `isolation: "worktree"`, a background session): `<repo>/.claude/worktrees/<name>`. Returns the
+ * main checkout, the name and the worktree's own path for any cwd at or below one, else null.
+ * Path-only; the caller checks the directory is really a git worktree.
+ */
+export function claudeCodeWorktree(
+  cwd: string,
+): { root: string; name: string; path: string } | null {
+  const m = /^(.+?)\/\.claude\/worktrees\/([^/]+)(?:\/|$)/.exec(cwd);
+  if (!m?.[1] || !m[2] || m[2].startsWith(".")) return null;
+  return { root: m[1], name: m[2], path: `${m[1]}/.claude/worktrees/${m[2]}` };
+}
+
+/** The task an adopted worktree is claimed under — namespaced so it never collides with a real one. */
+export function adoptedTask(name: string): string {
+  return `cc/${name}`;
 }

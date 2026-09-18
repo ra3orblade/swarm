@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { daemonCommand, readToken } from "@swarm/client";
 import {
   absolutePath,
+  agentCoverage,
   armTask,
+  detectAgent,
   formatAudit,
   formatHandoff,
   hookCoverage,
@@ -32,6 +34,7 @@ import { applyCodify } from "./codify";
 import { Dispatcher } from "./dispatcher";
 import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
+import { OtelExporter } from "./otel";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
@@ -118,6 +121,7 @@ export function createApp(
   const dispatcher = new Dispatcher(store, runner, forge);
   const workflows = new WorkflowEngine(store, runner, forge);
   const team = new TeamForwarder(store, VERSION);
+  const otel = new OtelExporter(store, VERSION);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
   store.onBudgetStop((projectId) => {
     dispatcher.clear(projectId);
@@ -537,6 +541,8 @@ export function createApp(
   // M8.3b: forwarding status — [team] config, outbox lag, last ack/error (doctor + dashboard)
   // M13.12: the Team panel — status, plus hosting and joining without a terminal
   app.get("/v1/team", (c) => c.json({ ...team.status(), ...hostingStatus(store) }));
+  // M12.1: OTLP export status (doctor)
+  app.get("/v1/otel", (c) => c.json(otel.status()));
   app.post("/v1/team/host", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {
       mode?: "token" | "oidc" | "open";
@@ -620,6 +626,31 @@ export function createApp(
     if (!hooks.restart) return c.json({ error: "not restartable in this environment" }, 501);
     setTimeout(() => hooks.restart?.(), 50);
     return c.json({ ok: true, restarting: true });
+  });
+  // M12.4: which agents the rules hold on, read from each agent's own config
+  app.get("/v1/rules/agents", (c) => {
+    const read = (p: string): unknown => {
+      try {
+        return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+      } catch {
+        return null;
+      }
+    };
+    const h = homedir();
+    const codexHooks = process.env.CODEX_HOOKS ?? join(h, ".codex", "hooks.json");
+    const gemini = process.env.GEMINI_SETTINGS ?? join(h, ".gemini", "settings.json");
+    return c.json(
+      agentCoverage({
+        claude: claudeSettings(),
+        codexHooks: read(codexHooks),
+        gemini: read(gemini),
+        present: {
+          codex: existsSync(dirname(codexHooks)),
+          gemini: existsSync(dirname(gemini)),
+          cursor: existsSync(join(h, ".cursor")),
+        },
+      }),
+    );
   });
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");
@@ -1284,11 +1315,30 @@ export function createApp(
   app.post("/v1/hook/:event", async (c) => {
     const event = c.req.param("event");
     const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // M12.4: Codex (PreToolUse), Gemini CLI (BeforeTool) and Cursor (which runs Claude Code's own
+    // hooks from ~/.claude/settings.json) reach this route too. Their sessions are recorded by
+    // their adapters, not as Claude Code events; here they only get the rules, in their own shape.
+    const agent = detectAgent(raw);
+    if (agent !== "claude-code") {
+      if (
+        (event === "PreToolUse" || event === "BeforeTool") &&
+        !store.guardDisabled(hookRepoRoot(store, raw))
+      )
+        return c.json(JSON.parse(store.guardForeign(agent, raw)));
+      return c.json({});
+    }
     store.ingestHook(event, raw);
     // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
     if (event === "SessionStart" && typeof raw.cwd === "string") {
       store.checkPolicy(raw.cwd, typeof raw.session_id === "string" ? raw.session_id : null);
-      const ctx = store.sessionContext(raw.cwd);
+      const held = store.sessionContext(raw.cwd);
+      // M13.9: a compacted session keeps its session id and loses what it was told at startup;
+      // SessionStart fires again with source "compact" (PostCompact cannot add context — verified
+      // 2026-09-18), so say it again and say why.
+      const ctx =
+        held && raw.source === "compact"
+          ? `[swarm] context was compacted — what Swarm told this session at startup still holds:\n${held}`
+          : held;
       if (ctx)
         return c.json({
           additionalContext: ctx,
@@ -1402,7 +1452,9 @@ export function createApp(
       if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
         collision = store.collisionContext(sid, raw.cwd, absolutePath(fp, raw.cwd));
     }
-    const context = [collision, answers].filter(Boolean).join("\n");
+    // M13.9: the third failure of the same command gets what Swarm knows about verifying it
+    const coaching = event === "PostToolUseFailure" && sid ? store.failureCoaching(sid, raw) : null;
+    const context = [collision, coaching, answers].filter(Boolean).join("\n");
     if (context)
       return c.json({
         additionalContext: context,
@@ -1500,5 +1552,5 @@ export function createApp(
     });
   });
 
-  return { app, store, forge, runner, dispatcher, workflows, team };
+  return { app, store, forge, runner, dispatcher, workflows, team, otel };
 }

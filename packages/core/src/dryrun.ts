@@ -17,6 +17,7 @@ import {
   absolutePath,
   type GuardDecision,
   guardBash,
+  guardFile,
   guardWrite,
   type HeldWorktree,
   LIVE_WINDOW_MS,
@@ -74,6 +75,11 @@ export const RULE_IDS: RuleId[] = [
   "claim_required_to_write",
   "no_verify",
   "dry_run_first",
+  "destructive_fs",
+  "destructive_infra",
+  "pipe_to_shell",
+  "secrets",
+  "config_tamper",
 ];
 
 /** Collapse a display string so the same action with cosmetic differences groups together. */
@@ -91,6 +97,8 @@ export function dryRunRules(
   ctx: {
     toplevel: (cwd: string) => string | null;
     claims?: HeldWorktree[];
+    /** M12.5: the home the families expand `~` against (defaults to $HOME). */
+    home?: string;
     minRepeat?: number;
     maxHits?: number;
   },
@@ -117,11 +125,13 @@ export function dryRunRules(
     let d: GuardDecision = { action: "allow" };
     let display = c.tool;
     const isWrite = WRITE_TOOLS.has(c.tool) && typeof c.filePath === "string";
-    if (isWrite) {
+    if (isWrite || (c.tool === "Read" && typeof c.filePath === "string")) {
       const target = absolutePath(c.filePath as string, c.cwd);
       display = `${c.tool} ${target}`;
       evaluated++;
-      if (writeRules) d = guardWrite(target, current, claims, modes, "file");
+      d = guardFile(c.tool, target, modes, ctx.home);
+      if (d.action === "allow" && isWrite && writeRules)
+        d = guardWrite(target, current, claims, modes, "file");
     } else if (c.tool === "Bash" && c.command) {
       display = c.command;
       evaluated++;
@@ -130,7 +140,7 @@ export function dryRunRules(
         const sessions = [...live.values()].filter(
           (s) => now - new Date(s.lastSeenAt).getTime() <= LIVE_WINDOW_MS,
         );
-        d = guardBash(c.command, current, sessions, now, modes);
+        d = guardBash(c.command, current, sessions, now, modes, ctx.home ? { home: ctx.home } : {});
       }
     } else continue;
     if (d.action === "allow") continue;

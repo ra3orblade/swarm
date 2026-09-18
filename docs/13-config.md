@@ -80,6 +80,18 @@ redact = []               # regexes replaced by "[redacted]" in every stored str
 # Fire-and-forget, never on the hook path. Global only.
 # webhook = "https://hooks.slack.com/services/…"
 
+[otel]
+# OTLP export (M12.1, OQ-20): every session as an OpenTelemetry trace plus token and cost metrics,
+# OTLP/HTTP JSON to /v1/traces and /v1/metrics under `endpoint`. Off unless endpoint is set. Global only.
+# endpoint = "http://localhost:4318"        # an OpenTelemetry Collector, Grafana Alloy, a vendor's OTLP intake…
+# headers = { Authorization = "Basic …" }   # whatever your backend asks for
+# compat = "genai"          # "genai": OpenTelemetry GenAI conventions (invoke_agent / execute_tool spans,
+#                           #   gen_ai.client.token.usage) — every agent, one vocabulary.
+#                           # "claude-code": Claude Code's own names (claude_code.token.usage, claude_code.cost.usage,
+#                           #   claude_code.tool spans, session.id), for dashboards built on Claude Code's telemetry.
+# include_content = false   # true adds commands and file paths to tool spans
+# interval = 30             # seconds between exports (5–3600)
+
 [messages]
 # M13.4: a message (swarm msg send / swarm_send) or an answer to a session's question wakes that
 # session while it sits idle at its prompt — a background hook armed after every turn exits with
@@ -124,6 +136,13 @@ claim_required_to_write = "off"  # opt-in: writes to the shared checkout need a 
 # the incident feed shows before / after — "ask" / "deny" refuse it, "off" (default) ignores it.
 no_verify     = "off"     # `git commit/push --no-verify` / `--no-gpg-sign` → the flags are dropped
 dry_run_first = "off"     # the first terraform apply / kubectl delete / helm uninstall per session runs as its dry-run form; the next one is allowed
+# Destructive, secrets and tamper families (M12.5): "ask" / "deny" / "off". All ship "off" for one
+# release; the Security view counts what each would have caught meanwhile, so you can decide.
+destructive_fs    = "off" # rm -rf on /, ~, .., a path from a maybe-unset variable, or outside the repo; mkfs; dd to a device
+destructive_infra = "off" # terraform destroy, kubectl delete ns / --all, helm uninstall, cloud deletes, SQL DROP / TRUNCATE
+pipe_to_shell     = "off" # curl … | sh, bash <(curl …), sh -c "$(curl …)"
+secrets           = "off" # reading / printing / copying credential files (Read included); writing .env* or key files
+config_tamper     = "off" # changing Claude Code settings, ~/.swarm, .swarm.toml, other agents' hook config; swarm uninstall
 
 # Your own rules (M13.5): tested in order against every Bash command, after the rules above (a deny
 # above is never softened here). `match` is a regex over the whole command; with action = "rewrite"

@@ -110,6 +110,7 @@ import {
   DEFAULT_MODES,
   type GuardDecision,
   guardBash,
+  guardFile,
   guardWrite,
   type HeldWorktree,
   type LiveSession,
@@ -140,6 +141,11 @@ const RULE_KEYS = [
   "protected_ports",
   "no_foreign_worktree",
   "claim_required_to_write",
+  "destructive_fs",
+  "destructive_infra",
+  "pipe_to_shell",
+  "secrets",
+  "config_tamper",
 ] as const;
 
 const lockedKey = (locked: string[], key: string) =>
@@ -208,9 +214,14 @@ export function evaluateOffline(
   const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
   const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
   const cmd = tool === "Bash" && typeof input.command === "string" ? input.command : null;
+  const modes = cache.modes;
+  // M12.5: secrets / config tamper on the file tools, Read included
+  if (typeof input.file_path === "string" && (isWrite || tool === "Read")) {
+    const f = guardFile(tool, absolutePath(input.file_path, cwd), modes);
+    if (f.action !== "allow") return f;
+  }
   if (!isWrite && !cmd) return { action: "allow" };
   const current = { id, cwd, toplevel: toplevel(cwd) };
-  const modes = cache.modes;
   if (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off") {
     const target = isWrite ? absolutePath(input.file_path as string, cwd) : cwd;
     const w = guardWrite(target, current, cache.worktrees, modes, isWrite ? "file" : "bash");
