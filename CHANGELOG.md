@@ -6,6 +6,14 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Worktrees Claude Code makes are claimed too.** A session started with `claude --worktree`,
+  a subagent with `isolation: "worktree"` or a background session works in a worktree Claude Code
+  created under `<repo>/.claude/worktrees/`, and the ledger used to know nothing about it. Now the
+  first hook from inside one claims it as `cc/<name>` for that session: the status line shows it,
+  the session is told what it holds at startup, and another session writing
+  into it gets the same `no_foreign_worktree` question as for any claimed worktree. The claim
+  ends when the session does. Swarm never removes these worktrees — releasing, reaping and
+  `swarm wt gc` only end the record; whether the directory stays is Claude Code's call.
 - **Three strikes, and Swarm says what it knows.** When a Claude Code session runs the same
   failing Bash command a third time, the failure comes back with the verify command from the
   held task's handoff and the lesson from any incident on the same command — through the

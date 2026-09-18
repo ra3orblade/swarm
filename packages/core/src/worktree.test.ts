@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRepoRelative, loadConfig } from "./config";
 import {
+  ADOPTED,
+  adoptedTask,
   canRemoveWorktree,
+  claudeCodeWorktree,
   needsBootstrap,
   planBootstrap,
   planGc,
@@ -148,5 +151,41 @@ describe("planGc", () => {
       },
       { path: "/stale", branch: "b//stale", why: "released-claim", removable: true, blocker: null },
     ]);
+  });
+});
+
+describe("Claude Code's own worktrees (M13.7)", () => {
+  test("recognised at and below <repo>/.claude/worktrees/<name>", () => {
+    const hit = { root: "/r/app", name: "bold-oak", path: "/r/app/.claude/worktrees/bold-oak" };
+    expect(claudeCodeWorktree("/r/app/.claude/worktrees/bold-oak")).toEqual(hit);
+    expect(claudeCodeWorktree("/r/app/.claude/worktrees/bold-oak/src/deep")).toEqual(hit);
+  });
+  test("not the folder itself, a hidden entry, or anywhere else", () => {
+    expect(claudeCodeWorktree("/r/app/.claude/worktrees")).toBeNull();
+    expect(claudeCodeWorktree("/r/app/.claude/worktrees/.tmp")).toBeNull();
+    expect(claudeCodeWorktree("/r/app/.claude")).toBeNull();
+    expect(claudeCodeWorktree("/r/app/worktrees/x")).toBeNull();
+  });
+  test("adopted tasks are namespaced", () => {
+    expect(adoptedTask("bold-oak")).toBe("cc/bold-oak");
+  });
+  test("gc never proposes an adopted claim's leftover — only a merge makes it a candidate", () => {
+    const facts = (path: string, merged = false) => ({
+      path,
+      branch: null,
+      main: false,
+      dirty: 0,
+      ahead: 0,
+      behind: 0,
+      merged,
+    });
+    const out = planGc(
+      [facts("/cc"), facts("/cc-merged", true)],
+      [
+        { worktree: "/cc", task: "cc/a", state: "released", origin: ADOPTED },
+        { worktree: "/cc-merged", task: "cc/b", state: "released", origin: ADOPTED },
+      ],
+    );
+    expect(out.map((c) => [c.path, c.why])).toEqual([["/cc-merged", "merged"]]);
   });
 });
