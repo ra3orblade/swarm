@@ -119,17 +119,103 @@ function unregisterGemini(): boolean {
     return false;
   }
 }
-/** Which other agent CLIs got the MCP server. */
+// ---------- M12.4: the rules on Codex and Gemini CLI, through each one's own pre-tool hook.
+// Cursor needs nothing here: it runs the Claude Code hooks in ~/.claude/settings.json itself.
+const codexHooksPath = () => process.env.CODEX_HOOKS ?? join(codexConfigPath(), "..", "hooks.json");
+
+type HookGroup = { matcher?: string; hooks: Array<Record<string, unknown>> };
+const oursIn = (g: HookGroup) =>
+  g.hooks.some((h) => typeof h.command === "string" && isOurs(h as { command: string }));
+
+/** Read a JSON settings file we share with another tool; null when it is not ours to rewrite. */
+function readShared(p: string): Record<string, unknown> | null {
+  try {
+    return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>) : {};
+  } catch {
+    return null; // someone else's broken JSON is not ours to rewrite
+  }
+}
+
+/** Replace our group under `event` in a `{hooks: {Event: [group…]}}` file, keeping everyone else's. */
+function putHook(p: string, event: string, group: HookGroup | null): boolean {
+  const c = readShared(p);
+  if (!c) return false;
+  const hooks = (c.hooks as Record<string, HookGroup[]> | undefined) ?? {};
+  const kept = (hooks[event] ?? []).filter((g) => !oursIn(g));
+  const had = kept.length !== (hooks[event] ?? []).length;
+  if (group) kept.push(group);
+  else if (!had) return false;
+  if (kept.length) hooks[event] = kept;
+  else delete hooks[event];
+  if (Object.keys(hooks).length) c.hooks = hooks;
+  else delete c.hooks;
+  writeFileSync(p, `${JSON.stringify(c, null, 2)}\n`);
+  return true;
+}
+
+/** Codex `PreToolUse` in ~/.codex/hooks.json: Bash and apply_patch (Codex asks the user to trust it once, in /hooks). */
+function guardCodex(on: boolean): boolean {
+  const p = codexHooksPath();
+  if (!existsSync(join(p, ".."))) return false;
+  return putHook(
+    p,
+    "PreToolUse",
+    on
+      ? {
+          matcher: "Bash|apply_patch",
+          hooks: [{ type: "command", command: hookCommand("PreToolUse"), timeout: 5 }],
+        }
+      : null,
+  );
+}
+
+/** Gemini CLI `BeforeTool` in ~/.gemini/settings.json: shell, writes and reads (timeout in ms). */
+function guardGemini(on: boolean): boolean {
+  const p = geminiSettingsPath();
+  if (!existsSync(join(p, ".."))) return false;
+  return putHook(
+    p,
+    "BeforeTool",
+    on
+      ? {
+          matcher: "run_shell_command|write_file|replace|read_file",
+          hooks: [
+            { name: "swarm", type: "command", command: hookCommand("BeforeTool"), timeout: 5000 },
+          ],
+        }
+      : null,
+  );
+}
+
+/** Which rule hooks other agents carry, from their files (for `status` / `doctor`). */
+function guardedAgents(): string[] {
+  const out: string[] = [];
+  const has = (p: string, event: string) => {
+    const c = readShared(p);
+    const groups = (c?.hooks as Record<string, HookGroup[]> | undefined)?.[event] ?? [];
+    return groups.some(oursIn);
+  };
+  if (existsSync(codexHooksPath()) && has(codexHooksPath(), "PreToolUse")) out.push("codex");
+  if (existsSync(geminiSettingsPath()) && has(geminiSettingsPath(), "BeforeTool"))
+    out.push("gemini");
+  return out;
+}
+
+/** Which other agent CLIs got the MCP server (and, M12.4, the rules hook). */
 export function registerOtherAgents(): string[] {
   const out: string[] = [];
   if (registerCodex()) out.push("codex");
   if (registerGemini()) out.push("gemini");
+  guardCodex(true);
+  guardGemini(true);
   return out;
 }
 export function unregisterOtherAgents(): string[] {
   const out: string[] = [];
   if (unregisterCodex()) out.push("codex");
   if (unregisterGemini()) out.push("gemini");
+  guardCodex(false);
+  guardGemini(false);
   return out;
 }
 
@@ -285,6 +371,8 @@ export function status(): {
   otherAgents: string[];
   /** M12.2: whose `statusLine` is set — ours, someone else's, or none. */
   statusline: StatuslineStatus;
+  /** M12.4: other agents whose own pre-tool hook runs the rules. */
+  guarded: string[];
 } {
   const s = load();
   const hooks = (s.hooks as Hooks | undefined) ?? {};
@@ -305,6 +393,7 @@ export function status(): {
     shim: shimPath(),
     otherAgents,
     statusline: statuslineStatus(s),
+    guarded: guardedAgents(),
   };
 }
 

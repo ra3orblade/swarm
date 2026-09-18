@@ -1491,6 +1491,94 @@ describe("rules + incidents (Phase 2)", () => {
     expect((inc[0] as { action?: string }).action).toBe("deny");
   });
 
+  it("M12.4: Codex, Gemini CLI and Cursor payloads get the rules in their own shape, and are not ingested", async () => {
+    const fs = require("node:fs");
+    const dir = repo();
+    const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir });
+    sh("git", "config", "user.email", "t@t");
+    sh("git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    sh("git", "add", "README.md");
+    sh("git", "commit", "-qm", "init");
+    const { app, store } = createApp(new Store(tmpHome()));
+    const p = store.resolveProject(dir, true);
+    const c = store.claim(p.id, "auth", "alice");
+    if (!c.ok) throw new Error(c.error);
+    const post = async (event: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).json()) as Record<string, unknown> & {
+        hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+      };
+
+    // Codex: pattern_kill is "ask" by default; Codex cannot ask, so it is refused, with why
+    const codex = {
+      session_id: "cx-1",
+      turn_id: "t1",
+      transcript_path: null,
+      cwd: dir,
+      hook_event_name: "PreToolUse",
+      model: "gpt-5",
+      permission_mode: "default",
+      tool_use_id: "call-1",
+    };
+    const k = await post("PreToolUse", {
+      ...codex,
+      tool_name: "Bash",
+      tool_input: { command: "pkill -f node" },
+    });
+    expect(k.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(k.hookSpecificOutput?.permissionDecisionReason).toContain("Codex's hooks cannot ask");
+    // …an apply_patch into alice's worktree is a foreign write, per file in the patch
+    const patch = `*** Begin Patch\n*** Update File: ${join(c.worktree, "a.ts")}\n@@\n+x\n*** End Patch`;
+    const w = await post("PreToolUse", {
+      ...codex,
+      tool_name: "apply_patch",
+      tool_input: { command: patch },
+    });
+    expect(w.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(
+      await post("PreToolUse", { ...codex, tool_name: "Bash", tool_input: { command: "ls" } }),
+    ).toEqual({});
+
+    // Gemini CLI: its own decision shape
+    const g = await post("BeforeTool", {
+      session_id: "gm-1",
+      cwd: dir,
+      hook_event_name: "BeforeTool",
+      tool_name: "run_shell_command",
+      tool_input: { command: "killall node" },
+    });
+    expect(g).toMatchObject({ decision: "deny" });
+    expect(String(g.reason)).toContain("[swarm]");
+
+    // Cursor runs our Claude Code hook with its own payload
+    const cursor = {
+      conversation_id: "cur-1",
+      cursor_version: "2.1.0",
+      workspace_roots: [dir],
+      cwd: dir,
+    };
+    const cu = await post("PreToolUse", {
+      ...cursor,
+      hook_event_name: "preToolUse",
+      tool_name: "Shell",
+      tool_input: { command: "pkill -f vite", working_directory: dir },
+    });
+    expect(cu.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(await post("SessionStart", { ...cursor, hook_event_name: "sessionStart" })).toEqual({});
+
+    // none of it became Claude Code events; the incidents are there
+    for (const sid of ["cx-1", "gm-1", "cur-1"])
+      expect(store.sessionEvents(sid).filter((e) => e.type !== "incident.opened")).toHaveLength(0);
+    expect(store.incidents(10).length).toBeGreaterThanOrEqual(4);
+    store.release(p.id, "auth", true);
+  });
+
   it("protected ports from config guard kill-by-port", async () => {
     const fs = require("node:fs");
     const dir = repo();

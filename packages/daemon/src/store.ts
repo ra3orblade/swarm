@@ -77,6 +77,7 @@ import {
   type HeldRow,
   type HeldWorktree,
   type HistoricalCall,
+  type HookAgent,
   type HookInput,
   handoffDoc,
   handoffEdges,
@@ -156,6 +157,7 @@ import {
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
+  renderAgentDecision,
   repairDecision,
   resourceGraph,
   reviewArgs,
@@ -186,6 +188,7 @@ import {
   taskSourceKind,
   tightestWindow,
   toolResponseErrored,
+  toToolRequests,
   transitionGraph,
   validateGateRun,
   validateHandoff,
@@ -2918,6 +2921,19 @@ export class Store {
       lastSeenAt: r.last_seen_at,
       state: r.state,
     }));
+  }
+
+  /**
+   * M12.4: the rules for an agent other than Claude Code. Each payload maps onto one or more tool
+   * requests (an `apply_patch` touching three files is three); the first that is not allowed
+   * decides, rendered the way that agent's hook reads it — `ask` as `deny` where it cannot ask.
+   */
+  guardForeign(agent: HookAgent, raw: Record<string, unknown>): string {
+    for (const r of toToolRequests(agent, raw)) {
+      const { decision } = this.evaluateTool(r.tool, r.input, r.sessionId, r.cwd, true);
+      if (decision.action !== "allow") return renderAgentDecision(agent, decision);
+    }
+    return "{}";
   }
 
   guardHook(

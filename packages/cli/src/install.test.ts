@@ -72,6 +72,36 @@ describe("install", () => {
   });
 });
 
+describe("rules on Codex and Gemini CLI (M12.4)", () => {
+  it("adds our pre-tool hook beside theirs, once, and removes only ours", () => {
+    const codexHooks = join(codexDir, "hooks.json");
+    const theirs = { matcher: "Bash", hooks: [{ type: "command", command: "their-guard.sh" }] };
+    writeFileSync(codexHooks, JSON.stringify({ hooks: { PreToolUse: [theirs] } }));
+    install();
+    install(); // idempotent
+    const cx = JSON.parse(readFileSync(codexHooks, "utf8")).hooks.PreToolUse;
+    expect(cx).toHaveLength(2);
+    expect(cx[0]).toEqual(theirs);
+    expect(cx[1].matcher).toBe("Bash|apply_patch");
+    expect(cx[1].hooks[0].command).toMatch(/(swarm-hook|hook\/src\/bin\.ts) PreToolUse$/);
+    const gm = JSON.parse(readFileSync(process.env.GEMINI_SETTINGS as string, "utf8"));
+    expect(gm.theme).toBe("dark");
+    expect(gm.hooks.BeforeTool).toHaveLength(1);
+    expect(gm.hooks.BeforeTool[0].matcher).toBe("run_shell_command|write_file|replace|read_file");
+    expect(gm.hooks.BeforeTool[0].hooks[0]).toMatchObject({ name: "swarm", timeout: 5000 });
+    expect(status().guarded).toEqual(["codex", "gemini"]);
+
+    uninstall();
+    expect(JSON.parse(readFileSync(codexHooks, "utf8"))).toEqual({
+      hooks: { PreToolUse: [theirs] },
+    });
+    expect(
+      JSON.parse(readFileSync(process.env.GEMINI_SETTINGS as string, "utf8")).hooks,
+    ).toBeUndefined();
+    expect(status().guarded).toEqual([]);
+  });
+});
+
 describe("wake waiter (M13.4)", () => {
   it("arms one asyncRewake waiter, on Stop only, and removes it with the rest", () => {
     install();

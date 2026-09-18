@@ -6,6 +6,14 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **The rules hold on Codex, Gemini CLI and Cursor.** Swarm watched six agents and ruled one.
+  `swarm install` now adds its hook to Codex (`PreToolUse` in `~/.codex/hooks.json` — trust it
+  once with `/hooks`) and Gemini CLI (`BeforeTool` in `~/.gemini/settings.json`), beside your own.
+  Cursor already ran Swarm's Claude Code hooks (it imports them), but its payload names the shell
+  tool `Shell` and has no session id, so every call went through unchecked; Swarm now reads it.
+  Codex's `apply_patch` is checked file by file. None of these agents can ask from a hook, so a
+  rule set to `ask` refuses there and tells the agent to hand the command to you. The Rules view
+  and `swarm doctor` show where the rules hold.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means

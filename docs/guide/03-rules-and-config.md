@@ -166,6 +166,12 @@ npx kill-port 3000
 
 Two rules have a third answer besides *ask* and *deny*: **rewrite**. The call runs, with the dangerous part taken out, and the agent is told what changed and why. `no_verify = "rewrite"` drops `--no-verify` and `--no-gpg-sign` from any `git` command. `dry_run_first = "rewrite"` turns the first `terraform apply`, `kubectl delete` or `helm uninstall` a session runs into its dry-run form (`terraform plan`, `--dry-run=client`, `--dry-run`); the second one is allowed, because the agent has now read what it would change. Both ship `off`; set them to `"rewrite"`, or to `"ask"` / `"deny"` if you would rather refuse. Every rewrite lands on the Incidents view as *Rewritten*, with the command that was asked for beside the one that ran, so rule effectiveness scores it like any rule.
 
+### Other agents
+
+The same rules hold on **Codex**, **Gemini CLI** and **Cursor**. `swarm install` adds Swarm's hook to Codex (`~/.codex/hooks.json`, `PreToolUse`) and Gemini CLI (`~/.gemini/settings.json`, `BeforeTool`) when their config folders exist, next to any hooks of your own. Codex runs a new hook only once you have trusted it: open Codex and run `/hooks`. Cursor needs nothing extra — it runs the Claude Code hooks from `~/.claude/settings.json` itself, as long as **Settings → Agents → Third-Party Imports** is on (it is by default).
+
+One difference: none of the three can put a question to you from a hook. A rule set to `ask` **refuses** the call there instead, and tells the agent to hand the command to you. The Rules view (Guard → Rules) lists each agent, whether the hook is in, and what it sees; `swarm doctor` says the same.
+
 ### Your own rules
 
 ```toml

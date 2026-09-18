@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { daemonCommand, readToken } from "@swarm/client";
 import {
   absolutePath,
+  agentCoverage,
   armTask,
+  detectAgent,
   formatAudit,
   formatHandoff,
   hookCoverage,
@@ -612,6 +614,31 @@ export function createApp(
     if (!hooks.restart) return c.json({ error: "not restartable in this environment" }, 501);
     setTimeout(() => hooks.restart?.(), 50);
     return c.json({ ok: true, restarting: true });
+  });
+  // M12.4: which agents the rules hold on, read from each agent's own config
+  app.get("/v1/rules/agents", (c) => {
+    const read = (p: string): unknown => {
+      try {
+        return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+      } catch {
+        return null;
+      }
+    };
+    const h = homedir();
+    const codexHooks = process.env.CODEX_HOOKS ?? join(h, ".codex", "hooks.json");
+    const gemini = process.env.GEMINI_SETTINGS ?? join(h, ".gemini", "settings.json");
+    return c.json(
+      agentCoverage({
+        claude: claudeSettings(),
+        codexHooks: read(codexHooks),
+        gemini: read(gemini),
+        present: {
+          codex: existsSync(dirname(codexHooks)),
+          gemini: existsSync(dirname(gemini)),
+          cursor: existsSync(join(h, ".cursor")),
+        },
+      }),
+    );
   });
   app.get("/v1/rules/dryrun", (c) => {
     const projectId = c.req.query("project");
@@ -1276,6 +1303,18 @@ export function createApp(
   app.post("/v1/hook/:event", async (c) => {
     const event = c.req.param("event");
     const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // M12.4: Codex (PreToolUse), Gemini CLI (BeforeTool) and Cursor (which runs Claude Code's own
+    // hooks from ~/.claude/settings.json) reach this route too. Their sessions are recorded by
+    // their adapters, not as Claude Code events; here they only get the rules, in their own shape.
+    const agent = detectAgent(raw);
+    if (agent !== "claude-code") {
+      if (
+        (event === "PreToolUse" || event === "BeforeTool") &&
+        !store.guardDisabled(hookRepoRoot(store, raw))
+      )
+        return c.json(JSON.parse(store.guardForeign(agent, raw)));
+      return c.json({});
+    }
     store.ingestHook(event, raw);
     // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
     if (event === "SessionStart" && typeof raw.cwd === "string") {
