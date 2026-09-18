@@ -7,7 +7,7 @@ Swarm invents no wire protocol. It normalizes three existing Claude Code surface
 ## Ingestion
 
 ### A. Hooks (interactive sessions, subagents) — primary
-Installed in `~/.claude/settings.json` for: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd`, `Notification`, `PreCompact`. Every entry is the same command: `swarm-hook <event>`. The shim POSTs the stdin JSON to `POST /v1/hook/<event>` and relays the response JSON (Claude Code's hook output contract: `decision`/`permissionDecision`, `reason`, `additionalContext`, `systemMessage`).
+Installed in `~/.claude/settings.json` for: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd`, `Notification`, `PreCompact`, `PermissionRequest`, `PostToolUseFailure`. `PostToolUseFailure` (M13.9) is recorded as `tool.completed` with `failed: true` and `error` (the head of the text Claude saw; the whole payload stays under `raw`), so a failed call closes like a finished one. Every entry is the same command: `swarm-hook <event>`. The shim POSTs the stdin JSON to `POST /v1/hook/<event>` and relays the response JSON (Claude Code's hook output contract: `decision`/`permissionDecision`, `reason`, `additionalContext`, `systemMessage`).
 
 Decision contract:
 - `PreToolUse` → `allow` | `deny(reason)` | `ask`. Rule engine decides; `ask` is surfaced in the dashboard and falls back to Claude Code's own prompt.

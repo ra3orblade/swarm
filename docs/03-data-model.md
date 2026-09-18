@@ -10,6 +10,7 @@ sessions      id (CC session id), project_id, kind (interactive|spawned|subagent
               cwd, worktree, model, started_at, ended_at, last_seen_at, tokens_in/out, cost_usd
 claims        id, project_id, task, owner_session_id, owner_label, worktree, branch,
               acquired_at, expires_at, released_at, state (held|expired|released|reaped|orphaned)
+              origin (null = Swarm made the worktree | claude-code = adopted, M13.7)
 handoffs      id, claim_id, done, remaining, files_json, verify, created_at
 resources     name, project_id, kind (port|process|custom), owner, session_id, pid, port,
               acquired_at, expires_at, released
@@ -25,6 +26,7 @@ Rules of the ledger:
 - A `task` may have at most one `held` claim. Claiming a held task fails with the holder's details.
 - `expires_at` advances on renew and on any hook activity from the holder session.
 - The reaper moves expired claims to `reaped` **only if** the worktree is clean and pushed; otherwise to `orphaned` and opens an incident. Orphaned claims still block re-claim until a human resolves.
+- An **adopted** claim (`origin = claude-code`, a worktree Claude Code made itself — OQ-28) is recorded, renewed and released like any other, but its directory is never removed: release, reap and gc only end the record, and an expired one is released rather than orphaned.
 - A gate's **latest** run decides. Failed runs are never deleted. A run without `rubric` is rejected.
 - A resource is a named singleton per project (`web`) or per machine (`port:3000`). Acquiring a held resource fails with holder details.
 

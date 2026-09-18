@@ -28,6 +28,7 @@ import type {
   SecurityReport,
 } from "@swarm/core";
 import type { TrialReport } from "@swarm/core/abtrial";
+import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import type { FoundTeam } from "@swarm/core/mdns";
@@ -80,6 +81,8 @@ export const routes = {
   security: (project: string | null) => byProject<SecurityReport>("/v1/security", project),
   provenance: (project: string | null) => byProject<ProvenanceReport>("/v1/provenance", project),
   ruleEffect: (project: string | null) => byProject<RuleEffectReport>("/v1/rules/effect", project),
+  /** M12.4: which agents the rules hold on. */
+  ruleAgents: (): Route<AgentCoverage[]> => "/v1/rules/agents",
   prs: (): Route<ProjectPR[]> => "/v1/prs",
   /** The full feed, not the snapshot's most-recent-20 window. */
   incidents: (project: string | null, openOnly: boolean): Route<IncidentEvent[]> =>

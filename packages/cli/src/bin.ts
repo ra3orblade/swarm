@@ -242,6 +242,14 @@ try {
         console.log(
           `✓ MCP server also registered for ${st.otherAgents.join(", ")} (swarm_* tools in those CLIs too)`,
         );
+      // M12.4: where else the rules hold
+      if (st.guarded.length)
+        console.log(
+          `✓ rules also hold on ${st.guarded.join(", ")}${st.guarded.includes("codex") ? " (Codex runs a new hook only after you trust it once: /hooks)" : ""}`,
+        );
+      console.log(
+        "· Cursor runs the Claude Code hooks above itself (Settings → Agents → Third-Party Imports, on by default); an `ask` rule refuses there, since Cursor's preToolUse cannot ask",
+      );
       // Forge CLIs feed the PRs view. Informational: Swarm works without them.
       const forge = (bin: string, auth: string[]) => {
         const path = Bun.which(bin);
@@ -274,6 +282,20 @@ try {
             `last error: ${t.lastError} — check the team daemon and [team].url`,
           );
         }
+        // M12.1: OTLP export, only when [otel] endpoint is set
+        const o = (await api("/v1/otel").catch(() => null)) as {
+          configured?: boolean;
+          endpoint?: string;
+          compat?: string;
+          lastOkAt?: string | null;
+          lastError?: string | null;
+        } | null;
+        if (o?.configured)
+          line(
+            !o.lastError,
+            `OTLP export → ${o.endpoint} (${o.compat}${o.lastOkAt ? `, last sent ${o.lastOkAt}` : ", nothing sent yet"})`,
+            `last error: ${o.lastError} — check the collector and [otel].endpoint`,
+          );
       }
       if (process.env.GITLAB_TOKEN)
         console.log(
