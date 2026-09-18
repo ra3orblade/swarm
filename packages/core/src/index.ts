@@ -3,6 +3,7 @@ export * from "./actor";
 export * from "./adapters";
 export * from "./adapters/claude-code/hooks";
 export * from "./adapters/claude-code/transcript";
+export * from "./agenthooks";
 export * from "./art";
 export * from "./audit";
 export * from "./budget";

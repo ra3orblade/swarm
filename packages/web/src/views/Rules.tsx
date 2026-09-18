@@ -5,12 +5,13 @@
  * on the same shaped command is friction — either the habit needs changing or the rule does. That
  * is why the headline number is "not settling" rather than a raw incident count.
  */
+import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { RuleEffectReport, RuleStat } from "@swarm/core/ruleeffect";
 import { routes } from "../api/endpoints";
 import { useResource } from "../api/useResource";
-import { Columns, Panel } from "../components/Panel";
+import { Columns, Panel, Stack } from "../components/Panel";
 import { Sparkline } from "../components/Sparkline";
-import { Empty, Failed, Loading, Section, Stat, StatRow } from "../components/ui";
+import { Badge, Empty, Failed, Loading, Section, Stat, StatRow } from "../components/ui";
 import { ago } from "../lib/format";
 import { useUiStore } from "../state/ui";
 
@@ -69,6 +70,58 @@ function RuleCard({ rule }: { rule: RuleStat }) {
   );
 }
 
+/** M12.4: the same rules, on every agent whose hook Swarm is in. */
+function WhereRulesHold() {
+  const { data } = useResource<AgentCoverage[]>(routes.ruleAgents());
+  if (!data) return null;
+  return (
+    <Panel title="Where the rules hold" hint="each agent's own pre-tool hook">
+      <table className="mini">
+        <colgroup>
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "30%" }} />
+          <col style={{ width: "38%" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>agent</th>
+            <th>hook</th>
+            <th>sees</th>
+            <th>note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((a) => (
+            <tr key={a.agent}>
+              <td>
+                <b>{a.label}</b>
+              </td>
+              <td>
+                {a.present ? (
+                  a.installed ? (
+                    <Badge tone="ok">on</Badge>
+                  ) : (
+                    <Badge tone="warn">swarm install</Badge>
+                  )
+                ) : (
+                  <span className="dim">not here</span>
+                )}
+              </td>
+              <td className="clip" title={a.covers}>
+                {a.covers}
+              </td>
+              <td className="clip dim" title={a.note ?? ""}>
+                {a.note ?? ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
+  );
+}
+
 export function Rules() {
   const project = useUiStore((s) => s.project);
   const { data, error, reload } = useResource<RuleEffectReport>(routes.ruleEffect(project));
@@ -78,13 +131,16 @@ export function Rules() {
 
   if (data.rules.length === 0) {
     return (
-      <Section title="Rules" hint="is a rule teaching anyone anything?">
-        <Empty>
-          No rule has fired{project ? " in this project" : ""} in the last 30 days.
-          <br />
-          That is the good outcome: rules exist to be learned and then never hit again.
-        </Empty>
-      </Section>
+      <Stack>
+        <Section title="Rules" hint="is a rule teaching anyone anything?">
+          <Empty>
+            No rule has fired{project ? " in this project" : ""} in the last 30 days.
+            <br />
+            That is the good outcome: rules exist to be learned and then never hit again.
+          </Empty>
+        </Section>
+        <WhereRulesHold />
+      </Stack>
     );
   }
 
@@ -116,11 +172,14 @@ export function Rules() {
         />
       </StatRow>
 
-      <Columns>
-        {data.rules.map((rule) => (
-          <RuleCard key={rule.rule} rule={rule} />
-        ))}
-      </Columns>
+      <Stack>
+        <Columns>
+          {data.rules.map((rule) => (
+            <RuleCard key={rule.rule} rule={rule} />
+          ))}
+        </Columns>
+        <WhereRulesHold />
+      </Stack>
 
       {data.noChangeHistory && (
         <p className="dim note">

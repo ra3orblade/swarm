@@ -242,6 +242,14 @@ try {
         console.log(
           `✓ MCP server also registered for ${st.otherAgents.join(", ")} (swarm_* tools in those CLIs too)`,
         );
+      // M12.4: where else the rules hold
+      if (st.guarded.length)
+        console.log(
+          `✓ rules also hold on ${st.guarded.join(", ")}${st.guarded.includes("codex") ? " (Codex runs a new hook only after you trust it once: /hooks)" : ""}`,
+        );
+      console.log(
+        "· Cursor runs the Claude Code hooks above itself (Settings → Agents → Third-Party Imports, on by default); an `ask` rule refuses there, since Cursor's preToolUse cannot ask",
+      );
       // Forge CLIs feed the PRs view. Informational: Swarm works without them.
       const forge = (bin: string, auth: string[]) => {
         const path = Bun.which(bin);

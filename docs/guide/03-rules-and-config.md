@@ -177,6 +177,12 @@ Five more rules watch for the commands nobody can take back. **`destructive_fs`*
 
 All five ship **`off`**. While they are off, the **Security** view (Guard → Security) counts what each one *would* have caught, with an example, so you can see whether turning one on would stop something real or just get in the way. Turn one on with `"ask"` or `"deny"` like any other rule. They match the command text, so like the rest they are a lint, not a sandbox.
 
+### Other agents
+
+The same rules hold on **Codex**, **Gemini CLI** and **Cursor**. `swarm install` adds Swarm's hook to Codex (`~/.codex/hooks.json`, `PreToolUse`) and Gemini CLI (`~/.gemini/settings.json`, `BeforeTool`) when their config folders exist, next to any hooks of your own. Codex runs a new hook only once you have trusted it: open Codex and run `/hooks`. Cursor needs nothing extra — it runs the Claude Code hooks from `~/.claude/settings.json` itself, as long as **Settings → Agents → Third-Party Imports** is on (it is by default).
+
+One difference: none of the three can put a question to you from a hook. A rule set to `ask` **refuses** the call there instead, and tells the agent to hand the command to you. The Rules view (Guard → Rules) lists each agent, whether the hook is in, and what it sees; `swarm doctor` says the same.
+
 ### Your own rules
 
 ```toml
