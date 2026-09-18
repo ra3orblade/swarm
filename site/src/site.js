@@ -99,79 +99,6 @@ function downloads() {
     .catch(() => {});
 }
 
-/** The screenshot carousel and its lightbox. */
-function gallery() {
-  const gal = document.getElementById("gal");
-  const track = gal?.querySelector(".track");
-  if (!gal || !track) return;
-  const figs = [...track.querySelectorAll("figure")];
-  const dots = [...gal.querySelectorAll(".dots i")];
-  let cur = 0;
-
-  const go = (i, smooth = true) => {
-    cur = (i + figs.length) % figs.length;
-    track.scrollTo({ left: figs[cur].offsetLeft - track.offsetLeft, behavior: smooth ? "smooth" : "auto" });
-  };
-  const centre = (f) => f.offsetLeft + f.offsetWidth / 2 - track.offsetLeft;
-  const sync = () => {
-    const x = track.scrollLeft + track.clientWidth / 2;
-    let best = 0;
-    figs.forEach((f, i) => {
-      if (Math.abs(centre(f) - x) < Math.abs(centre(figs[best]) - x)) best = i;
-    });
-    cur = best;
-    for (const [i, d] of dots.entries()) d.classList.toggle("on", i === cur);
-  };
-  track.addEventListener("scroll", () => requestAnimationFrame(sync), { passive: true });
-  for (const a of gal.querySelectorAll(".arr")) {
-    a.addEventListener("click", () => go(cur + Number(a.dataset.dir)));
-  }
-  for (const d of dots) d.addEventListener("click", () => go(Number(d.dataset.i)));
-
-  const lb = document.getElementById("lb");
-  const img = document.getElementById("lbImg");
-  const cap = document.getElementById("lbCap");
-  let li = 0;
-  const show = (i) => {
-    li = (i + figs.length) % figs.length;
-    const f = figs[li];
-    const im = f.querySelector("img");
-    img.src = im.dataset.full;
-    img.alt = im.alt;
-    cap.innerHTML = f.querySelector("figcaption").innerHTML;
-    lb.classList.add("open");
-    document.body.style.overflow = "hidden";
-  };
-  const hide = () => {
-    lb.classList.remove("open");
-    document.body.style.overflow = "";
-  };
-  for (const [i, f] of figs.entries()) f.addEventListener("click", () => show(i));
-  lb.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-lb]");
-    if (t) {
-      e.stopPropagation();
-      return t.dataset.lb === "close" ? hide() : show(li + Number(t.dataset.lb));
-    }
-    if (e.target === lb) hide();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.target.closest?.("input,textarea")) return;
-    const open = lb.classList.contains("open");
-    if (open && e.key === "Escape") return hide();
-    if (e.key === "ArrowRight") return open ? show(li + 1) : go(cur + 1);
-    if (e.key === "ArrowLeft") return open ? show(li - 1) : go(cur - 1);
-  });
-  let sx = null;
-  lb.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }, { passive: true });
-  lb.addEventListener("touchend", (e) => {
-    if (sx == null) return;
-    const dx = e.changedTouches[0].clientX - sx;
-    if (Math.abs(dx) > 40) show(li + (dx < 0 ? 1 : -1));
-    sx = null;
-  });
-}
-
 /**
  * Matrix rain. Real rain is a dense character grid with long trails — a few thousand glyph
  * cells a second, which the DOM cannot carry — so it is one canvas and one rAF loop.
@@ -430,7 +357,6 @@ function clips() {
 
 copyBoxes();
 downloads();
-gallery();
 rain();
 replay();
 clips();

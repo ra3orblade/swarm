@@ -990,6 +990,8 @@ button.pk-row {
 }
 .perm-b {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 .perm-b .ok,
@@ -1001,6 +1003,108 @@ button.pk-row {
 .setup-row .danger {
   color: var(--warn);
   border-color: var(--warn-soft);
+}
+/* a structured tool input: named fields instead of one truncated line */
+.perm-kv {
+  margin: 6px 0 8px;
+  background: var(--panel-2);
+  border-radius: var(--r-xs);
+  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  overflow: auto;
+}
+.perm-kv > div {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) 1fr;
+  gap: 10px;
+}
+.perm-kv dt {
+  font: 500 var(--fs-sm) var(--mono);
+  color: var(--dim);
+}
+.perm-kv dd {
+  margin: 0;
+  font: var(--fs-sm) var(--mono);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* AskUserQuestion, answerable in place */
+.perm-qs {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+.perm-q {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.perm-q legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font: 500 var(--fs-md) var(--sans);
+  color: var(--fg);
+}
+.perm-qh {
+  font: 500 var(--fs-sm) var(--sans);
+  color: var(--dim);
+  background: var(--panel-2);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  margin-right: 8px;
+}
+.perm-os {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.perm-o {
+  /* the button reset is an inline-flex row centred both ways; an option is a left-set column */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 2px;
+  text-align: left;
+  max-width: 320px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.perm-o:hover {
+  border-color: var(--acc);
+}
+.perm-o.on {
+  background: var(--acc-soft);
+  border-color: var(--acc);
+  color: var(--fg);
+}
+.perm-o b {
+  font: 500 var(--fs-md) var(--sans);
+}
+.perm-o span {
+  font: var(--fs-sm) var(--sans);
+  color: var(--dim);
+}
+.perm-q input {
+  margin-top: 6px;
+  width: 100%;
+  max-width: 320px;
+  font: var(--fs-md) var(--sans);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--fg);
 }
 /* stdin box for spawned sessions (M3.3) */
 .stdin {

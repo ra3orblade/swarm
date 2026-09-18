@@ -11,6 +11,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-set-badge-count",
     "shell:allow-execute",
     "shell:allow-open",
     "updater:default",

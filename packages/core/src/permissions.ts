@@ -31,6 +31,8 @@ export interface InteractiveAnswer {
   /** null = hand it to the terminal (the hook returns nothing). */
   behavior: "allow" | "deny" | null;
   message?: string;
+  /** `AskUserQuestion` only: question text → chosen label(s), sent back as `updatedInput.answers`. */
+  answers?: Record<string, string>;
   by: "dashboard" | "terminal" | "cli";
 }
 
@@ -45,8 +47,71 @@ export function permissionHookOutput(a: InteractiveAnswer, input: Record<string,
         message:
           a.message ??
           `[swarm] ${a.behavior === "allow" ? "allowed" : "denied"} from the dashboard`,
-        ...(a.behavior === "allow" ? { updatedInput: input } : {}),
+        ...(a.behavior === "allow"
+          ? { updatedInput: a.answers ? { ...input, answers: a.answers } : input }
+          : {}),
       },
     },
   };
+}
+
+/** One `AskUserQuestion` question, as the card draws it. */
+export interface AskedQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: { label: string; description: string }[];
+}
+
+/** A value that may have arrived as JSON text: some callers stringify nested arguments. */
+export function unstring(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const t = v.trim();
+  if (!t.startsWith("[") && !t.startsWith("{")) return v;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return v;
+  }
+}
+
+/**
+ * The questions inside an `AskUserQuestion` input, or `[]` when there are none to draw.
+ *
+ * Shape verified against the hooks reference 2026-09-18: `questions` is an array of
+ * `{ question, header, options: [{ label, description? }], multiSelect? }`, and a hook answers by
+ * echoing the input back with `answers` mapping each question's text to the chosen label —
+ * multi-select labels joined with commas. Anything malformed is dropped rather than half-drawn.
+ */
+export function askedQuestions(input: unknown): AskedQuestion[] {
+  const raw = unstring((input as { questions?: unknown } | null)?.questions);
+  if (!Array.isArray(raw)) return [];
+  const out: AskedQuestion[] = [];
+  for (const q of raw) {
+    const o = (q ?? {}) as Record<string, unknown>;
+    if (typeof o.question !== "string" || !o.question.trim()) continue;
+    const options = Array.isArray(o.options) ? o.options : [];
+    out.push({
+      question: o.question,
+      header: typeof o.header === "string" ? o.header : "",
+      multiSelect: o.multiSelect === true,
+      options: options.flatMap((x) => {
+        const label = typeof x === "string" ? x : (x as { label?: unknown } | null)?.label;
+        if (typeof label !== "string" || !label) return [];
+        const d = (x as { description?: unknown } | null)?.description;
+        return [{ label, description: typeof d === "string" ? d : "" }];
+      }),
+    });
+  }
+  return out;
+}
+
+/** The `answers` object for a set of picks: labels per question text, joined with commas. */
+export function questionAnswers(picks: Record<string, string[]>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [question, labels] of Object.entries(picks)) {
+    const chosen = labels.map((l) => l.trim()).filter(Boolean);
+    if (chosen.length) out[question] = chosen.join(", ");
+  }
+  return out;
 }

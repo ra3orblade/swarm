@@ -1,5 +1,7 @@
 apps/desktop/src-tauri/target
 node_modules
-npm
+# the built package; package.json stays because the site build reads its name
+npm/*
+!npm/package.json
 .git
 *.db

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { get } from "../api/client";
+import { useAttentionBadge } from "../lib/attention";
 import { useDesktopChrome } from "../lib/desktop";
 import { useExternalLinks } from "../lib/external";
 import { pendingUpgradeNotes, type ReleaseNote, releaseNotesFor } from "../lib/releaseNotes";
@@ -88,6 +89,7 @@ export function App() {
   useClockTick();
   useExternalLinks();
   useDesktopChrome();
+  useAttentionBadge();
   useZoom();
 
   useEffect(() => {
