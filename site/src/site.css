@@ -103,13 +103,13 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
    Typed out rather than recorded because the text has to stay legible at phone width. The
    two Swarm messages are injected from core/src/rules.ts at build time, so they cannot
    drift from what the product actually says. */
-.demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:start}
+.demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:stretch}
 @media (max-width:860px){.demo{grid-template-columns:minmax(0,1fr)}}
 .term{background:#0a0c10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
 .term .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line-2);background:var(--panel)}
 .term .bar i{width:10px;height:10px;border-radius:50%;background:#2c313b;display:block}
 .term .bar b{font:500 12px/1 var(--mono);color:var(--dim);margin-left:4px;letter-spacing:.02em}
-.term .body{font:13px/1.65 var(--mono);padding:14px 14px 12px;min-height:326px;white-space:pre-wrap;word-break:break-word}
+.term .body{font:13px/1.65 var(--mono);padding:14px 14px 12px;min-height:326px;white-space:pre-wrap;word-break:break-word;flex:1}
 @media (max-width:640px){.term .body{font-size:12px;min-height:300px}}
 .term .ln{display:block}
 .term .ln.u{color:var(--fg)}
@@ -130,6 +130,8 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
 .term .sl mark{background:none;color:var(--acc)}
 .term .sl mark.warn{color:#e0a53f}
 .demo .side{display:grid;gap:10px}
+/* Side by side, the rows share the column so the steps end where the terminal does. */
+@media (min-width:861px){.demo .side{grid-auto-rows:1fr}}
 .demo .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 13px;transition:opacity .25s,border-color .25s}
 /* Dimming only exists while the replay runs. Default-dim meant anyone who never scrolled it
    into view, or who has JS off, saw four washed-out cards for no stated reason. */
@@ -137,9 +139,9 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
 .demo .side.running .step.on{opacity:1;border-color:var(--acc)}
 .demo .step b{display:block;font-size:13.5px;margin-bottom:3px}
 .demo .step span{display:block;font-size:12.5px;color:var(--dim);line-height:1.45}
-.demo .col{display:grid;gap:11px;justify-items:start;min-width:0}
-.demo .col .term{width:100%}
-.demo .replay{justify-self:start;font:500 12px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:9px 15px;cursor:pointer}
+.demo .col{position:relative;display:flex;flex-direction:column;min-width:0}
+.demo .col .term{flex:1;display:flex;flex-direction:column}
+.demo .replay{position:absolute;right:12px;bottom:44px;font:500 12px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:9px 15px;cursor:pointer}
 .demo .replay:hover{color:var(--fg);border-color:var(--acc)}
 .hero .demo{margin:36px 0 0;text-align:left}
 
