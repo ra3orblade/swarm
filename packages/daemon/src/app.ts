@@ -1280,7 +1280,14 @@ export function createApp(
     // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
     if (event === "SessionStart" && typeof raw.cwd === "string") {
       store.checkPolicy(raw.cwd, typeof raw.session_id === "string" ? raw.session_id : null);
-      const ctx = store.sessionContext(raw.cwd);
+      const held = store.sessionContext(raw.cwd);
+      // M13.9: a compacted session keeps its session id and loses what it was told at startup;
+      // SessionStart fires again with source "compact" (PostCompact cannot add context — verified
+      // 2026-09-18), so say it again and say why.
+      const ctx =
+        held && raw.source === "compact"
+          ? `[swarm] context was compacted — what Swarm told this session at startup still holds:\n${held}`
+          : held;
       if (ctx)
         return c.json({
           additionalContext: ctx,
@@ -1394,7 +1401,9 @@ export function createApp(
       if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
         collision = store.collisionContext(sid, raw.cwd, absolutePath(fp, raw.cwd));
     }
-    const context = [collision, answers].filter(Boolean).join("\n");
+    // M13.9: the third failure of the same command gets what Swarm knows about verifying it
+    const coaching = event === "PostToolUseFailure" && sid ? store.failureCoaching(sid, raw) : null;
+    const context = [collision, coaching, answers].filter(Boolean).join("\n");
     if (context)
       return c.json({
         additionalContext: context,

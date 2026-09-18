@@ -6,6 +6,17 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **Three strikes, and Swarm says what it knows.** When a Claude Code session runs the same
+  failing Bash command a third time, the failure comes back with the verify command from the
+  held task's handoff and the lesson from any incident on the same command — through the
+  `PostToolUseFailure` hook, which Swarm now installs (re-run `swarm install`; `swarm doctor`
+  lists it as missing until you do). It speaks once per command, and not at all when it has
+  nothing to add. A failed call now shows in the session log as *failed*.
+- **A compacted session is told again what it holds.** Compaction drops the context Swarm gave a
+  session at startup. Claude Code fires `SessionStart` again with `source: "compact"` after it
+  compacts, and Swarm's answer now leads with *context was compacted* before the held task, the
+  lease, the handoff and the rules — so the agent knows it is being reminded, not told something
+  new.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means

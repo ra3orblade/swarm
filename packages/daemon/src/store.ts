@@ -35,14 +35,17 @@ import {
   budgetMessage,
   budgetStatus,
   buildPolicyCache,
+  COACH_AT,
   canAcquire,
   canClaim,
   canRelease,
   canRemoveWorktree,
   claimRefusalMessage,
   clusterProjectKey,
+  coachFailure,
   collisionGraph,
   collisionWarning,
+  commandHead,
   compileRedactions,
   gateHealth as computeGateHealth,
   contextReport,
@@ -112,6 +115,7 @@ import {
   modelAllowed,
   needsBootstrap,
   nextExpiry,
+  normalizeCommand,
   normalizeHook,
   opencodeTurn,
   POLICY_CACHE_FILE,
@@ -1072,6 +1076,48 @@ export class Store {
     if (on.length && (lines.length || on.some((x) => x.endsWith("=deny"))))
       lines.push(`[swarm] rules: ${on.join(" ")}`);
     return lines.length ? lines.join("\n") : null;
+  }
+
+  /**
+   * M13.9 failure coaching: on the third failure of the same Bash command in a session, the
+   * held task's verify line and the lessons from incidents on the same command. Counted from
+   * the event log, so a daemon restart mid-session does not reset it.
+   */
+  failureCoaching(sessionId: string, raw: Record<string, unknown>): string | null {
+    const command = (raw.tool_input as { command?: unknown } | undefined)?.command;
+    if (raw.tool_name !== "Bash" || typeof command !== "string" || raw.is_interrupt === true)
+      return null;
+    const want = normalizeCommand(command);
+    const rows = this.db
+      .query(
+        `SELECT json_extract(payload, '$.toolInput.command') AS cmd FROM events
+         WHERE session_id = ? AND type = 'tool.completed' AND json_extract(payload, '$.failed') = 1
+           AND json_extract(payload, '$.tool') = 'Bash'`,
+      )
+      .all(sessionId) as Array<{ cmd: string | null }>;
+    const failures = rows.filter(
+      (r) => typeof r.cmd === "string" && normalizeCommand(r.cmd) === want,
+    ).length;
+    if (failures !== COACH_AT) return null;
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const held = cwd
+      ? this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree))
+      : undefined;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const head = commandHead(command);
+    const lessons = project
+      ? this.incidents(200, { projectId: project.id })
+          .map((i) => i as { command?: unknown; suggestion?: { lesson?: string } })
+          .filter((i) => typeof i.command === "string" && commandHead(i.command) === head)
+          .map((i) => i.suggestion?.lesson ?? "")
+      : [];
+    return coachFailure({
+      failures,
+      command,
+      task: held?.task ?? null,
+      verify: held ? (this.latestHandoff(held.projectId, held.task)?.verify ?? null) : null,
+      lessons,
+    });
   }
 
   // ---------- ask the human (M7.7)
