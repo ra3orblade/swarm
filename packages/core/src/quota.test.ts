@@ -84,6 +84,53 @@ describe("quota (M12.3)", () => {
     expect(idle.windows[0]?.hoursToLimit).toBeNull();
   });
 
+  it("paces from the last hour, not the whole period — an early burst then idle is not a burn", () => {
+    // the 2026-09-18 window: 3 → 98 in under two hours, then flat at 98–99 for 2.5 h. From the
+    // period's first sample that read as 22%/h and put the limit "in 3m"
+    const r = quotaReport(
+      [
+        { window: "five_hour", usedPct: 3, resetsAt: resets5, at: now - 4.3 * H },
+        { window: "five_hour", usedPct: 98, resetsAt: resets5, at: now - 2.5 * H },
+        { window: "five_hour", usedPct: 98, resetsAt: resets5, at: now - 1.6 * H },
+        { window: "five_hour", usedPct: 98, resetsAt: resets5, at: now - 0.5 * H },
+        { window: "five_hour", usedPct: 99, resetsAt: resets5, at: now },
+      ],
+      now,
+      0.8,
+    );
+    const five = r.windows[0];
+    expect(five?.burnPctPerHour).toBeCloseTo(2, 5); // 98 → 99 over the last half hour
+    expect(five?.hoursToLimit).toBeCloseTo(0.5, 5);
+    // sparse reports: nothing inside the hour, so the newest sample before it is the baseline
+    const sparse = quotaReport(
+      [
+        { window: "five_hour", usedPct: 3, resetsAt: resets5, at: now - 4 * H },
+        { window: "five_hour", usedPct: 40, resetsAt: resets5, at: now - 2 * H },
+        { window: "five_hour", usedPct: 50, resetsAt: resets5, at: now },
+      ],
+      now,
+      0.8,
+    );
+    expect(sparse.windows[0]?.burnPctPerHour).toBeCloseTo(5, 5);
+  });
+
+  it("pins a window to one plan's period when two accounts report at once", () => {
+    const other = resets5 + 2 * 3600; // a second account, its own window
+    const samples: QuotaSample[] = [
+      { window: "five_hour", usedPct: 60, resetsAt: resets5, at: now - H },
+      { window: "five_hour", usedPct: 90, resetsAt: resets5, at: now - 0.5 * H },
+      { window: "five_hour", usedPct: 10, resetsAt: other, at: now - H },
+      { window: "five_hour", usedPct: 12, resetsAt: other, at: now },
+    ];
+    // unpinned, the newest sample's plan wins
+    expect(quotaReport(samples, now, 0.8).windows[0]?.usedPct).toBe(12);
+    const mine = quotaReport(samples, now, 0.8, { five_hour: resets5 }).windows[0];
+    expect(mine?.usedPct).toBe(90);
+    expect(mine?.burnPctPerHour).toBeCloseTo(60, 5);
+    // a pin nobody reported yields no window rather than someone else's
+    expect(quotaReport(samples, now, 0.8, { five_hour: resets5 + 1 }).windows).toEqual([]);
+  });
+
   it("levels: warn at the threshold, exceeded at 100, never warn when the threshold is off", () => {
     const at = (pct: number, warn: number | null) =>
       quotaReport([{ window: "seven_day", usedPct: pct, resetsAt: resets7, at: now }], now, warn)

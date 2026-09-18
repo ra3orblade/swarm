@@ -80,6 +80,12 @@ export function quotaSamples(payload: StatuslinePayload, at: number): QuotaSampl
 
 /** Minimum span between the two samples a burn rate is computed from. */
 export const BURN_MIN_SPAN_MS = 10 * 60_000;
+/**
+ * How far back the burn rate looks. The pace that matters is the recent one: a window that burnt
+ * 95 points in its first hour and then sat idle for three would otherwise still read as burning
+ * at the old rate, and put the limit minutes away.
+ */
+export const BURN_LOOKBACK_MS = 60 * 60_000;
 
 export function quotaLevel(usedPct: number, warnAt: number | null): QuotaLevel {
   if (usedPct >= 100) return "exceeded";
@@ -89,25 +95,36 @@ export function quotaLevel(usedPct: number, warnAt: number | null): QuotaLevel {
 
 /**
  * One report line per window from its samples (any order). The burn rate uses only samples from
- * the newest reset period — a window that reset mid-series would otherwise show a negative slope.
+ * one reset period — a window that reset mid-series would otherwise show a negative slope — and
+ * only the last hour of it (`BURN_LOOKBACK_MS`).
+ *
+ * `periods` pins a window to the period that resets at the given time. Two plans can report at
+ * once (sessions logged into different accounts), each with its own reset; without a pin the
+ * newest sample's period wins, which is the right default for a machine-wide view but wrong for
+ * one session's statusline.
  */
 export function quotaReport(
   samples: readonly QuotaSample[],
   now: number,
   warnAt: number | null,
+  periods?: Partial<Record<QuotaWindow, number | null>>,
 ): QuotaReport {
   const windows: QuotaWindowReport[] = [];
   let newest: number | null = null;
   for (const w of QUOTA_WINDOWS) {
-    const all = samples.filter((s) => s.window === w).sort((a, b) => a.at - b.at);
+    let all = samples.filter((s) => s.window === w).sort((a, b) => a.at - b.at);
+    const pin = periods?.[w];
+    if (pin !== undefined) all = all.filter((s) => s.resetsAt === pin);
     const last = all.at(-1);
     if (!last) continue;
     newest = newest === null ? last.at : Math.max(newest, last.at);
     const period = all.filter((s) => s.resetsAt === last.resetsAt);
-    const first = period.find((s) => last.at - s.at >= BURN_MIN_SPAN_MS);
+    const old = period.filter((s) => last.at - s.at >= BURN_MIN_SPAN_MS);
+    // the earliest sample inside the lookback gives the steadiest recent baseline; with none
+    // there (sparse reports), the newest one before it
+    const first = old.find((s) => last.at - s.at <= BURN_LOOKBACK_MS) ?? old.at(-1);
     let burn: number | null = null;
     if (first) {
-      // the earliest sample far enough back gives the longest, steadiest baseline
       burn = (last.usedPct - first.usedPct) / ((last.at - first.at) / 3_600_000);
       if (!Number.isFinite(burn)) burn = null;
     }
