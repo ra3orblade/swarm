@@ -163,8 +163,113 @@ function render(s) {
         <span>${esc(e.actor_id ?? "")}</span>
         <span class="dim">${esc(summarize(e))}</span></li>`,
     )
-    .join("")}</ul></div>`;
+    .join("")}</ul></div>
+  ${isAdmin() ? settings(s) : ""}`;
 }
+
+// ---------- M13.13 Settings: members and roles, machines, the signed org policy (admins only)
+let ME = null;
+let POLICY = null;
+/** The last Settings message — kept here, because a live refresh re-renders the section. */
+let NOTE = null;
+const isAdmin = () =>
+  ME != null &&
+  (ME.kind === "open" ||
+    (ME.kind === "human" && ME.role === "admin") ||
+    (ME.kind === "machine" && ME.id === "shared-token"));
+
+function settings(s) {
+  const roles = ["viewer", "developer", "admin"];
+  const pol = POLICY;
+  return `
+  <h2 id="settings">Settings <span>${ME.kind === "machine" ? "the shared secret administers this team" : "admin"}</span></h2>
+  <div class="cols">
+    <div><h2>Members <span>${ME.kind === "human" ? "roles decide who may change what" : "one shared secret: no member accounts"}</span></h2><div class="card">${
+      s.users.length
+        ? plain(
+            [{ label: "member" }, { label: "role" }, { label: "last login" }, { label: "" }],
+            s.users.map((u) => [
+              `<b>${esc(u.name ?? u.email ?? u.subject)}</b> <span class="dim mono">${esc(u.email ?? "")}</span>`,
+              `<select data-role="${esc(u.subject)}">${roles
+                .map((r) => `<option${r === u.role ? " selected" : ""}>${r}</option>`)
+                .join("")}</select>`,
+              `<span class="dim">${ago(u.last_login)}</span>`,
+              `<button class="link" data-remove="${esc(u.subject)}">remove</button>`,
+            ]),
+          )
+        : '<span class="dim">nobody has logged in — members appear after <span class="mono">swarm login</span> in identity-provider mode</span>'
+    }</div></div>
+    <div><h2>Machines <span>revoke to stop one forwarding</span></h2><div class="card">${plain(
+      [{ label: "machine" }, { label: "owner" }, { label: "last seen" }, { label: "" }],
+      s.machines.map((m) => [
+        `<b>${esc(m.name ?? m.id.slice(0, 8))}</b>`,
+        esc(m.owner_subject ?? "—"),
+        ago(m.last_seen),
+        `<button class="link bad" data-revoke="${esc(m.id)}">revoke</button>`,
+      ]),
+    )}</div></div>
+  </div>
+  <h2>Org policy <span>signed with this team's key; every machine verifies it before applying</span></h2>
+  <div class="card">
+    <p class="dim">${
+      pol
+        ? `in force since ${ago(pol.createdAt)}, set by ${esc(pol.setBy ?? "?")} · key <span class="mono">${esc(pol.publicKey.slice(0, 16))}…</span>`
+        : "no policy yet — machines use their own rules"
+    }</p>
+    <textarea id="policy" spellcheck="false" rows="10" placeholder='locked = ["rules.destructive_git"]\n\n[rules]\ndestructive_git = "deny"'>${esc(pol?.toml ?? "")}</textarea>
+    <div class="row"><button id="publish">Sign and publish</button><span id="settings-msg" class="${NOTE?.bad ? "badge bad" : "dim"}">${esc(NOTE?.msg ?? "")}</span></div>
+  </div>`;
+}
+
+async function call(method, path, body) {
+  const r = await fetch(`${path}${authq()}`, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? `${r.status}`);
+  return j;
+}
+const say = (msg, bad = false) => {
+  NOTE = msg ? { msg, bad } : null;
+  const el = $("settings-msg");
+  if (el) {
+    el.textContent = msg;
+    el.className = bad ? "badge bad" : "dim";
+  }
+};
+
+$("main").addEventListener("change", async (e) => {
+  const sub = e.target.dataset?.role;
+  if (!sub) return;
+  try {
+    await call("POST", `/t1/users/${encodeURIComponent(sub)}/role`, { role: e.target.value });
+    await refresh();
+  } catch (err) {
+    await refresh();
+    say(err.message, true);
+  }
+});
+$("main").addEventListener("click", async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset?.remove && confirm(`Remove ${t.dataset.remove} from the team?`)) {
+      await call("DELETE", `/t1/users/${encodeURIComponent(t.dataset.remove)}`);
+      await refresh();
+    } else if (t.dataset?.revoke && confirm("Revoke this machine? It stops forwarding at once.")) {
+      const r = await call("DELETE", `/t1/machines/${encodeURIComponent(t.dataset.revoke)}`);
+      await refresh();
+      if (r.note) say(r.note);
+    } else if (t.id === "publish") {
+      POLICY = (await call("POST", "/t1/policy", { toml: $("policy").value })).policy;
+      await refresh();
+      say("signed and published — machines pick it up on their next policy check");
+    }
+  } catch (err) {
+    say(err.message, true);
+  }
+});
 
 function summarize(e) {
   const p = e.payload ?? {};
@@ -188,7 +293,13 @@ async function refresh() {
     return;
   }
   const s = await res.json();
+  if (ME === null) ME = await call("GET", "/t1/me").catch(() => null);
+  if (isAdmin()) POLICY = (await call("GET", "/t1/policy").catch(() => ({}))).policy ?? null;
+  // a half-typed policy must survive the refresh a live event triggers
+  const draft = $("policy")?.value;
   render(s);
+  if (draft !== undefined && $("policy") && draft !== (POLICY?.toml ?? ""))
+    $("policy").value = draft;
   $("live").textContent = "live";
   $("live").className = "badge ok";
 }

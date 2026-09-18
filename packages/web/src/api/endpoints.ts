@@ -31,6 +31,7 @@ import type { TrialReport } from "@swarm/core/abtrial";
 import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
+import type { FoundTeam } from "@swarm/core/mdns";
 import type { TeamStatus } from "./actions";
 import { query } from "./client";
 
@@ -66,6 +67,9 @@ const byProject = <T>(path: string, project: string | null): Route<T> =>
 export const routes = {
   /** M13.12: forwarding status plus what this machine hosts. */
   team: (): Route<TeamStatus> => "/v1/team" as Route<TeamStatus>,
+  /** M13.13: teams announced on the LAN (mDNS), for Join. */
+  teamDiscover: (): Route<{ teams: FoundTeam[] }> =>
+    "/v1/team/discover" as Route<{ teams: FoundTeam[] }>,
   /** A folder's sub-folders. An empty or missing path lists the home directory. */
   fsList: (path: string): Route<DirListing> => `/v1/fs/ls${query({ path })}`,
   outcomes: (project: string | null) => byProject<OutcomeReport>("/v1/outcomes", project),

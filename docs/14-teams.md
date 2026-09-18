@@ -176,6 +176,28 @@ and the forwarded audit-event feed. `GET /t1/state` is the snapshot; `GET /t1/ev
 on ingest/claim changes and the page refetches, debounced. Auth: paste the token from
 `~/.swarm/team-token` once (`?token=` → localStorage); the shell itself is static and data-free.
 
+**Settings (M13.13)** — admins get a section below the dashboard: members with a role picker
+(`POST /t1/users/:subject/role`) and *remove* (`DELETE /t1/users/:subject`, which ends their
+sessions; their machines stay until revoked), machines with *revoke* (`DELETE /t1/machines/:id`,
+its token stops working; what it forwarded stays), and the org policy as an editor that signs and
+publishes through `POST /t1/policy`. A team always keeps one admin: demoting or removing the last
+is refused.
+
+> **Decision (2026-09-18, M13.13):** in `token` mode the shared secret is the admin credential.
+> One secret makes every holder equal — there are no member accounts to rank — so the holder may
+> use every admin route (policy, budgets, Settings), and a policy set that way is recorded as by
+> "shared secret". Revoking a machine there removes it from the list but cannot lock it out: the
+> answer says to rotate the secret. Roles only mean something in `oidc` mode.
+
+**Discovery (M13.13)** — `swarm-teamd` announces itself on the LAN as `_swarm-team._tcp.local`
+(mDNS / DNS-SD: PTR, SRV, TXT `v` + `auth`, A; `core/src/mdns.ts`, `packages/team/src/mdns.ts`)
+whenever it listens beyond loopback, and says goodbye on shutdown; `SWARM_TEAM_MDNS=0` turns it
+off. The local daemon's `GET /v1/team/discover` sends one legacy-unicast query and lists what
+answers within 1.5 s, and the Team panel shows it under Join. Name, address, port and auth mode
+only — never a secret, so a token team still needs its invite link. Checked against macOS's own
+mDNSResponder in both directions (`dns-sd -B/-L` sees the announcement; a `dns-sd -R` service is
+discovered).
+
 ### Order of work (one PR each, gates green, roadmap flipped on the last)
 
 1. **M8.3a** scaffold: `packages/team` + FSL LICENSE.md + README licensing note, config, db +

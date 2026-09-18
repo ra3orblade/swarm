@@ -1779,6 +1779,10 @@ th.num {
 .plainlist li:last-child {
   border-bottom: 0;
 }
+/* M13.13: a discovered team's name stays one line beside its address */
+.plainlist li b {
+  white-space: nowrap;
+}
 .plainlist li b {
   font-family: var(--mono);
   font-size: var(--fs-mono);

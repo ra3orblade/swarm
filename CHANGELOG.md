@@ -6,6 +6,13 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
+- **The team dashboard has Settings.** Admins change roles, remove members (which ends their
+  sessions), revoke machines, and edit the org policy right there — *Sign and publish* signs it
+  with the team's key. A team always keeps an admin. With one shared secret, its holder is the
+  admin.
+- **Join finds teams on your network.** A team daemon announces itself over mDNS, and the Team
+  panel's Join lists what it hears — one click fills in the address. Names and addresses only: a
+  shared secret still arrives in the invite link.
 - **Host a team without a clone.** The team daemon now ships three ways, each the same version
   as the app: `npm i -g @ra3orblade/swarm-team`, the `ghcr.io/ra3orblade/swarm-teamd` image,
   and a `swarm-teamd` binary per platform on every GitHub release. The Team panel shows its

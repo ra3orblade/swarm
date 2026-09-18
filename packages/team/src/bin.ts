@@ -2,7 +2,9 @@
 import { writeFileSync } from "node:fs";
 import { DEFAULT_TEAM_SETUP, mintTeamSecret, renderTeamSetup, type TeamSetup } from "@swarm/core";
 import { createTeamApp, VERSION } from "./app";
+import { authEnv, authMode } from "./auth";
 import { readTeamSetup, teamConfigPath, teamEnv } from "./config";
+import { announceTeam } from "./mdns";
 import { TeamStore } from "./store";
 
 // `swarm-teamd setup`: write ~/.swarm/team.toml so hosting needs no exported secrets. Flags for
@@ -69,7 +71,18 @@ console.error(
   `swarm-teamd ${VERSION} listening on ${HOST}:${server.port} (schema v${store.schemaVersion()})`,
 );
 
-const stop = () => {
+// M13.13: on the LAN as _swarm-team._tcp — only when something off this machine can reach it
+const lan =
+  !["127.0.0.1", "localhost", "::1"].includes(HOST) &&
+  announceTeam({
+    name: readTeamSetup().name,
+    port: server.port ?? PORT,
+    txt: { v: VERSION, auth: authMode(authEnv()) },
+    log: (m) => console.error(`swarm-teamd: ${m}`),
+  });
+
+const stop = async () => {
+  if (lan) await Promise.race([lan.stop(), Bun.sleep(500)]); // the goodbye, briefly
   server.stop();
   store.close();
   process.exit(0);

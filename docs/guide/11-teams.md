@@ -77,6 +77,8 @@ What is forwarded is `[team] forward` in `~/.swarm/config.toml`: `["ledger", "co
 - **Org policy, signed**: an admin `POST`s a policy TOML to `/t1/policy`; every machine fetches it, verifies the ed25519 signature against the key pinned at login, and installs it as the [org layer](03-rules-and-config.md) — locked rules included. A tampered policy is reported and never installed.
 - **Budgets + chargeback**: org / user / project ceilings (daily + monthly) with the same warn / ask / stop semantics as the local `[budget]`; monthly export by user, machine, model or task (`GET /t1/spend/export?month=2026-08&by=task&format=csv` — task ids are your ticket ids when the task source is GitHub Issues or Linear).
 - **`/t1/metrics`** in Prometheus format for your monitoring stack (send the bearer token from the scrape config).
+- **Settings**, for admins, at the bottom of the team dashboard: change a member's role or remove them, revoke a machine, and edit the org policy — *Sign and publish* signs it with the team's key and every machine picks it up. With one shared secret (the default when you host from the app), whoever holds the secret is the admin.
+- **Found on the network**: a team daemon announces itself on the local network, so a teammate's Join lists it with one click to fill in the address. A secret never travels that way — a token team still needs the invite link.
 
 ## Operations
 
