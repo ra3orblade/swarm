@@ -1752,13 +1752,16 @@ describe("runtime resources (Phase 1)", () => {
 });
 
 describe("event storage and wire shape (perf)", () => {
+  // not process.cwd(): run from a Claude Code worktree, that cwd gets adopted (M13.7) and the
+  // claim event shifts every seq these tests count
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "swarm-perf-")));
   const hook = (app: ReturnType<typeof createApp>["app"], event: string, extra: object) =>
     app.request(`/v1/hook/${event}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         session_id: "s_big",
-        cwd: process.cwd(),
+        cwd,
         tool_name: "Read",
         ...extra,
       }),
@@ -2205,5 +2208,99 @@ describe("project order", () => {
       body: JSON.stringify({ ids: "x" }),
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("claim what Claude Code creates (M13.7)", () => {
+  const setup = () => {
+    const fs = require("node:fs");
+    const sh = (cwd: string, ...args: string[]) =>
+      Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-ccwt-")));
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@t");
+    sh(dir, "git", "config", "user.name", "t");
+    fs.writeFileSync(join(dir, "README.md"), "# repo\n");
+    sh(dir, "git", "add", "README.md");
+    sh(dir, "git", "commit", "-qm", "init");
+    // what `claude --worktree bold-oak` leaves behind
+    const wt = join(dir, ".claude", "worktrees", "bold-oak");
+    sh(dir, "git", "worktree", "add", "-q", "-b", "worktree-bold-oak", wt);
+    const { app, store } = createApp(new Store(tmpHome()));
+    const p = store.resolveProject(dir, true);
+    const post = async (event: string, body: Record<string, unknown>) =>
+      (await (
+        await app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ hook_event_name: event, ...body }),
+        })
+      ).json()) as { hookSpecificOutput?: { permissionDecision?: string } };
+    const cc = () => store.claims(p.id).find((c) => c.task === "cc/bold-oak");
+    return { fs, dir, wt, store, p, post, cc };
+  };
+
+  it("adopts the worktree for the session working in it; others are foreign to it", async () => {
+    const { fs, wt, store, p, post, cc } = setup();
+    await post("SessionStart", { session_id: "s-cc", cwd: join(wt, "src"), source: "startup" });
+    expect(cc()).toMatchObject({
+      owner: "session:s-cc",
+      worktree: wt,
+      branch: "worktree-bold-oak",
+      state: "held",
+      origin: "claude-code",
+      sessionId: "s-cc",
+    });
+    // the holder writes freely; a session in the main checkout is asked
+    const mine = await post("PreToolUse", {
+      session_id: "s-cc",
+      cwd: wt,
+      tool_name: "Write",
+      tool_input: { file_path: "a.ts", content: "x" },
+    });
+    expect(mine.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    const foreign = await post("PreToolUse", {
+      session_id: "s-other",
+      cwd: store.project(p.id)?.root,
+      tool_name: "Write",
+      tool_input: { file_path: join(wt, "a.ts"), content: "x" },
+    });
+    expect(foreign.hookSpecificOutput?.permissionDecision).toBe("ask");
+    // a second session starting in it does not take it over while the first is live
+    await post("SessionStart", { session_id: "s-late", cwd: wt, source: "startup" });
+    expect(cc()?.owner).toBe("session:s-cc");
+    // SessionEnd lets go — and the directory is Claude Code's to keep
+    await post("SessionEnd", { session_id: "s-cc", cwd: wt, reason: "exit" });
+    expect(cc()?.state).toBe("released");
+    expect(fs.existsSync(wt)).toBe(true);
+  });
+
+  it("release, reap and gc never touch an adopted worktree, even a clean one", async () => {
+    const { fs, wt, store, p, post, cc } = setup();
+    await post("UserPromptSubmit", { session_id: "s1", cwd: wt, prompt: "hi" });
+    expect(store.release(p.id, "cc/bold-oak").ok).toBe(true);
+    expect(fs.existsSync(wt)).toBe(true);
+    expect((await store.gcWorktrees(p.id)).candidates.map((g) => g.path)).not.toContain(wt);
+    // a lapsed adoption is closed by reap without removal, and the next session re-adopts it
+    await post("SessionStart", { session_id: "s2", cwd: wt, source: "resume" });
+    expect(cc()?.owner).toBe("session:s2");
+    store.db
+      .query("UPDATE claims SET expires_at = ? WHERE task = 'cc/bold-oak'")
+      .run("2000-01-01T00:00:00.000Z");
+    expect(store.reap(p.id)).toEqual([
+      { task: "cc/bold-oak", projectId: p.id, action: "released" },
+    ]);
+    expect(fs.existsSync(wt)).toBe(true);
+    await post("SessionStart", { session_id: "s3", cwd: wt, source: "startup" });
+    expect(cc()).toMatchObject({ owner: "session:s3", state: "held" });
+  });
+
+  it("leaves Swarm's own worktrees and non-worktree folders alone", async () => {
+    const { fs, dir, store, p, post } = setup();
+    const plain = join(dir, ".claude", "worktrees", "not-a-worktree");
+    fs.mkdirSync(plain, { recursive: true });
+    await post("SessionStart", { session_id: "s4", cwd: plain, source: "startup" });
+    await post("SessionStart", { session_id: "s4", cwd: dir, source: "startup" });
+    expect(store.claims(p.id)).toHaveLength(0);
   });
 });
