@@ -340,6 +340,54 @@ export class TeamStore {
     return { subject: claims.sub, role };
   }
 
+  // ---------- M13.13: Settings — members and machines
+
+  private admins(): number {
+    return (
+      this.db.query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get() as { n: number }
+    ).n;
+  }
+
+  /** Change a member's role. Refuses to demote the last admin — a team always has one. */
+  setRole(
+    subject: string,
+    role: "viewer" | "developer" | "admin",
+  ): { ok: true } | { ok: false; error: string } {
+    const u = this.db.query("SELECT role FROM users WHERE subject = ?").get(subject) as {
+      role: string;
+    } | null;
+    if (!u) return { ok: false, error: "no such member" };
+    if (u.role === "admin" && role !== "admin" && this.admins() <= 1)
+      return { ok: false, error: "that is the last admin — promote someone else first" };
+    this.db.query("UPDATE users SET role = ? WHERE subject = ?").run(role, subject);
+    this.notify();
+    return { ok: true };
+  }
+
+  /** Remove a member and every session token they hold; their machines stay until revoked. */
+  removeUser(subject: string): { ok: true } | { ok: false; error: string } {
+    const u = this.db.query("SELECT role FROM users WHERE subject = ?").get(subject) as {
+      role: string;
+    } | null;
+    if (!u) return { ok: false, error: "no such member" };
+    if (u.role === "admin" && this.admins() <= 1)
+      return { ok: false, error: "that is the last admin — promote someone else first" };
+    this.db.transaction(() => {
+      this.db.query("DELETE FROM tokens WHERE subject = ?").run(subject);
+      this.db.query("DELETE FROM team_members WHERE subject = ?").run(subject);
+      this.db.query("DELETE FROM users WHERE subject = ?").run(subject);
+    })();
+    this.notify();
+    return { ok: true };
+  }
+
+  /** Revoke a machine: its token stops working; what it already forwarded stays. */
+  revokeMachine(id: string): boolean {
+    const r = this.db.query("DELETE FROM machines WHERE id = ?").run(id);
+    if (r.changes) this.notify();
+    return r.changes > 0;
+  }
+
   /** Store an opaque token (hashed) for a subject; default expiry 30 days. */
   storeToken(hash: string, subject: string, ttlMs = 30 * 24 * 60 * 60_000) {
     const now = Date.now();

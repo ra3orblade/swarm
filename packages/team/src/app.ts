@@ -51,6 +51,19 @@ const asset = (dir: string, f: string): string | null => {
   return EMBEDDED?.[f] ?? null;
 };
 
+/**
+ * Who may administer: an admin in `oidc` mode; anyone in `open` mode; and in `token` mode the
+ * holder of the shared secret — one secret makes every holder equal, so it is the admin
+ * credential there (M13.13, docs/14).
+ */
+function isAdmin(p: Principal): boolean {
+  return (
+    p.kind === "open" ||
+    (p.kind === "human" && p.role === "admin") ||
+    (p.kind === "machine" && p.id === "shared-token")
+  );
+}
+
 export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   const app = new Hono<Vars>();
 
@@ -124,6 +137,35 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
   });
 
   app.get("/t1/me", (c) => c.json(c.get("principal")));
+
+  // ---------- M13.13: Settings — members, roles, machines (admin)
+  app.post("/t1/users/:subject/role", async (c) => {
+    if (!isAdmin(c.get("principal"))) return c.json({ error: "admin role required" }, 403);
+    const b = (await c.req.json().catch(() => ({}))) as { role?: unknown };
+    if (b.role !== "viewer" && b.role !== "developer" && b.role !== "admin")
+      return c.json({ error: "role must be viewer, developer or admin" }, 400);
+    const r = store.setRole(c.req.param("subject"), b.role);
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.delete("/t1/users/:subject", (c) => {
+    if (!isAdmin(c.get("principal"))) return c.json({ error: "admin role required" }, 403);
+    const r = store.removeUser(c.req.param("subject"));
+    return c.json(r, r.ok ? 200 : 409);
+  });
+  app.delete("/t1/machines/:id", (c) => {
+    if (!isAdmin(c.get("principal"))) return c.json({ error: "admin role required" }, 403);
+    const ok = store.revokeMachine(c.req.param("id"));
+    return c.json(
+      ok
+        ? {
+            ok: true,
+            // with one shared secret there is no per-machine credential to take away
+            note: authMode(env) === "token" ? "rotate the shared secret to keep it out" : null,
+          }
+        : { ok: false, error: "no such machine" },
+      ok ? 200 : 404,
+    );
+  });
 
   // ---------- M8.3e: the team dashboard's snapshot + live change stream
   app.get("/t1/state", (c) => c.json({ ...store.state(), version: VERSION, auth: authMode(env) }));
@@ -214,8 +256,7 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
 
   app.post("/t1/budgets", async (c) => {
     const p = c.get("principal");
-    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
-      return c.json({ error: "admin role required" }, 403);
+    if (!isAdmin(p)) return c.json({ error: "admin role required" }, 403);
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     try {
       return c.json({
@@ -265,13 +306,13 @@ export function createTeamApp(store: TeamStore, env: AuthEnv = authEnv()) {
 
   app.post("/t1/policy", async (c) => {
     const p = c.get("principal");
-    if (!(p.kind === "open" || (p.kind === "human" && p.role === "admin")))
-      return c.json({ error: "admin role required" }, 403);
+    if (!isAdmin(p)) return c.json({ error: "admin role required" }, 403);
     const b = (await c.req.json().catch(() => ({}))) as { toml?: unknown };
     if (typeof b.toml !== "string" || !b.toml.trim())
       return c.json({ error: "toml required" }, 400);
     try {
-      return c.json({ policy: setPolicy(store, b.toml, p.kind === "human" ? p.subject : "open") });
+      const by = p.kind === "human" ? p.subject : p.kind === "machine" ? "shared secret" : "open";
+      return c.json({ policy: setPolicy(store, b.toml, by) });
     } catch (e) {
       return c.json({ error: `invalid TOML: ${(e as Error).message}` }, 400);
     }

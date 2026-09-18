@@ -23,6 +23,7 @@
     --fs-lg:14px; --fs-xl:15px; --fs-2xl:24px;
     --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
     --r:8px;
+    --acc-contrast:#fff;
   }
   :root:not([data-theme="light"]){
     @media (prefers-color-scheme: dark){
@@ -36,6 +37,7 @@
       --c0:#7c8592; --c1:#6bbf3a; --c2:#2bb78f; --c3:#b0cf3a; --c4:#3f9d63; --c5:#93c47d; --c6:#2f8f5a; --c7:#d3e88a;
       --acc-1:#1c3311; --acc-2:#2f5a18; --acc-3:#4d8a24; --acc-4:#7cc02f; --acc-5:#bfef7a;
       --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.25);
+      --acc-contrast:#0c0e12;
     }
   }
   *{box-sizing:border-box}
@@ -66,10 +68,19 @@
   .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
   #gate{max-width:420px;margin:80px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px;box-shadow:var(--shadow)}
   #gate input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;margin:10px 0}
-  #gate button{padding:8px 16px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+  #gate button{padding:8px 16px;border:0;border-radius:6px;background:var(--acc);color:var(--acc-contrast);font:inherit;cursor:pointer}
   .feed{list-style:none;margin:0;padding:0;font-size:var(--fs-sm)}
   .feed li{padding:5px 0;border-bottom:1px solid var(--line-2);display:flex;gap:10px}
   .feed .t{color:var(--faint);font-family:var(--mono);font-size:var(--fs-2xs);white-space:nowrap}
+  /* M13.13 Settings */
+  #settings{margin-top:34px;padding-top:14px;border-top:1px solid var(--line)}
+  select{font:inherit;font-size:var(--fs-sm);background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+  button.link{border:0;background:none;color:var(--fg-2);font:inherit;font-size:var(--fs-sm);cursor:pointer;padding:0}
+  button.link:hover{color:var(--acc)}
+  button.link.bad:hover{color:var(--bad)}
+  #policy{width:100%;font-family:var(--mono);font-size:var(--fs-mono);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical}
+  .row{display:flex;gap:10px;align-items:center;margin-top:8px}
+  #publish{padding:6px 14px;border:0;border-radius:6px;background:var(--acc);color:var(--acc-contrast);font:inherit;cursor:pointer}
   /* chart classes emitted by the shared viz.js (same rules as web/public/index.html) */
   svg.chart{width:100%;display:block}
   .chart .grid{stroke:var(--line-2);stroke-width:1;vector-effect:non-scaling-stroke}
