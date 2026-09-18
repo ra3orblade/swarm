@@ -38,6 +38,16 @@ export interface RulesConfig {
   dry_run_first: RewriteRuleMode;
   /** M13.5: `[[rules.custom]]` — name, match (regex), action, replace, reason. */
   custom: CustomRule[];
+  /** M12.5: `rm -rf` on /, ~, .., an unset-variable path or outside the repo; mkfs; dd to a device. */
+  destructive_fs: RuleMode;
+  /** M12.5: terraform destroy, kubectl delete ns, helm uninstall, cloud deletes, SQL DROP/TRUNCATE. */
+  destructive_infra: RuleMode;
+  /** M12.5: `curl … | sh` and its process-/command-substitution forms. */
+  pipe_to_shell: RuleMode;
+  /** M12.5: reading or printing credential files; writing `.env*` / key files. */
+  secrets: RuleMode;
+  /** M12.5: changing Claude Code settings, Swarm's config / ledger, or `swarm uninstall`. */
+  config_tamper: RuleMode;
   /** M13.3: after an edit, tell the session when another live session edited the same file
    *  within `collision_window` minutes (on PostToolUse). */
   collision_context: boolean;
@@ -243,6 +253,11 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     no_verify: "off",
     dry_run_first: "off",
     custom: [],
+    destructive_fs: "off",
+    destructive_infra: "off",
+    pipe_to_shell: "off",
+    secrets: "off",
+    config_tamper: "off",
     collision_context: true,
     collision_window: 15,
     protected: { ports: [] },
@@ -490,6 +505,12 @@ function validate(c: SwarmConfig): SwarmConfig {
       no_verify: rewriteMode(c.rules?.no_verify, "off"),
       dry_run_first: rewriteMode(c.rules?.dry_run_first, "off"),
       custom: parseCustomRules(c.rules?.custom),
+      // M12.5: every family ships off for a release, watched on the Security view first
+      destructive_fs: mode(c.rules?.destructive_fs, "off"),
+      destructive_infra: mode(c.rules?.destructive_infra, "off"),
+      pipe_to_shell: mode(c.rules?.pipe_to_shell, "off"),
+      secrets: mode(c.rules?.secrets, "off"),
+      config_tamper: mode(c.rules?.config_tamper, "off"),
       collision_context: c.rules?.collision_context !== false,
       collision_window: (() => {
         const n = Number(c.rules?.collision_window);

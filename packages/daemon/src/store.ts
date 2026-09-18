@@ -20,6 +20,7 @@ import { basename, dirname, join } from "node:path";
 import { swarmHome } from "@swarm/client";
 import {
   type Actor,
+  ADOPTED,
   type AiderCarry,
   type Arm,
   AUDIT_TYPES_SQL,
@@ -27,6 +28,7 @@ import {
   acquireRefusalMessage,
   actorFrom,
   actorFromColumns,
+  adoptedTask,
   auditRow,
   BUDGET_ASK_TOOLS,
   BUILD_DIRS,
@@ -35,14 +37,18 @@ import {
   budgetMessage,
   budgetStatus,
   buildPolicyCache,
+  COACH_AT,
   canAcquire,
   canClaim,
   canRelease,
   canRemoveWorktree,
   claimRefusalMessage,
+  claudeCodeWorktree,
   clusterProjectKey,
+  coachFailure,
   collisionGraph,
   collisionWarning,
+  commandHead,
   compileRedactions,
   gateHealth as computeGateHealth,
   contextReport,
@@ -57,6 +63,7 @@ import {
   detectStall,
   dryRunRules,
   executedGateInput,
+  FAMILY_RULES,
   fileHeat,
   formatAnswers,
   formatHandoff,
@@ -72,11 +79,13 @@ import {
   gateStatus,
   gatesSatisfied,
   guardBash,
+  guardFile,
   guardWrite,
   type Handoff,
   type HeldRow,
   type HeldWorktree,
   type HistoricalCall,
+  type HookAgent,
   type HookInput,
   handoffDoc,
   handoffEdges,
@@ -112,6 +121,7 @@ import {
   modelAllowed,
   needsBootstrap,
   nextExpiry,
+  normalizeCommand,
   normalizeHook,
   type OtelMark,
   type OtelSession,
@@ -161,6 +171,7 @@ import {
   redactValue,
   releaseRefusalMessage,
   removeRefusalMessage,
+  renderAgentDecision,
   repairDecision,
   resourceGraph,
   reviewArgs,
@@ -191,6 +202,7 @@ import {
   taskSourceKind,
   tightestWindow,
   toolResponseErrored,
+  toToolRequests,
   transitionGraph,
   validateGateRun,
   validateHandoff,
@@ -344,6 +356,8 @@ export class Store {
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
     this.ensureColumn("claims", "team_state", "TEXT"); // M8.3d: null | registered | conflict
+    // M13.7: null = Swarm made the worktree; "claude-code" = adopted — recorded, never removed
+    this.ensureColumn("claims", "origin", "TEXT");
     this.ensureColumn("turns", "cost_fixed", "INTEGER DEFAULT 0");
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
@@ -1253,6 +1267,11 @@ export class Store {
         "protected_ports",
         "no_foreign_worktree",
         "claim_required_to_write",
+        "destructive_fs",
+        "destructive_infra",
+        "pipe_to_shell",
+        "secrets",
+        "config_tamper",
       ] as const
     )
       .filter((k) => modes[k] !== "off")
@@ -1261,6 +1280,48 @@ export class Store {
     if (on.length && (lines.length || on.some((x) => x.endsWith("=deny"))))
       lines.push(`[swarm] rules: ${on.join(" ")}`);
     return lines.length ? lines.join("\n") : null;
+  }
+
+  /**
+   * M13.9 failure coaching: on the third failure of the same Bash command in a session, the
+   * held task's verify line and the lessons from incidents on the same command. Counted from
+   * the event log, so a daemon restart mid-session does not reset it.
+   */
+  failureCoaching(sessionId: string, raw: Record<string, unknown>): string | null {
+    const command = (raw.tool_input as { command?: unknown } | undefined)?.command;
+    if (raw.tool_name !== "Bash" || typeof command !== "string" || raw.is_interrupt === true)
+      return null;
+    const want = normalizeCommand(command);
+    const rows = this.db
+      .query(
+        `SELECT json_extract(payload, '$.toolInput.command') AS cmd FROM events
+         WHERE session_id = ? AND type = 'tool.completed' AND json_extract(payload, '$.failed') = 1
+           AND json_extract(payload, '$.tool') = 'Bash'`,
+      )
+      .all(sessionId) as Array<{ cmd: string | null }>;
+    const failures = rows.filter(
+      (r) => typeof r.cmd === "string" && normalizeCommand(r.cmd) === want,
+    ).length;
+    if (failures !== COACH_AT) return null;
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const held = cwd
+      ? this.heldClaimsWithWorktree().find((c) => isInside(cwd, c.worktree))
+      : undefined;
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const head = commandHead(command);
+    const lessons = project
+      ? this.incidents(200, { projectId: project.id })
+          .map((i) => i as { command?: unknown; suggestion?: { lesson?: string } })
+          .filter((i) => typeof i.command === "string" && commandHead(i.command) === head)
+          .map((i) => i.suggestion?.lesson ?? "")
+      : [];
+    return coachFailure({
+      failures,
+      command,
+      task: held?.task ?? null,
+      verify: held ? (this.latestHandoff(held.projectId, held.task)?.verify ?? null) : null,
+      lessons,
+    });
   }
 
   // ---------- ask the human (M7.7)
@@ -3051,6 +3112,15 @@ export class Store {
     const cmd = tool === "Bash" ? input.command : undefined;
     const current = { id: sessionId, cwd, toplevel: this.toplevel(cwd) };
     const modes = this.rulesFor(current.toplevel);
+    // M12.5: secrets (Read / Write / Edit) and config tamper (Write / Edit)
+    if (typeof input.file_path === "string" && (isWrite || tool === "Read")) {
+      const target = absolutePath(input.file_path, cwd);
+      const f = guardFile(tool, target, modes, homedir());
+      if (f.action !== "allow") {
+        if (recordIncident) this.openIncident(f, cwd, sessionId, `${tool} ${target}`);
+        return { decision: f, display: `${tool} ${target}` };
+      }
+    }
     if (
       isWrite &&
       (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off")
@@ -3109,6 +3179,19 @@ export class Store {
     }));
   }
 
+  /**
+   * M12.4: the rules for an agent other than Claude Code. Each payload maps onto one or more tool
+   * requests (an `apply_patch` touching three files is three); the first that is not allowed
+   * decides, rendered the way that agent's hook reads it — `ask` as `deny` where it cannot ask.
+   */
+  guardForeign(agent: HookAgent, raw: Record<string, unknown>): string {
+    for (const r of toToolRequests(agent, raw)) {
+      const { decision } = this.evaluateTool(r.tool, r.input, r.sessionId, r.cwd, true);
+      if (decision.action !== "allow") return renderAgentDecision(agent, decision);
+    }
+    return "{}";
+  }
+
   guardHook(
     raw: Record<string, unknown>,
   ): Extract<GuardDecision, { action: "ask" | "deny" | "rewrite" }> | null {
@@ -3118,9 +3201,18 @@ export class Store {
     const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
     const isWrite = WRITE_TOOLS.has(tool) && typeof input.file_path === "string";
     const cmd = tool === "Bash" ? input.command : undefined;
-    if (!isWrite && !cmd) return null;
+    const isRead = tool === "Read" && typeof input.file_path === "string";
+    if (!isWrite && !cmd && !isRead) return null;
     const current = { id, cwd, toplevel: this.toplevel(cwd) };
     const modes = this.rulesFor(current.toplevel);
+    // M12.5: secrets (Read / Write / Edit) and config tamper (Write / Edit)
+    if (isWrite || isRead) {
+      const target = absolutePath(input.file_path as string, cwd);
+      const f = guardFile(tool, target, modes, homedir());
+      if (f.action === "ask" || f.action === "deny")
+        return this.openIncident(f, cwd, id, `${tool} ${target}`);
+      if (isRead) return null;
+    }
     // Worktree ownership: a file write (or a Bash cwd) inside a claimed worktree the session
     // doesn't hold, and — opt-in — writes into the shared checkout without a claim.
     if (modes.no_foreign_worktree !== "off" || modes.claim_required_to_write !== "off") {
@@ -3194,7 +3286,10 @@ export class Store {
   /** M13.5: per session, the `dry_run_first` families already dry-run (in memory: a session's). */
   private rewritesDone = new Map<string, Set<string>>();
   rewriteCtx(sessionId: string) {
-    return { rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>() };
+    return {
+      rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>(),
+      home: homedir(), // M12.5: the families expand ~ against the daemon user's home
+    };
   }
 
   /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
@@ -3723,8 +3818,12 @@ export class Store {
   }
 
   ingestHook(event: string, raw: Record<string, unknown>): SwarmEvent {
-    if (typeof raw.cwd === "string")
-      this.autoRenewFor(typeof raw.session_id === "string" ? raw.session_id : null, raw.cwd);
+    if (typeof raw.cwd === "string") {
+      const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+      // M13.7 before the renew and before any rule reads the ledger for this call
+      if (event !== "SessionEnd") this.adoptClaudeWorktree(sid, raw.cwd);
+      this.autoRenewFor(sid, raw.cwd);
+    }
     const cwd = typeof raw.cwd === "string" ? raw.cwd : process.cwd();
     // M13.4: an active session gets its inbox on the next hook; a gone session never will
     if (typeof raw.session_id === "string") {
@@ -3736,6 +3835,7 @@ export class Store {
         this.statuslines.delete(raw.session_id);
         this.rewritesDone.delete(raw.session_id);
         this.stopExhausted.delete(raw.session_id);
+        this.endAdoptedFor(raw.session_id);
       }
     }
     // M13.3: remember who is editing what, for the heads-up after the edit lands
@@ -4500,7 +4600,7 @@ export class Store {
   }
 
   // ---------- claims (M1: fail-closed leases in isolated git worktrees)
-  private claimRows(projectId: string): LeaseClaim[] {
+  private claimRows(projectId: string): Array<LeaseClaim & { origin: string | null }> {
     return (
       this.db.query("SELECT * FROM claims WHERE project_id = ?").all(projectId) as Array<
         Record<string, unknown>
@@ -4513,6 +4613,7 @@ export class Store {
       acquiredAt: r.acquired_at as string,
       expiresAt: r.expires_at as string,
       state: r.state as LeaseClaim["state"],
+      origin: (r.origin as string | null) ?? null,
     }));
   }
 
@@ -4535,6 +4636,7 @@ export class Store {
       expiresAt: r.expires_at as string,
       releasedAt: (r.released_at as string) ?? null,
       state: r.state as string,
+      origin: (r.origin as string | null) ?? null,
       // The actor on a claim is the session when an agent took it (M8.2a); provenance (M9.14)
       // needs that link to get from a task to the work that was done under it.
       sessionId: r.actor_kind === "agent" ? ((r.actor_id as string) ?? null) : null,
@@ -4675,6 +4777,106 @@ export class Store {
   /** Resolve once any in-flight bootstrap for `worktree` has finished (immediately when none). */
   awaitBootstrap(worktree: string): Promise<unknown> {
     return this.bootstraps.get(worktree) ?? Promise.resolve();
+  }
+
+  /**
+   * M13.7: claim a worktree Claude Code made itself, the first time a session is seen working in
+   * one. A `WorktreeCreate` hook would *replace* Claude Code's creation (hooks reference,
+   * verified 2026-09-18), so the ledger observes instead: the claim is `cc/<name>`, owned by
+   * `session:<id>`, origin "claude-code" — renewed by the usual auto-renew, closed when the
+   * session ends or the lease lapses, and its directory never touched by release, reap or gc.
+   */
+  private adoptSeen = new Set<string>();
+  adoptClaudeWorktree(sessionId: string | null, cwd: string): void {
+    if (!sessionId || !cwd.includes("/.claude/worktrees/")) return;
+    const wt = claudeCodeWorktree(cwd);
+    if (!wt) return;
+    const seen = `${sessionId}|${wt.path}`;
+    if (this.adoptSeen.has(seen)) return;
+    this.adoptSeen.add(seen);
+    if (!existsSync(join(wt.path, ".git")) || !existsSync(wt.root)) return;
+    const project = this.resolveProject(wt.root);
+    if (!project) return;
+    const task = adoptedTask(wt.name);
+    // One the ledger already holds stays as it is — Swarm's own claim, or another live session's
+    // adoption. A lapsed adoption (its session died without a SessionEnd) is taken over.
+    const now = Date.now();
+    for (const c of this.claimRows(project.id)) {
+      if (c.state !== "held" || !c.worktree || !isInside(wt.path, c.worktree)) continue;
+      if (c.origin === ADOPTED && !isActive(c, now))
+        this.endAdopted(project.id, c.task, "lease lapsed");
+      else return;
+    }
+    const owner = `session:${sessionId}`;
+    if (!canClaim(this.claimRows(project.id), task, owner, now).ok) return;
+    const branch = currentBranch(wt.path) ?? "";
+    const acquiredAt = new Date(now).toISOString();
+    const expiresAt = nextExpiry(now);
+    const actor = this.actorFor(owner, sessionId);
+    this.db
+      .query(
+        `INSERT INTO claims (project_id, task, owner, worktree, branch, acquired_at, expires_at, released_at, state, actor_kind, actor_id, origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'held', ?, ?, ?)
+         ON CONFLICT(project_id, task) DO UPDATE SET owner=excluded.owner, worktree=excluded.worktree, branch=excluded.branch,
+           acquired_at=excluded.acquired_at, expires_at=excluded.expires_at, released_at=NULL, state='held',
+           actor_kind=excluded.actor_kind, actor_id=excluded.actor_id, origin=excluded.origin`,
+      )
+      .run(
+        project.id,
+        task,
+        owner,
+        wt.path,
+        branch,
+        acquiredAt,
+        expiresAt,
+        ...actorCols(actor),
+        ADOPTED,
+      );
+    this.invalidateWorktrees(project.id);
+    this.heldWorktreesCache = null; // the guard must see it on this very call
+    this.append({
+      ts: acquiredAt,
+      type: "claim.acquired",
+      projectId: project.id,
+      sessionId,
+      actor,
+      payload: {
+        task,
+        owner,
+        worktree: wt.path,
+        branch,
+        origin: ADOPTED,
+        summary: `claim ${task} — the worktree Claude Code made for this session`,
+      },
+    });
+  }
+
+  /** Close an adopted claim without touching its directory. */
+  private endAdopted(projectId: string, task: string, why: string) {
+    const releasedAt = new Date().toISOString();
+    this.db
+      .query(
+        "UPDATE claims SET state = 'released', released_at = ? WHERE project_id = ? AND task = ? AND origin = ?",
+      )
+      .run(releasedAt, projectId, task, ADOPTED);
+    this.append({
+      ts: releasedAt,
+      type: "claim.released",
+      projectId,
+      sessionId: null,
+      payload: { task, origin: ADOPTED, summary: `release ${task} (${why})` },
+    });
+  }
+
+  /** M13.7: a session that ends lets go of the worktrees it was adopted into. */
+  private endAdoptedFor(sessionId: string) {
+    const rows = this.db
+      .query(
+        "SELECT project_id, task FROM claims WHERE state = 'held' AND origin = ? AND owner = ?",
+      )
+      .all(ADOPTED, `session:${sessionId}`) as Array<{ project_id: string; task: string }>;
+    for (const r of rows) this.endAdopted(r.project_id, r.task, "session ended");
+    for (const k of this.adoptSeen) if (k.startsWith(`${sessionId}|`)) this.adoptSeen.delete(k);
   }
 
   /**
@@ -5745,7 +5947,7 @@ export class Store {
       command: string | null;
       path: string | null;
     }>;
-    return securityScan(
+    const report = securityScan(
       rows.map((r) => ({
         sessionId: r.session_id ?? "",
         tool: r.tool ?? "",
@@ -5753,7 +5955,13 @@ export class Store {
         path: r.path,
         at: r.ts,
       })),
+      homedir(),
     );
+    // M12.5: next to what each family would have caught, what it is set to here
+    const root = projectId ? (this.project(projectId)?.root ?? null) : null;
+    const rules = this.rulesFor(root);
+    report.modes = Object.fromEntries(FAMILY_RULES.map((r) => [r, rules[r]]));
+    return report;
   }
 
   /**
@@ -6039,7 +6247,8 @@ export class Store {
       .get(projectId, task) as Record<string, unknown> | null;
     if (!row) return { ok: false as const, error: `no claim on ${task}` };
     const worktree = (row.worktree as string) ?? "";
-    if (worktree && existsSync(worktree)) {
+    // M13.7: an adopted worktree is Claude Code's to keep or remove; releasing only ends the record
+    if (worktree && existsSync(worktree) && row.origin !== ADOPTED) {
       const work = heldWork(worktree);
       const can = canRelease(work, force);
       if (!can.ok)
@@ -6077,6 +6286,12 @@ export class Store {
       for (const c of this.claimRows(pid)) {
         if (c.state !== "held" && c.state !== "expired") continue;
         if (isActive({ ...c, state: "held" }, now)) continue;
+        if (c.origin === ADOPTED) {
+          // M13.7: nothing of ours to remove and nothing orphaned — the session left it
+          this.endAdopted(pid, c.task, "lease lapsed");
+          result.push({ task: c.task, projectId: pid, action: "released" });
+          continue;
+        }
         const exists = c.worktree ? existsSync(c.worktree) : false;
         const work = exists ? heldWork(c.worktree) : null;
         const action = reapAction({ ...c, state: "held" }, now, exists, work);

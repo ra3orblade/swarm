@@ -12,6 +12,12 @@ import { Columns, Panel, Stack } from "../components/Panel";
 import { Badge, Empty, Failed, Loading, Section, Stat, StatRow } from "../components/ui";
 import { useUiStore } from "../state/ui";
 
+/** A rule's reason spells commands in backticks; show those as code, the rest as text. */
+function Ticks({ text }: { text: string }) {
+  // biome-ignore lint/suspicious/noArrayIndexKey: parts of one fixed string
+  return <>{text.split("`").map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part))}</>;
+}
+
 export function Security() {
   const project = useUiStore((s) => s.project);
   const { data, error, reload } = useResource<SecurityReport>(routes.security(project));
@@ -54,85 +60,144 @@ export function Security() {
         <Stat label="Commands scanned" value={t.scanned.toLocaleString()} detail="last 14 days" />
       </StatRow>
 
-      <Columns>
-        <Panel title="Hosts reached" hint="named in a command or a fetch">
-          {remote.length > 0 ? (
-            <table className="mini">
-              <colgroup>
-                <col style={{ width: "60%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "20%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>host</th>
-                  <th className="num">times</th>
-                  <th className="num">sessions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {remote.slice(0, 14).map((h) => (
-                  <tr key={h.host}>
-                    <td className="clip path">
-                      <b>{h.host}</b>
-                    </td>
-                    <td className="num">{h.hits}</td>
-                    <td className="num">{h.sessions}</td>
+      <Stack>
+        <Columns>
+          <Panel title="Hosts reached" hint="named in a command or a fetch">
+            {remote.length > 0 ? (
+              <table className="mini">
+                <colgroup>
+                  <col style={{ width: "60%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>host</th>
+                    <th className="num">times</th>
+                    <th className="num">sessions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="dim">Nothing but localhost.</div>
-          )}
-          <p className="dim note">
-            A host here means an agent <em>named</em> it. Whether bytes left is not something Swarm
-            can see without running the command, so it over-reports rather than under-reports.
-          </p>
-        </Panel>
+                </thead>
+                <tbody>
+                  {remote.slice(0, 14).map((h) => (
+                    <tr key={h.host}>
+                      <td className="clip path">
+                        <b>{h.host}</b>
+                      </td>
+                      <td className="num">{h.hits}</td>
+                      <td className="num">{h.sessions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="dim">Nothing but localhost.</div>
+            )}
+            <p className="dim note">
+              A host here means an agent <em>named</em> it. Whether bytes left is not something
+              Swarm can see without running the command, so it over-reports rather than
+              under-reports.
+            </p>
+          </Panel>
 
-        <Stack>
-          <Panel title="Credential files" hint="opened by name">
-            {data.secrets.length > 0 ? (
-              <>
+          <Stack>
+            <Panel title="Credential files" hint="opened by name">
+              {data.secrets.length > 0 ? (
+                <>
+                  <ul className="plainlist">
+                    {data.secrets.map((s) => (
+                      <li key={s.what}>
+                        <Badge tone="warn">{s.what}</Badge>
+                        <b>{s.hits}×</b>
+                        <span className="dim">
+                          {s.sessions} session{s.sessions === 1 ? "" : "s"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="dim note">
+                    Swarm reads the <em>path</em>, never the contents — this says something opened
+                    the file and nothing about what was in it.
+                  </p>
+                </>
+              ) : (
+                <div className="dim">No credential file was opened by name.</div>
+              )}
+            </Panel>
+
+            <Panel title="Packages installed" hint="what the machine will run later">
+              {data.installs.length > 0 ? (
                 <ul className="plainlist">
-                  {data.secrets.map((s) => (
-                    <li key={s.what}>
-                      <Badge tone="warn">{s.what}</Badge>
-                      <b>{s.hits}×</b>
-                      <span className="dim">
-                        {s.sessions} session{s.sessions === 1 ? "" : "s"}
-                      </span>
+                  {data.installs.slice(0, 12).map((i) => (
+                    <li key={`${i.ecosystem}:${i.pkg}`}>
+                      <Badge>{i.ecosystem}</Badge>
+                      <b>{i.pkg}</b>
+                      <span className="dim">{i.hits}×</span>
                     </li>
                   ))}
                 </ul>
-                <p className="dim note">
-                  Swarm reads the <em>path</em>, never the contents — this says something opened the
-                  file and nothing about what was in it.
-                </p>
-              </>
-            ) : (
-              <div className="dim">No credential file was opened by name.</div>
-            )}
-          </Panel>
+              ) : (
+                <div className="dim">Nothing was installed.</div>
+              )}
+            </Panel>
+          </Stack>
+        </Columns>
 
-          <Panel title="Packages installed" hint="what the machine will run later">
-            {data.installs.length > 0 ? (
-              <ul className="plainlist">
-                {data.installs.slice(0, 12).map((i) => (
-                  <li key={`${i.ecosystem}:${i.pkg}`}>
-                    <Badge>{i.ecosystem}</Badge>
-                    <b>{i.pkg}</b>
-                    <span className="dim">{i.hits}×</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="dim">Nothing was installed.</div>
-            )}
-          </Panel>
-        </Stack>
-      </Columns>
+        <Panel
+          title="What the new rules would catch"
+          hint="counted whatever their mode — each ships off for a release"
+        >
+          <table className="mini">
+            <colgroup>
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "48%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>rule</th>
+                <th>mode</th>
+                <th className="num">would hit</th>
+                <th className="num">sessions</th>
+                <th>for example</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rules.map((w) => {
+                const mode = data.modes?.[w.rule] ?? "off";
+                return (
+                  <tr key={w.rule}>
+                    <td>
+                      <code>{w.rule}</code>
+                    </td>
+                    <td>
+                      <Badge tone={mode === "deny" ? "bad" : mode === "ask" ? "warn" : "plain"}>
+                        {mode}
+                      </Badge>
+                    </td>
+                    <td className="num">{w.hits || <span className="dim">0</span>}</td>
+                    <td className="num">{w.sessions || <span className="dim">0</span>}</td>
+                    <td className="clip" title={w.examples.join("\n")}>
+                      {w.examples[0] ? (
+                        <Ticks text={w.examples[0]} />
+                      ) : (
+                        <span className="dim">nothing yet</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="dim note">
+            Turn one on in <code>.swarm.toml</code> or <code>~/.swarm/config.toml</code> under{" "}
+            <code>[rules]</code> — <code>ask</code> to be asked, <code>deny</code> to refuse. A rule
+            that would have fired on work you wanted is one to leave off, or to narrow with{" "}
+            <code>[[rules.custom]]</code>.
+          </p>
+        </Panel>
+      </Stack>
 
       <p className="dim note">
         <b>This is a lint, not a sandbox.</b> Everything here is matched against the recorded
