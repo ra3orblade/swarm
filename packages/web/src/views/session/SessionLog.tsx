@@ -21,6 +21,11 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   PreToolUse: "tool",
   PostToolUse: "result",
   UserPromptSubmit: "you",
+  // A prompt nobody typed (core/prompt.ts): a background task finishing, a subagent's report, a
+  // message from another session. Claude Code submits all three as prompts.
+  "prompt.task": "task",
+  "prompt.agent": "report",
+  "prompt.session": "msg",
   Stop: "stop",
   SubagentStart: "sub →",
   SubagentStop: "sub ←",
@@ -85,14 +90,15 @@ const PROSE = new Set([
 ]);
 
 function eventRow(event: SwarmEvent): Row {
-  const payload = event.payload as { hook?: string; summary?: string } | undefined;
+  const payload = event.payload as { hook?: string; summary?: string; origin?: string } | undefined;
   const summary = payload?.summary ?? "";
+  const relayed = event.type === "prompt.submitted" && payload?.origin;
   return {
     key: `e${event.seq}`,
     ts: event.ts,
-    kind: payload?.hook ?? event.type,
+    kind: relayed ? `prompt.${relayed}` : (payload?.hook ?? event.type),
     text: PROSE.has(event.type) ? plain(summary) : summary,
-    className: event.type,
+    className: relayed ? `${event.type} relayed` : event.type,
   };
 }
 

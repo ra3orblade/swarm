@@ -53,6 +53,7 @@ import {
   DEFAULT_RESOURCE_LEASE_MINUTES,
   type DryRunReport,
   deriveHandoff,
+  describePrompt,
   detectStall,
   dryRunRules,
   executedGateInput,
@@ -492,7 +493,7 @@ export class Store {
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
-  static readonly SCHEMA_VERSION = 2;
+  static readonly SCHEMA_VERSION = 3;
   schemaVersion(): number {
     return Number(this.meta("schema_version") ?? 0);
   }
@@ -564,6 +565,29 @@ export class Store {
         for (const r of rows) {
           const m = /\bin ([0-9]+(?:\.[0-9]+)?)s$/.exec(r.rubric ?? "");
           if (m) upd.run(Math.round(Number(m[1]) * 1000), r.id);
+        }
+      },
+      // v3 — prompts nobody typed. A finished background task, a subagent's report and a message
+      // from another session all arrive as `UserPromptSubmit`, wrapped in a tag, and their summary
+      // used to be that tag (`<task-notification>`). Re-derive it from the stored prompt and mark
+      // the origin; a row whose prompt was not kept (`store_prompts = false`) has nothing to read.
+      (db) => {
+        const rows = db
+          .query(
+            "SELECT seq, json_extract(payload, '$.prompt') AS prompt FROM events WHERE type = 'prompt.submitted' AND json_extract(payload, '$.summary') LIKE '<%'",
+          )
+          .all() as Array<{ seq: number; prompt: string | null }>;
+        const summary = db.query(
+          "UPDATE events SET payload = json_set(payload, '$.summary', ?) WHERE seq = ?",
+        );
+        const origin = db.query(
+          "UPDATE events SET payload = json_set(payload, '$.summary', ?, '$.origin', ?) WHERE seq = ?",
+        );
+        for (const r of rows) {
+          if (!r.prompt?.startsWith("<")) continue;
+          const info = describePrompt(r.prompt);
+          if (info.origin === "user") summary.run(info.summary, r.seq);
+          else origin.run(info.summary, info.origin, r.seq);
         }
       },
     ];

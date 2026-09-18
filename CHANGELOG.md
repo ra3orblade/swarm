@@ -42,6 +42,19 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ### Fixed
 
+- **A session's log no longer shows `<task-notification>` and calls it "you".** Claude Code fires
+  `UserPromptSubmit` for more than what a person types: a background task finishing, a subagent
+  handing back its report and a message from another session all arrive as prompts, wrapped in a
+  tag. The summary was the prompt's first line, so those rows read `<task-notification>` or
+  `<agent-message from="aac244…">` and nothing else — and they were labelled and coloured as the
+  reader's own words. `core/src/prompt.ts` now reads the wrapper: a task row says what finished
+  (`Agent "…" finished`, plus the status when it is not `completed`), a report row shows the first
+  line of the report rather than the harness's preamble, a cross-session row leads with the sender,
+  and the event carries `origin` so the log labels them `task` / `report` / `msg` in the muted
+  style. Pasted markup (`<a href=…>`) is still yours. Migration v3 re-derives the rows already
+  stored from their kept prompt. The auto-handoff had the same blind spot — its "last request"
+  could be a task notification — and now only quotes something a person typed.
+
 - **Sessions that died without a `SessionEnd` no longer haunt the dashboard.** A session's row only
   reached `ended` when the hook fired, so a closed terminal, a crash, a reboot or a slept laptop
   left it non-ended for ever — `idle` is a display label with no upper bound, and Fleet was listing

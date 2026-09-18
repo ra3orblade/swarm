@@ -12,6 +12,7 @@
  * work once merged without being noticed).
  */
 
+import { describePrompt } from "./prompt";
 import type { ClaimState } from "./types";
 
 export interface LeaseClaim {
@@ -183,7 +184,7 @@ export function formatHandoff(h: Handoff): string {
 /** The slice of a stored event the deriver needs; the daemon maps its rows onto this. */
 export interface HandoffEvidence {
   type: string;
-  payload: { hook?: string; tool?: string; summary?: string; prompt?: string };
+  payload: { hook?: string; tool?: string; summary?: string; prompt?: string; origin?: string };
 }
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -212,8 +213,11 @@ export function deriveHandoff(
       if (p.tool === "Bash") {
         if (arg && VERIFY_RE.test(arg)) verify = arg;
       }
-    } else if (p.hook === "UserPromptSubmit" && (p.prompt ?? p.summary)) {
-      lastPrompt = (p.prompt ?? p.summary ?? "").trim().split("\n")[0]?.slice(0, 200) ?? null;
+    } else if (p.hook === "UserPromptSubmit" && !p.origin && (p.prompt ?? p.summary)) {
+      // A finished background task or a subagent's report is a prompt too, but not a request
+      // anyone made. Rows from before `origin` existed are recognised by their wrapper.
+      const info = describePrompt(p.prompt ?? p.summary);
+      if (info.origin === "user" && info.summary) lastPrompt = info.summary;
     }
   }
   const said = (opts.lastText ?? "").trim().replace(/\s+/g, " ").slice(0, 600);
