@@ -103,7 +103,6 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
    Typed out rather than recorded because the text has to stay legible at phone width. The
    two Swarm messages are injected from core/src/rules.ts at build time, so they cannot
    drift from what the product actually says. */
-.hero .demo{margin:36px 0 0;text-align:left}
 .demo{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:18px;align-items:start}
 @media (max-width:860px){.demo{grid-template-columns:minmax(0,1fr)}}
 .term{background:#0a0c10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
@@ -142,6 +141,7 @@ h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em
 .demo .col .term{width:100%}
 .demo .replay{justify-self:start;font:500 12px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:var(--r-pill);padding:9px 15px;cursor:pointer}
 .demo .replay:hover{color:var(--fg);border-color:var(--acc)}
+.hero .demo{margin:36px 0 0;text-align:left}
 
 /* The clips. One <video> and three tabs rather than three autoplaying at once: the page
    already runs a canvas, and three simultaneous decodes on a phone is how a landing page
