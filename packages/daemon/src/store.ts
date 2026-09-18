@@ -138,8 +138,10 @@ import {
   prDraft,
   projectIdentity,
   QUOTA_LABEL,
+  QUOTA_WINDOWS,
   type Question,
   type QuotaReport,
+  type QuotaSample,
   type QuotaWindow,
   type QuotaWindowReport,
   quotaMessage,
@@ -1792,7 +1794,14 @@ export class Store {
         : null;
     const budget = project ? this.budgetFor(project.id) : null;
     this.recordQuota(payload, sessionId, project?.id ?? null);
-    const tight = tightestWindow(this.quota());
+    // this session's own plan: another account on the machine has its own windows and resets
+    const rl = payload.rate_limits;
+    const periods: Partial<Record<QuotaWindow, number | null>> = {};
+    for (const w of QUOTA_WINDOWS) {
+      const r = rl?.[w]?.resets_at;
+      if (typeof r === "number" && Number.isFinite(r)) periods[w] = r;
+    }
+    const tight = tightestWindow(this.quota(periods));
     return {
       quota: tight ? { window: tight.window, hoursToLimit: tight.hoursToLimit } : null,
       task: held
@@ -1829,9 +1838,13 @@ export class Store {
     for (const q of quotaSamples(payload, now)) {
       const last = this.db
         .query(
-          "SELECT at, used_pct, resets_at FROM quota WHERE window = ? ORDER BY at DESC LIMIT 1",
+          "SELECT at, used_pct, resets_at FROM quota WHERE window = ? AND resets_at IS ? ORDER BY at DESC LIMIT 1",
         )
-        .get(q.window) as { at: number; used_pct: number; resets_at: number | null } | null;
+        .get(q.window, q.resetsAt) as {
+        at: number;
+        used_pct: number;
+        resets_at: number | null;
+      } | null;
       // `used_percentage` is a float that moves on nearly every message, so comparing it exactly
       // meant the ten-minute floor never applied and a row landed per message per window. A burn
       // rate needs nothing finer than a tenth of a point.
@@ -1848,29 +1861,37 @@ export class Store {
     }
   }
   private quotaDirty = true;
-  private quotaMemo: { at: number; report: QuotaReport } | null = null;
+  private quotaRows: QuotaSample[] = [];
+  private quotaRowsAt = 0;
+  private quotaMemo: QuotaReport | null = null;
 
   /** The plan windows as last reported, with burn rate and time-to-limit (8 days of samples so
    *  the 7-day window has its whole period). Memoised until a new sample lands or 30 s pass. */
-  quota(): QuotaReport {
+  quota(periods?: Partial<Record<QuotaWindow, number | null>>): QuotaReport {
     const now = Date.now();
-    if (!this.quotaDirty && this.quotaMemo && now - this.quotaMemo.at < 30_000)
-      return this.quotaMemo.report;
-    const rows = this.db
-      .query("SELECT at, window, used_pct, resets_at FROM quota WHERE at >= ? ORDER BY at")
-      .all(now - 8 * 86_400_000) as Array<{
-      at: number;
-      window: QuotaWindow;
-      used_pct: number;
-      resets_at: number | null;
-    }>;
+    if (this.quotaDirty || now - this.quotaRowsAt >= 30_000) {
+      this.quotaRows = (
+        this.db
+          .query("SELECT at, window, used_pct, resets_at FROM quota WHERE at >= ? ORDER BY at")
+          .all(now - 8 * 86_400_000) as Array<{
+          at: number;
+          window: QuotaWindow;
+          used_pct: number;
+          resets_at: number | null;
+        }>
+      ).map((r) => ({ window: r.window, usedPct: r.used_pct, resetsAt: r.resets_at, at: r.at }));
+      this.quotaRowsAt = now;
+      this.quotaDirty = false;
+      this.quotaMemo = null;
+    }
+    if (!periods && this.quotaMemo) return this.quotaMemo;
     const report = quotaReport(
-      rows.map((r) => ({ window: r.window, usedPct: r.used_pct, resetsAt: r.resets_at, at: r.at })),
+      this.quotaRows,
       now,
       this.policyFor(null).config.budget.window_warn_at,
+      periods,
     );
-    this.quotaMemo = { at: now, report };
-    this.quotaDirty = false;
+    if (!periods) this.quotaMemo = report;
     return report;
   }
 
