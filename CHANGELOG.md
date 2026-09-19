@@ -1,839 +1,720 @@
 # Changelog
 
-All notable changes to Swarm. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/). Release notes on the website are rendered from this file.
+Every Swarm release, newest first. Each one starts with a short summary, then the main changes, then the smaller ones. Versions follow [Semantic Versioning](https://semver.org/). Installers for every release are on [GitHub Releases](https://github.com/ra3orblade/swarm/releases).
 
-## [Unreleased]
+| Version | Date | Summary |
+| --- | --- | --- |
+| [0.15.0](#0150--2026-09-19) | Sep 19 | Rules for Codex, Gemini CLI and Cursor · OpenTelemetry export · team daemon without a clone |
+| [0.14.0](#0140--2026-09-12) | Sep 12 | Swarm starts steering agents: repair loop, permission cards, rewrites, wake-ups, status line |
+| [0.13.2](#0132--2026-09-04) | Sep 4 | Newest-first session log · the last React port gaps closed |
+| [0.13.1](#0131--2026-09-01) | Sep 1 | A faster dashboard · a gap in the git rules closed |
+| [0.13.0](#0130--2026-08-27) | Aug 27 | The dashboard is rebuilt in React and stops flickering |
+| [0.12.1](#0121--2026-08-26) | Aug 26 | Clear build output from worktrees · Board fix |
+| [0.12.0](#0120--2026-08-26) | Aug 26 | The Observatory is finished · security audit · rule effectiveness |
+| [0.11.3](#0113--2026-08-26) | Aug 26 | The robot, redrawn |
+| [0.11.2](#0112--2026-08-26) | Aug 26 | New app icon · real matrix rain |
+| [0.11.1](#0111--2026-08-26) | Aug 26 | Robot logo · Provenance opens in under a second |
+| [0.11.0](#0110--2026-08-26) | Aug 26 | What your agents cost you: waiting, context, provenance, A/B trials |
+| [0.10.0](#0100--2026-08-24) | Aug 24 | Teams · Aider and opencode · Outcomes |
+| [0.9.0](#090--2026-08-24) | Aug 24 | Agents message each other · workflows · Gemini CLI |
+| [0.8.0](#080--2026-08-23) | Aug 23 | Org policy · audit log · a reviewer gate |
+| [0.7.0](#070--2026-08-23) | Aug 23 | Dispatch · budgets · gates that run themselves |
+| [0.6.0](#060--2026-08-23) | Aug 23 | Replay · cost per task · tasks from GitHub and Linear |
+| [0.5.0](#050--2026-08-22) | Aug 22 | `swarm run` · a permission broker |
+| [0.4.1](#041--2026-08-22) | Aug 22 | PRs view fix for the desktop app |
+| [0.4.0](#040--2026-08-22) | Aug 22 | Rules on file edits · Incidents · managed dev servers |
+| [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
+| [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
+| [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
 
 ## [0.15.0] — 2026-09-19
 
-The rules now cover every agent Swarm watches, not only Claude Code, and hold up over a long
-session: Codex, Gemini CLI and Cursor get the same checks, five new rules for irreversible
-commands ship switched off so you can see what they would catch first, a compacted session is
-told again what it holds, and Swarm can export everything to your own OpenTelemetry backend.
-The team daemon installs without a clone.
+Swarm's rules used to protect Claude Code sessions only. Now they also cover Codex, Gemini CLI and Cursor, and five new rules catch commands you can't undo. Swarm can send everything it sees to your own OpenTelemetry backend, and hosting a team no longer needs a copy of the source.
 
-### Added
+> **After updating, run `swarm install` once.** It adds the hooks for Codex and Gemini CLI, plus a new Claude Code hook that the failure hints below rely on. `swarm doctor` lists anything still missing.
 
-- **The rules hold on Codex, Gemini CLI and Cursor.** Swarm watched six agents and ruled one.
-  `swarm install` now adds its hook to Codex (`PreToolUse` in `~/.codex/hooks.json` — trust it
-  once with `/hooks`) and Gemini CLI (`BeforeTool` in `~/.gemini/settings.json`), beside your own.
-  Cursor already ran Swarm's Claude Code hooks (it imports them), but its payload names the shell
-  tool `Shell` and has no session id, so every call went through unchecked; Swarm now reads it.
-  Codex's `apply_patch` is checked file by file. None of these agents can ask from a hook, so a
-  rule set to `ask` refuses there and tells the agent to hand the command to you. The Rules view
-  and `swarm doctor` show where the rules hold.
-- **Five rules for the commands nobody can take back.** `destructive_fs` (`rm -rf` of `/`, `~`,
-  `..`, `"$VAR"/` or anything outside the repo; `mkfs`; `dd` onto a device), `destructive_infra`
-  (`terraform destroy`, `kubectl delete ns`, `helm uninstall`, cloud deletes, SQL `DROP` /
-  `TRUNCATE`), `pipe_to_shell` (`curl … | sh`), `secrets` (reading, printing or copying `.env`,
-  keys and cloud credentials — the `Read` tool included — and writing `.env*` / key files) and
-  `config_tamper` (editing Claude Code's settings, `~/.swarm`, `.swarm.toml`, or `swarm uninstall`).
-  All five ship **off**. Meanwhile the Security view shows what each would have caught, with an
-  example and its current mode, so you can see whether turning one on stops something real
-  before you do. Set any of them to `"ask"` or `"deny"` under `[rules]`; an org policy can lock
-  them, and then the hook enforces them even with the daemon down.
-- **Worktrees Claude Code makes are claimed too.** A session started with `claude --worktree`,
-  a subagent with `isolation: "worktree"` or a background session works in a worktree Claude Code
-  created under `<repo>/.claude/worktrees/`, and the ledger used to know nothing about it. Now the
-  first hook from inside one claims it as `cc/<name>` for that session: the status line shows it,
-  the session is told what it holds at startup, and another session writing
-  into it gets the same `no_foreign_worktree` question as for any claimed worktree. The claim
-  ends when the session does. Swarm never removes these worktrees — releasing, reaping and
-  `swarm wt gc` only end the record; whether the directory stays is Claude Code's call.
-- **Three strikes, and Swarm says what it knows.** When a Claude Code session runs the same
-  failing Bash command a third time, the failure comes back with the verify command from the
-  held task's handoff and the lesson from any incident on the same command — through the
-  `PostToolUseFailure` hook, which Swarm now installs (re-run `swarm install`; `swarm doctor`
-  lists it as missing until you do). It speaks once per command, and not at all when it has
-  nothing to add. A failed call now shows in the session log as *failed*.
-- **A compacted session is told again what it holds.** Compaction drops the context Swarm gave a
-  session at startup. Claude Code fires `SessionStart` again with `source: "compact"` after it
-  compacts, and Swarm's answer now leads with *context was compacted* before the held task, the
-  lease, the handoff and the rules — so the agent knows it is being reminded, not told something
-  new.
-- **OTLP export.** Set `[otel] endpoint` and Swarm sends every session — Claude Code, Codex,
-  Gemini CLI, Grok, Aider, opencode — to your own OpenTelemetry backend: one trace per session,
-  a span per tool call (failed ones marked), a span for each wait on you, claims, incidents and
-  gates as events, plus token and cost metrics. It speaks the OpenTelemetry GenAI conventions by
-  default, or Claude Code's own metric names with `compat = "claude-code"`. Commands and paths
-  stay out unless `include_content = true`. A collector that is down loses nothing, and `swarm
-  doctor` shows whether the last export got through. Off unless you set the endpoint.
-- **Host a team without a clone.** The team daemon now ships three ways, each the same version
-  as the app: `npm i -g @ra3orblade/swarm-team`, the `ghcr.io/ra3orblade/swarm-teamd` image,
-  and a `swarm-teamd` binary per platform on every GitHub release. The Team panel shows its
-  license (FSL-1.1-ALv2, source-available, not the app's Apache-2.0) and, once you accept,
-  downloads the binary for your machine, checked against the release's checksums, into
-  `~/.swarm/bin`. It is never bundled into the app.
-- **The team dashboard has Settings.** Admins change roles, remove members (which ends their
-  sessions), revoke machines, and edit the org policy right there — *Sign and publish* signs it
-  with the team's key. A team always keeps an admin. With one shared secret, its holder is the
-  admin.
-- **Join finds teams on your network.** A team daemon announces itself over mDNS, and the Team
-  panel's Join lists what it hears — one click fills in the address. Names and addresses only: a
-  shared secret still arrives in the invite link.
-- **An agent's question is a question you can answer.** When a Claude Code session called
-  `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
-  input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means
-  anything for a question. The card now draws the questions: header, text, each option with its
-  description, *pick any* where several are allowed, and a *Something else…* field. **Answer**
-  sends the picks back the way the hooks reference documents it — the original input echoed as
-  `updatedInput` with `answers` mapping each question's text to the chosen label(s) — so the agent
-  carries on without anyone touching the terminal; *Answer in terminal* and the countdown are
-  still there. The session log and the desktop notification say the question instead of the JSON
-  too. Any other tool without a one-line summary (every MCP tool) shows its input as named
-  fields, with JSON indented — including JSON that arrived as a string.
-- **A badge when something waits on you.** The desktop app's dock icon carries the number of
-  agents blocked on a person — questions asked through `swarm_ask` plus parked permission
-  prompts — and clears when they are answered. A browser tab has no icon badge, so it gets the
-  count in its title: `(2) Swarm`. The dock badge needs the new
-  `core:window:allow-set-badge-count` capability, so it needs this release's desktop build; an
-  older shell just shows no badge.
+### Highlights
 
-### Changed
+#### Rules for Codex, Gemini CLI and Cursor
 
-- **The README shows the robot.** Every mark Swarm ships is generated from the one grid in
-  `core/src/art.ts` — the app icons, the tray template, the favicons, the site's hero, the share
-  image, the desktop splash. `docs/art/swarm-icon.svg` and `swarm-mark.svg` were the two that never
-  were: hand-authored from an earlier motif entirely and left untouched when the robot was drawn,
-  so the repository's front page was the last place still showing the old brand. `tools/icons.ts`
-  now writes them like the rest. The text caught up too — the status line, the interactive
-  permission card, the repair loop, rewrite rules and wake had all shipped without reaching the
-  README, `swarm statusline`, `workflow`, `msg` and `swarm_send` were missing from the command and
-  tool lists, and "eleven releases" was written at v0.7.0. Six screenshots are three.
+Swarm could watch six agents but only enforced its rules on one of them. `swarm install` now adds a hook to Codex and Gemini CLI, next to any hooks you already have. In Codex, approve it once with `/hooks`. Cursor was already running Swarm's Claude Code hooks, but it reports tool calls in a slightly different shape, so every call got through unchecked. Swarm reads Cursor's format now. Codex patches are checked one file at a time.
 
-- **The Team panel stops shouting.** It was built out of `.perm` — the amber card that means *an
-  agent needs your approval* — so a page whose only job is to offer to start a daemon read as two
-  stacked warnings, and the paragraph explaining the team daemon was set in `.perm-t`, a card
-  *title*, at full brightness across the whole window. The port field matched no rule in the
-  stylesheet at all (`.stdin input` was the only styled input in it), so it fell back to the
-  browser's own white control in a dark UI, and `.perm-b` never set `align-items`, so "port" sat
-  off the button's centre line. Host and Join are now a neutral `.card` bounded at a readable
-  measure, the explanation is a paragraph, the two fields share one input rule, the rows align,
-  and Join and Leave have lost the box that wrapped nothing.
+These agents can't stop and ask you from inside a hook. So a rule set to `ask` refuses the command there and tells the agent to hand it over to you. The Rules view and `swarm doctor` show which agents are covered.
 
-- **Markdown renders as markdown.** Everything an agent writes is markdown, and until now the
-  dashboard showed the source: a session-log line arrived with its asterisks and backticks intact,
-  and a fenced code block was a wall of text between two rows of backticks. Assistant and subagent
-  turns are now rendered — paragraphs, headings, bullet and numbered lists, fenced code, quotes,
-  tables, inline code, bold, links. Where there is room for
-  one line and no more (Fleet's *now* column, search snippets, the prompt/question/answer/message
-  summaries) the marks come off instead, because a `<b>` inside a one-line cell is just noise.
+#### Five rules for commands you can't undo
 
-- **What's New reads like release notes.** The panel used to inject HTML generated from
-  `CHANGELOG.md` at build time, which wrapped every *source* line in its own paragraph — a
-  sentence the changelog had wrapped arrived as three. It now ships the changelog's markdown and
-  renders it with the same renderer as the log. The renderer builds elements and checks every
-  link, so text a model wrote never reaches `dangerouslySetInnerHTML`.
+| Rule | What it catches |
+| --- | --- |
+| `destructive_fs` | `rm -rf` on `/`, `~`, `..` or anything outside the repo; `mkfs`; `dd` onto a disk |
+| `destructive_infra` | `terraform destroy`, `kubectl delete ns`, `helm uninstall`, cloud deletes, SQL `DROP` and `TRUNCATE` |
+| `pipe_to_shell` | a download piped straight into a shell, like `curl` into `sh` |
+| `secrets` | reading, printing or copying `.env` files, keys and cloud credentials; writing key files |
+| `config_tamper` | editing Claude Code's settings, `~/.swarm` or `.swarm.toml`; running `swarm uninstall` |
 
-### Fixed
+All five are off by default. The Security view shows what each one would have caught on your machine, so you can see whether it's worth turning on first. To enable one, set it to `"ask"` or `"deny"` under `[rules]`. If an org policy locks them, they're enforced even while the daemon is down.
 
-- **The team daemon kept its database outside `SWARM_HOME`.** `team.toml` followed `SWARM_HOME`,
-  `team.db` did not; it now sits beside the settings wherever they are.
-- **A session's log no longer shows `<task-notification>` and calls it "you".** Claude Code fires
-  `UserPromptSubmit` for more than what a person types: a background task finishing, a subagent
-  handing back its report and a message from another session all arrive as prompts, wrapped in a
-  tag. The summary was the prompt's first line, so those rows read `<task-notification>` or
-  `<agent-message from="aac244…">` and nothing else — and they were labelled and coloured as the
-  reader's own words. `core/src/prompt.ts` now reads the wrapper: a task row says what finished
-  (`Agent "…" finished`, plus the status when it is not `completed`), a report row shows the first
-  line of the report rather than the harness's preamble, a cross-session row leads with the sender,
-  and the event carries `origin` so the log labels them `task` / `report` / `msg` in the muted
-  style. Pasted markup (`<a href=…>`) is still yours. Migration v3 re-derives the rows already
-  stored from their kept prompt. The auto-handoff had the same blind spot — its "last request"
-  could be a task notification — and now only quotes something a person typed.
+#### OpenTelemetry export
 
-- **Sessions that died without a `SessionEnd` no longer haunt the dashboard.** A session's row only
-  reached `ended` when the hook fired, so a closed terminal, a crash, a reboot or a slept laptop
-  left it non-ended for ever — `idle` is a display label with no upper bound, and Fleet was listing
-  sessions last seen days ago as though they were live. `sweepStaleSessions()` now ends anything
-  that has gone `SESSION_STALE_MS` (6 hours) without a single event, on daemon boot and once a
-  minute, stamping `ended_at` with the moment the session was last actually heard from rather than
-  the moment the sweep noticed. It covers every agent, not only the hook-driven ones: `ingestLog`
-  gives up on a transcript it can no longer read, which strands Codex / Grok / Gemini rows the same
-  way. On one real machine this ended 11 of 15 stranded sessions, the oldest last seen 25 days
-  earlier, and left every genuinely live one alone.
-- **`leadSession` and `sessionForTask` can no longer resolve to a dead session.** Both selected on
-  `state != 'ended'` with no time bound, so once every real session had ended cleanly a stranded
-  one won the `ORDER BY last_seen_at` and messages addressed to the project went nowhere.
-- **A cancelled task is no longer offered as work.** `statusOf` only recognised "done" and "active";
-  everything else fell through to `todo`, so a row marked `❌ dropped` came back `ready: true`, sat
-  in the Board's **Ready** lane with a green badge, and was eligible for `nextTask`,
-  `swarm_next_task` and dispatch — Swarm would hand an agent work the backlog had explicitly
-  cancelled. `dropped` is now its own `TaskStatus` (`❌`, `🚫`, `[-]`, `~~struck~~`, "cancelled",
-  "wontfix", "abandoned", …): never ready, rejected by dispatch with the reason `dropped`, shown
-  with a **Dropped** badge, and excluded from the open count. A dropped *dependency* counts as
-  resolved, so it does not block its dependents for ever. Linear's `canceled` issues map to
-  `dropped` rather than `done`.
-- **Lineage showed the wrong fortnight.** The graph kept the *best-connected* sessions when it hit
-  its node cap, so a hub from two weeks ago outranked every session started today, and the ones
-  that made the cut were ordered by id — the picture looked stale because it was. It could also keep
-  a parent and drop its only child, leaving a dot with nothing attached. The cap now keeps the
-  newest relationships and never strands a node, roots run newest-first, and the heading says how
-  many older sessions were left out instead of hiding the count.
-- **Lineage is drawn as a tree, not two columns joined by a bundle.** A parent now sits level with
-  the first thing it started, siblings stack beneath, and the layer gap gives an edge room to bend;
-  the straight ones are straight. A collapsed group's tooltip carries what its children cost, and
-  the outcome ring the legend promised finally appears — the node was always sent without one.
-- **The `+` on a collapsed group sits where it should.** The pill was sized from an estimate of the
-  label's width, so the `+` landed 2px from one end and 13px from the other. Labels are measured
-  now and the `+` is drawn on the row's centre line.
-- **A collapsed group on Lineage opens when clicked.** Two faults, either enough: the pill sent
-  its parent's id where the engine expected the group's own, and with no project selected the
-  request went to `/lineage&expand=…`, a path that does not exist.
-- **Graph tabs no longer jump when clicked.** A count appeared on the chip just switched to (only
-  the open tab has data), widening it and pushing the others sideways. The numbers moved to the
-  heading, where each tab has a summary line of its own.
+Set `[otel] endpoint` and Swarm sends every session, from every agent, to your own OpenTelemetry backend. You get one trace per session, a span for each tool call and each time an agent waited on you, events for claims, incidents and gates, and metrics for tokens and cost. It uses the standard OpenTelemetry GenAI names by default, or Claude Code's own metric names with `compat = "claude-code"`. Commands and file paths are left out unless you set `include_content = true`. Nothing is lost while your collector is down, and `swarm doctor` shows whether the last export got through.
+
+#### Host a team without cloning the repo
+
+The team daemon now comes three ways, always the same version as the app: an npm package (`npm i -g @ra3orblade/swarm-team`), a container image (`ghcr.io/ra3orblade/swarm-teamd`), and a binary attached to every GitHub release. The app's Team panel can also download the binary for you. It shows you the license first: the team daemon is source-available under FSL-1.1-ALv2, not Apache-2.0 like the app, so it is never bundled in.
+
+#### Answer an agent's questions from the dashboard
+
+When Claude Code asked you a question, the dashboard used to show it as a cut-off line of JSON with Allow and Deny buttons, neither of which answers a question. Now the card shows each question with its options. You can pick one or several, or type your own answer, and the agent carries on without you going to the terminal. The session log and desktop notifications show the question in plain text too.
+
+### Also new
+
+- **Claude Code's own worktrees are tracked.** Sessions started with `claude --worktree`, and subagents working in an isolated worktree, now count as holding that worktree. Other sessions get asked before writing into it, and the status line shows it. Swarm never deletes these worktrees; that's up to Claude Code.
+- **Help after repeated failures.** When a session runs the same failing command for the third time, Swarm tells it how the task is meant to be verified and any lesson from past incidents with that command. It only speaks once per command, and only when it has something useful to say.
+- **Reminders after compaction.** Compaction wipes what Swarm told a session at startup. Swarm now sends it again afterwards (the task, lease, handoff and rules) and says it's a reminder, not new information.
+- **Team settings.** Admins can change roles, remove members, revoke machines and edit the org policy from the team dashboard. *Sign and publish* signs the policy with the team's key.
+- **Find teams on your network.** The Join screen lists team daemons it finds on your local network, so you don't have to type an address. The shared secret still only comes in the invite link.
+- **A badge when agents are waiting.** The desktop app's dock icon shows how many agents are waiting on you. Browser tabs show the count in the title, like `(2) Swarm`. The dock badge needs this release's desktop app.
+- **Formatted agent messages.** Messages in the session log now render as formatted text (lists, code blocks, tables, links) instead of raw markdown. What's New uses the same renderer.
+- **The README is up to date.** It shows the current robot logo and covers the features from the last few releases.
+- **A calmer Team panel.** It no longer uses the amber warning style meant for permission prompts, and its inputs match the dark theme.
+
+### Fixes
+
+- Sessions that ended without a clean shutdown (a closed terminal, a crash, a sleeping laptop) no longer stay listed as live forever. They're closed after six hours of silence. On one machine this cleared 11 stale sessions, the oldest from 25 days earlier.
+- Messages sent to a project could be delivered to one of those dead sessions. They go to a live one now.
+- Cancelled tasks (`❌`, "wontfix", Linear's *canceled* and similar) were offered to agents as ready work. They now show as **Dropped** and don't block the tasks that depend on them.
+- Background task notices and messages from other sessions showed up in the session log as if you had typed them. They're labelled for what they are now.
+- The team daemon's database now lives under `SWARM_HOME`, next to its settings.
+- Lineage shows your newest sessions instead of older, busier ones, is drawn as a proper tree, and collapsed groups open when you click them.
+- Graph tabs no longer shift sideways when you click one.
 
 ## [0.14.0] — 2026-09-12
 
-The **Act** release: Swarm stops only watching agents and starts steering them — every new
-capability below reaches an *interactive* session, not just a spawned run.
+This is the release where Swarm starts steering agents instead of only watching them. Everything below works in the Claude Code session in your own terminal, not only in runs Swarm started itself.
 
-### Added
+> **After updating, run `swarm install` once** to register the new hooks.
 
-- **The repair loop: a session cannot say it is done while a required gate fails.** With
-  `[gates] on_stop = "block"`, stopping inside a held worktree runs the executable required gates
-  first, and while one fails the stop is refused — Claude Code keeps working, and what it reads is
-  the gate's name and the tail of its output, not a hint. Bounded: at most `max_blocks` refusals
-  per session (three by default), then the stop goes through and a `gate_failed` incident opens.
-  Every refusal is a `gate.blocked` line in the session log. Default stays `record`, so nothing
-  changes until a repo opts in; subagents are never refused; the wait is capped by `stop_timeout`.
-  This is Claude Code's own `Stop` → `block` hook contract, verified against the current reference.
+### Highlights
 
-- **The permission card, for interactive sessions too.** Until now only spawned runs got the
-  dashboard's Allow / Deny card; a session in your terminal asked there and nowhere else. Claude
-  Code's `PermissionRequest` hook fires before the terminal dialog and holds it while the hook
-  runs, so the daemon now parks the prompt as a card on the session page (the session shows as
-  *asking* on Fleet, and a desktop notification fires) and waits `[broker] interactive_wait`
-  seconds — 30 by default — for an answer. Allow or deny on the card and the terminal never asks;
-  press *Answer in terminal* or let the countdown run out and the dialog appears there unchanged.
-  The card names the rule that flagged the call when one did. Nothing waits unless a dashboard is
-  open **and visible** — a background tab is not someone watching, and a terminal prompt is never
-  held for a card nobody can see. `swarm install` registers the new hook; run it once after
-  updating.
+#### An agent can't finish while a required check fails
 
-- **Rules that rewrite a call instead of refusing it, and your own rules.** Two new rules have a
-  third answer besides *ask* and *deny*: `no_verify = "rewrite"` drops `--no-verify` /
-  `--no-gpg-sign` from any git command and lets it run; `dry_run_first = "rewrite"` turns the
-  first `terraform apply`, `kubectl delete` or `helm uninstall` in a session into its dry-run form
-  and allows the second. The agent is told what changed and why; the Incidents view shows the
-  call that was asked for beside the one that ran, marked *Rewritten*, so rule effectiveness
-  scores it like any rule. Both ship `off`. `[[rules.custom]]` is the promised DSL: `name`,
-  `match` (a regex over the command), `action` (`ask | deny | rewrite | off`), `replace`,
-  `reason` — evaluated in config order after the coordination rules, so a deny is never softened.
-  Codify writes it, `swarm rules dryrun` replays history under it, spawned runs get the rewrite
-  through the permission broker, and interactive sessions through Claude Code's `updatedInput`.
-  A rewrite only ever touches a command it can reason about whole — one invocation, no `&&`, no
-  pipe, no redirection, no substitution — and the rewritten command is put back through the rules
-  before it runs, so a rewrite can neither smuggle a second command past the guards nor approve
-  the call outright. Flags are stripped outside quotes only, so a commit message that mentions
-  `--no-verify` is left alone.
+With `[gates] on_stop = "block"`, when a session in a claimed worktree tries to stop, Swarm runs the required gates first. If one fails, the session is told which gate failed and shown its output, and it keeps working. After three refusals (`max_blocks`) Swarm lets it stop and opens an incident. This is off by default, and subagents are never held back.
 
-- **A heads-up the moment two live sessions edit the same file.** The collision graph could show
-  it after the fact; nobody told the agent. Now, right after an edit lands, a session whose file
-  another live session edited within the last 15 minutes reads who that was — task, branch, how
-  long ago — and the suggestion to look at that diff before going further. Context on
-  `PostToolUse`, never a refusal; once per pair of sessions per file per window; each one a
-  `collision.warned` line in the session log. `[rules] collision_context = false` turns it off,
-  `collision_window` sets the minutes.
+#### Approve permissions from the dashboard
 
-- **Messages wake an idle session.** A message from another agent or from you (`swarm msg send`,
-  `swarm_send`) and an answer to a session's question used to arrive on that session's next tool
-  call, which for a session sitting idle at its prompt meant never. `swarm install` now arms a
-  background hook after every turn — Claude Code's `asyncRewake` — that the daemon holds open and
-  releases with the text the moment something is deliverable; Claude Code shows it as a system
-  reminder and the session picks it up. Mid-turn delivery is unchanged. `[messages] wake = false`
-  turns it off; the session log shows *woke*. Run `swarm install` once after updating.
+Permission prompts from terminal sessions now also show up as cards on the dashboard, with a desktop notification. Allow or deny there and the terminal never asks. Click *Answer in terminal*, or wait 30 seconds (`[broker] interactive_wait`), and the usual prompt appears in the terminal. Swarm only holds a prompt while a dashboard is open and visible.
 
-- **Codify is back, and it writes.** The React port had lost the Incidents feed's Codify action;
-  it returns as a card with the CLAUDE.md lesson and the `.swarm.toml` rule, copy buttons, and a
-  new **Apply → PR** button. Apply never touches your main checkout: the daemon creates a
-  task-less worktree on `swarm/codify-<n>`, merges the lesson under a *Lessons from Swarm*
-  heading (once) and the rule into its section (ports unioned, custom rules appended, everything
-  else byte for byte), commits, pushes and opens the PR prefilled with the incident, then removes
-  the worktree. Without a forge remote the branch stays and the card shows the push line.
-  `[codify] target` picks the default file(s).
+#### Rules that fix a command instead of blocking it
 
-- **A status line inside Claude Code.** `swarm install --statusline` sets Claude Code's `statusLine`
-  to `swarm statusline`, and the footer of every session reads, for example,
-  `Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you`. The left
-  half is what Claude Code hands the command after each assistant message: model, context used,
-  session cost and, for Pro / Max subscribers, the 5-hour and 7-day plan windows. The right half is
-  what only the daemon knows: the task whose worktree you are in and its lease, the budget when it
-  is not fine, un-acked incidents, a question of yours nobody has answered, an inbox. Same contract
-  as the hooks — 400 ms, fails open to the left half, never starts the daemon. It is opt-in because
-  a custom status line replaces Claude Code's footer hints, and it never replaces a status line you
-  already set; `swarm uninstall` removes exactly ours. `swarm doctor` says which is the case.
+A rule can now rewrite a command rather than refuse it. `no_verify = "rewrite"` strips `--no-verify` from git commands and lets them run. `dry_run_first = "rewrite"` turns a session's first `terraform apply`, `kubectl delete` or `helm uninstall` into a dry run and allows the second. The agent is told what changed, and the Incidents view shows both versions side by side. Both are off by default.
 
-- **Plan quota windows on Spend and in the status line.** Pro / Max plans are metered by a 5-hour
-  and a 7-day window, not by dollars, and Claude Code reports both to its status line after every
-  message. The daemon keeps those samples (a row when a window moves, never one per message) and
-  Spend shows a tile per window: percent used, when it resets, the burn rate, and at the current
-  pace whether the limit lands before the reset. The status line names the window that runs out
-  first: `5h limit in 2h`. `[budget] window_warn_at = 0.8` opens a `budget` incident once per
-  window per reset period, and again at 100%; `false` turns the warning off. Swarm has no
-  account and never asks Anthropic for usage — the status line is the only source, so the tiles
-  appear only while some session on a plan keeps reporting (API-key sessions never do).
+You can also write your own rules with `[[rules.custom]]`: a regex to match, an action (`ask`, `deny`, `rewrite` or `off`), a replacement and a reason. Rewrites only apply to single, simple commands, and the result is checked against every rule again before it runs.
 
-- **Host or join a team from the app.** Running the team daemon meant a clone, environment
-  variables and two CLI commands; joining meant a third. The dashboard has a **Team** panel now:
-  **Host a team** mints a shared secret, writes `~/.swarm/team.toml`, starts `swarm-teamd`, points
-  this machine at it, registers, and shows an **invite link**; a teammate pastes that link into
-  **Join a team** and is done. The panel also shows forwarding lag, this machine's identity,
-  whether its credentials registered, and a Leave button (with *stop hosting* when this machine is
-  the host — stopped by pid, never by pattern). `swarm-teamd setup` writes the same file from a
-  terminal, and the environment still overrides it, so existing deployments are unaffected. Two
-  bugs found on the way: a wrong shared secret used to look like a successful join and then fail
-  to forward forever, and a config file the daemon wrote itself stayed invisible to it for 30
-  seconds.
+#### A warning when two sessions edit the same file
 
-### Changed
+If another live session edited the same file in the last 15 minutes, the session is told who it was, which task and branch they're on, and to look at their changes before going further. Turn it off with `[rules] collision_context = false`, or change the window with `collision_window`.
 
-- **The desktop app always runs its own daemon.** It used to reuse any healthy daemon registered
-  in `~/.swarm/daemon.json` — which meant a clone's `bun run dev` daemon, serving whatever
-  dashboard bundle happened to be on that disk, was what the packaged app displayed, and
-  restarting the app changed nothing because the daemon it borrowed never restarted. Now the app
-  asks the registered daemon to stop over a new loopback `POST /v1/shutdown` (the same clean path
-  as `swarm stop`: spawned runs stopped by pid, `daemon.json` cleared), starts its bundled daemon,
-  and finds it by pid. The daemon keeps its preferred port — `[daemon] port`, else 7777 — and
-  falls back to any free port when that is taken, so a blocked 7777 is never an error; and a
-  process that merely listens on the port no longer counts as a daemon, since the app now checks
-  `/v1/health` rather than a TCP connect. The daemon the app starts also watches the app's pid and stops
-  itself when the app is gone — quit, crashed or killed — so no invisible daemon survives to be
-  evicted next time.
+#### Messages wake idle sessions
 
-### Fixed
+Messages and answers used to wait for the session's next tool call, which never came if the session was sitting idle. Now they wake it up straight away. Turn this off with `[messages] wake = false`.
 
-- **Codex and Gemini sessions stopped updating after the first look.** Both write their session id
-  once, in a header line at the top of the file, and the first poll consumed it — so every later
-  poll read the new lines, failed to tell which session they belonged to, and threw them away
-  without even advancing its place in the file. A Codex session's usage sat frozen at whatever the
-  daemon saw the first time it found the log. The daemon now remembers the session it recorded for
-  each file and hands it back to the parser, so tailing continues for the life of the session.
-  Codex turns are also identified by their own timestamp and usage now instead of a per-poll
-  counter, so a re-read of the same event updates that turn rather than counting it twice.
-  Thanks @roy-tong for the diagnosis and the fix (#145).
+#### A status line inside Claude Code
 
-- **Linux has an AppImage again — and auto-updates with it.** The AppImage has been off since
-  v0.2.2 because the bundler died every time, and Linux was the one platform the in-app updater
-  could not reach. The bundler runs `patchelf` over every executable it finds inside the package,
-  which quietly wrecks the daemon: it is compiled by bun, and bun keeps its program glued to the
-  end of the file, exactly where `patchelf` writes. The next tool to inspect the wreckage aborted
-  the build. Linux builds now carry the daemon compressed instead, which the bundler leaves alone,
-  and the app unpacks it once per version into `~/.swarm/bin`. AppImage, `.deb` and `.rpm` all ship
-  again; "Check for Updates…" installs updates in place for the AppImage and, for a `.deb`/`.rpm`
-  copy, now says to update through your package manager instead of failing halfway.
+`swarm install --statusline` adds a status line to every session:
+
+```
+Opus · ctx 42% · $1.23 · 5h 24% · 7d 41% │ M12.2 41m · 2 incidents · waiting on you
+```
+
+On the left: model, context used, cost, and plan usage. On the right: the task you're working on, time left on its lease, open incidents and unread messages. It's opt-in because it replaces Claude Code's default footer, and it never overwrites a status line you set yourself.
+
+#### Plan usage on the Spend view
+
+If you're on a Pro or Max plan, Spend now shows your 5-hour and 7-day usage windows: how much you've used, when each resets, and whether you'll hit the limit first at your current pace. `[budget] window_warn_at = 0.8` opens an incident at 80%. The numbers come from Claude Code's own status line; Swarm never contacts Anthropic.
+
+#### Host or join a team from the app
+
+The new **Team** panel can start a team daemon on this machine and give you an invite link. A teammate pastes the link into **Join a team** and they're in. It also shows sync status, this machine's identity and a Leave button.
+
+#### Codify, then apply
+
+Codify is back on the Incidents view, with a new **Apply → PR** button. It writes the lesson into your `CLAUDE.md` and the rule into `.swarm.toml` on a new branch and opens a pull request. Your main checkout is never touched.
+
+### Changes
+
+- The desktop app now always runs its own daemon instead of borrowing one that's already running. Borrowing meant it could end up showing an old dashboard from a development copy. It still uses port 7777 when it's free, and the daemon stops when the app quits or crashes.
+
+### Fixes
+
+- Codex and Gemini sessions stopped updating after Swarm first read them. They update for the whole session now, and Codex turns are no longer counted twice. Thanks to @roy-tong for finding and fixing this (#145).
+- Linux has an AppImage again, and it updates itself from inside the app. `.deb` and `.rpm` installs now tell you to update through your package manager.
+- Joining a team with the wrong shared secret looked like it worked and then silently failed. It shows an error now.
 
 ## [0.13.2] — 2026-09-04
 
-### Changed
+A small release that closes the last gaps left by the move to React.
 
-- **The session log shows the newest entries first.** The latest tool call or turn is the top line
-  now instead of the one at the end of a scroll. While you are at the top the log stays on the
-  newest row as more arrive; scroll down into the history and it keeps the row you are reading
-  under your eyes when new rows land above it.
+### Changes
 
-### Fixed
+- **The session log shows the newest entries first.** New rows appear at the top. If you scroll down to read older ones, the row you're reading stays in place as new ones arrive.
 
-- **The React port's regressions against the vanilla dashboard.** Every view was rendered from the
-  retired vanilla dashboard beside the React one and pixel-diffed; ten things had slipped in the
-  port. The session sidebar has its cost-per-turn strip, messages, waiting questions and the
-  copyable transcript row back; chips are pills again (the global `<button>` reset had stripped
-  them); branch and model columns are proportional, so `fable-5-1` fits; empty states draw the idle
-  robot; the Board's Map/Table and Cards/Table toggles, the Graphs collisions hint, the Provenance
-  "N untracked" pill and the Spend column menus are restored. The collapsed sidebar collapses to
-  nothing — the 46px rail had been empty since the nav moved to the header.
-- **The range switch shows which range is on.** 14d / 90d on Spend and Stats, 3h…72h on Timeline:
-  the stylesheet styled `.seg a`, React renders `<button>`, so the buttons wore the global button
-  chrome and the active one looked like the rest.
-- **The project row's `⋯` menu has "Settings…" again.** The v0.8.0 drawer was never ported, so
-  there was no way to change a project's icon, name, colour or pinned state from the dashboard.
-  Emoji tiles, the full emoji grid behind "…", an image file downsized to 64px, the swatches and the
-  pinned toggle are back, and the daemon's validation error shows in the footer instead of being
-  swallowed. The emoji and swatch cells are buttons now, so the keyboard reaches them.
-- **Pinned projects reorder with dnd-kit; the drop lands.** HTML5 drag started but the drop never
-  fired inside the desktop app: Tauri installs its own drag-drop handler on the webview, which
-  swallows `drop` and `dragend`. Pointer events get through. The held row follows the pointer and
-  its neighbours slide out of the way, which the native drag could never animate.
-- **The session page keeps consistent gutters.** The panels were `calc(100vh - 140px)`, a guess
-  that drifted whenever the header wrapped or the stdin bar appeared, leaving ~35px at the bottom
-  and the header crowding the panels. The page is a flex column now: 16px on top, 24px on the
-  other sides, and the log scrolls inside its panel.
+### Fixes
+
+- I compared every view against the old dashboard pixel by pixel and restored the ten things lost in the rewrite. Among them: the session sidebar's cost chart, messages and pending questions; rounded chips; branch columns wide enough for long names; the robot in empty views; and the Board's layout toggles.
+- The range buttons on Spend, Stats and Timeline show which range is selected again.
+- **Settings…** is back in the project menu, so you can change a project's name, icon, colour and pinned state.
+- Dragging pinned projects to reorder them works in the desktop app, and the rows slide out of the way as you drag.
+- The session page has even spacing on every side.
 
 ## [0.13.1] — 2026-09-01
 
-### Changed
+Mostly speed, plus one real hole in the git rules.
 
-- **The dashboard asks the daemon whether anything changed instead of re-downloading the answer.**
-  `/v1/state` is ~195 KB and every client asked for all of it every 5 seconds, plus once per event
-  nudge, then compared it against the last copy to decide whether to re-render. The response now
-  carries an `ETag` and an unchanged poll comes back `304` with no body — no transfer, no parse, and
-  the same "nothing moved, render nothing" outcome, decided before the bytes are sent.
-- **The dashboard ships one copy of React.** The dropdown island was a second `<script>` with its
-  own React bundled in, so the page loaded two runtimes: 737 KB of JavaScript where 549 KB would do.
-  The island is imported by the app now — still its own React root, since fancy-menus renders
-  outside the app tree — and the three remaining scripts no longer block the parser.
+### Security
 
-- **The website's Downloads section reads a cached endpoint instead of calling GitHub from every
-  visitor's browser.** The page made three cross-origin calls per visit — two to `api.github.com`,
-  which is 60 requests/hour per IP unauthenticated, so a visitor who reloaded a few times (or shared
-  an office NAT) got a 403 and an empty Downloads section. The release, its assets and both download
-  counters now come from `/api/releases`, cached at Vercel's CDN and in the warm function instance,
-  which also serves the last good payload if GitHub is rate-limiting or down.
+- **`git -C <path>` got past every git rule.** Adding any of git's global options before the command (`-C`, `--git-dir`, `--work-tree`, `-c`) meant the rules didn't recognise it, so `git -C /another/worktree reset --hard` went through. The rules understand these options now. `pkill --full` and `killall` also count as pattern kills.
 
-### Fixed
+### Faster
 
-- **A pill badge in a grid cell sat ~7px low and grew its row** ("built-in" in the MCP grid). A
-  pill is an inline-block of text, so its baseline is its own last line box, not its bottom edge
-  the way an SVG's is; the shared vertical offset assumed the latter.
-- **The sidebar's `+` is a menu again, with the folder browser behind it.** The React port had
-  replaced "Browse folders… / Add by path…" with a bare path box under the heading. Both are back
-  and open the same picker: sub-folders listed with `git` badged, `..` to go up, a path box that
-  navigates on Enter, and refusals shown in the footer instead of an `alert()`. A typed path that
-  does not exist now answers "no such folder" — the daemon used to list `~` instead, silently.
-- **Pinned projects drag to reorder again.** The rows lost their drag handlers in the React port;
-  the order is previewed in place while dragging and saved to the daemon on drop, as before.
-- **The sidebar is resizable.** Drag its right edge (double-click to reset, arrow keys when it has
-  focus); the width persists. It was a fixed 240px, so a long project name was cut to an ellipsis
-  with no way to see the rest.
+- The dashboard no longer downloads about 195 KB of state every five seconds. It asks whether anything changed and only downloads when something has.
+- The dashboard loads one copy of React instead of two: 549 KB of JavaScript instead of 737 KB.
+- The session list builds ten times faster on a large history (111 ms down to 11 ms).
+- The Outcomes view could hang for minutes on first load. It now checks projects in parallel and gives up on a stuck request after 20 seconds.
+- The website's Downloads section no longer goes blank when GitHub rate-limits a visitor. It reads from a cached endpoint instead.
 
-- **A `git -C <path>` command walked straight past every git rule.** The guards matched on `git`
-  immediately followed by the subcommand, so any of git's global options in between — `-C`,
-  `--git-dir`, `--work-tree`, `-c` — turned `git -C /someone-elses/worktree reset --hard` into a
-  command the rules did not recognise, which is precisely the command they exist to catch. They now
-  read git's global options before the verb. `pkill --full` and `killall` count as pattern kills too.
-- **A cold Outcomes read could hold a request open indefinitely.** `gh` was run once per project in
-  sequence with no timeout, and a second request started a second full fan-out rather than waiting
-  for the first: three overlapping requests measured 8 s, 1018 s and 2 s. Projects are now queried in
-  parallel, callers share one in-flight run per project, and a CLI that stops answering is killed
-  after 20 s. Scratch and deleted temp checkouts are skipped entirely — on a machine with 21 tracked
-  repos, 13 of them had no remote and were still costing a subprocess per refresh.
-- **The session list cost the whole ledger to build.** It joined every turn ever recorded before
-  applying its 200-row limit, and built sparklines for every session rather than the ones on screen.
-  Both queries are now scoped to the page: on a 200,000-turn ledger that is 111 ms → 11 ms.
-- **"Open on GitHub" in a pull request's row menu did nothing in the desktop app.** It called
-  `window.open`, which the desktop webview discards; it goes through the same path as every other
-  external link now.
+### Fixes
 
-- **Clicking a project in the sidebar did nothing while a session was open.** Picking a project
-  scoped the app but did not leave the session page, so the highlight moved on the left and the
-  same session stayed filling the pane — the click read as broken. Choosing a project now leaves
-  the session page for the same reason choosing a view does, revealing whichever view was
-  underneath, scoped to what you just picked.
+- The **+** in the sidebar is a menu again, with the folder browser behind it. Typing a folder that doesn't exist now tells you so.
+- Pinned projects can be dragged to reorder again.
+- The sidebar can be resized by dragging its edge. Double-click to reset.
+- **Open on GitHub** works in the desktop app.
+- Clicking a project in the sidebar while a session is open now takes you to that project.
+- Badges in tables sit on the same line as the text around them.
 
 ## [0.13.0] — 2026-08-27
 
-### Changed
+The dashboard is rebuilt in React. It looks the same, but it no longer flickers. The old version rebuilt the whole page every five seconds, even when nothing had changed. Now only the parts that changed are updated, so your sort order, column widths and open menus stay put.
 
-- **The dashboard is a React app now.** It used to be one 4,000-line `app.js` that rebuilt the page
-  on every poll: 1,059 elements thrown away and recreated to update eleven text nodes, five seconds
-  apart, which is the blinking you could see. The same poll now mutates nothing at all when nothing
-  has changed — the tree only moves where the data did. Your sort order, column widths and open
-  menus survive a refresh, because they are no longer destroyed by one.
+Nothing moved: every view, column and action is where it was.
 
-  Underneath: one poll for the whole app instead of 21 hand-written change flags, `zustand` for
-  state, typed routes over the same `@swarm/core` types the daemon answers with, and views split
-  into components small enough to read. Long tables paginate, so the Board no longer builds three
-  thousand DOM nodes to show you fifty rows.
+### Changes
 
-  Nothing about the interface moved. Every view, every column, every action is where it was.
+- Long tables show 25 rows per page, and remember the page size you pick.
+- The ⌘K palette, theme switching, zoom, desktop notifications, What's New, update prompts and the feedback link are all back after the rewrite.
 
-- Long grids paginate at 25 rows by default, with the page size remembered per table.
+### Fixes
 
-- The ⌘K palette, theme switching, UI zoom, desktop notifications, What's New, the update and star
-  nudges and the feedback link are back. All of them lived in `app.js`; the rewrite ported every
-  screen and none of the chrome around them.
-
-### Fixed
-
-- A grid's last column had a resize handle hanging four pixels past the table, which put a
-  horizontal scrollbar under every wide view.
-
-- **The desktop app lost its window chrome.** On macOS Swarm runs with an overlay title bar, and
-  the page is what pads the header clear of the traffic lights and what makes the header draggable.
-  Both were wired in the old `app.js` and did not survive the rewrite: the mark sat under the
-  traffic lights and the window could not be moved or double-click-zoomed.
-
-- **The sidebar lost its padding, border and background.** React mounts inside a `#root` div.
-  It is `display: contents`, so it disappears from the layout — but not from selectors, and every
-  `body > aside` rule quietly stopped matching. `bun run check:classes` now fails on that selector
-  shape rather than letting it go quiet again.
-
-- **The Trials view threw on every visit.** `/v1/ab` answers `{ trials: [...] }`, and the view was
-  annotated as receiving a bare array — so it walked past its own empty check and called `.filter`
-  on an object. Route builders now carry their response type, so `useResource` infers it and an
-  annotation that disagrees with the endpoint is a compile error instead of a blank view.
-
-- **A configured backlog could render as no backlog at all.** An external tracker is fetched in the
-  background and the first request arrives before it answers, so the daemon returned `{ tasks: [] }`
-  and the Board drew no Tasks section — identical to a repo that configures no source. On a repo
-  with 300 open issues it stayed that way until something happened to poll it again. Three other
-  routes into the same silence are closed with it: a source that *failed* (`gh not installed`,
-  `LINEAR_API_KEY not set` — messages written to be acted on, and previously discarded), a markdown
-  source naming a file that is not there, and a backlog that really is empty. A configured source
-  now always renders, and always says which of those it is.
-
-- **Branch names rendered in the wrong font, and badges sat flush against them.** `.br` — the
-  monospace treatment for a machine-readable name — was only ever written as `td.br`, matching when
-  the class sat on the table cell. React puts it on a `<span>` inside the cell, and uses it outside
-  tables too, so the rule matched nothing: every branch, rule, tool and task ref quietly rendered as
-  14px body sans, wide enough to crowd the badge beside it.
-
-- **Copy silently did nothing in the desktop app again.** The webview has no async clipboard API;
-  the fallback added in 0.12.1 was not carried across. It is now in one helper that everything uses.
+- A stray horizontal scrollbar appeared under every wide table.
+- In the desktop app, the logo sat under the macOS window buttons and the window couldn't be dragged.
+- The sidebar lost its padding, border and background.
+- The Trials view crashed every time you opened it.
+- A task list from GitHub or Linear could look empty while it was still loading, and errors like `gh not installed` were hidden. The Board now always says whether the list is loading, empty, missing or failing, and why.
+- Branch names are shown in monospace again.
+- Copy works in the desktop app again.
 
 ## [0.12.1] — 2026-08-26
 
-**If you are on 0.12.0, update.** Its Board view was blank — see below.
+> **If you're on 0.12.0, update.** Its Board view was blank.
 
-The rest of this release is about hygiene finally doing something. It has been reporting 50 GB held across 32 worktrees on my machine and offering nothing to reclaim, which reads as broken rather than as cautious. Two reasons, both fixed.
+This release also makes the Hygiene view actually free up disk space. It had been reporting 50 GB held by 32 worktrees on my machine while offering nothing to reclaim.
 
-### Fixed
+### Highlights
 
-- **The Board was dead in 0.12.0.** A function added for the new resource graph had the same name as the one that renders the Board's runtime resources; the later declaration won, so the view threw before drawing anything and took the worktree list with it. Renamed, and there is now a check that no two top-level view functions share a name.
+#### Clear build output
 
-- **Copy never worked in the desktop app.** The webview has no async clipboard API and the helper quietly gave up. It falls back now, tells you whether it worked, and when it cannot copy it puts the text on screen selected rather than flashing "copied" at you.
+31 of those 50 GB were `node_modules`, Rust's `target` and `dist` folders, all things a rebuild creates again. Hygiene now measures build output per worktree and offers to clear it. This isn't the same as removing a worktree: the checkout, the branch and any uncommitted work all stay. Swarm won't clear the main checkout, a worktree someone has claimed, or one with a live session in it, because a build may be running there.
 
-- **Error reports in the desktop app were missing the error.** Chrome puts the message at the top of a stack trace and Safari does not, so the one line saying what went wrong was absent — in the app, which is where you would be reading it.
+### Changes
 
-### Added
+- Branches merged with a squash now show as merged. Before, they stayed "Clean" forever.
+- The worktree table shows which project each worktree belongs to.
+- A worktree counts as stale after two days instead of seven. It still never offers anything with uncommitted or unpushed work. On my machine this went from offering nothing to 8 worktrees and 1.7 GB.
+- Small visual fixes: task cards are outlined instead of striped, badges match everywhere, and inline icons are centred on their text.
 
-- **Clearing build output.** 31 GB of the 50 GB my worktrees hold is `node_modules`, Rust `target` and `dist` — things a rebuild recreates. Hygiene measures that per worktree now, shows it as its own column, and offers to clear it.
+### Fixes
 
-  This is deliberately not the same as removing a worktree: the checkout, the branch and anything uncommitted all survive, so a dirty tree is fine to clear. What it refuses is the main checkout, a worktree somebody holds a claim on, and one with a live session in it — those mean a build is probably running. A nested worktree's output belongs to that worktree and is offered there, not swept up by whatever contains it.
-
-### Changed
-
-- **A branch merged by squash now reads as merged.** Swarm decided this with `merge-base --is-ancestor`, which is the right test for a merge commit and useless for anything else: a squash rewrites the branch's commits into one new commit, so the originals never become ancestors of the base and the branch stays "Clean" forever. It also asks `git cherry` now, which compares by patch instead — if every change on the branch is already in the base, however it got there, it is merged.
-
-- **The worktree table says which project each one is in.** With thirty-odd worktrees across a dozen repos, a branch name on its own does not tell you where it lives.
-
-- **A worktree counts as stale after two days, not seven.** Seven never elapsed: on a machine where work lands daily you reuse or notice a merged worktree long before a week of silence. Nothing about *safety* changed — the ledger still refuses to offer anything with uncommitted or unpushed work, whatever its age. On my machine the offer went from nothing at all to 8 worktrees and 1.7 GB.
-
-- Task cards no longer carry a thick coloured stripe down their left edge; state colours the whole outline. Heading badges match the ones in tables. Inline icons sit on the centre of the text beside them rather than a pixel and a half below it.
+- The Board was blank in 0.12.0.
+- Copy didn't work in the desktop app. It works now, and if it ever can't copy, it shows you the text selected instead of pretending it worked.
+- Error reports in the desktop app were missing the error message.
 
 ## [0.12.0] — 2026-08-26
 
-The Observatory is finished. Swarm has spent this milestone answering questions about your fleet that used to need a person reading logs; this release adds the last five and, just as importantly, makes the dashboard admit when something has gone wrong instead of quietly showing you a stale screen.
+The Observatory is finished. This release adds its last five views, and the dashboard now tells you when something breaks instead of quietly showing an old screen.
 
-Two things I want to be straight about, because both are cases where the plan was wrong and the code says so.
+Two things turned out differently from the plan. The plan was to treat repeated tool patterns as a sign an agent is stuck. But `Read → Edit → Read → Edit` is what healthy agents do all day, so a repeat only counts when the calls are failing. The plan also called for deadlock detection on resources. Deadlocks can't happen here, because a second agent asking for a claimed resource is refused rather than made to wait. What can happen is two agents each wanting what the other holds, so Swarm now records that.
 
-The roadmap wanted repeated tool cycles to feed the stuck detector. They should not. `Read → Edit → Read → Edit` is the single most ordinary thing an agent does, and flagging it would have fired on healthy work all day long. A cycle only counts when the calls inside it are *failing*, which is the same bar the stuck detector already sets for a plain repeat.
+### Highlights
 
-And it wanted deadlock detection on held resources. A deadlock cannot happen here: claims fail closed, so a second claimer is refused rather than queued and nobody ever blocks. What can happen is contention — two agents each wanting what the other holds — and that needed a fact nobody was recording, so Swarm now records it.
+#### Tool transitions
 
-### Added
+Which tool an agent reaches for after which, shown as a grid rather than a tangle of arrows. On my machine: 10,198 transitions across 62 sessions, 6,881 of them `Bash → Bash`.
 
-- **Tool transitions.** What an agent reaches for after what, as a weighted matrix. Not a graph drawing: the transition graph is dense and cyclic, so a layered drawing turns into a hairball where nearly every edge doubles back. A matrix has no crossings, puts a tool following itself on the diagonal, and shows a lopsided pair of cells when `A → B` happens far more than `B → A`. On my machine: 10,198 transitions across 62 sessions, and `Bash → Bash` 6,881 of them.
+#### File heat
 
-- **File heat.** Where the fleet's attention actually goes — hottest files, hottest directories, and how much of every touch was a file being read again. Mine says **55%**, and 222 files were opened once and never returned to. It also looks for files several sessions keep re-reading and hardly ever edit, because those are the ones whose conclusion belongs in `CLAUDE.md` instead of being re-derived in every window. It found none, correctly: everything multiple sessions read here is also something they were editing.
+Where the fleet's attention goes: the most-touched files and folders, and how much of that was re-reading. Mine is 55% re-reads. It also looks for files that several sessions keep re-reading but rarely edit, since whatever they keep working out belongs in `CLAUDE.md`.
 
-- **Resource holding.** Claims, ports, leases and processes on one picture with whoever holds them, and a resource is orphaned when the *session* that took it ended — not when its owner looks idle, because an owner string outlives the run it belonged to. Refusals are now recorded, so the view can also show contention rings.
+#### Resource holding
 
-- **Security audit.** Hosts your agents reached for, packages they installed, and credential files they opened. Observation only — nothing here denies anything, and it reads what was *requested*, so a command one of your rules already blocked still shows up. It is a lint and not a sandbox, and the view says so: an obfuscated command will not match, and a comment mentioning `.env` will.
+Claims, ports, leases and processes in one picture, with who holds each. A resource counts as orphaned when the session that took it has ended. Refused requests are now recorded, so you can see where agents compete.
 
-- **Rule effectiveness.** Whether a rule is teaching anyone anything. Firing once is a rule working; firing forty times on the same shaped command is friction, and either the habit needs changing or the rule does. Incidents are clustered by the shape of what they fired on, so that difference is visible at a glance. Swarm now also records when your rule set changes, so "before this rule, after this rule" becomes answerable from here on — it was not answerable before, because nothing knew when a rule landed.
+#### Security audit
 
-- **An error boundary.** The dashboard is one long-lived page and it had no way to say it had broken: an exception left the previous screen up looking current, and a failed poll was swallowed. Now a view that throws shows the error with its stack, and there is a copyable report and a prefilled issue link. The report is the version, the view, the error and the last few failed requests — no session contents, no paths, no titles — and nothing leaves your machine unless you send it.
+The hosts your agents contacted, the packages they installed and the credential files they opened. It only observes and blocks nothing. It's a lint, not a sandbox: a disguised command won't match, and a comment that mentions `.env` will.
 
-### Fixed
+#### Rule effectiveness
 
-- **A 404 on a Swarm route is now named for what it usually is.** If the dashboard was updated and the daemon has not restarted, the page says exactly that and offers the restart, rather than spinning on a view that will never load.
-- **Light mode was olive.** The accent was a yellow-green darkened in sRGB, which drains the colour and leaves khaki — every bar, sparkline and heatmap cell in the theme was that colour. The greens are derived in OKLCH now, which holds the hue as the lightness comes down, and text and chart fills are separate values because they answer to different contrast rules.
-- Badges had two pixels of vertical padding against eight horizontal, and read as squashed.
-- The project sidebar's icon sat a pixel above everything else in its row.
-- Several tables stretched three or four columns across the page with their numbers a screen away from what they described; those are lists now.
+Whether a rule is working or just getting in the way. A rule that fires once is doing its job. One that fires forty times on the same kind of command means either the habit or the rule should change. Swarm also records when your rules change, so from now on you can compare before and after.
+
+#### Error screen
+
+When a view crashes, the dashboard shows the error with a copyable report and a pre-filled GitHub issue link. The report contains the version, view, error and recent failed requests, and no session contents, paths or titles. Nothing is sent unless you send it.
+
+### Fixes
+
+- If the dashboard updated but the daemon didn't restart, the page now says so and offers to restart it, instead of spinning forever.
+- Light mode's green had turned olive. It's green again.
+- Badges no longer look squashed, and the project icon lines up with its row.
+- Tables that spread three or four numbers across the whole screen are lists now.
 
 ## [0.11.3] — 2026-08-26
 
 A proper robot.
 
-### Changed
-- **The robot is redrawn.** The old one was 23×28 in three tones and looked it — a blocky approximation of the thing it was meant to be. This one is 73×87 in seven, with a bevelled head, ear pods, a chest screen, a vent grille, segmented arms and claws. It is not hand-copied: the grid is recovered from the reference art itself, and its colours are re-derived as a straight scale of `#a3e635`, so every tone is the brand hue and the whole drawing recolours from one value.
-- **Icons and the site's marks are the head alone.** The whole robot in a 512px tile is clutter — arms, claws, a vent grille and four buttons, none of which survives being an icon. The head is the top of the same drawing, and below about 128px an even simpler head takes over, because 47 columns of bevel and eye socket rendered a pixel each is noise rather than a robot.
-
-### Fixed
-- **Small icons were mushy.** They were scaled by canvas ÷ grid, which at 32px is 1.6 pixels a cell — so cells landed on two pixels or one depending where they fell, and the eyes came out different sizes. Cells are now always a whole number of pixels, at every size Swarm ships.
-- **The macOS icon ignored Apple's icon grid.** It bled to the edge of its canvas, which makes an icon sit visibly larger in the Dock than everything beside it. The rounded square now takes about 80% of the canvas, as Apple specifies — except below 128px, where there are not enough pixels to spend on a margin.
-- **The robot had holes in it.** Transparent cells showed through where the drawing should be solid: a blank row between the head and the neck, a hole in the neck itself, and hairline slits detaching each arm at the shoulder. The gaps that are meant to be there — the claw notch, between the legs, between the antennae — are untouched.
-- **`trimArt` deleted blank rows wherever they fell**, not only at the edges, so the drawing's one interior blank row was being dropped from every generated icon and the figure came out a cell short.
+- **The robot is redrawn**, larger and with more detail: a bevelled head, ear pods, a chest screen, segmented arms and claws. The pixels come straight from the reference art, and every shade is derived from the brand green, so the whole drawing recolours from one value.
+- **Icons use just the head.** A whole robot is too busy at icon size. Below 128 px an even simpler head takes over.
+- **Small icons are crisp.** Pixels now always land on whole screen pixels, so the eyes come out the same size.
+- **The macOS icon follows Apple's grid**, so it's no longer larger than its neighbours in the Dock.
+- **The robot has no holes.** Gaps between the head and neck and at the shoulders are filled.
 
 ## [0.11.2] — 2026-08-26
 
-Two things 0.11.1 said it did and didn't.
+Two things 0.11.1 promised and didn't deliver.
 
-### Fixed
-- **The desktop app icon.** 0.11.1 put the robot in the dashboard, on the site and in the favicons, then left the macOS and Windows app icons as the old mark — so the thing in your Dock was the one place that still didn't match. All seventeen are generated from the same drawing now, by `tools/icons.ts`, read straight off the pixel grid in `core` with no image editor anywhere in the loop. That covers `.icns`, `.ico` and every Windows store size, and the iOS and Android sets if you have them checked out.
-- **The hero animation.** What shipped in 0.11.1 was pixel columns marching down in lockstep over a static grid that never moved at all. It's a proper rain now — streams of glyphs, each falling at its own speed, bright leading character, trail dying out behind it. The columns sit at three depths, where size, pitch, speed and brightness all move together: the flat uniform grid is the part that reads as an impression of the film, so that is the part that had to go. One canvas and one animation-frame loop: 0.27ms a frame, paused when the hero scrolls off screen or the tab goes to the background, and never started at all under `prefers-reduced-motion`.
+- **The desktop app icon is the robot.** 0.11.1 changed the logo everywhere except the app itself. All seventeen app icons are now generated from the same drawing.
+- **The website's hero animation is real matrix rain:** streams of characters falling at different speeds and depths, with a bright leading character. It pauses when it's off screen and doesn't run at all if you've asked your system for reduced motion.
 
 ## [0.11.1] — 2026-08-26
 
-Mostly the look of the thing, plus one page that was genuinely slow.
+Mostly the look of the thing, plus one page that was really slow.
 
-### Added
-- **The robot is the logo.** It replaces the abstract pixel glyph in the dashboard header, on the site, and in the favicons. The header mark also follows your theme now — it was hardcoded to one green and ignored light mode entirely.
-- **Matrix rain in the hero.** Pixel columns falling at their own speeds, brightest at the leading edge, fading out of the middle so they never sit behind anything you have to read.
-
-### Fixed
-- **Provenance took nine seconds to open.** It was asking your forge about every project before drawing anything — on a machine with 21 of them that is 21 round trips, and whoever opened the page first every ten minutes paid for all of them. It now draws from what it already knows and lets the pull request state catch up a moment later, which took it from **8.9s to 0.7s**. It also pages 50 rows at a time instead of sending all 116.
-- **The landing page read like documentation.** Config snippets, exit codes and words like "fail-closed" and "orphaned" in the middle of sentences meant to sell. Rewritten to say what the thing does for you; the syntax lives in the docs, where someone is looking for it.
+- **The robot is the logo** in the dashboard, on the website and in browser tabs. The dashboard logo now follows your light or dark theme.
+- **Matrix rain on the website.**
+- **Provenance opens in 0.7 seconds instead of 8.9.** It used to ask GitHub about every project before showing anything. Now it shows what it knows straight away and fills in pull request status a moment later.
+- **The landing page says what Swarm does for you**, with the config syntax moved to the docs.
 
 ## [0.11.0] — 2026-08-26
 
-Swarm could already tell you what your agents did. This release is about what it cost you — in money, in waiting around, in context burned re-reading the same file, and in work that shipped with nothing linking it back to a ticket.
+Swarm could already tell you what your agents did. This release is about what they cost you: in money, in time spent waiting on you, in context burned re-reading the same file, and in work that shipped with nothing tying it to a ticket.
 
-I pointed the new provenance view at my own machine and found 22 branches that had landed with no task behind them. One was a merged PR carrying $255 and 16 agent sessions. I had no idea it existed.
+I pointed the new Provenance view at my own machine and found 22 branches that had shipped with no task behind them. One was a merged pull request that took $255 and 16 agent sessions. I had no idea it existed.
 
-### Added
+### Highlights
 
-- **Waiting on you.** Agents spend real time stuck waiting for a human — a permission prompt, a question, a notification — and none of it was measured. Now it is. Fleet shows a *Waiting 12m* badge saying what's blocking, and Stats breaks it down by kind. If you close your laptop on a pending prompt, the clock stops when the session ended, not days later when you open it again.
+#### Waiting on you
 
-- **Where your context goes.** A breakdown of what actually fills the window, by tool. The waste number is re-reads: read a file once and that's work, read it ten times and nine copies are just the cost of forgetting. One of my sessions had spent 11% of its window re-reading the same diff.
+Agents spend real time waiting for a person: a permission prompt, a question, a notification. Now that's measured. Fleet shows a *Waiting 12m* badge with the reason, and Stats breaks it down by kind.
 
-- **MCP server health.** Which servers are slow, which fail, and how long your agents sat waiting on each. Timing is measured between the hooks either side of a call, so a call stuck behind a permission prompt carries that wait too — which is why the view leads with p50 and p95 rather than the worst case.
+#### Where your context goes
 
-- **Gate flakiness.** A gate is flaky when it gives *both* answers about the *same* task. Failing one task and passing another isn't flaky, that's the gate working. Gates now record how long they took, and old runs get their duration recovered from the text they used to hide it in.
+What fills each agent's context window, broken down by tool. The waste is re-reading: reading a file once is work, reading it ten times means nine copies spent on forgetting. One of my sessions spent 11% of its window re-reading the same diff.
 
-- **Machine hygiene.** What your fleet left lying around: processes still holding a port after their session ended, dead entries in the registry, worktrees that merged days ago and still take up disk. It only offers to remove something the ledger itself would agree to remove, so nothing with uncommitted or unpushed work is ever on the list.
+#### MCP server health
 
-- **Session lineage.** Who spawned whom, who messaged whom, who picked up whose task — as a graph. When one session has 37 subagents they collapse into a single pill you can click open, because 37 lines fanning across the screen is a mess, not a picture.
+Which MCP servers are slow, which fail, and how long agents waited on each.
 
-- **Provenance.** Follow any piece of work backwards: ticket, claim, session, branch, pull request, merge. Six dots per row, filled up to the point the trail goes cold. It reads the chain from both ends, which is how it finds work that shipped with no ticket at all.
+#### Flaky gates
 
-- **A/B trials.** Give one task to several models at once and see what each produced: cost, wall time, gates, how much they changed. A model only wins if it finished *and* passed every gate — a cheap wrong answer isn't an answer. Each model works in its own worktree, so nothing about the claim rules had to be relaxed to run the experiment.
+A gate is flaky when it gives both answers for the same task. Gates also record how long they take now.
 
-- **A robot.** The empty states have a proper one now, and its head is the site's logo and favicon. There's one drawing, shared, with a test that stops the two copies drifting apart.
+#### Machine hygiene
 
-### Fixed
+What your agents left behind: processes still holding ports, dead entries, and merged worktrees still taking up disk. It only offers to remove things with no uncommitted or unpushed work.
 
-Mostly things that had been quietly wrong for a while:
+#### Session lineage
 
-- Long branch names painted straight over the badge next to them.
-- The Board said 20 incidents while the Guard badge said 57. The Board was wrong — it was counting a 20-row window.
-- The header never told you which of the ten views you were looking at.
-- Opening a menu highlighted the row under your cursor in the same green as the row you were already on, so neither read as current.
-- Big numbers were truncated to things like `134….` in columns that had room for them.
-- The ⋯ button vanished the moment you clicked it, and the row jumped as it went.
-- Pixel art was nearly invisible in light mode — the outline and the face it sat on were the same brightness to within 0.002.
-- Replay resized itself on every step, so Prev/Next slid out from under the cursor mid-click.
-- The transcript gave 204px of every row to a timestamp and a label like `pretooluse`, which repeats on every line and tells you nothing.
-- After upgrading, your browser could quietly keep running the previous version's dashboard — the files were served with no cache headers at all. That's why "What's New" could greet a 0.11 upgrade with 0.10's notes: the notes bundle was a stale copy, and the lookup silently fell back to the newest release it happened to have instead of admitting it didn't have yours.
+Who started whom, who messaged whom and who picked up whose task, as a graph. Large groups of subagents fold into a single pill you can click open.
+
+#### Provenance
+
+Follow any piece of work back from merge to pull request, branch, session, claim and ticket. It works from both ends, which is how it finds work that shipped without a ticket.
+
+#### A/B trials
+
+Give one task to several models at once and compare cost, time, gate results and how much each changed. A model only wins if it finished and passed every gate. Each model works in its own worktree.
+
+### Fixes
+
+- Long branch names no longer run over the badge next to them.
+- The Board showed 20 incidents when there were 57.
+- The header now shows which view you're on.
+- Opening a menu no longer highlights a second row as if it were selected.
+- Large numbers are no longer cut short when there's room to show them.
+- The ⋯ button stays put when you click it.
+- Pixel art is visible in light mode.
+- Replay's Prev and Next buttons no longer move while you click them.
+- The transcript no longer wastes a third of every row on a timestamp and a repeated label.
+- After an upgrade, your browser could keep running the old dashboard, which is why What's New sometimes showed the previous release's notes. Dashboard files are now served so that can't happen.
 
 ### Notes
 
-- The database upgrades itself on first start. `swarm doctor` will tell you the schema version.
-- This is 13 of the 18 planned observatory features. Security auditing, rule effectiveness and three more graphs are still to come.
-- Two things are deliberately missing rather than guessed: how many tokens your MCP schemas cost, and how much of the window the system prompt takes. Swarm can see tool calls but not schemas or the prompt itself, so it doesn't pretend to know.
+- The database upgrades itself on first start. `swarm doctor` shows the schema version.
+- Two things are left out on purpose: how many tokens your MCP tool definitions cost, and how much of the window the system prompt takes. Swarm can't see either, so it doesn't guess.
 
 ## [0.10.0] — 2026-08-24
 
-The team release: Swarm outgrows one laptop. A self-hosted team daemon gives a group one view — machines, cluster-wide claims, spend by person — while every laptop stays local-first and keeps working offline. Two more agent brands land (six total), and the dashboard starts reading the fleet's behaviour, not just its numbers: outcomes, stalls, collisions.
+Swarm grows past one laptop. A self-hosted team daemon gives a group one shared view of machines, claims and spend, while every laptop stays local-first and keeps working offline. Two more agents are supported, for six in total.
 
-### Added
-- **Team daemon** — `swarm-teamd` (`packages/team`), a second, self-hosted service your machines *forward* to: audit events, spend rollups and claims — never transcript text unless a machine opts in, and always after your redaction rules. The local daemon queues everything in an outbox (batched, at-least-once, never on the hook path) and drains it when the team daemon is reachable; `swarm doctor` shows the lag. One SQLite file of state, TLS by reverse proxy, [guide](https://getswarm.vercel.app/docs/11-teams) (M8.3). *Licensing: this one package is source-available ([FSL-1.1-ALv2](https://github.com/ra3orblade/swarm/blob/main/packages/team/LICENSE.md), Apache-2.0 after two years); everything else is and stays Apache-2.0 — one machine free, a second person is the product (OQ-15).*
-- **`swarm login`** — OIDC device-code sign-in against the team daemon (which is the OAuth client — your laptop never holds an OIDC credential; a static shared token or open mode for labs). First user becomes admin; roles are viewer / developer / admin. Login registers the machine (its token is bound to you) and pins the org's policy signing key. `swarm install --config-url <url>` is the one-flag fleet onboarding (M8.3c/f).
-- **Cluster-wide claims** — a claim taken on one machine registers upstream; a second machine claiming the same task is refused with the holder's name (`alice@her-laptop`), and if the cluster says someone else holds it, the local claim is revoked — the worktree is never touched. Offline degrades to local-only, fail-closed as ever (M8.3d).
-- **Team dashboard** — served by the team daemon: machines (live / quiet), active cluster claims, spend today / by project / **by user** / by machine / by day, and the forwarded activity feed, live over SSE (M8.3e).
-- **Signed org policy** — an admin posts the org's `policy.toml` once; every machine fetches it, verifies the ed25519 signature against the key pinned at login, and installs it as the org layer — locked rules included. A tampered policy is reported and never installed (M8.3f, closes the OQ-3 signing deferral).
-- **Team budgets + chargeback** — org / user / project ceilings (daily + monthly) set on the team daemon and enforced with the same semantics as the local `[budget]`: warn incident, `ask` on spending tools, or stop spawned runs. Monthly export by user, machine, model or **task — your ticket ids** when the task source is GitHub Issues or Linear: `GET /t1/spend/export?month=…&by=task&format=csv` (M8.4).
-- **Model allow-list** — `[models] allow = ["claude-*"]` (org-lockable): spawned runs and dispatch refuse a disallowed model; an interactive session on one opens a single incident — observed, never interrupted (M8.4).
-- **Aider + opencode adapters** — six agents now show up with sessions, turns, tokens and cost: Claude Code, Codex, Grok, Gemini CLI, **Aider** (its own `.aider.chat.history.md`, one file holding many sessions) and **opencode** (its SQLite database, read-only). Both report their exact spend themselves, so their turns carry it verbatim and repricing never touches them (M5.4; Cline deferred).
-- **Outcomes** — did the agent's work survive? Branches join sessions → PR → merged / reverted, with per-model and per-agent scorecards: merge rate, median session-start→merge, $ per merge. New **Outcomes** view under Insight (M9.2).
-- **Stuck badge** — the daemon watches live sessions' recent tool calls for repeat-and-failing loops and all-failing streaks (conservative: `git status` polling never counts) and marks the session **Stuck** on Fleet with a desktop notification. A heuristic; nothing is interrupted (M9.3).
-- **Collision graph** — a live bipartite graph of running sessions × the files they touch; a file two sessions hold with at least one writer glows red as a merge conflict waiting to happen. New **Graphs** view with a contested-count badge (M9.12).
-- **Sidebar navigation + ⌘K** — the flat header links became a grouped sidebar nav (Observe / Work / Insight / Guard) that collapses to an icon rail, and ⌘K opens a palette over every view, project and session, falling through to Search (M9.1).
-- **Ops** — `swarm backup` (a consistent `VACUUM INTO` snapshot of `~/.swarm`, zero downtime) and `swarm restore`; `swarm doctor --migrate`; Prometheus metrics at the team daemon's `/t1/metrics`; `[notify] webhook` POSTs every incident as Slack-compatible JSON (M8.5).
+### Highlights
 
-### Fixed
-- Replay, *Resume where it died* and the dry-run *Re-run* buttons were unreachable — dead click targets on the session page.
-- The user guide caught up: a Teams page, the M8 commands, all six agents, and the `SWARM_GUARD=off` description (org-locked rules stay enforced — true since 0.8, documented wrong until now).
+#### The team daemon
+
+`swarm-teamd` is a separate service you host yourself. Each machine sends it activity, spend totals and claims. Transcript text is only sent if a machine opts in, and always after your redaction rules. Updates queue up locally and send when the team daemon is reachable, so being offline never slows an agent down. See the [teams guide](https://getswarm.vercel.app/docs/11-teams).
+
+This one package is source-available under the [FSL-1.1-ALv2](https://github.com/ra3orblade/swarm/blob/main/packages/team/LICENSE.md) license and becomes Apache-2.0 after two years. Everything else is, and stays, Apache-2.0.
+
+#### Sign in
+
+`swarm login` signs you in to the team daemon through your identity provider, or with a shared token for smaller setups. The first person to sign in becomes admin; roles are viewer, developer and admin. `swarm install --config-url <url>` sets up a new machine in one step.
+
+#### Team-wide claims
+
+A task claimed on one machine is claimed for the whole team. Anyone else who tries is told who has it, for example `alice@her-laptop`. When offline, claims fall back to local only.
+
+#### The team dashboard
+
+Machines, active claims, and spend by project, person, machine and day, updated live.
+
+#### Signed org policy
+
+An admin publishes the org's rules once, and every machine checks the signature before installing them. A policy that's been tampered with is reported and never applied.
+
+#### Team budgets
+
+Daily and monthly limits per org, person or project, handled the same way as local budgets: a warning, a prompt before spending, or stopping runs. Spend can be exported monthly by person, machine, model or ticket.
+
+### Also new
+
+- **Model allow-list.** `[models] allow = ["claude-*"]` stops runs from using other models. An interactive session on a different model gets flagged but isn't interrupted.
+- **Aider and opencode support.** Sessions, turns, tokens and cost now show up for six agents: Claude Code, Codex, Grok, Gemini CLI, Aider and opencode.
+- **Outcomes.** Did the agent's work survive? Branches are traced to pull requests and marked merged or reverted, with scorecards per model and agent: merge rate, time to merge and cost per merge.
+- **Stuck badge.** Sessions caught repeating a failing command are marked **Stuck** on Fleet, with a notification. Nothing is interrupted.
+- **Collision graph.** Running sessions and the files they touch. A file two sessions are both working on, with at least one writing to it, shows in red.
+- **Sidebar navigation and ⌘K.** Views are grouped in a sidebar, and ⌘K searches every view, project and session.
+- **Backup and restore.** `swarm backup` and `swarm restore`, Prometheus metrics on the team daemon, and a webhook that posts every incident to Slack or similar.
+
+### Fixes
+
+- Replay, *Resume where it died* and *Re-run* on the session page did nothing when clicked.
+- The user guide covers teams, the new commands and all six agents.
 
 ### Notes
-- The privacy posture is unchanged and now stated precisely: with no `[team] url` and no `[notify] webhook` configured, nothing about your sessions leaves the machine — the [privacy page](https://getswarm.vercel.app/docs/10-privacy-and-faq) lists the five opt-in egress paths.
-- The team daemon package is not yet on npm; run it from a clone (`bun packages/team/src/bin.ts`). Pricing for the paid tier is still open.
+
+- With no team daemon and no webhook set up, nothing about your sessions leaves your machine. The [privacy page](https://getswarm.vercel.app/docs/10-privacy-and-faq) lists every optional way data can leave.
+- The team daemon isn't on npm yet. Run it from a clone with `bun packages/team/src/bin.ts`.
 
 ## [0.9.0] — 2026-08-24
 
-The crew release: the agents on your machine stop being strangers. They message each other and you, follow a declared workflow instead of a hopeful prompt, and every major CLI brand now shows up — Claude, Codex, Gemini, Grok. Plus the first-run and update experience a launch deserves.
+The agents on your machine can talk to each other and to you, and follow a workflow you define instead of hoping a prompt gets it right. Claude, Codex, Gemini and Grok are all supported now.
 
-### Added
-- **Agent messaging** — `swarm_send(to, text)` reaches another session (id or unique prefix), whoever holds a task, or `"lead"` (your interactive session in the project). Delivery: on the recipient's next tool call as injected context, immediately over stdin to a spawned run, or pulled with `swarm_inbox` (which now returns answers *and* messages) — exactly once. A **messages** thread with compose box on every session page; `swarm msg send|ls` (M7.6, OQ-12 decided).
-- **Workflows** — `[[workflows]] name = "ship" steps = ["implement", "gate:tests", "gate:review", "pr"]` in `.swarm.toml`; `swarm workflow ship <task>` and the daemon advances it: run steps spawn an agent in the task's worktree (told what the workflow will do itself), gate steps execute — only a pass advances — and `pr` pushes and opens the pull request from the ledger. A failed step stops with a `workflow_failed` incident; a daemon restart marks in-flight workflows stopped, honestly. **Workflows** on the Board with per-step chips (M7.8).
-- **Gemini CLI adapter** — `~/.gemini` chat recordings are discovered and priced like every other agent: sessions, turns, tokens, cost, sparkline, Timeline, Spend. Schema from upstream source; first real-session validation pending (M5.4).
-- **Timeline that shows the work** — bars are now a faint base with a tick per turn: bursts and idle stretches are visible instead of painted over. A thin claims lane per project shows lease spans (held / expired / orphaned). Recent gates carries a per-gate pass/fail history strip; every pinned project gets a 14-day spend sparkline in the sidebar (M5.7).
-- **`swarm demo`** — a seeded demo dashboard on its own home and port: four agent brands, a live lease, an orphaned claim, gate history, incidents, a question, a message, a workflow mid-flight. Tailers are off in demo mode, so it never ingests your real logs — and your real data is never touched (delete `~/.swarm/demo` to reset).
-- **Update that actually updates** — after an upgrade the dashboard notices the newer version on disk and offers a one-click daemon restart (the daemon re-execs into the new build and the page reloads). Long-lived tabs re-check every 5 minutes.
-- **First-run onboarding** — an empty Fleet now explains the three steps (hook in — with a live *not installed* badge —, open any agent session, watch it appear) instead of showing a blank table.
+### Highlights
 
-### Fixed
-- External links in the desktop app (PR titles, Documentation, feedback, the just-opened PR) open in the browser — the webview silently swallowed them before.
-- Section-header actions (New worktree, Collect stale, timeline ranges) are proper small buttons instead of shouting uppercase with off-baseline icons.
-- The timeline claims lane no longer collides with the kanban's styles; a test file that broke lint on main is formatted.
+#### Agents can message each other
+
+`swarm_send` sends a message to another session, to whoever holds a task, or to `"lead"`, your own session in the project. It's delivered on the recipient's next step, or pulled with `swarm_inbox`, exactly once. Every session page has a message thread, and there's `swarm msg send` on the command line.
+
+#### Workflows
+
+Define a sequence in `.swarm.toml`, such as `steps = ["implement", "gate:tests", "gate:review", "pr"]`, and start it with `swarm workflow ship <task>`. Swarm runs an agent for each step, runs the gates (only a pass moves it forward) and opens the pull request at the end. A failed step stops the workflow and opens an incident.
+
+#### Gemini CLI support
+
+Gemini CLI sessions show up with turns, tokens and cost like every other agent.
+
+### Also new
+
+- **A more useful Timeline.** Each turn is a tick, so you can see bursts of work and idle stretches. Claims have their own lane, gates show their pass/fail history, and each pinned project gets a 14-day spend chart in the sidebar.
+- **`swarm demo`.** A dashboard filled with sample data that never touches your real sessions.
+- **Updates that apply.** After an upgrade the dashboard offers a one-click restart.
+- **A first-run guide.** An empty Fleet explains the three steps to get started instead of showing a blank table.
+
+### Fixes
+
+- Links in the desktop app open in your browser instead of doing nothing.
+- Section buttons are small and tidy instead of shouting in capitals.
 
 ### Notes
-- Windows builds are produced by CI as before but this release had no human Windows smoke test — reports welcome.
+
+- Windows builds come from CI as usual, but nobody tested this one by hand on Windows. Reports welcome.
 
 ## [0.8.0] — 2026-08-23
 
-The trust release: Swarm becomes something a team and a security reviewer can rely on, without giving up local-first. An org can pin the rules that matter and they hold even when the daemon is down; every record says who did it; the daemon has a credential; what is stored is exportable and redactable; a second agent can be the reviewer. And the dashboard stopped looking like a list of tables.
+Swarm becomes something a team and a security reviewer can rely on, without giving up local-first. An org can lock the rules that matter, and they hold even when the daemon is down. Every record says who did it. Stored data can be exported and redacted. A second agent can review the first one's work. And the dashboard stopped looking like a stack of tables.
 
-### Added
-- **Org policy layer** — a third config file, `~/.swarm/policy.toml` (or `$SWARM_POLICY`), sits under global and repo config and may declare `locked = ["rules.destructive_git", "rules.protected", …]`: dotted keys or whole subtrees the layers below cannot change. A locked key keeps the policy's value, every attempt to override it is a `policy` incident, and `swarm doctor` shows which file set each value and who tried to change it. `GET /v1/policy` exposes provenance (M8.1).
-- **Tamper detection** — on every session start the daemon checks that all ten hook entries are still in `~/.claude/settings.json` with a sane timeout, that no lower config layer fights a locked key, and that `SWARM_GUARD=off` isn't set while the policy locks rules (it is then ignored). Each finding opens a `policy` incident once; `swarm doctor` prints the same (M8.1b).
-- **Fail-closed for locked rules** — while the policy locks any rule the daemon keeps `~/.swarm/policy.cache.json` (locked modes + a snapshot of live sessions and held worktrees, integrity-hashed). If the daemon is unreachable on a tool call, the hook shim enforces exactly those rules from the cache; everything else still fails open (M8.1c, OQ-3 resolved).
-- **Who did it** — every ledger record and every event carries an `actor` (`human` / `agent` / `run` / `daemon` + id); existing rows were back-filled from the owner strings clients always sent. Schema changes now go through versioned migrations (`/v1/health` and `doctor` report the schema version) (M8.2a).
-- **Daemon token** — the daemon creates `~/.swarm/token` on first start; the CLI, MCP server, hook shim and `swarm ui` send it. Local callers may still omit it by default; `[daemon] auth = "required"` makes every call carry it, a wrong token is always refused, and anything that isn't loopback always needs it (M8.2b).
-- **Audit log + export** — the ledger-changing subset of events (claims, worktrees, PRs, questions, dispatch, resources, processes, gates, handoffs, permissions, incidents, run results, session start/end), with actor: `swarm audit export [--since 30d] [-p] [--type …] [--format jsonl|csv|json]` and `GET /v1/audit`. Retention is split — `[events] retain_days = 30` for chatter, `[audit] retain_days = 0` (forever) for audit rows (M8.2c).
-- **Privacy on ingest** — `[privacy] store_prompts = false` keeps the event but not the prompt text, `store_reasoning = false` keeps token counts but not assistant text, `redact = ["ACME-[0-9]+"]` scrubs stored strings; API-key-looking tokens and `Bearer …` credentials are always redacted. Global-only keys an org can lock (M8.2c).
-- **Review as a gate** — `[gates.review] builtin = "review"` (optional `model`, `timeout`) spawns a read-only `claude -p` over the worktree's diff with a fixed rubric. The verdict is derived from the findings (any blocker/major fails, whatever the reviewer claims), findings are the evidence, and a reviewer that times out or won't answer in JSON is a fail with that reason. Same registry, logs, incidents and triggers as executed gates (M7.9).
-- **Project settings** — sidebar menu → **Settings…**: name, icon (any emoji — a quick row, a browse-all grid, or the OS picker — or an image file, downsized to a square), a color slot, pinned. The glyph replaces the folder icon everywhere the project appears.
-- **Board that is a board** — a KPI strip (live / held / worktrees / ready / incidents), tasks as a kanban (Ready · In progress · Blocked · Done), and a worktree map of tiles grouped by project and colored by live / dirty / unpushed / merged. Tasks and Worktrees keep a Cards | Table toggle.
-- **Row menus** — every row on the Board, PRs and Incidents has one menu (hover kebab, right-click, or Enter) carrying its actions — open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy — instead of inline links; destructive ones last and confirmed. Menus are wider and labels never ellipsize.
+### Highlights
 
-### Changed
-- `doctor` reports the daemon and schema version, per-event hook coverage, and the policy file with its locked keys.
-- `/v1/health` reports `schema` and `auth`.
+#### Org policy
 
-### Fixed
-- Scratch repositories under the OS temp dir (test fixtures, spawned-run clones) no longer appear as projects in the sidebar.
-- Fleet's `now` column had no room; ended sessions show their last assistant line instead of "session ended".
-- Incidents show the command's gist (the leading `cd … &&` stripped) and `(removed)` instead of a raw id for a deleted project; Spend's attribution tables lost their empty first column.
-- Emoji tiles and the icon preview no longer clip in the desktop app's WebKit view.
+A policy file, `~/.swarm/policy.toml`, sits under your other config files and can lock settings so they can't be changed. Attempts to change a locked setting are recorded as incidents, and `swarm doctor` shows which file set each value.
+
+#### Tamper detection
+
+On every session start Swarm checks that its hooks are still installed and that nothing is trying to override a locked rule or switch the guard off. Anything wrong opens an incident.
+
+#### Locked rules hold without the daemon
+
+If the daemon can't be reached, the hook still enforces locked rules from a local copy. Everything else lets the command through, as before.
+
+#### An audit trail
+
+Every record says who did it: a person, an agent, a run or the daemon. `swarm audit export` exports the audit log as JSON Lines, CSV or JSON. Audit records are kept forever by default; other events are kept for 30 days.
+
+#### Privacy controls
+
+Choose not to store prompts (`store_prompts = false`) or assistant replies (`store_reasoning = false`), and add your own redaction patterns. API keys and bearer tokens are always redacted.
+
+#### A reviewer as a gate
+
+A gate can be a code review by another Claude instance, which reads the diff and reports findings. Any serious finding fails the gate.
+
+### Also new
+
+- **Project settings.** Give a project a name, an emoji or image icon, a colour, and pin it.
+- **A real Board.** Summary numbers at the top, tasks on a kanban board, and worktrees as tiles coloured by state.
+- **Row menus.** Every row on the Board, PRs and Incidents has one menu with all its actions, with destructive ones last and asking for confirmation.
+- `swarm doctor` reports the daemon version, schema version, hook coverage and policy.
+
+### Fixes
+
+- Temporary test repositories no longer appear as projects in the sidebar.
+- Fleet's *now* column has room, and ended sessions show their last message.
+- Incidents show a readable version of the command.
+- Emoji no longer get cut off in the desktop app.
 
 ## [0.7.0] — 2026-08-23
 
-The orchestrate release: Swarm runs a task end to end on its own and you stay in control. New worktrees start warm, gates execute instead of being vouched for, `swarm dispatch` hands ready tasks to autonomous runs whose outcome is derived from the ledger, an agent that needs a human decision can ask for one, and a budget keeps the bill in bounds.
+Swarm can now run a task from start to finish on its own while you stay in control. New worktrees come ready to use, gates run themselves, `swarm dispatch` hands ready tasks to agents, an agent can ask you when it needs a decision, and a budget keeps the bill in check.
 
-### Added
-- **Budgets** — `[budget] daily = 25` / `weekly = 100` in `.swarm.toml` puts a spend ceiling on a repo, judged from the same transcript-priced numbers as the Spend view. At `warn_at` (80%) a `budget` incident opens; past 100% `on_exceed` decides: `"warn"`, `"ask"` (every Bash / Edit / Write in the repo asks first), or `"stop"` (spawned runs stopped, dispatch queue cleared). One incident per level per day; a budget tile on the Spend view.
-- **Run profiles** — `swarm run --profile no-edits|read-only` (and the Run / Dispatch drawers, `[dispatch] profile`) narrow what a spawned agent may do: `no-edits` keeps the shell but not the file tools, `read-only` keeps only read and search.
-- **`swarm_context`** — an agent can re-read what Swarm told it at session start, current as of now (holds, lease left, handoff, gates, resources, rule modes), plus answers to its questions. `GET /v1/context`. And `swarm install` now registers the same MCP server with **Codex CLI** and **Gemini CLI** when they're installed, so they get the `swarm_*` tools too (M7.10).
-- **Ask the human** — an agent that hits a decision only a person can make calls `swarm_ask` (with optional suggested answers). The question shows on the session page under **waiting on you** with the options as buttons, the session gets an **Asking** badge on Fleet, and a desktop notification fires. Answer there, or `swarm answer <id> <text>`; `swarm questions` lists what's open. The answer reaches the agent by itself — stdin for a spawned run, `[swarm]` context on the next tool call for an interactive session, `swarm_inbox` on demand — and a session starting later in the same task's worktree is told about open questions and answers that never arrived (M7.7).
-- **Dispatch** — `swarm dispatch --ready` (or pick tasks; the **Dispatch** chip on the Board's Tasks; `swarm_dispatch` from a lead agent) hands ready tasks to autonomous runs: each gets its own claim and worktree and a `claude -p` run told to work there, run the gates, hand off and open the PR; `[dispatch] max_parallel` (default 2) run at once per repo, the rest queue. When a run ends Swarm derives the outcome from the ledger — executable gates re-run by the daemon, PR looked up on the forge — and reports **done**, **gates-failed**, **no-pr**, **crashed** or **stopped**; anything short of done opens a `dispatch_failed` incident and keeps the claim for you to resume or release. A dispatched run never edits the task list. `swarm dispatch status | clear`, `GET/POST/DELETE /v1/dispatch`, a **Dispatch** section on the Board (M7.5).
-- **Diff and Open PR** — every worktree row on the Board (and a session page whose cwd is a worktree) gets **Diff**: the commits and files it carries beyond the main checkout's branch, uncommitted and untracked changes included, with a coloured unified diff per file. **PR** pushes the branch and opens a pull request (`gh`) or merge request (`glab`) prefilled from the task's title, the latest handoff, the required gates as a checklist and the file list — editable before it goes; refuses uncommitted changes, reuses an open PR for the branch. `swarm wt diff`, `swarm pr open [--dry-run]`, MCP `swarm_pr_open`; a `pr.opened` event on the Timeline (M7.3).
-- **Gates that run themselves** — a gate with a command in `.swarm.toml` (`[gates.tests] cmd = "bun test"`, optional `timeout` / `cwd`) is executed rather than vouched for: `swarm gate run <task>` (or `swarm_gate_run` from the agent, or **Gates** on a held task row on the Board) runs every required gate that has a command inside the task's worktree and records the verdict — exit 0 passes, the rubric is the command and how it ended, the evidence is the output tail, the log lives in `~/.swarm/logs`. Runs go through the process registry and are killed at `timeout`. When a session in a held worktree ends, the daemon runs them on its own and writes the verdicts into that session's auto-handoff (`[gates] auto = "session-end" | "stop" | "off"`) (M7.4).
-- **Worktrees without a task** — `swarm wt create <name>` makes a worktree for a spike or a review checkout (under `~/.swarm/worktrees/<project>/`, branch `wt/<name>`, bootstrapped like a claim); `swarm wt` lists every worktree with **drift** against the main checkout's branch (*N behind*, *merged*); `swarm wt open` opens it with `[worktree] open = "code {path}"` or the file manager; `swarm wt rm` removes it with the same refusals as `release` (dirty, unpushed, never the main checkout, never a held claim); `swarm wt gc [--apply]` finds worktrees whose branch was merged or whose claim was released and the folder left behind. The Board's Worktrees section gets the drift column, **Open** / **Remove** per row, **New worktree** and **Collect stale** (M7.2).
-- **Warm worktrees** — `.swarm.toml [worktree] copy = [".env.local"]` and `setup = "bun install"` bootstrap every new worktree: the files are copied from the main checkout as the claim is made and `setup` runs inside the worktree in the background (log in `~/.swarm/logs/<project>/bootstrap-<task>.log`, a `worktree.bootstrapped` event on the Timeline). `swarm run` waits for it before starting the agent; an interactive `swarm claim` prints the log path and returns at once. A failing setup opens a `bootstrap_failed` incident but never takes the claim away. Paths are repo-relative only (M7.1).
+### Highlights
 
-### Fixed
-- The Fleet agent badge no longer renders a stray "…" after the pill: badge-only cells clip instead of ellipsizing, and the column got a few more pixels.
+#### Dispatch
+
+`swarm dispatch --ready` hands ready tasks to agents. Each one gets its own claim and worktree and is told to do the work, run the gates, write a handoff and open a pull request. By default two run at a time per repo; the rest wait. When a run ends, Swarm checks the gates and the pull request itself and reports the result: **done**, **gates failed**, **no PR**, **crashed** or **stopped**. Anything short of done opens an incident and keeps the claim so you can pick it up.
+
+#### Budgets
+
+Set a daily or weekly limit in `.swarm.toml`. At 80% you get a warning. Past 100%, Swarm can warn, ask before every edit or command, or stop all runs, depending on `on_exceed`.
+
+#### Ask the human
+
+An agent that needs a decision only you can make calls `swarm_ask`, optionally with suggested answers. The question appears on the session page with the options as buttons, the session shows **Asking** on Fleet, and you get a notification. Your answer reaches the agent automatically.
+
+#### Gates that run themselves
+
+Give a gate a command, like `[gates.tests] cmd = "bun test"`, and Swarm runs it instead of trusting the agent's word. Exit code 0 passes. Gates can also run automatically when a session ends.
+
+#### Diff and open a pull request
+
+Every worktree has a **Diff** button showing its changes, and a **PR** button that pushes the branch and opens a pull request filled in from the task, the handoff and the gates. You can edit it before it goes.
+
+#### Worktrees ready to use
+
+List files to copy into every new worktree, like `.env.local`, and a setup command like `bun install` to run in it.
+
+### Also new
+
+- **Run profiles.** `--profile no-edits` or `read-only` limits what a spawned agent can do.
+- **`swarm_context`.** An agent can re-read what Swarm told it at startup, as of now. Codex and Gemini CLI get the Swarm tools too.
+- **Worktrees without a task.** `swarm wt create` makes a worktree for a spike or a review. `swarm wt` lists them all with how far behind they are, and `swarm wt gc` cleans up merged ones.
+
+### Fixes
+
+- A stray "…" after the agent badge on Fleet is gone.
 
 ## [0.6.0] — 2026-08-23
 
-The learn release: the data Swarm has been collecting starts paying back. Replay what an agent did, see what each task cost, turn an incident into a rule, resume a session that died, try a rule on history before switching it on, read your backlog from GitHub or Linear, and search everything Swarm remembers.
+The data Swarm has been collecting starts paying off. Replay what an agent did, see what each task cost, turn an incident into a rule, resume a session that died, test a rule against past activity, read your backlog from GitHub or Linear, and search everything.
 
-### Added
-- **Session Replay** — a **Replay** button on any session steps through its tool calls one at a time, showing the full input and output of each (Prev/Next, a slider, ←/→ keys). See exactly what an agent did, in order (M4.1).
-- **Cost by task** — the Spend view attributes cost and tokens to each task (matched to a claim by the session's worktree), plus a **Context budget** table ranking sessions by how much context they re-processed — a signal for agents re-reading the same material. `GET /v1/attribution` (M4.2).
-- **Codify an incident** — the Incidents feed has a **Codify** action that turns an incident into a `.swarm.toml` rule snippet and a CLAUDE.md lesson, both copyable. A rule that keeps firing as `ask` suggests hardening to `deny` (M4.3).
-- **Desktop notifications** — opt-in native notifications (settings menu) for a spawned run waiting on a permission, or a claim orphaned with unfinished work; clicking opens the Allow/Deny card or the Board. Quiet while you're looking at the dashboard (M4.7).
-- **Auto-handoff, and resume where it died** — whenever a session working in a claimed worktree pauses or ends, Swarm derives a handoff from what it did: files edited, the last verification-looking command, the last request, the last thing it said. One `auto:` handoff per session, replaced on every pause, silenced by a handoff left on purpose. An ended session's page gets **Resume where it died**, which spawns a run on the task from that handoff plus the session's last actions; `swarm run resume <session-id>`; `GET/POST /v1/sessions/:id/resume` (M4.4).
-- **Rule dry-run** — **Dry-run rules** on the Incidents view replays a project's recorded tool calls through the rules under modes you pick: what would have been asked or denied, per rule, before you switch anything on. It also flags **flaky signals** — a rule that keeps firing on the same command that is then allowed through anyway. Nothing is recorded. `swarm rules dryrun [--set rule=mode,…]`; `GET /v1/rules/dryrun` (M4.6).
-- **GitHub Issues and Linear as task sources** — `[tasks] source = "github"` reads the repo's issues through the logged-in `gh` (optional `labels` filter); `source = "linear"` reads Linear through its API with `LINEAR_API_KEY` from the daemon's environment (optional `team`). Both land in the Board's Tasks, `swarm tasks` and `swarm_next_task` like a markdown backlog: closed/completed is done, in-progress is active, *depends on #n* / *blocked by* become dependencies. Read-only; no credential stored (M4.8).
-- **What's New in the app** — the dashboard shows the release notes for the running version: a **What's New** item in the settings menu, in the desktop app's **Swarm** menu, and in the tray. It also opens once on its own the first time you run a new version. Notes are parsed from `CHANGELOG.md` into `release-notes.js` at build time, so they work offline with no repo checkout.
-- The desktop **Check for Updates…** is in the system menu bar (Swarm menu), not only the tray.
+### Highlights
+
+#### Session replay
+
+Step through a session's tool calls one by one, with the full input and output of each.
+
+#### Cost per task
+
+Spend now shows what each task cost, and which sessions re-read the most material.
+
+#### Codify an incident
+
+Turn an incident into a rule for `.swarm.toml` and a lesson for `CLAUDE.md`, both ready to copy.
+
+#### Resume where it died
+
+When a session in a claimed worktree pauses or ends, Swarm writes a handoff from what it did: files edited, the last test run, the last request and its last message. An ended session gets a **Resume where it died** button that starts a new run from there.
+
+#### Try rules on past activity
+
+**Dry-run rules** replays a project's history through the rules with the settings you choose, so you can see what would have been blocked before you turn anything on.
+
+#### Tasks from GitHub and Linear
+
+Read your backlog from GitHub Issues or Linear, not only from a markdown file.
+
+### Also new
+
+- **Desktop notifications** when a run is waiting for permission or a claim is left with unfinished work.
+- **What's New** shows the release notes for the version you're running, and opens by itself after an update.
+- **Check for Updates…** is in the app menu.
 
 ## [0.5.0] — 2026-08-22
 
-The drive release: Swarm doesn't just watch agents now — it starts them, in a claimed worktree, and brokers what they're allowed to do. Plus the coordination primitives that make an autonomous run safe to leave alone: leases that renew themselves, gates that gate, and a handoff the next session reads on its own.
+Swarm doesn't just watch agents now, it starts them: in a claimed worktree, with rules on what they're allowed to do. Plus what makes an agent safe to leave alone: leases that renew themselves, gates, and a handoff the next session reads automatically.
 
-### Added
-- **`swarm run`** — spawn an agent on a task. `swarm run --task login-form --prompt "…"` claims the task and the daemon starts `claude -p` in its worktree with stream-json on both ends. Steer it with `swarm run send`, stop it with `swarm run stop` (stdin closed, then the process registry's pid-based TERM/KILL — never by pattern), list with `swarm run ls`. The session shows in Fleet as ▶ spawned and is ingested like any other; every finished turn is a `run.result` event with cost and turns (M3.1).
-- **Run from the dashboard** — Ready (or held) task rows on the Board get a **Run** action: a drawer with the prompt prefilled from the task, permission mode, model and max turns (⌘⏎ to submit). The spawned session opens with a stdin box to steer it and a **Stop** button (M3.3).
-- **Permission broker** — a `swarm run` agent's tool-permission prompts go through the same rules as your interactive sessions: a rule `deny` auto-denies with the reason, an unflagged tool auto-allows so the agent can make progress, and anything the rules mark `ask` is held and surfaced on the session as an **Allow / Deny** card. No blocking on a terminal you can't see. Uses `--permission-prompt-tool stdio`; `POST /v1/runs/:id/permissions/:reqId` (M3.2).
-- **Leases renew themselves.** A session working inside a claimed worktree extends the lease on any activity (hook or transcript growth) once it is past half-way — no more `swarm renew` in a long session. Expired leases whose worktree still holds uncommitted or unpushed work are marked **Orphaned** within a minute and open an `orphaned_claim` incident; nothing is removed automatically (M1.2).
-- **Handoffs, injected on start** — `swarm handoff <task> --done … --remaining … [--files] [--verify]` (or `swarm_handoff`) records what the last holder leaves; `swarm resume` / `swarm_resume` reads it. The next session that starts inside that task's worktree gets it automatically as `SessionStart` context, along with what it holds and the lease left, gate status, held resources, and the repo's rule modes (M1.3).
-- **Gates** — verification runs recorded against a task: `swarm gate record login-form review pass --rubric "tests green, error paths read"` (or `swarm_gate_record`). A run without a rubric is rejected; the latest run per gate decides; failed runs are never deleted and open a `gate_failed` incident. `.swarm.toml [gates] required = ["review"]` declares what every task must pass; the Board's Tasks grid shows ✓ / ✗ / — per gate and a **Recent gates** section lists the runs (M2.2).
-- **The MCP tools finally connect.** `swarm_status`, `swarm_claim`, `swarm_next_task`, `swarm_handoff`, `swarm_gate_record`, `swarm_acquire_resource` and the rest are reachable from Claude Code — see the fix below.
-- Dashboard deep links (`?view=board&project=<id>&session=<id>`) and a screenshot carousel with a lightbox on the website; `tools/screens.ts` re-captures the shots with Playwright at 2×.
+> **After updating, run `swarm install` again.** Swarm's MCP tools were registered in the wrong place before this release.
 
-### Fixed
-- **Swarm's MCP tools were never reachable.** `swarm install` wrote `mcpServers.swarm` into `~/.claude/settings.json`, which Claude Code ignores — user-scope MCP servers live in `~/.claude.json` (what `claude mcp add -s user` edits). Install now registers there (and cleans the stale settings.json entry); `claude mcp list` shows `swarm ✔ Connected`. **Re-run `swarm install` after upgrading.**
-- **The daemon reads global config from where its state lives.** `[rules]` / `[gates]` / `[tasks]` in `~/.swarm/config.toml` are resolved against the daemon's home (`SWARM_HOME`), matching the DB and logs — spawned runs, which execute in a worktree without the repo's `.swarm.toml`, still see machine-wide rules.
+### Highlights
+
+#### `swarm run`
+
+`swarm run --task login-form --prompt "…"` claims the task and starts Claude in its worktree. Send it more instructions with `swarm run send`, stop it with `swarm run stop`, and see what's running with `swarm run ls`. You can also start a run from the Board, and steer or stop it from the session page.
+
+#### A permission broker
+
+A run's permission requests go through the same rules as your own sessions. Blocked commands are refused with a reason, safe ones are allowed so the agent keeps moving, and anything that needs a decision shows up as an **Allow / Deny** card on the dashboard.
+
+#### Leases that renew themselves
+
+A session working in a claimed worktree keeps its lease alive just by working. When a lease runs out with uncommitted or unpushed work, it's marked **Orphaned** and an incident opens. Nothing is deleted.
+
+#### Handoffs
+
+`swarm handoff` records what's done and what's left. The next session in that worktree reads it automatically at startup, along with the lease, gates and rules.
+
+#### Gates
+
+Record a check against a task, such as a review or a test run, with a pass or fail and what was checked. `.swarm.toml` can require gates for every task, and the Board shows each task's status.
+
+### Fixes
+
+- **Swarm's MCP tools never connected.** `swarm install` wrote them to a file Claude Code ignores. Fixed; `claude mcp list` now shows Swarm as connected.
+- Global rules in `~/.swarm/config.toml` now apply to runs too.
 
 ## [0.4.1] — 2026-08-22
 
-### Fixed
-- **PRs view went dark under the desktop app.** A daemon launched from the Dock gets macOS's bare GUI `PATH`, so Homebrew's `gh` / `glab` were invisible and the forge silently returned nothing. The daemon now also looks in `/opt/homebrew/bin`, `/usr/local/bin`, Linuxbrew and `~/.local/bin`; `swarm doctor` reports forge CLI auth and warns when `glab` relies on a shell-only `GITLAB_TOKEN`.
-- Icons are vertically centred on their text again (`vertical-align: middle` instead of a fixed `-3px` tuned for the old type scale).
-- npm publish moves to **trusted publishing** (OIDC, no `NPM_TOKEN`), the same setup as fancy-menus.
+### Fixes
+
+- **The PRs view was empty in the desktop app.** Apps launched from the Dock can't see Homebrew's `gh` and `glab`. Swarm looks in the usual places now, and `swarm doctor` checks that they're signed in.
+- Icons are centred on their text again.
+- npm releases are published without a stored token.
 
 ## [0.4.0] — 2026-08-22
 
-The enforcement release: rules that watch file writes, not just Bash; a backlog Swarm can read; servers Swarm starts and stops by pid; and an Incidents feed you can clear.
+Rules now cover file edits, not only shell commands. Swarm can read your backlog, start and stop dev servers safely, and keep a list of incidents you can clear.
 
-### Added
-- **Rules on file writes** — two new rules evaluated on `Write` / `Edit` / `MultiEdit` / `NotebookEdit` paths (and Bash working directories), not only Bash commands. `no_foreign_worktree` (default `ask`) stops a session from editing inside a worktree another claim holds — *never touch a worktree you don't hold* is now a hook decision, with holding inferred from the session's cwd. `claim_required_to_write` (opt-in) makes a repo's shared checkout read-only without a claim: claim a task, get a worktree, write there. Both per repo as `ask | deny | off`.
-- **Incidents view** — the denied-action feed as its own tab: Open / All, per-rule counts, reason and session per row, **Ack** and **Ack all**; the open count sits in the nav. `GET /v1/incidents?open=1&project=`, `POST /v1/incidents/:seq/ack`, `POST /v1/incidents/ack`, `/v1/state.openIncidents`. The Board keeps a short open-only section.
-- **Task source** — `.swarm.toml` `[tasks] source = "docs/plan.md"` points at a markdown file whose `ID | Task | Depends | Status` tables are the backlog (✅ / 🟡 / ⚪, dependencies by task id or milestone prefix). The Board gets a **Tasks** section (Ready / Open / All, *Claim* per row), the CLI `swarm tasks [--ready]`, and agents `swarm_next_task` — the first unclaimed task whose dependencies are done. Swarm's own roadmap is its task source. Markdown only (OQ-5 decided).
-- **`swarm serve` / `swarm proc`** — `swarm serve start --name web -- npm run dev` allocates a free port (ledger + bind probe), runs the command detached with `PORT` set and logs under `~/.swarm/logs/<project>/`, registers pid + start time, and acquires the singleton — so a second `web` fails closed and the port is protected for every other session with no config. `serve ls | stop [name|pid]`, `proc start | ls | stop` for workers without a port. Stop signals registry pids only, verified by start time; nothing is ever killed by pattern. `POST /v1/ports/allocate`, `GET/POST/DELETE /v1/processes`; **Processes** section on the Board with *Stop*.
-- **Star nudge** — once a month at most, never on first open, the dashboard asks for a GitHub star. *Later* snoozes 30 days, *Don't ask again* is final; localStorage only.
-- **Sidebar drag-and-drop** — pinned projects reorder by dragging; the order persists on the daemon (`PUT /v1/projects/order`, `Project.order`).
-- **Desktop app menu** — a real application menu (Swarm / Edit / View / Window): ⌘C/⌘V work, **View › Zoom In / Zoom Out / Actual Size** (`⌘+` `⌘−` `⌘0`) scale the dashboard (persisted), plus Reload and Full Screen.
+### Highlights
 
-### Fixed
-- **Shared-tree rules no longer lose sight of a session mid-turn.** `shared_tree` / `destructive_git` keyed on a 2-minute last-seen window fed only by hooks, so a neighbour three minutes into a long turn became invisible — and its uncommitted work unguarded. Transcript growth now counts as activity (the tailer bumps `last_seen_at`), and the liveness window is the daemon's 10-minute idle threshold (`LIVE_WINDOW_MS`). A false positive costs one confirmation; a false negative cost someone's work.
-- `destructive_git` also matches `git stash drop`, `git stash clear` and `git branch -D`.
-- Dashboard type scale is one step larger across the board (base 13 → 14 px; the smallest labels 10 → 11 px) — it had drifted too small, especially in the desktop app.
-- The **PRs** tab icon (and the branch/commit glyphs) were near-invisible at 15 px; they use the pixelarticons *sharp* variants now.
-- The daemon dot stayed red for up to 15 s after load on a healthy connection (the SSE stream sent nothing until its first heartbeat); the stream now flushes immediately.
-- The nav flashed "Fleet" before the restored tab was applied; session-detail event kinds (`userpromptsubmit`) no longer overflow into the message column; "Unpinned · seen, not pinned" keeps its spacing.
+#### Rules on file edits
 
-### Changed — docs
-- README and site now say what the code does: Codex CLI and Grok sessions are tailed alongside Claude Code; the requirements and architecture diagram list all three.
-- Rules are described as **guardrails against accidents, not a sandbox** — the guide has a new "What rules are — and aren't" section spelling out that a denied Bash command can be routed around (script, heredoc, direct file edit), and that worktree isolation via claims is the real fix. The site's feature cards lead with claims, rules and resources instead of Fleet and Spend.
+Two new rules check file edits as well as commands. `no_foreign_worktree` (on by default, set to ask) stops a session from editing inside a worktree someone else has claimed. `claim_required_to_write` (off by default) makes a repo read-only until you claim a task, which gives you your own worktree to write in.
 
-### Changed — performance
-- **Daemon never spawns `git` on a request.** Worktree status (`git worktree list` + `status`/`rev-list` per worktree, ~0.8 s across a fleet) moves to a 15 s background refresh with async `Bun.spawn`; `/v1/state` serves the cache (612 ms → ~15 ms). Claim/release invalidate it.
-- **Hook round-trips are two indexed statements**, not two `git rev-parse` spawns plus a transcript-directory scan: `cwd → project` is cached 60 s, the inline transcript tail is debounced to once per 2 s per session (the 5 s tailer covers steady state), and subagent directories are re-listed only when their mtime moves.
-- **Events store ~2 KB, not ~10 KB.** `tool_input` is clipped at 2 KB and `tool_response` at 4 KB in `payload` (`{truncated, bytes, preview}`), and the tool I/O is no longer duplicated in `raw`. Existing databases are rewritten once on boot and `VACUUM`ed (96 MB → 27 MB here). Retention: events older than 30 days are pruned daily (incidents kept), `raw` is cleared after 7 days.
-- **Wire shape.** SSE frames, `GET /v1/events` replays and `GET /v1/sessions/:id/events` carry `seq/ts/type/projectId/sessionId/payload{hook,summary,…}` only — no `raw`, no tool I/O (a 5.5 MB session fetch is now ~150 KB). `GET /v1/events/:seq` returns one stored event in full; `?full=1` on the SSE replay does the same. `?since=0` replays the last 200 events, not the table.
-- **Incremental session view** — `GET /v1/sessions/:id/events?after=<seq>&afterTs=<iso>`; the dashboard appends instead of re-fetching 500 events + 500 turns on every hook.
-- **Dashboard render loop** — one `requestAnimationFrame` scheduler, snapshot `seq` short-circuit, paused while the tab is hidden, exponential SSE reconnect backoff; session log merges two sorted lists and caches rendered rows; data-grid memoises persisted layout and uses one `Intl.Collator`; charts memoise the turn strip.
-- SQLite: indexes on `events(type, seq)` and `turns(ts)`, `mmap_size` 256 MB, cached prepared statements (`db.query`), `sessions`/`spend`/`incidents` memoised per write generation; `/v1/spend` is its own endpoint.
-- Background tick: Codex/Grok discovery every 15 s when idle; Grok `summary.json` re-read only on mtime change.
+#### Incidents
+
+Every blocked or questioned action is listed in its own view, where you can review and acknowledge them.
+
+#### Your backlog as a task list
+
+Point `[tasks] source` at a markdown file with a task table, and the Board lists your tasks, `swarm tasks` prints them, and agents can ask for the next one that's ready.
+
+#### Dev servers without collisions
+
+`swarm serve start --name web -- npm run dev` picks a free port, starts the server and tracks it. A second server with the same name is refused, and its port is protected from other sessions. `swarm serve stop` stops only the process Swarm started, never anything matching by name.
+
+### Also new
+
+- Pinned projects can be reordered by dragging.
+- The desktop app has a proper menu bar, with copy, paste and zoom.
+- Once a month at most, the dashboard asks if you'd like to star the project on GitHub.
+
+### Faster
+
+- Dashboard state loads in about 15 ms instead of 600 ms.
+- Hooks do far less work per call.
+- Stored events are a fifth of the size. On my machine the database went from 96 MB to 27 MB.
+- The session page loads new events as they arrive instead of reloading everything.
+
+### Fixes
+
+- Rules could lose track of a session in the middle of a long turn and leave its uncommitted work unprotected.
+- `git stash drop`, `git stash clear` and `git branch -D` are treated as destructive.
+- Text across the dashboard is one size larger.
+- The connection light no longer stays red for 15 seconds after loading.
+
+### Docs
+
+- The docs say plainly that rules protect against accidents and aren't a sandbox. A determined agent can get around a blocked command. Claims and worktrees are what keep work apart.
 
 ## [0.3.0] — 2026-08-22
 
-The coordination release: rules you can configure, runtime resources agents can hold, and the merge queue at the end of the loop.
+Rules you can configure, resources agents can hold, and one merge queue across your repos.
 
-### Added
-- **Config system** — `~/.swarm/config.toml` (global) deep-merged with an optional `<repo>/.swarm.toml`. Lenient validation: bad config can never take the daemon down. Daemon port preference is `SWARM_PORT` > config > 7777. See `docs/13-config.md`.
-- **Rule engine v2** — every rule is per-repo configurable as `ask | deny | off`: `shared_tree`, `destructive_git`, `pattern_kill`, and the new `protected_ports` (kill/free of a configured port — `lsof | kill`, `fuser -k`, `kill-port` — is asked or denied). `deny` is returned to Claude Code as a real permission denial.
-- **Incidents** — every non-allow decision is recorded (`incident.opened`: rule, action, command, reason), exposed at `GET /v1/incidents`, included in `/v1/state`, and shown on the Board.
-- **Runtime resources (Phase 1)** — named singletons for what agents fight over at runtime (dev servers, databases, ports). Fail-closed acquire: holdings live while their pid runs or their lease hasn't expired; the same owner refreshes; dead holdings reap instead of blocking. Release is fail-closed too (owner required, `--force` overrides). Held ports automatically join the protected-ports rule — acquiring `db` on 5432 guards `lsof -ti:5432 | xargs kill` for every other agent, no config needed. HTTP `GET/POST /v1/resources`, `DELETE /v1/resources/:name`; MCP `swarm_acquire_resource` / `swarm_release_resource` / `swarm_resources`; CLI `swarm res ls|acquire|release`.
-- **PRs view** — one merge queue across GitHub and GitLab. Forge detection from the git remote (ssh/https, GitLab subgroups, self-hosted), polled through the locally-authenticated `gh` / `glab` CLIs with the project root as cwd — no tokens stored, 2-minute per-project cache floor. `GET /v1/prs`, `POST /v1/prs/merge` (squash). Merge is offered only on green, mergeable, non-draft rows, behind a confirm.
-- **Board view** — Claims, Worktrees, Resources, and Incidents move out of Fleet into their own view; Fleet shows sessions only (Live + Earlier). Last view and project selection persist across reloads.
-- **Stats view** — `GET /v1/stats`; activity line, calendar heatmap, and streaks (daily buckets in local time, DST-immune). `swarm stats` on the CLI.
-- **Data-grid everywhere** — Claims, Worktrees, Resources, Incidents, PRs, and all six Spend tables render through the same sortable / resizable / reorderable grid with per-column filters, a column-visibility menu, and persisted layouts. Header ticks and tooltips make the affordances discoverable.
-- **Desktop: Check for Updates…** in the tray menu, wired to the Tauri updater with native dialogs (available / up-to-date / failed) and install-and-restart on accept.
-- **Agent badge** on every Fleet and session row, so mixed-agent fleets are labelled consistently.
-- **Website** — getswarm.vercel.app: OS-detected downloads from the latest GitHub release, the `bunx` one-liner, sharing tags with hero art, and (this release) rendered docs and release notes.
-- **Design tokens** — the dashboard's CSS contains zero raw hex / rgba / font-size / duration values; the system is documented in `docs/12-design-tokens.md` with a drift grep.
-- Swarm now dogfoods its own rules via the repo's `.swarm.toml` (`shared_tree` / `destructive_git` deny, daemon port protected).
+### Highlights
 
-### Fixed
-- **Hook resilience** — the PreToolUse hook falls back to the default port when `daemon.json` points at a dead daemon, so a crashed daemon no longer silently disables the guard (this was the gap behind a real `git add -A` collision).
-- Resource liveness: pid 0 was treated as a live process (`kill(0)` addresses the process group), so those holdings never reaped; tracked pids are now `> 0`. `heldPorts()` is one SELECT on the hook path; lazy reap on acquire, sweep on the 5 s tick. Unknown session IDs on acquire no longer mint phantom sessions.
-- Session view is two equal columns again (a bare `aside` selector in the sidebar-collapse CSS captured the session side panel); the log keeps your scroll position across live updates and follows the tail only when pinned to the bottom.
-- A pinned project whose root vanished is merged into the live same-name entry (repo renames produced duplicate sidebar rows); the sidebar `⋯` appears on hover in the count's slot and reserves no space.
-- Desktop: quit actually quits, window close hides (macOS convention) and the dock icon restores it, and the `swarmd` sidecar dies with the app. Dev builds serve the repo's live dashboard instead of a stale staged snapshot.
-- Release pipeline: npm publish is skipped cleanly when `NPM_TOKEN` is absent (since 0.4.1: trusted publishing, no token).
+#### Config files
+
+`~/.swarm/config.toml` for your machine, plus an optional `.swarm.toml` in any repo. A bad config file can never crash the daemon.
+
+#### Configurable rules
+
+Every rule can be set to `ask`, `deny` or `off` per repo. A new rule protects ports you list from being freed or killed.
+
+#### Runtime resources
+
+Agents can claim shared things like a dev server, database or port. Only one agent holds each at a time, and claims from processes that have died are cleaned up. A held port is protected automatically.
+
+#### PRs view
+
+One merge queue across GitHub and GitLab, using the `gh` and `glab` you're already signed in to. Swarm stores no tokens.
+
+### Also new
+
+- **Board view** for claims, worktrees, resources and incidents. Fleet shows sessions only.
+- **Stats view** with activity, a calendar heatmap and streaks.
+- **Sortable tables everywhere**, with resizable columns, filters and saved layouts.
+- **Check for Updates…** in the desktop app.
+- **The website**, [getswarm.vercel.app](https://getswarm.vercel.app), with downloads, docs and these release notes.
+
+### Fixes
+
+- A crashed daemon could silently switch off the rules. The hook now finds a daemon on the default port instead.
+- Resource claims held by dead processes are cleaned up.
+- The desktop app quits properly, and closing the window hides it the way macOS apps do.
 
 ## [0.2.2] — 2026-08-21
 
-### Added
-- Publishable `@ra3orblade/swarm` npm package (bundled bins + dashboard); `bunx @ra3orblade/swarm setup` onboarding.
-- Enterprise data-grid for Fleet with a collapsible sidebar; pixel-art icon set and bespoke empty-state illustrations; folder picker; green chart palette.
-- Desktop: macOS window chrome, animated pixel-logo splash, free-port daemon startup.
-
-### Fixed
-- Release builds bundle every platform target; Linux ships `.deb` + `.rpm` (AppImage disabled until `linuxdeploy` on GitHub runners is debugged).
+- Swarm is on npm: `bunx @ra3orblade/swarm setup` gets you started.
+- A proper table for Fleet, a collapsible sidebar, pixel-art icons and a folder picker.
+- The desktop app gets native macOS window chrome and a splash screen.
+- Release builds cover every platform. Linux ships `.deb` and `.rpm`.
 
 ## [0.0.6] — 2026-08-21
 
-First signed and notarized macOS desktop build; `release.yml` became a three-OS matrix (macOS / Windows / Linux) with a native sidecar per runner.
+The first signed and notarized macOS build. Releases are now built for macOS, Windows and Linux.
 
+[0.15.0]: https://github.com/ra3orblade/swarm/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/ra3orblade/swarm/compare/v0.13.2...v0.14.0
+[0.13.2]: https://github.com/ra3orblade/swarm/compare/v0.13.1...v0.13.2
+[0.13.1]: https://github.com/ra3orblade/swarm/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/ra3orblade/swarm/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/ra3orblade/swarm/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/ra3orblade/swarm/compare/v0.11.3...v0.12.0
+[0.11.3]: https://github.com/ra3orblade/swarm/compare/v0.11.2...v0.11.3
+[0.11.2]: https://github.com/ra3orblade/swarm/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/ra3orblade/swarm/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/ra3orblade/swarm/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/ra3orblade/swarm/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/ra3orblade/swarm/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/ra3orblade/swarm/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/ra3orblade/swarm/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ra3orblade/swarm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ra3orblade/swarm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/ra3orblade/swarm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ra3orblade/swarm/compare/v0.3.0...v0.4.0
