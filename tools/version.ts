@@ -50,14 +50,18 @@ edit("apps/desktop/src-tauri/Cargo.lock", (s) =>
 // entry for this version. It is scaffolding, not copy: rewrite it around one real moment
 // (see docs/marketing/v0.3.0-x.md for the voice) before posting. Refuses to run without
 // a CHANGELOG entry so a release can't ship unannounced.
+// An entry is a lede paragraph, an optional `>` note, then `#### Feature` headings each followed
+// by a paragraph (see CHANGELOG.md). The lede opens the post; the highlights become its lines.
 const para =
   entry
     .split("\n")
-    .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("-"))
+    .find((l) => l.trim() && !/^[#>|-]/.test(l))
     ?.trim() ?? "";
-const bullets = [...entry.matchAll(/^- \*\*([^*]+)\*\*\s*—\s*([^\n]*)/gm)].map((m) => ({
-  name: (m[1] ?? "").trim(),
-  blurb: (m[2] ?? "").split(/\.\s/)[0]?.replace(/[`*]/g, "").trim() ?? "",
+const bullets = [...entry.matchAll(/^#### ([^\n]+)\n+([^\n]*)/gm)].map((m) => ({
+  name: (m[1] ?? "").replace(/[`*]/g, "").trim(),
+  blurb: m[2]?.startsWith("|")
+    ? ""
+    : ((m[2] ?? "").split(/\.\s/)[0]?.replace(/[`*]/g, "").trim() ?? ""),
 }));
 const top = bullets.slice(0, 4);
 const strip = (s: string) => s.replace(/[`*]/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
@@ -65,7 +69,7 @@ const post = `Swarm v${v} is out.
 
 ${strip(para)}
 
-${top.map((b) => `→ ${b.name}: ${b.blurb}`).join("\n")}
+${top.map((b) => `→ ${b.name}${b.blurb ? `: ${b.blurb}` : ""}`).join("\n")}
 
 Local-first, open source, no account. One command:
 bunx @ra3orblade/swarm setup
