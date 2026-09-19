@@ -109,8 +109,13 @@ jobs:
           PKG=$(node -p "require('./npm/package.json').version")
           test "v$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != npm/package.json $PKG"; exit 1; }
       - run: bun npm/dist/swarm.js --help
+      # A version npm already has is skipped rather than failed, so a release whose run broke
+      # after this step (or that was finished by hand) can be re-run to green.
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@ra3orblade/swarm@$V" version >/dev/null 2>&1; then echo "@ra3orblade/swarm@$V is already on npm — skipped"; exit 0; fi
+          npm publish --access public
         working-directory: npm
 
   team:
@@ -170,8 +175,12 @@ jobs:
             ghcr.io/ra3orblade/swarm-teamd:latest
       # Last, so a package without its trusted-publisher rule yet (the first release) fails only
       # this step — the image and the binaries still ship.
+      # Skipped when npm already has this version — see the npm job.
       - name: Publish @ra3orblade/swarm-team to npm
-        run: npm publish --access public
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@ra3orblade/swarm-team@$V" version >/dev/null 2>&1; then echo "@ra3orblade/swarm-team@$V is already on npm — skipped"; exit 0; fi
+          npm publish --access public
         working-directory: npm-team
 
   team-release-assets:
