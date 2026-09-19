@@ -6,3 +6,5 @@ npm/*
 .git
 *.db
 npm-team
+# worktrees live here (.claude/worktrees/<name>); each is a full checkout with its own build output
+.claude
