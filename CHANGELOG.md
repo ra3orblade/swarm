@@ -4,28 +4,16 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-09-19
+
+The rules now cover every agent Swarm watches, not only Claude Code, and hold up over a long
+session: Codex, Gemini CLI and Cursor get the same checks, five new rules for irreversible
+commands ship switched off so you can see what they would catch first, a compacted session is
+told again what it holds, and Swarm can export everything to your own OpenTelemetry backend.
+The team daemon installs without a clone.
+
 ### Added
 
-- **The team dashboard has Settings.** Admins change roles, remove members (which ends their
-  sessions), revoke machines, and edit the org policy right there — *Sign and publish* signs it
-  with the team's key. A team always keeps an admin. With one shared secret, its holder is the
-  admin.
-- **Join finds teams on your network.** A team daemon announces itself over mDNS, and the Team
-  panel's Join lists what it hears — one click fills in the address. Names and addresses only: a
-  shared secret still arrives in the invite link.
-- **Host a team without a clone.** The team daemon now ships three ways, each the same version
-  as the app: `npm i -g @ra3orblade/swarm-team`, the `ghcr.io/ra3orblade/swarm-teamd` image,
-  and a `swarm-teamd` binary per platform on every GitHub release. The Team panel shows its
-  license (FSL-1.1-ALv2, source-available, not the app's Apache-2.0) and, once you accept,
-  downloads the binary for your machine, checked against the release's checksums, into
-  `~/.swarm/bin`. It is never bundled into the app.
-- **OTLP export.** Set `[otel] endpoint` and Swarm sends every session — Claude Code, Codex,
-  Gemini CLI, Grok, Aider, opencode — to your own OpenTelemetry backend: one trace per session,
-  a span per tool call (failed ones marked), a span for each wait on you, claims, incidents and
-  gates as events, plus token and cost metrics. It speaks the OpenTelemetry GenAI conventions by
-  default, or Claude Code's own metric names with `compat = "claude-code"`. Commands and paths
-  stay out unless `include_content = true`. A collector that is down loses nothing, and `swarm
-  doctor` shows whether the last export got through. Off unless you set the endpoint.
 - **The rules hold on Codex, Gemini CLI and Cursor.** Swarm watched six agents and ruled one.
   `swarm install` now adds its hook to Codex (`PreToolUse` in `~/.codex/hooks.json` — trust it
   once with `/hooks`) and Gemini CLI (`BeforeTool` in `~/.gemini/settings.json`), beside your own.
@@ -63,6 +51,26 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   compacts, and Swarm's answer now leads with *context was compacted* before the held task, the
   lease, the handoff and the rules — so the agent knows it is being reminded, not told something
   new.
+- **OTLP export.** Set `[otel] endpoint` and Swarm sends every session — Claude Code, Codex,
+  Gemini CLI, Grok, Aider, opencode — to your own OpenTelemetry backend: one trace per session,
+  a span per tool call (failed ones marked), a span for each wait on you, claims, incidents and
+  gates as events, plus token and cost metrics. It speaks the OpenTelemetry GenAI conventions by
+  default, or Claude Code's own metric names with `compat = "claude-code"`. Commands and paths
+  stay out unless `include_content = true`. A collector that is down loses nothing, and `swarm
+  doctor` shows whether the last export got through. Off unless you set the endpoint.
+- **Host a team without a clone.** The team daemon now ships three ways, each the same version
+  as the app: `npm i -g @ra3orblade/swarm-team`, the `ghcr.io/ra3orblade/swarm-teamd` image,
+  and a `swarm-teamd` binary per platform on every GitHub release. The Team panel shows its
+  license (FSL-1.1-ALv2, source-available, not the app's Apache-2.0) and, once you accept,
+  downloads the binary for your machine, checked against the release's checksums, into
+  `~/.swarm/bin`. It is never bundled into the app.
+- **The team dashboard has Settings.** Admins change roles, remove members (which ends their
+  sessions), revoke machines, and edit the org policy right there — *Sign and publish* signs it
+  with the team's key. A team always keeps an admin. With one shared secret, its holder is the
+  admin.
+- **Join finds teams on your network.** A team daemon announces itself over mDNS, and the Team
+  panel's Join lists what it hears — one click fills in the address. Names and addresses only: a
+  shared secret still arrives in the invite link.
 - **An agent's question is a question you can answer.** When a Claude Code session called
   `AskUserQuestion`, the permission card showed `questions=[{"question":"Which…` — the tool's
   input as JSON, cut off at eighty characters — above *Allow* and *Deny*, neither of which means
@@ -78,7 +86,7 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
   agents blocked on a person — questions asked through `swarm_ask` plus parked permission
   prompts — and clears when they are answered. A browser tab has no icon badge, so it gets the
   count in its title: `(2) Swarm`. The dock badge needs the new
-  `core:window:allow-set-badge-count` capability, so it arrives with the next desktop build; an
+  `core:window:allow-set-badge-count` capability, so it needs this release's desktop build; an
   older shell just shows no badge.
 
 ### Changed
@@ -175,7 +183,6 @@ All notable changes to Swarm. The format follows [Keep a Changelog](https://keep
 - **Graph tabs no longer jump when clicked.** A count appeared on the chip just switched to (only
   the open tab has data), widening it and pushing the others sideways. The numbers moved to the
   heading, where each tab has a summary line of its own.
-
 
 ## [0.14.0] — 2026-09-12
 
