@@ -3900,8 +3900,8 @@ export class Store {
     if (!e.sessionId || Store.LEDGER_EVENTS.has(e.type)) return;
     const p = e.payload as { summary?: string; cwd?: string | null; hook?: string; tool?: string };
     const row = this.db
-      .query("SELECT id, tool_counts FROM sessions WHERE id = ?")
-      .get(e.sessionId) as { id: string; tool_counts: string } | null;
+      .query("SELECT id, tool_counts, state FROM sessions WHERE id = ?")
+      .get(e.sessionId) as { id: string; tool_counts: string; state: string | null } | null;
     const branch = p.cwd && existsSync(p.cwd) ? currentBranch(p.cwd) : null;
     if (!row) {
       this.db
@@ -3921,10 +3921,13 @@ export class Store {
     }
     const counts = JSON.parse(row?.tool_counts ?? "{}") as Record<string, number>;
     if (e.type === "tool.requested" && p.tool) counts[p.tool] = (counts[p.tool] ?? 0) + 1;
+    // A Stop can arrive after SessionEnd (Grok fires one on shutdown); it must not reopen the row
+    // as "waiting", which would count toward attention for a session that is gone.
+    const idle = p.hook === "Stop" || e.type === "session.notification";
     const state =
-      e.type === "session.ended"
+      e.type === "session.ended" || (idle && row?.state === "ended")
         ? "ended"
-        : p.hook === "Stop" || e.type === "session.notification"
+        : idle
           ? "waiting"
           : "active";
     this.db
@@ -4581,7 +4584,16 @@ export class Store {
   }
 
   private ensureAgentSession(sid: string, agent: string, cwd: string, mtime: number) {
-    if (this.db.query("SELECT 1 FROM sessions WHERE id = ?").get(sid)) return;
+    const row = this.db.query("SELECT agent FROM sessions WHERE id = ?").get(sid) as {
+      agent: string | null;
+    } | null;
+    if (row) {
+      // the log is the authority on whose session this is: a hook from an agent that runs Claude
+      // Code's hooks (Grok, Cursor) may have created the row first under the default
+      if (row.agent !== agent)
+        this.db.query("UPDATE sessions SET agent = ? WHERE id = ?").run(agent, sid);
+      return;
+    }
     const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
     const ts = new Date(mtime).toISOString();
     this.db

@@ -28,7 +28,10 @@ if (event === "wait") {
   const { waitForWake } = await import("./wait");
   let sid = "";
   try {
-    sid = String((JSON.parse(input || "{}") as { session_id?: unknown }).session_id ?? "");
+    const raw = JSON.parse(input || "{}") as Record<string, unknown>;
+    // Only Claude Code runs this in the background; Grok and Cursor load the same settings.json
+    // and would sit in the foreground on it for the whole hook timeout.
+    if (detectAgent(raw) === "claude-code") sid = String(raw.session_id ?? "");
   } catch {
     /* no session: nothing to wait for */
   }

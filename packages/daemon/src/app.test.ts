@@ -2556,3 +2556,66 @@ describe("claim what Claude Code creates (M13.7)", () => {
     expect(store.claims(p.id)).toHaveLength(0);
   });
 });
+
+describe("Grok running Claude Code's hooks", () => {
+  it("leaves the session to the Grok tailer, and a late Stop never reopens an ended row", async () => {
+    const fs = require("node:fs");
+    const grok = fs.mkdtempSync(join(tmpdir(), "swarm-grok-"));
+    process.env.SWARM_GROK_DIR = grok;
+    try {
+      const { app, store } = createApp(new Store(tmpHome()));
+      const cwd = realpathSync(mkdtempSync(join(tmpdir(), "swarm-grok-cwd-")));
+      const sid = "01a0c37f-grok";
+      // Grok 1.0.40 sends both spellings of the event name and session id, plus workspaceRoot
+      const hook = (event: string, hookEventName: string, extra: Record<string, unknown> = {}) =>
+        app.request(`/v1/hook/${event}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            hookEventName,
+            sessionId: sid,
+            cwd,
+            workspaceRoot: `${cwd}/`,
+            hook_event_name: event,
+            session_id: sid,
+            ...extra,
+          }),
+        });
+      await hook("SessionStart", "session_start", { source: "new" });
+      await hook("Stop", "stop", { reason: "end_turn" });
+      // not a Claude Code session: the hook route records nothing
+      expect(store.db.query("SELECT 1 FROM sessions WHERE id = ?").get(sid)).toBeNull();
+      const dir = join(grok, encodeURIComponent(cwd), sid);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        join(dir, "updates.jsonl"),
+        `${JSON.stringify({ timestamp: Date.now() / 1000, method: "session/update", params: { sessionId: sid, update: { sessionUpdate: "turn_completed", usage: { inputTokens: 10, outputTokens: 5 } } } })}\n`,
+      );
+      store.tailGrok();
+      const row = store.db.query("SELECT agent, state FROM sessions WHERE id = ?").get(sid) as {
+        agent: string;
+        state: string;
+      };
+      expect(row.agent).toBe("grok");
+    } finally {
+      delete process.env.SWARM_GROK_DIR;
+    }
+  });
+
+  it("a Stop after SessionEnd keeps a Claude Code session ended", async () => {
+    const { app, store } = createApp(new Store(tmpHome()));
+    const hook = (event: string) =>
+      app.request(`/v1/hook/${event}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: "s-late", cwd: "/nowhere" }),
+      });
+    await hook("SessionStart");
+    await hook("SessionEnd");
+    await hook("Stop");
+    const row = store.db.query("SELECT state FROM sessions WHERE id = 's-late'").get() as {
+      state: string;
+    };
+    expect(row.state).toBe("ended");
+  });
+});

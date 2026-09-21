@@ -52,12 +52,27 @@ const CURSOR = (tool_name: string, tool_input: Record<string, unknown>) => ({
   tool_use_id: "abc",
   cwd: "/r/app",
 });
+// Grok CLI 1.0.40 running ~/.claude/settings.json hooks (captured 2026-09-21).
+const GROK = (tool_name: string, tool_input: Record<string, unknown>) => ({
+  hookEventName: "pre_tool_use",
+  sessionId: "01a0-gk",
+  cwd: "/r/app",
+  workspaceRoot: "/r/app/",
+  timestamp: "2026-09-21T10:25:52.452+00:00",
+  permissionMode: "bypassPermissions",
+  hook_event_name: "PreToolUse",
+  session_id: "01a0-gk",
+  permission_mode: "bypassPermissions",
+  tool_name,
+  tool_input,
+});
 
 describe("detectAgent", () => {
   test("by the fields only that agent sends", () => {
     expect(detectAgent(CODEX_BASH)).toBe("codex");
     expect(detectAgent(GEMINI("read_file", {}))).toBe("gemini");
     expect(detectAgent(CURSOR("Shell", {}))).toBe("cursor");
+    expect(detectAgent(GROK("read_file", {}))).toBe("grok");
     expect(detectAgent({ session_id: "s", cwd: "/r", tool_name: "Bash" })).toBe("claude-code");
   });
 });
@@ -155,6 +170,19 @@ describe("decisions as each agent can carry them", () => {
   });
 });
 
+describe("toToolRequests · Grok", () => {
+  test("shell, read and both write tools map onto the rules' vocabulary", () => {
+    const one = (t: string, i: Record<string, unknown>) => toToolRequests("grok", GROK(t, i));
+    expect(one("run_terminal_command", { command: "git add -A" })).toEqual([
+      { tool: "Bash", input: { command: "git add -A" }, sessionId: "01a0-gk", cwd: "/r/app" },
+    ]);
+    expect(one("read_file", { target_file: "/r/app/.env" })[0]?.tool).toBe("Read");
+    expect(one("write", { file_path: "/r/a.ts", content: "" })[0]?.tool).toBe("Write");
+    expect(one("search_replace", { file_path: "/r/a.ts" })[0]?.tool).toBe("Write");
+    expect(one("list_dir", { target_directory: "/r" })).toEqual([]);
+  });
+});
+
 describe("agentCoverage", () => {
   const ours = { type: "command", command: "bun /x/packages/hook/src/bin.ts PreToolUse" };
   test("reads each agent's own file; Cursor follows the Claude Code hooks", () => {
@@ -162,13 +190,14 @@ describe("agentCoverage", () => {
       claude: null,
       codexHooks: { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [ours] }] } },
       gemini: { hooks: { BeforeTool: [{ hooks: [{ type: "command", command: "their.sh" }] }] } },
-      present: { codex: true, gemini: true, cursor: false },
+      present: { codex: true, gemini: true, cursor: false, grok: true },
     });
     expect(cov.map((c) => [c.agent, c.present, c.installed])).toEqual([
       ["claude-code", true, false],
       ["codex", true, true],
       ["gemini", true, false],
       ["cursor", false, false],
+      ["grok", true, false],
     ]);
     expect(cov.find((c) => c.agent === "codex")?.note).toContain("/hooks");
   });
