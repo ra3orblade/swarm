@@ -16,6 +16,12 @@
  *   reads Claude's `hookSpecificOutput` back. So Swarm's existing hook already runs there, with
  *   a Cursor payload: `conversation_id` (no `session_id`), `cursor_version`, `tool_input.command`
  *   / `working_directory`. `preToolUse` accepts `ask` "but does not enforce it today".
+ * - **Grok CLI** (1.0.40, observed 2026-09-21) also runs `~/.claude/settings.json` hooks, with a
+ *   payload that carries both spellings — `hookEventName: "pre_tool_use"` and `hook_event_name:
+ *   "PreToolUse"`, `sessionId` and `session_id` — plus `workspaceRoot`. Its tools are
+ *   `run_terminal_command` (`command`), `read_file` (`target_file`), `search_replace` / `write`
+ *   (`file_path`). It does not know `asyncRewake`: a hook marked so runs in the foreground, so
+ *   `swarm-hook wait` must never block there.
  *
  * An agent that cannot ask gets `deny` in place of `ask` (OQ-29): letting the call through would
  * make the rule a no-op on exactly the agents this exists for, and the reason tells the agent to
@@ -24,13 +30,14 @@
 
 import { hookCoverage, hookIsOurs } from "./policy";
 
-export type HookAgent = "claude-code" | "codex" | "gemini" | "cursor";
+export type HookAgent = "claude-code" | "codex" | "gemini" | "cursor" | "grok";
 
 export const AGENT_LABEL: Record<HookAgent, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
   gemini: "Gemini CLI",
   cursor: "Cursor",
+  grok: "Grok",
 };
 
 /** Agents whose pre-tool hook can put a question to the user. */
@@ -50,6 +57,8 @@ export function detectAgent(raw: Record<string, unknown>): HookAgent {
     return "cursor";
   if (raw.hook_event_name === "BeforeTool") return "gemini";
   if (typeof raw.turn_id === "string") return "codex";
+  // Grok sends the event name twice, camelCase beside snake_case; Claude Code sends only the latter
+  if (typeof raw.hookEventName === "string" && typeof raw.workspaceRoot === "string") return "grok";
   return "claude-code";
 }
 
@@ -116,6 +125,15 @@ export function toToolRequests(agent: HookAgent, raw: Record<string, unknown>): 
       if (tool === "Write" || tool === "Delete") return [req("Write", { file_path: fp })];
       return [];
     }
+    case "grok": {
+      const shell = str(input.command);
+      if (tool === "run_terminal_command" && shell) return [req("Bash", { command: shell })];
+      const fp = str(input.file_path) ?? str(input.target_file);
+      if (!fp) return [];
+      if (tool === "read_file") return [req("Read", { file_path: fp })];
+      if (tool === "write" || tool === "search_replace") return [req("Write", { file_path: fp })];
+      return [];
+    }
   }
 }
 
@@ -152,7 +170,7 @@ export function renderAgentDecision(agent: HookAgent, d: AgentDecision): string 
   if (e.action === "allow") return "{}";
   const reason = `[swarm] ${e.reason ?? ""}`.trim();
   if (agent === "gemini") return JSON.stringify({ decision: "deny", reason });
-  // Codex and Cursor read Claude's shape (Cursor maps permissionDecisionReason to user_message)
+  // Codex, Cursor and Grok read Claude's shape (Cursor maps permissionDecisionReason to user_message)
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
@@ -194,7 +212,7 @@ export function agentCoverage(files: {
   claude: unknown;
   codexHooks: unknown;
   gemini: unknown;
-  present: { codex: boolean; gemini: boolean; cursor: boolean };
+  present: { codex: boolean; gemini: boolean; cursor: boolean; grok: boolean };
 }): AgentCoverage[] {
   const claude = hookCoverage(files.claude).complete;
   const cannotAsk = "ask → refused (its hook cannot ask)";
@@ -230,6 +248,14 @@ export function agentCoverage(files: {
       installed: claude,
       covers: "Shell, Read, Write, via the Claude Code hooks",
       note: `${cannotAsk} · needs Third-Party Imports on`,
+    },
+    {
+      agent: "grok",
+      label: AGENT_LABEL.grok,
+      present: files.present.grok,
+      installed: claude,
+      covers: "run_terminal_command, read_file, write / search_replace, via the Claude Code hooks",
+      note: cannotAsk,
     },
   ];
 }

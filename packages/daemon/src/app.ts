@@ -651,6 +651,7 @@ export function createApp(
           codex: existsSync(dirname(codexHooks)),
           gemini: existsSync(dirname(gemini)),
           cursor: existsSync(join(h, ".cursor")),
+          grok: existsSync(join(h, ".grok")),
         },
       }),
     );
@@ -1318,8 +1319,8 @@ export function createApp(
   app.post("/v1/hook/:event", async (c) => {
     const event = c.req.param("event");
     const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    // M12.4: Codex (PreToolUse), Gemini CLI (BeforeTool) and Cursor (which runs Claude Code's own
-    // hooks from ~/.claude/settings.json) reach this route too. Their sessions are recorded by
+    // M12.4: Codex (PreToolUse), Gemini CLI (BeforeTool), Cursor and Grok (which both run Claude
+    // Code's own hooks from ~/.claude/settings.json) reach this route too. Their sessions are recorded by
     // their adapters, not as Claude Code events; here they only get the rules, in their own shape.
     const agent = detectAgent(raw);
     if (agent !== "claude-code") {
