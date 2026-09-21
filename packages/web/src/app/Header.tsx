@@ -1,5 +1,6 @@
 /**
- * The header (M11.6): sidebar toggle, mark, view nav, today's spend, daemon state.
+ * The header (M11.6): sidebar toggle, mark, view nav, what is waiting on you, today's spend,
+ * daemon state.
  *
  * Class for class the vanilla header — `.logo`, `.sp`, `#today`, `#daemon > .dot/.lbl`, and the nav
  * buttons' `.navgrp` / `.navview` / `.navcount` / `.chev`. The stylesheet is the spec.
@@ -16,15 +17,17 @@ import { useUiStore } from "../state/ui";
 import { useViewBadges } from "./badges";
 import { settingsMenu } from "./settingsMenu";
 import { VIEW_GROUPS, viewsInGroup } from "./views";
+import { WaitingButton } from "./Waiting";
 
 export interface HeaderProps {
   /** The running daemon's version, for the settings menu and the feedback template. */
   version: string | null;
   onOpenPalette: () => void;
   onOpenWhatsNew: () => void;
+  onOpenWaiting: () => void;
 }
 
-export function Header({ version, onOpenPalette, onOpenWhatsNew }: HeaderProps) {
+export function Header({ version, onOpenPalette, onOpenWhatsNew, onOpenWaiting }: HeaderProps) {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const today = useSnapshot((s) => (s ? sumBy(s.spend.byProjectToday, (r) => r.cost) : 0));
@@ -50,6 +53,7 @@ export function Header({ version, onOpenPalette, onOpenWhatsNew }: HeaderProps) 
       </span>
       <Nav />
       <span className="sp" />
+      <WaitingButton onOpen={onOpenWaiting} />
       <span id="today">
         Today <b>{usd(today) ?? "$0.00"}</b>
       </span>

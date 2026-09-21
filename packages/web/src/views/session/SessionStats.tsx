@@ -14,7 +14,8 @@ import { CompositionBar } from "../../components/charts";
 import { copyText } from "../../lib/copy";
 import { ago, big, modelName, shortPath, tokens, usd } from "../../lib/format";
 import { icon } from "../../lib/icon";
-import { refreshSnapshot, useSnapshot } from "../../state/snapshot";
+import { useSnapshot } from "../../state/snapshot";
+import { QuestionCard } from "./QuestionCard";
 import { TurnStrip } from "./TurnStrip";
 import type { Turn } from "./types";
 
@@ -223,40 +224,11 @@ function QuestionCards({ sessionId }: { sessionId: string }) {
   const questions = useSnapshot((s) => s?.questions ?? EMPTY_QUESTIONS);
   const mine = questions.filter((q) => q.sessionId === sessionId);
   if (mine.length === 0) return null;
-
-  const answer = async (q: Question, preset?: string) => {
-    const text = preset ?? prompt(`Answer to question #${q.id}:`);
-    if (!text) return;
-    const r = await send<{ ok: boolean; error?: string }>(
-      `/v1/questions/${encodeURIComponent(String(q.id))}/answer`,
-      "POST",
-      { text, by: "dashboard" },
-    );
-    if (!r.ok) alert(r.error ?? "could not answer");
-    await refreshSnapshot();
-  };
-
   return (
     <>
       <h4>waiting on you</h4>
       {mine.map((q) => (
-        <div className="perm" key={q.id}>
-          <div className="perm-t">
-            {icon("warning", 13)} <b>Question #{q.id}</b>
-            {q.task && <span className="dim"> · {q.task}</span>}
-          </div>
-          <div className="perm-c">{q.text}</div>
-          <div className="perm-b">
-            {q.options.map((o) => (
-              <button type="button" className="ok" key={o} onClick={() => void answer(q, o)}>
-                {o}
-              </button>
-            ))}
-            <button type="button" onClick={() => void answer(q)}>
-              Answer…
-            </button>
-          </div>
-        </div>
+        <QuestionCard key={q.id} q={q} />
       ))}
     </>
   );

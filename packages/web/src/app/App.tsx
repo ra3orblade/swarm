@@ -49,6 +49,7 @@ import { Palette } from "./Palette";
 import { Sidebar } from "./Sidebar";
 import { SidebarGrip } from "./SidebarGrip";
 import type { ViewId } from "./views";
+import { useOpenWaitingOnReturn, WaitingPanel } from "./Waiting";
 import { WhatsNew } from "./WhatsNew";
 
 /**
@@ -85,11 +86,13 @@ export function App() {
   const [version, setVersion] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [notes, setNotes] = useState<ReleaseNote | null>(null);
+  const [waiting, setWaiting] = useState(false);
   // Keeps every relative time on screen honest on an idle fleet. See state/clock.ts.
   useClockTick();
   useExternalLinks();
   useDesktopChrome();
   useAttentionBadge();
+  useOpenWaitingOnReturn(useCallback(() => setWaiting(true), []));
   useZoom();
 
   useEffect(() => {
@@ -148,6 +151,7 @@ export function App() {
         version={version}
         onOpenPalette={() => setPalette(true)}
         onOpenWhatsNew={openWhatsNew}
+        onOpenWaiting={() => setWaiting(true)}
       />
       <Sidebar />
       <SidebarGrip />
@@ -159,6 +163,7 @@ export function App() {
         </ErrorBoundary>
       </main>
       {palette && <PalettePortal onClose={() => setPalette(false)} />}
+      {waiting && <WaitingPanel onClose={() => setWaiting(false)} />}
       {notes && <WhatsNew note={notes} onClose={() => setNotes(null)} />}
       <Nudges />
     </>

@@ -18,6 +18,7 @@ export type ViewBadges = Partial<Record<ViewId, number>>;
 /** The badges derivable from the shared snapshot. See the file header for why the others are deliberately absent. */
 export function useViewBadges(): ViewBadges {
   const openIncidents = useSnapshot((s) => s?.openIncidents ?? 0);
-  const questions = useSnapshot((s) => s?.questions.length ?? 0);
-  return { incidents: openIncidents, board: questions };
+  // Questions are not a Board badge: the Board never showed them. They are in the header's
+  // "Waiting on you" panel, with the permission prompts.
+  return { incidents: openIncidents };
 }
