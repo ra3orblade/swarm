@@ -392,6 +392,45 @@ header #today b {
   color: var(--fg-2);
   font-weight: 600;
 }
+/* "Waiting on you" (app/Waiting.tsx): present only while a prompt blocks an agent */
+header .wait-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 14px;
+  padding: 4px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 99px;
+  background: var(--warn-soft);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+header .wait-btn:hover {
+  background: var(--panel-2);
+}
+.wait-item + .wait-item {
+  margin-top: 16px;
+}
+.wait-src {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+button.wait-src:hover {
+  color: var(--acc);
+}
 #daemon {
   display: flex;
   align-items: center;

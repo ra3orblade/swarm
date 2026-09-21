@@ -41,9 +41,12 @@ export const useSnapshotStore = create<SnapshotState>((set) => ({
     try {
       // `watching=1` is the daemon's signal that a person could actually see a permission card
       // right now (M13.2) — a request alone is not attention, a background tab still polls on a
-      // stream nudge.
+      // stream nudge. Visible is not enough either: the desktop app sits un-hidden behind the
+      // terminal all day, and a card parked there held the terminal's own dialog back for the
+      // whole wait while nobody looked. Only a focused window is watching.
+      const watching = !document.hidden && document.hasFocus();
       const answer = await getIfChanged<DashboardSnapshot>(
-        document.hidden ? "/v1/state" : "/v1/state?watching=1",
+        watching ? "/v1/state?watching=1" : "/v1/state",
         lastEtag,
       );
       set((prev) => {

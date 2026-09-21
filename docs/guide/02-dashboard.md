@@ -63,7 +63,11 @@ The left column is the session stream: hook events (prompts, tool calls, subagen
 
 The right panel is the stats panel: cost, model, turns, tool calls, output (with thinking tokens), context size with the percentage served from cache, started / last seen, subagent turns, a token-composition bar, a per-turn cost strip, a tool histogram, and the path of the transcript file the numbers come from.
 
-When an interactive session hits a permission prompt, the same **Allow / Deny** card a spawned run gets appears here (and the session shows as *asking* on Fleet) — Claude Code fires its `PermissionRequest` hook before drawing the terminal dialog, and the daemon holds that hook for `[broker] interactive_wait` seconds (30 by default) while a dashboard is open. Answer on the card and the terminal never asks; press **Answer in terminal**, or let the countdown run out, and the dialog appears there unchanged. The card names the Swarm rule that flagged the call when one did, otherwise Claude Code's own reason. Nothing waits when no dashboard is watching, so a session on a machine where the dashboard is closed is never slowed down.
+When an interactive session hits a permission prompt, the same **Allow / Deny** card a spawned run gets appears here (and the session shows as *asking* on Fleet) — Claude Code fires its `PermissionRequest` hook before drawing the terminal dialog, and the daemon holds that hook for `[broker] interactive_wait` seconds (30 by default) while a dashboard is open. Answer on the card and the terminal never asks; press **Answer in terminal**, or let the countdown run out, and the dialog appears there unchanged. The card names the Swarm rule that flagged the call when one did, otherwise Claude Code's own reason. Nothing waits when no dashboard is watching, so a session on a machine where the dashboard is closed is never slowed down. *Watching* means the dashboard window has focus: the desktop app left open behind your terminal doesn't count, so the terminal asks you straight away instead of holding its dialog back for a card nobody sees.
+
+### Waiting on you
+
+Whenever an agent is blocked on you, a **N waiting** pill appears in the header on every view. That's the same count as the dock badge (or the `(N)` in the tab title). Click it for every open permission prompt and question in one panel. You can answer them there, or follow the session link above each card. Coming back to the window with something new waiting opens the panel by itself. In the desktop app, that's also what clicking a notification does.
 
 ## Board
 

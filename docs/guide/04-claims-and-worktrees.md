@@ -216,7 +216,7 @@ Nothing in a workflow ever writes to your task source: flipping a task to done s
 
 ## When the agent needs you
 
-An autonomous run hits a question only a person can answer — which of two designs, whether to drop a column, a credential. Instead of guessing or stalling, it calls `swarm_ask` (up to eight suggested answers). The question shows on the session page under **waiting on you** with the options as one-click buttons (or *Answer…* for free text), the session gets an **Asking** badge on Fleet, and a desktop notification fires if you've enabled them. `swarm questions` lists what's open for the repo; `swarm answer <id> <text>` answers from a terminal.
+An autonomous run hits a question only a person can answer — which of two designs, whether to drop a column, a credential. Instead of guessing or stalling, it calls `swarm_ask` (up to eight suggested answers). The question shows in the header's **N waiting** panel and on the session page under **waiting on you** with the options as one-click buttons (or *Answer…* for free text), the session gets an **Asking** badge on Fleet, and a desktop notification fires if you've enabled them. `swarm questions` lists what's open for the repo; `swarm answer <id> <text>` answers from a terminal.
 
 The answer reaches the agent without anyone relaying it: a spawned run gets it on stdin right away; an interactive session receives it as `[swarm]` context on its next tool call or prompt; an agent can also ask for it with `swarm_inbox`. If the session has ended, the next session that starts in that task's worktree is told about the open questions and any answers that never arrived. Each answer is delivered once. A question is answered once — a second answer is refused.
 
