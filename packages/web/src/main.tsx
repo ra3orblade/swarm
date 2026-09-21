@@ -13,10 +13,12 @@ import { App } from "./app/App";
 // copy of React — that duplicate was 374 KB, as much as the whole dashboard bundle.
 import "./menus";
 import { applyStoredTheme } from "./lib/theme";
+import { installTooltip } from "./lib/tooltip";
 import "./styles/dashboard.css";
 
 // Before the first render: an effect runs after paint, which would flash light at a dark-theme user.
 applyStoredTheme();
+installTooltip();
 
 const host = document.getElementById("root");
 if (!host) throw new Error("dashboard: #root is missing from index.html");

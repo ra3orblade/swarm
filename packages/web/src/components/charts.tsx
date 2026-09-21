@@ -3,7 +3,7 @@
  *
  * Colour rules, unchanged from the original: an agent gets a fixed categorical slot and never a
  * cycled one; part-to-whole of a single thing steps one hue light→dark; a heat grid is one hue by
- * opacity. Tooltips are still driven by `data-tip`, which the shared tooltip in `viz.js` reads —
+ * opacity. Tooltips are driven by `data-tip`, which the shared tooltip in `lib/tooltip.ts` reads —
  * one hover handler for the whole page rather than one per mark.
  */
 import { Fragment, useMemo } from "react";
