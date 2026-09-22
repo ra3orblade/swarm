@@ -43,8 +43,10 @@ export function StopProcess({
 }
 
 /**
- * Clear and Remove, side by side but never confused: clearing keeps the branch, removing does not.
- * Remove asks the ledger first and only offers force after it has refused with a reason.
+ * Clear or Remove, never both: clearing keeps the branch, removing does not, and a worktree that
+ * can be removed frees its build output with it — offering Clear beside Remove only invites the
+ * wrong click. Remove asks the ledger first and only offers force after it has refused with a
+ * reason.
  */
 export function WorktreeActions({
   worktree,
@@ -54,9 +56,14 @@ export function WorktreeActions({
   onDone: () => void;
 }) {
   const [label, setLabel] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const buildKb = worktree.buildKb ?? 0;
   const canClear =
-    !worktree.main && !worktree.heldByClaim && worktree.liveSessions === 0 && buildKb > 0;
+    !worktree.reclaimable &&
+    !worktree.main &&
+    !worktree.heldByClaim &&
+    worktree.liveSessions === 0 &&
+    buildKb > 0;
 
   const clear = async () => {
     setLabel("clearing…");
@@ -70,14 +77,16 @@ export function WorktreeActions({
 
   const remove = async () => {
     if (!confirm(`Remove worktree ${worktree.path}?`)) return;
-    const first = await removeWorktree(worktree.projectId, worktree.path);
-    if (!first.ok && (first.refused === "dirty" || first.refused === "unpushed")) {
-      if (confirm(`${first.error}\n\nRemove anyway (discards the work)?`)) {
-        await removeWorktree(worktree.projectId, worktree.path, true);
+    setRemoving(true);
+    let r = await removeWorktree(worktree.projectId, worktree.path);
+    if (!r.ok && (r.refused === "dirty" || r.refused === "unpushed")) {
+      if (confirm(`${r.error}\n\nRemove anyway (discards the work)?`)) {
+        r = await removeWorktree(worktree.projectId, worktree.path, true);
       }
-    } else if (!first.ok && first.error) {
-      alert(first.error);
     }
+    if (!r.ok && r.error && r.refused !== "dirty" && r.refused !== "unpushed") alert(r.error);
+    // On success the row leaves the grid, so this component unmounts before it would matter.
+    setRemoving(false);
     onDone();
   };
 
@@ -88,6 +97,7 @@ export function WorktreeActions({
           type="button"
           className="mini-act"
           title="Delete node_modules, target and dist here — a rebuild recreates them; the branch and any uncommitted work are untouched"
+          disabled={label !== null}
           onClick={clear}
         >
           {label ?? `Clear ${megabytes(buildKb)}`}
@@ -97,10 +107,11 @@ export function WorktreeActions({
         <button
           type="button"
           className="mini-act bad"
-          title="Remove this worktree"
+          title="Remove this worktree and its directory — it is merged, clean and pushed"
+          disabled={removing}
           onClick={remove}
         >
-          Remove
+          {removing ? "removing…" : "Remove"}
         </button>
       )}
     </>

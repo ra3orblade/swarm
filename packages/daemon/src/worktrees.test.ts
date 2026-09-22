@@ -104,4 +104,21 @@ describe("first-class worktrees (M7.2)", () => {
     expect(gc.removed).toEqual([cl.worktree]);
     expect(existsSync(cl.worktree)).toBe(false);
   });
+
+  it("removing one worktree keeps the rest listed while the re-list runs", async () => {
+    const store = new Store(mkdtempSync(join(tmpdir(), "swarm-home-")));
+    const repo = tmpRepo();
+    const p = store.resolveProject(repo, true);
+    const a = store.createWorktree(p.id, "keep-me");
+    const b = store.createWorktree(p.id, "drop-me");
+    if (!a.ok || !b.ok) throw new Error("create failed");
+    await store.refreshWorktrees(p.id);
+    expect(store.worktrees(p.id)).toHaveLength(3);
+
+    const r = await store.removeWorktree(p.id, "drop-me");
+    expect(r.ok).toBe(true);
+    // Straight after the removal, before any re-list lands: the dropped row is gone and the
+    // others are still there — the cache used to be deleted, so this answered [].
+    expect(store.worktrees(p.id).map((w) => w.path)).toEqual([repo, a.worktree]);
+  });
 });
