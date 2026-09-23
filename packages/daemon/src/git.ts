@@ -243,6 +243,21 @@ export function worktreeRemove(repoRoot: string, path: string, force: boolean): 
   return git(repoRoot, args) !== null;
 }
 
+/**
+ * `worktreeRemove` off the event loop. Removing a tree deletes its directory, and one holding a
+ * `node_modules` takes seconds — long enough, run synchronously, to stall every poll and hook the
+ * daemon is serving.
+ */
+export async function worktreeRemoveAsync(
+  repoRoot: string,
+  path: string,
+  force: boolean,
+): Promise<boolean> {
+  const args = ["worktree", "remove", path];
+  if (force) args.push("--force");
+  return (await gitAsync(repoRoot, args)) !== null;
+}
+
 /** Uncommitted (dirty) and unpushed state of a worktree — the release/reap gate. */
 export function heldWork(path: string): { dirty: boolean; unpushed: boolean } {
   const status = git(path, ["status", "--porcelain"]);

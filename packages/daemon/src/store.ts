@@ -232,6 +232,7 @@ import {
   worktreeDiff,
   worktreePatch,
   worktreeRemove,
+  worktreeRemoveAsync,
 } from "./git";
 import { TaskSources } from "./task-sources";
 
@@ -6417,12 +6418,16 @@ export class Store {
     if (inflight) return inflight;
     const p = this.project(projectId);
     if (!p) return Promise.resolve([]);
-    const run = listWorktreesAsync(p.root)
+    const run: Promise<Worktree[]> = listWorktreesAsync(p.root)
       .then((v) => {
-        this.wtCache.set(projectId, { v, t: Date.now() });
+        // Disowned by `invalidateWorktrees` mid-flight: this listing may predate the change.
+        if (this.wtInflight.get(projectId) === run)
+          this.wtCache.set(projectId, { v, t: Date.now() });
         return v;
       })
-      .finally(() => this.wtInflight.delete(projectId));
+      .finally(() => {
+        if (this.wtInflight.get(projectId) === run) this.wtInflight.delete(projectId);
+      });
     this.wtInflight.set(projectId, run);
     return run;
   }
@@ -6481,9 +6486,11 @@ export class Store {
         error: removeRefusalMessage(can.reason, w.path, held?.task),
         refused: can.reason,
       };
-    if (!worktreeRemove(p.root, w.path, force))
+    if (!(await worktreeRemoveAsync(p.root, w.path, force)))
       return { ok: false as const, error: `git worktree remove failed for ${w.path}` };
-    this.invalidateWorktrees(projectId);
+    this.invalidateWorktrees(projectId, w.path);
+    this.duCache.delete(w.path);
+    this.buildCache.delete(w.path);
     this.append({
       ts: new Date().toISOString(),
       type: "worktree.removed",
@@ -6587,9 +6594,19 @@ export class Store {
   }
 
   /** Forget cached worktrees (after claim/release) so the next snapshot re-lists. */
-  invalidateWorktrees(projectId?: string) {
-    if (projectId) this.wtCache.delete(projectId);
-    else this.wtCache.clear();
+  /**
+   * Mark worktree listings stale. The last list is kept and served until the re-list lands:
+   * deleting it made `worktrees()` answer `[]` for the seconds a re-list takes, so every one of the
+   * project's rows dropped out of the dashboard and came back. `removed` is dropped from the kept
+   * list at once. A listing already in flight is disowned, since it may predate the change.
+   */
+  invalidateWorktrees(projectId?: string, removed?: string) {
+    for (const [id, hit] of this.wtCache) {
+      if (projectId && id !== projectId) continue;
+      this.wtCache.set(id, { v: removed ? hit.v.filter((w) => w.path !== removed) : hit.v, t: 0 });
+    }
+    if (projectId) this.wtInflight.delete(projectId);
+    else this.wtInflight.clear();
   }
 
   /** Refresh every project's worktrees; for the background tick. */

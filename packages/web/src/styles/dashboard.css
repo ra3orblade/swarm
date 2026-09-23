@@ -2801,28 +2801,47 @@ td .more:hover {
   background: var(--line);
   color: var(--fg);
 }
-/* the one action a hygiene row offers, inline in its grid cell */
+/* A small bordered button inline in a grid cell (hygiene, incidents). It carries its own button
+   reset rather than sharing the one near the end of this file: that reset's `border: 0` came later
+   and silently stripped this border, leaving the actions looking like plain text. */
 .mini-act {
+  appearance: none;
   display: inline-flex;
   align-items: center;
+  font-family: inherit;
   color: var(--fg-2);
+  background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   padding: 2px 9px;
   font-size: var(--fs-sm);
   font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
   text-decoration: none;
+  cursor: pointer;
   transition:
     color var(--t-fast),
     border-color var(--t-fast);
 }
-.mini-act:hover {
+.mini-act + .mini-act {
+  margin-left: 6px;
+}
+.mini-act:hover:not(:disabled) {
   color: var(--acc);
   border-color: var(--acc);
 }
-.mini-act.bad:hover {
+.mini-act.bad {
   color: var(--bad);
+  background: var(--bad-soft);
+  border-color: transparent;
+}
+.mini-act.bad:hover:not(:disabled) {
   border-color: var(--bad);
+}
+.mini-act:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 /* provenance link track: six dots, filled to where the trail goes cold */
 .track {
@@ -3766,8 +3785,7 @@ body.nosb .nudge {
    shrink-to-fit width and font, none of which these rules expect. */
 .proj,
 .h4-act,
-.nav-group,
-.mini-act {
+.nav-group {
   appearance: none;
   background: none;
   border: 0;
