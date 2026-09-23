@@ -1425,7 +1425,7 @@ tbody tr[data-s] {
 tbody tr:hover {
   background: var(--panel-2);
 }
-/* The status-dot cell alone opts out of clipping: `.s.active` paints a pulsing box-shadow
+/* The status-dot cell alone opts out of clipping: `.s.active` paints a pulsing ring
      that a 24px `overflow:hidden` cell would shear off. Scoped to that cell on purpose --
      as `td:first-child` it also un-clipped the first *content* column of every grid, so long
      values (branch names on Outcomes) painted straight over the next column. */
@@ -1660,9 +1660,20 @@ th.num {
   background: var(--faint);
   flex: none;
 }
+/* The pulse is a ring on ::after animated by transform + opacity only. Animating box-shadow on the
+   dot itself repainted every active row every frame, forever — ~40% CPU in the desktop app's
+   WebKit processes with a busy fleet on screen. transform/opacity stay on the compositor. */
 .s.active {
+  position: relative;
   background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+.s.active::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--ok-soft);
+  border-radius: 50%;
+  pointer-events: none;
   animation: pulse var(--t-pulse) ease-in-out infinite;
 }
 .s.waiting {
@@ -1680,10 +1691,17 @@ th.num {
 @keyframes pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 3px var(--ok-soft);
+    transform: scale(1);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 5px transparent;
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .s.active::after {
+    animation: none;
   }
 }
 
