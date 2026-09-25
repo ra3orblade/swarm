@@ -42,7 +42,7 @@ import { TeamForwarder } from "./team";
 import { fetchTeamd, hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.15.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.15.1";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.

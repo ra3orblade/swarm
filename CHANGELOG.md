@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.15.1](#0151--2026-09-25) | Sep 25 | Grok's hooks · idle CPU in the desktop app · a "Waiting on you" panel · tooltips back |
 | [0.15.0](#0150--2026-09-19) | Sep 19 | Rules for Codex, Gemini CLI and Cursor · OpenTelemetry export · team daemon without a clone |
 | [0.14.0](#0140--2026-09-12) | Sep 12 | Swarm starts steering agents: repair loop, permission cards, rewrites, wake-ups, status line |
 | [0.13.2](#0132--2026-09-04) | Sep 4 | Newest-first session log · the last React port gaps closed |
@@ -26,6 +27,22 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.15.1] — 2026-09-25
+
+Fixes from the week after 0.15.0. Grok CLI started running Claude Code's hooks and Swarm mistook it for Claude Code, the desktop app was burning CPU while doing nothing, and the questions your agents ask now have one place to be answered.
+
+### Changes
+
+- **A "Waiting on you" panel.** The dock badge counted open questions and parked permission prompts, but the only place to answer them was the asking session's own page, and most prompts expired before you got there. A **N waiting** pill now sits in the header on every view. It opens a panel with every question and permission card, answerable in place, each linked to its session. The panel opens by itself when the window comes to the front with a prompt you haven't seen. Watching now means the window has focus, not merely that it's visible, so a desktop app sitting behind your terminal no longer holds the terminal's own dialog back.
+
+### Fixes
+
+- **Grok CLI runs Claude Code's hooks now, and Swarm treated it as Claude Code.** Ending a Grok session hung on the Stop hook, because the wake hook long-polled in the foreground where only Claude Code runs it in the background. Active Grok sessions showed as Claude Code, and the Stop that Grok sends after SessionEnd reopened the ended session. Swarm recognises Grok's payload now, maps its tools onto the rules, and `ask` becomes `deny` there as on the other agents whose hooks can't ask.
+- **The desktop app used 30–45% CPU while idle.** The active status dots pulsed by animating `box-shadow`, which repaints every frame, forever, in every view that shows one. The pulse runs on the compositor now, and `prefers-reduced-motion` turns it off. In a 5 s sample with 40 active dots, style recalculations went from 300 to 2.
+- **Chart tooltips are back.** Hovering a bar, heat cell or point on Spend, Stats, Timeline, Graphs and the session turn strip showed nothing since the React rewrite. Tooltip text can include names an agent wrote, so it is rendered inert rather than as HTML.
+- **Remove in Hygiene no longer blanks the list.** Removing a worktree used to drop every row in the project for several seconds and, when they came back, a different row sat where the removed one had been. The removal also blocked the daemon, so every poll and hook waited on it. The list now updates in place, the removal runs in the background, and the action buttons look like buttons.
+- A release whose workflow broke after publishing to npm can be re-run to green, and deploying the website no longer tries to upload every worktree under `.claude`.
 
 ## [0.15.0] — 2026-09-19
 
