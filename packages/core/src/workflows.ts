@@ -7,13 +7,19 @@
  *   name = "ship"
  *   steps = ["implement", "gate:tests", "gate:review", "pr"]
  *   prompts = { implement = "Task {task}: {title}. Work only in this worktree; commit as you go." }
+ *
+ * M13.10 adds two built-in steps that need no claimed worktree, for scheduled workflows: `gates`
+ * runs the required gates on the default branch's head in a scratch worktree, and `review-prs`
+ * runs the review gate over each open GitHub PR (see `schedules.ts`).
  */
 import type { TaskView } from "./tasks";
 
 export type WorkflowStep =
   | { kind: "run"; name: string; prompt: string | null }
   | { kind: "gate"; gate: string }
-  | { kind: "pr" };
+  | { kind: "pr" }
+  | { kind: "gates" }
+  | { kind: "review-prs" };
 
 export interface WorkflowDef {
   name: string;
@@ -42,6 +48,8 @@ export function parseWorkflows(raw: unknown): Record<string, WorkflowDef> {
       }
       const t = s.trim();
       if (t === "pr") steps.push({ kind: "pr" });
+      else if (t === "gates") steps.push({ kind: "gates" });
+      else if (t === "review-prs") steps.push({ kind: "review-prs" });
       else if (t.startsWith("gate:")) {
         const gate = t.slice(5);
         if (!NAME_RE.test(gate)) {
@@ -86,5 +94,5 @@ export function workflowStepPrompt(
 }
 
 export function stepLabel(s: WorkflowStep): string {
-  return s.kind === "run" ? s.name : s.kind === "gate" ? `gate:${s.gate}` : "pr";
+  return s.kind === "run" ? s.name : s.kind === "gate" ? `gate:${s.gate}` : s.kind;
 }

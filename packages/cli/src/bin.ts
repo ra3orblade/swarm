@@ -75,6 +75,7 @@ const help = `swarm — control plane for AI-agent development
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
   workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
+  schedule [ls] | schedule arm|disarm|run <name>   [[schedules]]: a workflow on a cron, inert until armed (M13.10)
   msg send <to> <text…> [-p]    message a session id, a task's holder, or "lead" (M7.6)
   msg ls [-p] [--json]          recent messages
   demo                    open a seeded demo dashboard (own home + port; your real data is untouched)
@@ -1112,6 +1113,63 @@ try {
           console.log(
             `${h.kind.padEnd(8)} ${h.ts.slice(0, 16).replace("T", " ")}  ${h.title}${h.task ? `  [${h.task}]` : ""}\n         ${h.snippet.split("\u0001").join("").split("\u0002").join("").replace(/\s+/g, " ")}${h.sessionId ? `\n         session ${h.sessionId}` : ""}`,
           );
+      break;
+    }
+    case "schedule":
+    case "schedules": {
+      await ensureDaemon({ quiet: true });
+      const proj = (await api("/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: resolve(".") }),
+      })) as { id: string };
+      const sub = rest[0] ?? "ls";
+      if (sub === "ls") {
+        const list = (await api(`/v1/schedules?project=${proj.id}`)) as Array<{
+          name: string;
+          cron: string;
+          workflow: string;
+          task: string;
+          post: boolean;
+          armed: boolean;
+          changed: boolean;
+          lastAt: string | null;
+          nextAt: string | null;
+        }>;
+        if (json) console.log(JSON.stringify(list));
+        else if (!list.length) console.log("no [[schedules]] in .swarm.toml");
+        else
+          for (const s of list)
+            console.log(
+              `${s.armed ? "●" : "○"} ${s.name}  ${s.cron} → ${s.workflow} on ${s.task}${s.post ? " · posts PR comments" : ""}  ${
+                s.armed
+                  ? `next ${s.nextAt ?? "?"}${s.lastAt ? ` · last ${s.lastAt}` : ""}`
+                  : s.changed
+                    ? `edited since armed — swarm schedule arm ${s.name}`
+                    : `not armed — swarm schedule arm ${s.name}`
+              }`,
+            );
+        break;
+      }
+      const name = rest[1];
+      if (!["arm", "disarm", "run"].includes(sub) || !name)
+        throw new Error("usage: swarm schedule [ls] | swarm schedule arm|disarm|run <name>");
+      const r = (await fetch(`${new SwarmClient().baseUrl}/v1/schedules/${sub}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: proj.id, name }),
+      }).then((x) => x.json())) as { ok: boolean; error?: string; id?: number };
+      if (!r.ok) {
+        console.error(`REFUSED: ${r.error}`);
+        process.exit(1);
+      }
+      console.log(
+        sub === "arm"
+          ? `armed ${name} — it fires on its cron while the daemon runs; editing it disarms it`
+          : sub === "disarm"
+            ? `disarmed ${name}`
+            : `started workflow #${r.id} for ${name} — swarm workflow ls`,
+      );
       break;
     }
     case "workflow": {

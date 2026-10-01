@@ -50,6 +50,7 @@ export * from "./reviewer";
 export * from "./ruleeffect";
 export * from "./rules";
 export * from "./sandbox";
+export * from "./schedules";
 export * from "./security";
 export * from "./stall";
 export * from "./statusline";

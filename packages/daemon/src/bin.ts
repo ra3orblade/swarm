@@ -15,7 +15,7 @@ import { Store } from "./store";
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
 const appHooks: { restart?: () => void; shutdown?: () => void } = {};
-const { app, store, runner, team, otel } = createApp(new Store(), appHooks);
+const { app, store, runner, scheduler, team, otel } = createApp(new Store(), appHooks);
 // `swarm demo`: a dedicated home seeded with a believable afternoon of agent work (never real data)
 if (process.env.SWARM_DEMO === "1" && isEmpty(store)) seedDemo(store);
 
@@ -95,6 +95,7 @@ const tailer = setInterval(() => {
   if (tick % 6 === 0) store.checkQuota(); // every 30 s: [budget] window_warn_at on the plan windows (M12.3)
   if (tick % 12 === 0) store.checkModels(); // every minute: [models] allow-list observation (M8.4)
   if (tick % 2 === 0) store.checkStalls(); // every 10 s: loop/stall heuristics → stuck badge + event
+  if (!DEMO && tick % 12 === 0) scheduler.tick(); // every minute: armed [[schedules]] that are due (M13.10)
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
   void otel.tick(); // [otel] export (M12.1): no-op unless an endpoint is set; paced by [otel].interval
 }, 5000);

@@ -219,6 +219,23 @@ ports = []                # e.g. [3000, 5432, 7777]
 # name = "ship"
 # steps = ["implement", "gate:tests", "gate:review", "pr"]
 # prompts = { implement = "Task {task}: {title}. Work only in this worktree; commit as you go." }
+#
+# Two more built-in steps need no claimed worktree (M13.10): "gates" runs the required gates on the
+# default branch's head in a scratch worktree; "review-prs" runs the builtin review gate over each
+# open GitHub PR from this repo (not forks), once per head.
+# [[workflows]]
+# name = "nightly"
+# steps = ["gates", "review-prs"]
+
+# Schedules (M13.10, OQ-30): start a workflow on a cron (5 fields, local time, or @hourly / @daily /
+# @nightly / @weekly). Inert until armed — `swarm schedule arm nightly`; any edit disarms it.
+# `post = true` lets review-prs post its findings as a plain COMMENT review (never approve or
+# request changes). `task` defaults to "schedule-<name>".
+# [[schedules]]
+# name = "nightly"
+# cron = "0 3 * * *"
+# workflow = "nightly"
+# post = false
 
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`

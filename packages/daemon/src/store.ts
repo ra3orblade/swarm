@@ -332,6 +332,16 @@ CREATE TABLE IF NOT EXISTS finding_issues (
 );
 `;
 
+/** How a gate run is asked for. `worktree`/`diffBase` are M13.10's scratch-worktree runs. */
+export interface GateRunOpts {
+  sessionId?: string | null;
+  owner?: string;
+  /** Run here instead of the task's held worktree (a scheduled step's scratch checkout). */
+  worktree?: string;
+  /** The review gate diffs against this ref instead of the main checkout's branch. */
+  diffBase?: string;
+}
+
 const IDLE_MS = 10 * 60_000;
 /**
  * How long a session may go without a single hook before it is presumed dead (M13 follow-up).
@@ -2515,7 +2525,7 @@ export class Store {
     projectId: string,
     task: string,
     gate: string,
-    opts: { sessionId?: string | null; owner?: string } = {},
+    opts: GateRunOpts = {},
   ):
     | { ok: true; pid: number; log: string; done: Promise<GateRun | null> }
     | { ok: false; reason: string } {
@@ -2528,8 +2538,10 @@ export class Store {
         ok: false,
         reason: `gate ${gate} has no command — add [gates.${gate}] cmd = "…" to .swarm.toml, or record it with swarm gate record`,
       };
-    const claim = this.claims(projectId).find((c) => c.task === task && c.state === "held");
-    const worktree = claim?.worktree;
+    // M13.10: a scheduled step brings its own scratch worktree; everything else runs in the claim's
+    const worktree =
+      opts.worktree ??
+      this.claims(projectId).find((c) => c.task === task && c.state === "held")?.worktree;
     if (!worktree || !existsSync(worktree))
       return {
         ok: false,
@@ -2637,7 +2649,7 @@ export class Store {
     gate: string,
     def: GateDef,
     where: { worktree: string; cwd: string; key: string; log: string },
-    opts: { sessionId?: string | null; owner?: string },
+    opts: GateRunOpts,
   ):
     | { ok: true; pid: number; log: string; done: Promise<GateRun | null> }
     | { ok: false; reason: string } {
@@ -2655,7 +2667,7 @@ export class Store {
       let diffText = "";
       let stat = "";
       try {
-        const diff = await worktreeDiff(p.root, where.worktree);
+        const diff = await worktreeDiff(p.root, where.worktree, opts.diffBase);
         stat = diff.files
           .map((f) => `${f.status ?? "M"} ${f.path} (+${f.added} -${f.deleted})`)
           .join("\n");
@@ -2787,7 +2799,7 @@ export class Store {
     projectId: string,
     task: string,
     gates?: string[],
-    opts: { sessionId?: string | null; owner?: string } = {},
+    opts: GateRunOpts = {},
   ): Promise<{
     started: string[];
     skipped: Array<{ gate: string; reason: string }>;

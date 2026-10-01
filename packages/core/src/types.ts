@@ -58,6 +58,7 @@ export const EVENT_TYPES = [
   "incident.acked",
   "run.result",
   "finding.filed", // M13.11: a report row became an issue on the task source
+  "schedule.fired", // M13.10: a schedule armed, disarmed, fired or skipped
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

@@ -101,6 +101,7 @@ import { DEFAULT_PRIVACY, type PrivacyConfig } from "./audit";
 import type { BudgetConfig } from "./budget";
 import type { CustomRule } from "./rules";
 import { validDomain } from "./sandbox";
+import { parseSchedules, type ScheduleDef } from "./schedules";
 import { parseWorkflows, type WorkflowDef } from "./workflows";
 
 export interface SwarmConfig {
@@ -138,6 +139,8 @@ export interface SwarmConfig {
   };
   /** Declared step sequences the daemon can advance per task (M7.8). */
   workflows: Record<string, WorkflowDef>;
+  /** M13.10: `[[schedules]]` — a workflow on a cron; inert until armed (OQ-30). */
+  schedules: Record<string, ScheduleDef>;
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
   /** Incident webhook (M8.5): every `incident.opened` is POSTed as Slack-compatible `{text}`
@@ -242,6 +245,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     defs: {},
   },
   workflows: {},
+  schedules: {},
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
@@ -420,6 +424,7 @@ function validate(c: SwarmConfig): SwarmConfig {
       })(),
     },
     workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
+    schedules: parseSchedules((c as unknown as Record<string, unknown>).schedules),
     notify: {
       webhook: (() => {
         const w = (c.notify as { webhook?: unknown } | undefined)?.webhook;

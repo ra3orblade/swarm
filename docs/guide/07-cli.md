@@ -159,6 +159,15 @@ swarm workflow stop <task>       # stop the workflow running on a task
 
 A workflow is a `[[workflows]]` step sequence in `.swarm.toml` — spawned runs, executed gates and the built-in `pr` — that the daemon walks a task through, one step at a time. Details: [Claims and worktrees → Workflows](04-claims-and-worktrees.md#workflows).
 
+```sh
+swarm schedule [ls]              # [[schedules]] here: armed or not, next and last run
+swarm schedule arm <name>        # let it fire on its cron (an edit to it disarms it)
+swarm schedule disarm <name>
+swarm schedule run <name>        # start its workflow once, now
+```
+
+See [scheduled workflows](04-claims-and-worktrees.md#scheduled-workflows) for the `gates` and `review-prs` steps, and why a schedule does nothing until it is armed.
+
 ## Messages
 
 ```sh

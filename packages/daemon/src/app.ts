@@ -38,6 +38,7 @@ import { ForgeService } from "./forge";
 import { worktreeDiff, worktreePatch } from "./git";
 import { OtelExporter } from "./otel";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
+import { Scheduler } from "./schedules";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
 import { fetchTeamd, hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
@@ -121,7 +122,8 @@ export function createApp(
   const forge = new ForgeService(store);
   const runner = new Runner(store, store.home);
   const dispatcher = new Dispatcher(store, runner, forge);
-  const workflows = new WorkflowEngine(store, runner, forge);
+  const scheduler = new Scheduler(store);
+  const workflows = new WorkflowEngine(store, runner, forge, scheduler);
   const team = new TeamForwarder(store, VERSION);
   const otel = new OtelExporter(store, VERSION);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
@@ -904,6 +906,21 @@ export function createApp(
     const r = workflows.stop(b.projectId, b.task);
     return c.json(r, r.ok ? 200 : 404);
   });
+  // ---- schedules (M13.10): a workflow on a cron, inert until armed (OQ-30)
+  app.get("/v1/schedules", (c) => c.json(scheduler.list(c.req.query("project") || undefined)));
+  for (const action of ["arm", "disarm", "run"] as const)
+    app.post(`/v1/schedules/${action}`, async (c) => {
+      const b = (await c.req.json().catch(() => ({}))) as { projectId?: string; name?: string };
+      if (!b.projectId || !b.name)
+        return c.json({ ok: false, error: "projectId and name required" }, 400);
+      const r =
+        action === "arm"
+          ? scheduler.arm(b.projectId, b.name)
+          : action === "disarm"
+            ? scheduler.disarm(b.projectId, b.name)
+            : scheduler.fire(b.projectId, b.name);
+      return c.json(r, r.ok ? 200 : 409);
+    });
   // M5.7: timeline detail — activity ticks + claim spans
   app.get("/v1/timeline", (c) =>
     c.json(
@@ -1606,5 +1623,5 @@ export function createApp(
     });
   });
 
-  return { app, store, forge, runner, dispatcher, workflows, team, otel };
+  return { app, store, forge, runner, dispatcher, workflows, scheduler, team, otel };
 }
