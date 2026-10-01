@@ -699,7 +699,7 @@ export class Store {
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
-  static readonly SCHEMA_VERSION = 3;
+  static readonly SCHEMA_VERSION = 4;
   schemaVersion(): number {
     return Number(this.meta("schema_version") ?? 0);
   }
@@ -795,6 +795,13 @@ export class Store {
           if (info.origin === "user") summary.run(info.summary, r.seq);
           else origin.run(info.summary, info.origin, r.seq);
         }
+      },
+      // v4 — zero-usage turns are free (core/pricing.ts). Claude Code's `<synthetic>` notices were
+      // stored unpriced, and a single unpriced turn shows the whole session's cost as unknown.
+      (db) => {
+        db.run(
+          "UPDATE turns SET cost_usd = 0 WHERE cost_usd IS NULL AND input + output + cache_write + cache_read = 0",
+        );
       },
     ];
     for (let v = this.schemaVersion(); v < steps.length; v++) {
@@ -6640,8 +6647,8 @@ export class Store {
         `SELECT s.*, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
                 COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read, COALESCE(SUM(t.thinking),0) AS thinking,
                 SUM(t.cost_usd) AS cost_usd, MAX(t.cost_usd IS NULL AND t.id IS NOT NULL) AS unpriced,
-                (SELECT model FROM turns lt WHERE lt.session_id = s.id AND lt.agent_id IS NULL AND lt.sidechain = 0 ORDER BY lt.ts DESC LIMIT 1) AS live_model,
-                (SELECT COUNT(DISTINCT model) FROM turns lm WHERE lm.session_id = s.id AND lm.agent_id IS NULL AND lm.sidechain = 0) AS model_count
+                (SELECT model FROM turns lt WHERE lt.session_id = s.id AND lt.agent_id IS NULL AND lt.sidechain = 0 AND lt.model != '<synthetic>' ORDER BY lt.ts DESC LIMIT 1) AS live_model,
+                (SELECT COUNT(DISTINCT model) FROM turns lm WHERE lm.session_id = s.id AND lm.agent_id IS NULL AND lm.sidechain = 0 AND lm.model != '<synthetic>') AS model_count
          FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
          WHERE s.id IN (${holes})
          GROUP BY s.id ORDER BY s.last_seen_at DESC`,

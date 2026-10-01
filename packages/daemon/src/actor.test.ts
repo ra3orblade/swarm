@@ -142,4 +142,23 @@ describe("actor on ledger records (M8.2a)", () => {
       { summary: "plain", origin: null },
     ]);
   });
+  it("migration v4 prices zero-usage turns at zero so one `<synthetic>` notice cannot blank a session's cost", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-home-"));
+    const first = new Store(home);
+    const ins = first.db.query(
+      "INSERT INTO turns (id, session_id, ts, model, sidechain, input, output, cache_write, cache_read, thinking, cost_usd) VALUES (?, 's1', 't', ?, 0, ?, ?, 0, 0, 0, ?)",
+    );
+    ins.run("real", "claude-fable-5-1", 10, 20, 0.5);
+    ins.run("notice", "<synthetic>", 0, 0, null);
+    ins.run("unknown", "mystery-model", 10, 20, null);
+    first.db.run("UPDATE meta SET value = '3' WHERE key = 'schema_version'");
+    first.db.close();
+    const store = new Store(home);
+    expect(store.schemaVersion()).toBe(Store.SCHEMA_VERSION);
+    expect(store.db.query("SELECT id, cost_usd FROM turns ORDER BY id").all()).toEqual([
+      { id: "notice", cost_usd: 0 },
+      { id: "real", cost_usd: 0.5 },
+      { id: "unknown", cost_usd: null }, // spent tokens on a model with no price: still unknown
+    ]);
+  });
 });

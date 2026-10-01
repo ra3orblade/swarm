@@ -29,4 +29,8 @@ describe("pricing", () => {
   it("returns null for unknown models", () => {
     expect(costUsd("mystery", { input: 1, output: 1, cacheWrite: 0, cacheRead: 0 })).toBeNull();
   });
+  it("prices a turn that used no tokens at zero, even with no price for its model", () => {
+    // Claude Code's rate-limit / error notices are `<synthetic>` assistant turns with zero usage
+    expect(costUsd("<synthetic>", { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })).toBe(0);
+  });
 });
