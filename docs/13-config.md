@@ -109,6 +109,18 @@ target = "both"
 # while the hook waits; after this many seconds — or "Answer in terminal" on the card — the dialog
 # appears unchanged. 0 = never wait (no card). Max 120. Nothing waits when no dashboard is watching.
 interactive_wait = 30
+# M12.7 reviewer on ask (OQ-22): a read-only `claude -p` (Read / Grep / Glob only) looks at each
+# ask — a spawned run's card or an interactive session's PermissionRequest — and says allow or
+# deny with a reason, recorded as `permission.reviewed`.
+#   "off"    — default.
+#   "advise" — the verdict sits on the card; a person answers. Not run when nobody is watching.
+#   "decide" — the verdict answers the ask, even with no dashboard open; a person who answers the
+#              card first wins. Honoured ONLY in a repo's .swarm.toml: here (or in a policy) it
+#              means "advise". A rule the org policy locks is never decided, only advised on.
+# While it runs the card waits up to reviewer_timeout (max 120) before the terminal asks.
+reviewer = "off"
+reviewer_model = ""       # empty = Claude Code's default model
+reviewer_timeout = 60
 
 [models]
 # Model allow-list (M8.4): globs, empty = every model allowed. An org policy can lock this.

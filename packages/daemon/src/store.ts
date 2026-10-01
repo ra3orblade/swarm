@@ -63,6 +63,7 @@ import {
   describePrompt,
   detectStall,
   dryRunRules,
+  effectiveReviewer,
   executedGateInput,
   FAMILY_RULES,
   fileHeat,
@@ -121,6 +122,7 @@ import {
   mcpHealth,
   modelAllowed,
   modelSwitchRefusal,
+  NEVER_REVIEWED,
   needsBootstrap,
   nextExpiry,
   normalizeCommand,
@@ -131,6 +133,7 @@ import {
   type OtelTurn,
   type OtelWait,
   opencodeTurn,
+  type PermissionReview,
   POLICY_CACHE_FILE,
   type PolicyFinding,
   PRICES,
@@ -145,10 +148,12 @@ import {
   parseGrokUpdates,
   parseMarkdownTasks,
   parseMemoryQuery,
+  parsePermissionReview,
   parseReviewVerdict,
   parseTo,
   parseTranscriptChunk,
   permissionReason,
+  permissionReviewPrompt,
   pickPort,
   planBootstrap,
   planGc,
@@ -166,6 +171,7 @@ import {
   quotaReport,
   quotaSamples,
   type Resource,
+  type ReviewerMode,
   type RuleId,
   type RulesConfig,
   reapAction,
@@ -177,6 +183,7 @@ import {
   repairDecision,
   resourceGraph,
   reviewArgs,
+  reviewerMayDecide,
   reviewGateInput,
   reviewPrompt,
   ruleEffect,
@@ -1810,7 +1817,12 @@ export class Store {
    * appears unchanged. `permission.requested` was already recorded by ingestHook; the
    * `permission.resolved` twin is recorded here so the waiting pairs close.
    */
-  askInteractive(raw: Record<string, unknown>, waitMs: number): Promise<InteractiveAnswer | null> {
+  askInteractive(
+    raw: Record<string, unknown>,
+    waitMs: number,
+    /** M12.7: false when the card is parked only for the reviewer to decide — nobody sees it. */
+    watching = true,
+  ): Promise<InteractiveAnswer | null> {
     const sessionId = typeof raw.session_id === "string" ? raw.session_id : "";
     const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
     const tool = typeof raw.tool_name === "string" ? raw.tool_name : "tool";
@@ -1866,6 +1878,7 @@ export class Store {
             by: a?.by ?? "terminal",
             source: "interactive",
             summary: `${tool} ${a?.behavior ?? "handed to the terminal"} (${a?.by ?? "no answer in time"})`,
+            ...(a?.by === "reviewer" && a.message ? { reason: a.message } : {}),
           },
         });
         this.touch();
@@ -1873,6 +1886,176 @@ export class Store {
       };
       const timer = setTimeout(() => done(null), waitMs);
       this.interactive.set(id, { p, resolve: done, timer });
+      this.reviewInteractive(p, cwd, watching);
+      this.touch();
+    });
+  }
+
+  // ---------- reviewer on ask (M12.7)
+
+  /** The reviewer in effect for a working directory, with what it needs to run. */
+  reviewerFor(cwd: string): {
+    mode: ReviewerMode;
+    model: string | null;
+    timeoutMs: number;
+    locked: string[];
+  } {
+    const loaded = this.policyFor(cwd ? this.toplevel(cwd) : null);
+    const b = loaded.config.broker;
+    return {
+      mode: effectiveReviewer(b.reviewer, loaded.provenance["broker.reviewer"]),
+      model: b.reviewer_model,
+      timeoutMs: b.reviewer_timeout * 1000,
+      locked: loaded.policy.locked,
+    };
+  }
+
+  /**
+   * Run the read-only reviewer over one ask and record what it said as `permission.reviewed`.
+   * Resolves null when there is no usable answer (no `claude`, a timeout, no JSON) — the ask is
+   * then a person's, exactly as if nothing had reviewed it. `acts` says whether the answer is
+   * about to be applied (decide, on a rule that is not locked) so the event can be scored later.
+   */
+  async reviewPermission(req: {
+    requestId: string;
+    projectId: string | null;
+    sessionId: string | null;
+    cwd: string;
+    tool: string;
+    input: Record<string, unknown>;
+    display: string;
+    reason: string;
+    rule: string | null;
+    mode: "advise" | "decide";
+    model: string | null;
+    timeoutMs: number;
+    acts: boolean;
+  }): Promise<{ review: PermissionReview | null; why: string }> {
+    const started = Date.now();
+    const bin = findBin("claude");
+    const finish = (review: PermissionReview | null, why: string) => {
+      this.append({
+        ts: new Date().toISOString(),
+        type: "permission.reviewed",
+        projectId: req.projectId ?? "p_unknown",
+        sessionId: req.sessionId,
+        payload: {
+          requestId: req.requestId,
+          tool: req.tool,
+          rule: req.rule,
+          mode: req.mode,
+          decision: review?.decision ?? null,
+          reason: review?.reason ?? why,
+          acted: Boolean(review && req.acts),
+          ms: Date.now() - started,
+          summary: review
+            ? `reviewer ${req.acts ? "" : "advises "}${review.decision === "allow" ? "allow" : "deny"}: ${review.reason}`
+            : `reviewer gave no answer (${why})`,
+        },
+      });
+      return { review, why };
+    };
+    if (!bin) return finish(null, "claude CLI not found");
+    const task =
+      this.heldWorktrees().find(
+        (w) => req.cwd === w.worktree || req.cwd.startsWith(`${w.worktree}/`),
+      )?.task ?? null;
+    const prompt = permissionReviewPrompt({
+      tool: req.tool,
+      display: req.display,
+      toolInput: req.input,
+      reason: req.reason,
+      rule: req.rule,
+      cwd: req.cwd,
+      task,
+    });
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn([bin, ...reviewArgs(prompt, { model: req.model })], {
+        cwd: req.cwd && existsSync(req.cwd) ? req.cwd : this.home,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, SWARM_REVIEWER: "1", CLAUDE_CODE_DISABLE_AUTOUPDATE: "1" },
+      });
+    } catch (e) {
+      return finish(null, (e as Error).message);
+    }
+    if (req.projectId)
+      this.registerProcess({
+        pid: proc.pid,
+        projectId: req.projectId,
+        sessionId: req.sessionId,
+        kind: "gate",
+        name: `reviewer:${req.requestId}`,
+        cwd: req.cwd,
+        cmd: "claude -p (permission reviewer)",
+        owner: "daemon",
+      });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill("SIGTERM"); // our own child, by pid — never by pattern
+      } catch {}
+    }, req.timeoutMs);
+    const out = await new Response(proc.stdout as ReadableStream).text();
+    const code = await proc.exited;
+    clearTimeout(timer);
+    if (req.projectId) this.processes(req.projectId);
+    if (timedOut) return finish(null, `no answer in ${Math.round(req.timeoutMs / 1000)}s`);
+    const review = parsePermissionReview(out);
+    return finish(
+      review,
+      review ? "" : code === 0 ? "no decision in the reply" : `claude exited ${code}`,
+    );
+  }
+
+  /**
+   * Start the reviewer on a parked interactive card. `advise` (or a locked rule) writes the
+   * verdict onto the card for the person; `decide` answers the card — unless a person already did,
+   * which is what "always overridable" means for a call that is still waiting.
+   */
+  private reviewInteractive(p: InteractivePermission, cwd: string, watching: boolean) {
+    const rv = this.reviewerFor(cwd);
+    const mode = rv.mode;
+    const acts = mode === "decide" && reviewerMayDecide(p.rule, rv.locked);
+    // with nobody watching, only a verdict that will be applied is worth waiting for
+    const handBack = () => this.interactive.get(p.id)?.resolve(null);
+    if (mode === "off" || NEVER_REVIEWED.has(p.tool) || (!watching && !acts)) {
+      if (!watching) handBack();
+      return;
+    }
+    p.review = { state: "running", mode };
+    void this.reviewPermission({
+      requestId: p.id,
+      projectId: p.projectId,
+      sessionId: p.sessionId || null,
+      cwd,
+      tool: p.tool,
+      input: p.input,
+      display: p.display,
+      reason: p.reason,
+      rule: p.rule,
+      mode,
+      model: rv.model,
+      timeoutMs: rv.timeoutMs,
+      acts,
+    }).then(({ review, why }) => {
+      const cur = this.interactive.get(p.id);
+      if (!cur || cur.p !== p) return; // a person (or the terminal) answered first
+      if (review && acts) {
+        cur.resolve({
+          behavior: review.decision,
+          by: "reviewer",
+          message: `[swarm] the reviewer ${review.decision === "allow" ? "allowed" : "denied"} this: ${review.reason}${review.decision === "deny" ? " — ask the user if it should run anyway" : ""}`,
+        });
+        return;
+      }
+      if (!watching) return void cur.resolve(null); // no verdict to apply: the terminal asks
+      p.review = review
+        ? { state: "done", mode, decision: review.decision, reason: review.reason }
+        : { state: "none", mode, why };
       this.touch();
     });
   }

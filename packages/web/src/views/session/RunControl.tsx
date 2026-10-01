@@ -9,7 +9,11 @@
  * correct place; a text box here would be a second, worse one.
  */
 
-import { askedQuestions, type InteractivePermission } from "@swarm/core/permissions";
+import {
+  askedQuestions,
+  type CardReview,
+  type InteractivePermission,
+} from "@swarm/core/permissions";
 import { useEffect, useState } from "react";
 import { send } from "../../api/client";
 import { usd } from "../../lib/format";
@@ -24,6 +28,32 @@ export interface PendingPermission {
   display: string;
   reason: string;
   askedAt: string;
+  /** M12.7: the reviewer's state, when `[broker] reviewer` is on. */
+  review?: CardReview;
+}
+
+/**
+ * M12.7: what the reviewer made of the call. While it runs, `decide` says it will answer unless
+ * you do first; once it has, the verdict and its reason sit above the buttons, which still work.
+ */
+function ReviewLine({ review }: { review: CardReview | undefined }) {
+  if (!review) return null;
+  if (review.state === "running")
+    return (
+      <div className="perm-r">
+        {review.mode === "decide"
+          ? "The reviewer is deciding — answer here first to overrule it."
+          : "The reviewer is looking at this…"}
+      </div>
+    );
+  if (review.state === "none")
+    return <div className="perm-r">The reviewer gave no answer ({review.why}).</div>;
+  return (
+    <div className={`perm-r ${review.decision}`}>
+      Reviewer {review.mode === "decide" ? "(not allowed to decide a locked rule)" : "advises"}:{" "}
+      <b>{review.decision}</b> — {review.reason}
+    </div>
+  );
 }
 
 /** A live spawned run, from `/v1/runs`. */
@@ -61,6 +91,7 @@ function PermissionCard({ run, ask }: { run: Run; ask: PendingPermission }) {
         </span>
       </div>
       <div className="perm-c">{ask.display}</div>
+      <ReviewLine review={ask.review} />
       <div className="perm-b">
         <button type="button" className="ok" disabled={busy} onClick={() => void answer(true)}>
           Allow
@@ -133,6 +164,7 @@ export function InteractivePermissionCard({ ask }: { ask: InteractivePermission 
         </span>
       </div>
       <ToolInput tool={ask.tool} display={ask.display} input={ask.input} />
+      <ReviewLine review={ask.review} />
       <div className="perm-b">
         <button
           type="button"

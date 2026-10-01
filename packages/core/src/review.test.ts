@@ -25,6 +25,8 @@ describe("review gate (M7.9)", () => {
       "Bash",
     );
     expect(a.slice(-2)).toEqual(["--model", "sonnet"]);
+    // Swarm's own headless run fires none of Swarm's hooks (a claimed worktree's Stop runs gates)
+    expect(JSON.parse(a[a.indexOf("--settings") + 1] as string)).toEqual({ disableAllHooks: true });
   });
   test("parses the claude envelope, bare JSON, fenced JSON; rubric overrides a sloppy verdict", () => {
     const inner = {

@@ -45,6 +45,7 @@ export * from "./repair";
 export * from "./resourcegraph";
 export * from "./resources";
 export * from "./review";
+export * from "./reviewer";
 export * from "./ruleeffect";
 export * from "./rules";
 export * from "./security";

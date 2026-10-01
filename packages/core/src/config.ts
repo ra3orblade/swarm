@@ -165,6 +165,14 @@ export interface SwarmConfig {
     /** Seconds a PermissionRequest hook waits for an answer from the dashboard before the terminal
      *  dialog takes over; only while a dashboard is watching; 0 = never wait (card off). */
     interactive_wait: number;
+    /** M12.7: a read-only model run that looks at an *ask*. `advise` shows its verdict on the
+     *  card; `decide` answers it (a person who answers first wins). `decide` is honoured only from
+     *  a repo's `.swarm.toml` — anywhere else it is read as `advise` (OQ-22). */
+    reviewer: "off" | "advise" | "decide";
+    /** Model for the reviewer run; null = Claude Code's default. */
+    reviewer_model: string | null;
+    /** Seconds the reviewer may take before the ask goes to a person unreviewed (max 120). */
+    reviewer_timeout: number;
   };
   /** Model allow-list (M8.4): globs like "claude-*"; empty = every model allowed. An org policy
    *  can lock `models.allow`. Spawned runs/dispatch refuse a disallowed model; an interactive
@@ -229,7 +237,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   otel: { endpoint: null, headers: {}, compat: "genai", include_content: false, interval: 30 },
   messages: { wake: true },
   codify: { target: "both" },
-  broker: { interactive_wait: 30 },
+  broker: { interactive_wait: 30, reviewer: "off", reviewer_model: null, reviewer_timeout: 60 },
   team: { url: null, forward: ["ledger", "cost"], interval: 5 },
   events: { retain_days: 30 },
   audit: { retain_days: 0 },
@@ -437,6 +445,21 @@ function validate(c: SwarmConfig): SwarmConfig {
         );
         if (!Number.isFinite(w) || w < 0) return 30;
         return Math.min(Math.round(w), 120);
+      })(),
+      reviewer: (() => {
+        const r = (c.broker as { reviewer?: unknown } | undefined)?.reviewer;
+        return r === "advise" || r === "decide" ? r : "off";
+      })(),
+      reviewer_model: (() => {
+        const m = (c.broker as { reviewer_model?: unknown } | undefined)?.reviewer_model;
+        return typeof m === "string" && m.trim() ? m.trim() : null;
+      })(),
+      reviewer_timeout: (() => {
+        const t = Number(
+          (c.broker as { reviewer_timeout?: unknown } | undefined)?.reviewer_timeout,
+        );
+        if (!Number.isFinite(t) || t <= 0) return 60;
+        return Math.min(Math.round(t), 120);
       })(),
     },
     models: {

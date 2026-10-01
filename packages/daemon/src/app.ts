@@ -14,6 +14,7 @@ import {
   type LineageNode,
   MEMORY_KINDS,
   type MemoryKind,
+  NEVER_REVIEWED,
   type OutcomePR,
   outcomeReport,
   type ProvenanceClaim,
@@ -1380,8 +1381,15 @@ export function createApp(
     // takes over unchanged (verified 2026-09-12: the dialog is not drawn while the hook runs).
     if (event === "PermissionRequest" && sid) {
       const waitS = store.policyFor(null).config.broker.interactive_wait;
-      if (waitS > 0 && store.dashboardWatching()) {
-        const a = await store.askInteractive(raw, waitS * 1000);
+      const watching = waitS > 0 && store.dashboardWatching();
+      // M12.7: a reviewer that may decide answers even with no dashboard open; the card then
+      // waits as long as the reviewer may take (bounded by the hook's own 150 s)
+      const rv = store.reviewerFor(typeof raw.cwd === "string" ? raw.cwd : "");
+      const reviewed = rv.mode !== "off" && !NEVER_REVIEWED.has(String(raw.tool_name ?? ""));
+      const decides = reviewed && rv.mode === "decide";
+      if (watching || decides) {
+        const waitMs = Math.max(watching ? waitS * 1000 : 0, reviewed ? rv.timeoutMs + 2000 : 0);
+        const a = await store.askInteractive(raw, waitMs, watching);
         return c.json(
           permissionHookOutput(
             a ?? { behavior: null, by: "terminal" },

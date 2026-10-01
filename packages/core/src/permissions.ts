@@ -25,7 +25,19 @@ export interface InteractivePermission {
   askedAt: string;
   /** When the terminal takes over (ISO), so the card can count down. */
   terminalAt: string;
+  /** M12.7: what the reviewer made of it, while it runs and once it has answered. */
+  review?: CardReview;
 }
+
+/** M12.7: the reviewer's state on a card. `decide` that acted resolves the card instead. */
+export type CardReview =
+  | { state: "running"; mode: "advise" | "decide" }
+  | { state: "done"; mode: "advise" | "decide"; decision: "allow" | "deny"; reason: string }
+  /** No usable answer in time; the card is a person's, as if unreviewed. */
+  | { state: "none"; mode: "advise" | "decide"; why: string };
+
+/** Tools whose prompt is a person's to answer by nature — a question, a plan to approve. */
+export const NEVER_REVIEWED = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 export interface InteractiveAnswer {
   /** null = hand it to the terminal (the hook returns nothing). */
@@ -33,7 +45,7 @@ export interface InteractiveAnswer {
   message?: string;
   /** `AskUserQuestion` only: question text → chosen label(s), sent back as `updatedInput.answers`. */
   answers?: Record<string, string>;
-  by: "dashboard" | "terminal" | "cli";
+  by: "dashboard" | "terminal" | "cli" | "reviewer";
 }
 
 /** The hook response for an answer; `{}` when the terminal decides. */
@@ -46,7 +58,7 @@ export function permissionHookOutput(a: InteractiveAnswer, input: Record<string,
         behavior: a.behavior,
         message:
           a.message ??
-          `[swarm] ${a.behavior === "allow" ? "allowed" : "denied"} from the dashboard`,
+          `[swarm] ${a.behavior === "allow" ? "allowed" : "denied"} ${a.by === "reviewer" ? "by the reviewer" : "from the dashboard"}`,
         ...(a.behavior === "allow"
           ? { updatedInput: a.answers ? { ...input, answers: a.answers } : input }
           : {}),
