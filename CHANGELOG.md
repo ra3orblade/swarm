@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.16.0](#0160--2026-10-01) | Oct 1 | The guards ask by default · sandboxed runs · a reviewer on prompts · scheduled workflows |
 | [0.15.1](#0151--2026-09-25) | Sep 25 | Grok's hooks · idle CPU in the desktop app · a "Waiting on you" panel · tooltips back |
 | [0.15.0](#0150--2026-09-19) | Sep 19 | Rules for Codex, Gemini CLI and Cursor · OpenTelemetry export · team daemon without a clone |
 | [0.14.0](#0140--2026-09-12) | Sep 12 | Swarm starts steering agents: repair loop, permission cards, rewrites, wake-ups, status line |
@@ -27,6 +28,45 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.16.0] — 2026-10-01
+
+The five rules that 0.15 shipped switched off now ask by default, after a pass that removed nearly all their false positives. Runs Swarm starts can be fenced in by the operating system, a second model can look at each permission prompt before you do, and workflows can run on a schedule: nightly gates, a review of every open PR.
+
+> **After updating, run `swarm install` once.** It adds two Claude Code hooks (model switches and settings changes) that the rules below rely on. `swarm doctor` lists anything still missing.
+
+### Highlights
+
+#### The guards ask by default
+
+`destructive_fs`, `destructive_infra`, `pipe_to_shell`, `secrets` and `config_tamper` shipped `off` in 0.15 so their hits could be watched first. Replaying two weeks of real commands (13.4k) showed most of what they would have asked about was noise: `curl … | python3 -c "…"` isn't piping a download into a shell, `rm -rf "$S"` is fine when `S` was set two words earlier, and `2>/dev/null` isn't a write to your config. Those cases are fixed: about 160 would-be prompts drop to 62, and nearly all that remain are real `.env` reads. All five now default to `ask`. Set one to `"off"` or `"deny"` under `[rules]` as before.
+
+#### Sandboxed runs
+
+`swarm run --sandbox`, a sandbox option in the Run drawer, or `[dispatch] sandbox = true` for every spawned run, wraps the agent in Anthropic's [sandbox-runtime](https://github.com/anthropics/sandbox-runtime) (`srt`), the same engine Claude Code's own sandbox uses. The agent can write only to its worktree, the repo's git directory, Claude Code's own state and `/tmp`, and can connect only to the model API, the hosts in `[sandbox] allowed_domains`, and the hosts this project's agents already reached (the Security view's list). Credential folders like `~/.ssh` and `~/.aws` can't be read. When the sandbox blocks something, the agent gets the error and Swarm opens a `sandbox` incident naming the path or host. `srt` is optional: install it with `npm install -g @anthropic-ai/sandbox-runtime`. A run that asks for the sandbox without it is refused, never started unfenced.
+
+#### A reviewer on permission prompts
+
+Set `[broker] reviewer = "advise"` and a read-only model looks at each prompt a rule raises and writes its verdict and reason on the card, so you can answer at a glance. In a repo's own `.swarm.toml` you can set `"decide"`, and the reviewer answers the prompt itself, unless you get there first. It never decides a rule your org policy locks, never answers a question meant for you, and every review is recorded.
+
+#### Scheduled workflows
+
+`[[schedules]]` starts a workflow on a cron. Two new steps exist for that: `gates` runs your required gates on the default branch's newest commit in a scratch worktree (never your checkout), and `review-prs` runs the review gate over each open pull request from the repo, once per push. With `post = true` it leaves its findings as a comment on the PR; it never approves or requests changes. A schedule does nothing until you run `swarm schedule arm`, and editing it disarms it, because Swarm picks up every repository a session has touched and a cloned repo shouldn't be able to start agents or comment on PRs by itself.
+
+#### Findings become issues
+
+The Gates view now lists **Recurring failures**: tool calls that failed three or more times across two or more sessions, which usually means something in the repo is broken. Each one, and each flaky gate, has an **Open issue** button that files it on the project's GitHub or Linear task source, labelled `swarm`, so it lands on the Board as a task. Each finding is filed once, even from two machines.
+
+### Also new
+
+- **Model switches outside `[models] allow` are refused** at the moment of the switch, instead of being noticed after the session was already on that model.
+- **Settings changes an agent makes are caught.** When Claude Code's settings change right after the agent ran a command or edited a file, `config_tamper` opens an incident and tells the agent; set to `"deny"`, it blocks the change. Changes you make, including "don't ask again", aren't counted.
+- **Waiting on you is honest.** A wait that ended because a background task finished or a subagent reported back no longer counts as you answering. Stats has a new **Waiting on you** strip with your median and longest answer time, and how many waits ended without you.
+- **One row per subagent.** A delegated agent's start, finish, report and notification are a single session-log row with its runtime, tokens and tool count, and the full report a click away.
+
+### Fixes
+
+- Sessions that hit a rate limit showed no cost at all on Fleet, and `<synthetic>` as their model. Those notices cost nothing and no longer hide the session's real cost.
 
 ## [0.15.1] — 2026-09-25
 
