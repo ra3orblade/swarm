@@ -792,6 +792,7 @@ export function createApp(
       allowedTools: b.allowedTools,
       maxTurns: b.maxTurns,
       profile: b.profile,
+      sandbox: typeof b.sandbox === "boolean" ? b.sandbox : undefined,
     });
     return r.ok ? c.json(r, 201) : c.json({ ok: false, error: r.reason }, 409);
   });
@@ -1309,6 +1310,7 @@ export function createApp(
       permissionMode: b.permissionMode,
       allowedTools: b.allowedTools,
       maxTurns: b.maxTurns,
+      sandbox: typeof b.sandbox === "boolean" ? b.sandbox : undefined,
     });
     return r.ok
       ? c.json({ ...r, resumedFrom: c.req.param("id") }, 201)

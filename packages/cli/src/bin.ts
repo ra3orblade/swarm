@@ -18,7 +18,7 @@ import {
   SwarmClient,
   swarmHome,
 } from "@swarm/client";
-import { loadConfigDetailed } from "@swarm/core";
+import { loadConfigDetailed, SANDBOX_INSTALL } from "@swarm/core";
 import { install, installStatusline, setTeamUrl, status, uninstall } from "./install";
 import * as procs from "./procs";
 
@@ -59,7 +59,7 @@ const help = `swarm — control plane for AI-agent development
   tasks [--ready] [--json] the repo's task source (.swarm.toml [tasks] source); --ready = claimable now
   gate record <task> <gate> pass|fail --rubric "…" [--evidence "…"]   record a verification run (rubric required)
   gate ls [task]          latest verdict per gate (and the run history for one task)
-  run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--profile full|no-edits|read-only] [--allowed-tools a,b] [--max-turns n]
+  run --task <id> (--prompt "…" | --prompt-file f) [--model m] [--permission-mode m] [--profile full|no-edits|read-only] [--allowed-tools a,b] [--max-turns n] [--sandbox|--no-sandbox]
                           claim the task and spawn claude -p in its worktree; the session shows in Fleet
   run ls | send <task|id> "text" | stop <task|id>   steer (stdin) or stop a spawned run, by pid never pattern
   run resume <session-id> [--model m] [--permission-mode m]   spawn a run that picks up where a dead session stopped (its handoff + tail)
@@ -263,6 +263,15 @@ try {
       };
       forge("gh", ["auth", "status", "--active", "-h", "github.com"]);
       forge("glab", ["auth", "status"]);
+      // M12.6 (OQ-21): srt is optional — a failure only when [dispatch] sandbox needs it
+      const srt = Bun.which("srt");
+      if (srt) console.log(`✓ srt (sandbox-runtime) ${srt} — swarm run --sandbox is available`);
+      else if (pol.config.dispatch.sandbox)
+        line(false, "srt (sandbox-runtime) — [dispatch] sandbox is on", `run: ${SANDBOX_INSTALL}`);
+      else
+        console.log(
+          `· srt not found — swarm run --sandbox needs it (${SANDBOX_INSTALL}); interactive sessions use Claude Code's own sandbox settings`,
+        );
       // M8.3b: team forwarding lag, only when [team] is configured
       if (running) {
         const t = (await api("/v1/team").catch(() => null)) as {
@@ -843,7 +852,7 @@ try {
       if (!prompt && pf) prompt = await Bun.file(resolve(pf)).text();
       if (!task || !prompt)
         throw new Error(
-          'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--profile p] [--allowed-tools a,b] [--max-turns n]',
+          'usage: swarm run --task <id> --prompt "…" | --prompt-file f  [--model] [--permission-mode] [--profile p] [--allowed-tools a,b] [--max-turns n] [--sandbox|--no-sandbox]',
         );
       const r = (await fetch(
         resumeFrom
@@ -865,6 +874,12 @@ try {
               .filter(Boolean),
             maxTurns: flag("--max-turns") ? Number(flag("--max-turns")) : undefined,
             profile: flag("--profile"),
+            // M12.6: unset = [dispatch] sandbox
+            sandbox: rest.includes("--sandbox")
+              ? true
+              : rest.includes("--no-sandbox")
+                ? false
+                : undefined,
           }),
         },
       ).then((x) => x.json())) as {
@@ -877,12 +892,13 @@ try {
           pid: number;
           log: string;
           task: string;
+          sandbox: { settings: string; domains: string[] } | null;
         };
       };
       if (json) console.log(JSON.stringify(r));
       else if (r.ok && r.run)
         console.log(
-          `run ${r.run.id} on ${r.run.task} (pid ${r.run.pid})\n  worktree: ${r.run.worktree}\n  session:  ${r.run.sessionId}\n  log:      ${r.run.log}\n  steer:    swarm run send ${r.run.task} "…"   stop: swarm run stop ${r.run.task}   watch: swarm tail --session ${r.run.sessionId}`,
+          `run ${r.run.id} on ${r.run.task} (pid ${r.run.pid})\n  worktree: ${r.run.worktree}\n${r.run.sandbox ? `  sandbox:  srt — writes in the worktree, egress to ${r.run.sandbox.domains.length} hosts (${r.run.sandbox.settings})\n` : ""}  session:  ${r.run.sessionId}\n  log:      ${r.run.log}\n  steer:    swarm run send ${r.run.task} "…"   stop: swarm run stop ${r.run.task}   watch: swarm tail --session ${r.run.sessionId}`,
         );
       else {
         console.error(`REFUSED: ${r.error}`);

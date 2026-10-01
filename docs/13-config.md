@@ -255,6 +255,19 @@ require_pr = true
 # Permission profile for dispatched runs: "full" (default) | "no-edits" (commands, no file edits)
 # | "read-only" (read and search only). Also `swarm run --profile` and the Run drawer.
 # profile = "full"
+# M12.6: wrap every spawned run (dispatch, `swarm run`, workflows, A/B arms) in Anthropic's
+# sandbox-runtime (`srt`, optional: npm install -g @anthropic-ai/sandbox-runtime). A run that wants
+# the sandbox and cannot get it is refused, never started unsandboxed. `swarm run --no-sandbox`
+# turns it off for one run.
+sandbox = false
+
+[sandbox]
+# What a sandboxed run may reach, besides the model API (api.anthropic.com, console.anthropic.com,
+# claude.ai) and loopback. Hostnames or `*.` wildcards, optional `:port`; anything else is dropped.
+# Writes are fixed: the claimed worktree, the repo's git dir, Claude Code's state, the temp dirs.
+allowed_domains = []          # e.g. ["registry.npmjs.org", "*.github.com"]
+# Also allow every remote host this project's agents reached in the last 14 days (the Security view).
+seed = true
 
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).

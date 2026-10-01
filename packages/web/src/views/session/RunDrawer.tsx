@@ -25,11 +25,15 @@ const PERMISSION_MODES = [
 /** What the spawned agent may reach for. `full` is every tool. */
 const PROFILES = ["full", "no-edits", "read-only"] as const;
 
+/** M12.6: `default` leaves it to `[dispatch] sandbox`; the other two pin it for this run. */
+const SANDBOX = ["default", "on", "off"] as const;
+
 interface RunOptions {
   mode: string;
   model: string;
   turns: string;
   profile: string;
+  sandbox: string;
 }
 
 const REMEMBERED = "swarm.runOpts";
@@ -42,9 +46,10 @@ function remembered(): RunOptions {
       model: raw.model ?? "",
       turns: raw.turns ?? "",
       profile: raw.profile ?? "full",
+      sandbox: raw.sandbox ?? "default",
     };
   } catch {
-    return { mode: "acceptEdits", model: "", turns: "", profile: "full" };
+    return { mode: "acceptEdits", model: "", turns: "", profile: "full", sandbox: "default" };
   }
 }
 
@@ -67,6 +72,7 @@ function runBody(projectId: string, taskId: string, prompt: string, options: Run
     maxTurns: options.turns ? Number(options.turns) : undefined,
     // `full` is the default; sending it would pin a profile the daemon would otherwise leave open.
     profile: options.profile === "full" ? undefined : options.profile,
+    sandbox: options.sandbox === "default" ? undefined : options.sandbox === "on",
   };
 }
 
@@ -186,6 +192,17 @@ export function RunDrawer({ projectId, task, onClose, onStarted }: RunDrawerProp
           {PROFILES.map((p) => (
             <option key={p} value={p}>
               {p}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label title="Wrap the agent in srt (sandbox-runtime): writes only in the worktree, connections only to allowed hosts. default = [dispatch] sandbox">
+        sandbox
+        <select value={options.sandbox} onChange={(e) => set({ sandbox: e.target.value })}>
+          {SANDBOX.map((v) => (
+            <option key={v} value={v}>
+              {v}
             </option>
           ))}
         </select>

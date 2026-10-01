@@ -100,6 +100,7 @@ export function parseGateDefs(gates: unknown): Record<string, GateDef> {
 import { DEFAULT_PRIVACY, type PrivacyConfig } from "./audit";
 import type { BudgetConfig } from "./budget";
 import type { CustomRule } from "./rules";
+import { validDomain } from "./sandbox";
 import { parseWorkflows, type WorkflowDef } from "./workflows";
 
 export interface SwarmConfig {
@@ -204,6 +205,16 @@ export interface SwarmConfig {
     require_pr: boolean;
     /** Default permission profile for dispatched runs: full | no-edits | read-only. */
     profile: string | null;
+    /** M12.6: every spawned run (dispatch, `swarm run`, workflows, A/B arms) is wrapped in
+     *  `srt` unless the run says otherwise; a run that cannot be fenced is refused, not started. */
+    sandbox: boolean;
+  };
+  /** M12.6 sandboxed runs: what a fenced run may reach (core `sandbox.ts`). */
+  sandbox: {
+    /** Extra egress, on top of the model API: hostnames or `*.` wildcards, optional `:port`. */
+    allowed_domains: string[];
+    /** Also allow the remote hosts this project's agents reached in the last 14 days. */
+    seed: boolean;
   };
   worktree: {
     /** Shell command run inside every new worktree right after `git worktree add`
@@ -249,7 +260,9 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     max_turns: null,
     require_pr: true,
     profile: null,
+    sandbox: false,
   },
+  sandbox: { allowed_domains: [], seed: true },
   worktree: { setup: null, copy: [], open: null },
   rules: {
     shared_tree: "ask",
@@ -509,6 +522,19 @@ function validate(c: SwarmConfig): SwarmConfig {
       profile: ["full", "no-edits", "read-only"].includes(String(d.profile))
         ? String(d.profile)
         : null,
+      sandbox: d.sandbox === true,
+    },
+    sandbox: {
+      allowed_domains: Array.isArray(
+        (c.sandbox as { allowed_domains?: unknown } | undefined)?.allowed_domains,
+      )
+        ? (
+            (c.sandbox as { allowed_domains: unknown[] }).allowed_domains.filter(
+              (h): h is string => typeof h === "string" && validDomain(h.trim().toLowerCase()),
+            ) as string[]
+          ).map((h) => h.trim().toLowerCase())
+        : [],
+      seed: (c.sandbox as { seed?: unknown } | undefined)?.seed !== false,
     },
     worktree: {
       setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,
