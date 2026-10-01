@@ -57,6 +57,7 @@ export const EVENT_TYPES = [
   "incident.opened",
   "incident.acked",
   "run.result",
+  "finding.filed", // M13.11: a report row became an issue on the task source
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

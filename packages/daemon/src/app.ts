@@ -308,6 +308,21 @@ export function createApp(
     ),
   );
   app.get("/v1/hygiene", (c) => c.json(store.hygiene(c.req.query("project") || undefined)));
+  // ---- M13.11: findings → issues on the project's task source
+  app.get("/v1/findings", (c) => {
+    const project = c.req.query("project");
+    if (!project) return c.json({ error: "project is required" }, 400);
+    const r = store.findings(project);
+    return r ? c.json(r) : c.json({ error: "unknown project" }, 404);
+  });
+  app.post("/v1/findings/:fingerprint/issue", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { projectId?: string };
+    if (!b.projectId) return c.json({ ok: false, error: "projectId is required" }, 400);
+    const r = await store.fileFinding(b.projectId, c.req.param("fingerprint"));
+    return r.ok
+      ? c.json(r, r.existed ? 200 : 201)
+      : c.json({ ok: false, error: r.reason }, r.status);
+  });
   app.get("/v1/gates/health", (c) =>
     c.json(
       store.gateHealth(

@@ -51,6 +51,7 @@ import {
   commandHead,
   compileRedactions,
   gateHealth as computeGateHealth,
+  recurringFailures as computeRecurringFailures,
   configSourceWhat,
   contextReport,
   costUsd,
@@ -66,7 +67,11 @@ import {
   effectiveReviewer,
   executedGateInput,
   FAMILY_RULES,
+  type FailingCall,
+  type FindingsReport,
+  failingCallFinding,
   fileHeat,
+  flakyGateFinding,
   formatAnswers,
   formatHandoff,
   formatMessages,
@@ -96,6 +101,7 @@ import {
   hygieneReport,
   type InteractiveAnswer,
   type InteractivePermission,
+  type IssueFinding,
   incidentDoc,
   incidentKey,
   isActive,
@@ -205,6 +211,7 @@ import {
   type TaskView,
   type ToolCallSample,
   type ToolCallTiming,
+  type ToolOutcomeSample,
   type TrackedProcess,
   type Turn,
   taskBoard,
@@ -243,6 +250,7 @@ import {
   worktreeRemove,
   worktreeRemoveAsync,
 } from "./git";
+import { type FiledIssue, IssueFiler } from "./issues";
 import { TaskSources } from "./task-sources";
 
 const SCHEMA = `
@@ -316,6 +324,11 @@ CREATE TABLE IF NOT EXISTS claims (
   project_id TEXT, task TEXT, owner TEXT, worktree TEXT, branch TEXT,
   acquired_at TEXT, expires_at TEXT, released_at TEXT, state TEXT,
   PRIMARY KEY (project_id, task)
+);
+-- M13.11: findings already filed as issues; the fingerprint is also a marker in the issue body
+CREATE TABLE IF NOT EXISTS finding_issues (
+  fingerprint TEXT PRIMARY KEY, project_id TEXT, kind TEXT, subject TEXT,
+  ref TEXT, url TEXT, filed_at TEXT
 );
 `;
 
@@ -5300,6 +5313,160 @@ export class Store {
           at: r.created_at,
         })),
     );
+  }
+
+  // ---------- findings → issues (M13.11)
+  /** Swappable in tests; files through the task source's own credentials. */
+  issues = new IssueFiler();
+
+  /** Remote calls that failed again and again across sessions (M13.11 rollup of M9.3's test). */
+  recurringFailures(projectId: string, days = 14): FailingCall[] {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    // a cheap textual prefilter; `toolResponseErrored` makes the real call in core
+    const rows = this.db
+      .query(
+        `SELECT session_id, ts, payload FROM events
+         WHERE type = 'tool.completed' AND project_id = ? AND ts >= ?
+           AND (payload LIKE '%error%' OR payload LIKE '%"success":false%'
+                OR payload LIKE '%"interrupted":true%')`,
+      )
+      .all(projectId, since) as Array<{ session_id: string | null; ts: string; payload: string }>;
+    const samples: ToolOutcomeSample[] = [];
+    for (const r of rows) {
+      let p: Record<string, unknown> = {};
+      try {
+        p = JSON.parse(r.payload || "{}") as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      samples.push({
+        sessionId: r.session_id ?? "",
+        tool: typeof p.tool === "string" ? p.tool : "?",
+        toolInput: p.toolInput,
+        toolResponse: p.toolResponse,
+        at: r.ts,
+      });
+    }
+    return computeRecurringFailures(samples);
+  }
+
+  /**
+   * Every finding this project has right now, each with the issue already filed for it (if any),
+   * plus where an issue would go. The rows are recomputed on each call, so a finding that stopped
+   * qualifying simply drops out; its ledger row stays, so it is never filed twice.
+   */
+  findings(projectId: string): FindingsReport | null {
+    const p = this.project(projectId);
+    if (!p) return null;
+    const tasks = loadConfig({ repoRoot: p.root, home: this.home }).tasks;
+    const kind = taskSourceKind(tasks.source);
+    const source = kind === "github" || kind === "linear" ? kind : null;
+    const filed = new Map(
+      (
+        this.db
+          .query("SELECT fingerprint, ref, url, filed_at FROM finding_issues WHERE project_id = ?")
+          .all(projectId) as Array<{
+          fingerprint: string;
+          ref: string;
+          url: string;
+          filed_at: string;
+        }>
+      ).map((r) => [r.fingerprint, { ref: r.ref, url: r.url, filedAt: r.filed_at }]),
+    );
+    const gates = this.gateHealth(projectId).gates.filter((g) => g.flaky);
+    const failing = this.recurringFailures(projectId);
+    const items = [
+      ...gates.map((g) => flakyGateFinding(projectId, g)),
+      ...failing.map((f) => failingCallFinding(projectId, f)),
+    ];
+    return {
+      source,
+      /** Why filing is unavailable here, for the button's title. */
+      unavailable: source
+        ? null
+        : tasks.source
+          ? `the task source is ${tasks.source} — issues are filed on GitHub or Linear sources`
+          : 'no [tasks] source — set source = "github" or "linear" in .swarm.toml',
+      findings: items.map(({ body: _, ...f }) => ({
+        ...f,
+        issue: filed.get(f.fingerprint) ?? null,
+      })),
+      failing: failing.map((f, i) => ({
+        ...f,
+        fingerprint: (items[gates.length + i] as IssueFinding).fingerprint,
+      })),
+    };
+  }
+
+  /** File one finding as an issue; idempotent per fingerprint. */
+  async fileFinding(
+    projectId: string,
+    fingerprint: string,
+  ): Promise<
+    | { ok: true; ref: string; url: string; existed: boolean }
+    | { ok: false; reason: string; status: 404 | 409 }
+  > {
+    const p = this.project(projectId);
+    if (!p) return { ok: false, reason: "unknown project", status: 404 };
+    const known = this.db
+      .query("SELECT ref, url FROM finding_issues WHERE fingerprint = ?")
+      .get(fingerprint) as { ref: string; url: string } | null;
+    if (known) return { ok: true, ...known, existed: true };
+    const tasks = loadConfig({ repoRoot: p.root, home: this.home }).tasks;
+    const kind = taskSourceKind(tasks.source);
+    if (kind !== "github" && kind !== "linear")
+      return {
+        ok: false,
+        reason: "issues are filed on a GitHub or Linear [tasks] source",
+        status: 409,
+      };
+    const failing = this.recurringFailures(projectId);
+    const finding = [
+      ...this.gateHealth(projectId)
+        .gates.filter((g) => g.flaky)
+        .map((g) => flakyGateFinding(projectId, g)),
+      ...failing.map((f) => failingCallFinding(projectId, f)),
+    ].find((f) => f.fingerprint === fingerprint);
+    if (!finding)
+      return { ok: false, reason: "no such finding here (it may no longer qualify)", status: 409 };
+    let filed: FiledIssue;
+    try {
+      filed = await this.issues.file(kind, p.root, finding, {
+        labels: tasks.labels,
+        team: tasks.team,
+      });
+    } catch (e) {
+      // 409, not 5xx: the reason (gh not authenticated, no Linear key) is for the person to read
+      return { ok: false, reason: (e as Error).message, status: 409 };
+    }
+    const at = new Date().toISOString();
+    this.db
+      .query(
+        "INSERT OR REPLACE INTO finding_issues (fingerprint, project_id, kind, subject, ref, url, filed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(fingerprint, projectId, finding.kind, finding.subject, filed.ref, filed.url, at);
+    this.append({
+      ts: at,
+      type: "finding.filed",
+      projectId,
+      sessionId: null,
+      payload: {
+        kind: finding.kind,
+        fingerprint,
+        subject: finding.subject,
+        ref: filed.ref,
+        url: filed.url,
+        existed: filed.existed,
+        summary: `${filed.existed ? "found" : "filed"} ${filed.ref}: ${finding.title}`,
+      },
+    });
+    // the Board shows it on the next read, not after the source's cache expires
+    void this.taskSources.refresh(projectId, kind, p.root, {
+      labels: tasks.labels,
+      team: tasks.team,
+    });
+    this.touch();
+    return { ok: true, ...filed };
   }
 
   /** Newest mtime of a worktree root and its `.git` — a cheap "when was this last touched". */

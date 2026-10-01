@@ -18,6 +18,7 @@
 
 import type {
   ContextReport,
+  FindingsReport,
   GateHealthReport,
   HeatReport,
   HygieneReport,
@@ -76,6 +77,8 @@ export const routes = {
   outcomes: (project: string | null) => byProject<OutcomeReport>("/v1/outcomes", project),
   hygiene: (project: string | null) => byProject<HygieneReport>("/v1/hygiene", project),
   gateHealth: (project: string | null) => byProject<GateHealthReport>("/v1/gates/health", project),
+  /** M13.11: per project only — an issue is filed into one project's task source. */
+  findings: (project: string): Route<FindingsReport> => `/v1/findings${query({ project })}`,
   mcpHealth: (project: string | null) => byProject<McpHealthReport>("/v1/mcp/health", project),
   context: (project: string | null) => byProject<ContextReport>("/v1/context", project),
   heat: (project: string | null) => byProject<HeatReport>("/v1/heat", project),
