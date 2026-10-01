@@ -65,6 +65,10 @@ export function priceFor(model: string | null | undefined, table = PRICES): Pric
 }
 
 export function costUsd(model: string | null | undefined, u: Usage, table = PRICES): number | null {
+  // A turn that spent nothing costs nothing, whatever its model — Claude Code writes `<synthetic>`
+  // assistant turns (rate-limit and error notices) with zero usage, and one unpriced turn blanks the
+  // whole session's cost.
+  if (u.input + u.output + u.cacheWrite + u.cacheRead === 0) return 0;
   const p = priceFor(model, table);
   if (!p) return null;
   const w5 = u.cacheWrite - (u.cacheWrite1h ?? 0);
