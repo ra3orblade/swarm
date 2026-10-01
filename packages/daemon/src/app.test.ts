@@ -2728,3 +2728,149 @@ describe("Grok running Claude Code's hooks", () => {
     expect(row.state).toBe("ended");
   });
 });
+
+describe("findings → issues (M13.11)", () => {
+  const setup = async (source: string) => {
+    const fs = require("node:fs");
+    const { app, store } = createApp(new Store(tmpHome()));
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-find-")));
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(join(dir, ".swarm.toml"), source);
+    const p = store.resolveProject(dir, true);
+    const json = { "content-type": "application/json" };
+    // a flaky gate: pass then fail on one task
+    for (const verdict of ["pass", "fail"])
+      await app.request("/v1/gates", {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({
+          projectId: p.id,
+          task: "T1",
+          gate: "tests",
+          verdict,
+          rubric: "ran bun test, read the failures",
+        }),
+      });
+    // the same Bash call failing three times across two sessions
+    for (const [i, s] of ["s1", "s1", "s2"].entries())
+      store.append({
+        ts: new Date(Date.now() - (3 - i) * 1000).toISOString(),
+        type: "tool.completed",
+        projectId: p.id,
+        sessionId: s,
+        payload: {
+          tool: "Bash",
+          toolInput: { command: "bun run gen" },
+          toolResponse: { is_error: true, error: "gen.ts not found" },
+        },
+      });
+    const findings = async () =>
+      (await (await app.request(`/v1/findings?project=${p.id}`)).json()) as {
+        source: string | null;
+        unavailable: string | null;
+        findings: Array<{ kind: string; fingerprint: string; issue: { ref: string } | null }>;
+        failing: Array<{ call: string; fails: number; sessions: number }>;
+      };
+    const file = (fp: string) =>
+      app.request(`/v1/findings/${fp}/issue`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ projectId: p.id }),
+      });
+    return { fs, app, store, p, findings, file };
+  };
+
+  it("lists both kinds; without a GitHub/Linear source it says why and refuses to file", async () => {
+    const { findings, file } = await setup(`[tasks]\nsource = "TASKS.md"\n`);
+    const f = await findings();
+    expect(f.source).toBeNull();
+    expect(f.unavailable).toContain("TASKS.md");
+    expect(f.findings.map((x) => x.kind).sort()).toEqual(["failing_call", "flaky_gate"]);
+    expect(f.failing[0]).toMatchObject({ call: "bun run gen", fails: 3, sessions: 2 });
+    const r = await file(f.findings[0]?.fingerprint ?? "");
+    expect(r.status).toBe(409);
+  });
+
+  it("GitHub: labels, files once, and finds an issue another machine filed", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "swarm-fakegh-"));
+    const log = join(binDir, "argv");
+    const listOut = join(binDir, "list.json");
+    const fs = require("node:fs");
+    fs.writeFileSync(listOut, "[]");
+    fs.writeFileSync(
+      join(binDir, "gh"),
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$*" >> ${log}`,
+        `case "$1 $2" in`,
+        `  "issue list") cat ${listOut} ;;`,
+        `  "label create") echo 'already exists' >&2; exit 1 ;;`,
+        `  "issue create") echo https://github.com/o/r/issues/42 ;;`,
+        "esac",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(join(binDir, "gh"), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath}`;
+    try {
+      const { store, findings, file } = await setup(
+        `[tasks]\nsource = "github"\nlabels = ["agent-ready"]\n`,
+      );
+      const gate = (await findings()).findings.find((x) => x.kind === "flaky_gate");
+      const fp = gate?.fingerprint ?? "";
+      let r = await file(fp);
+      expect(r.status).toBe(201);
+      expect(await r.json()).toMatchObject({ ok: true, ref: "GH-42", existed: false });
+      const argv = fs.readFileSync(log, "utf8") as string;
+      expect(argv).toContain(`swarm-finding:${fp}`); // searched by marker first
+      expect(argv).toContain("--label swarm --label agent-ready");
+      expect((await findings()).findings.find((x) => x.fingerprint === fp)?.issue?.ref).toBe(
+        "GH-42",
+      );
+      // twice: answered from the ledger, gh not asked to create again
+      r = await file(fp);
+      expect(r.status).toBe(200);
+      expect(fs.readFileSync(log, "utf8").split("issue create").length).toBe(2);
+      expect(
+        store.db.query("SELECT count(*) AS n FROM events WHERE type = 'finding.filed'").get(),
+      ).toEqual({ n: 1 });
+
+      // another machine already filed the failing-call finding: found by its marker, not refiled
+      fs.writeFileSync(listOut, '[{"number":7,"url":"https://github.com/o/r/issues/7"}]');
+      const call = (await findings()).findings.find((x) => x.kind === "failing_call");
+      r = await file(call?.fingerprint ?? "");
+      expect(await r.json()).toMatchObject({ ok: true, ref: "GH-7", existed: true });
+      expect(fs.readFileSync(log, "utf8").split("issue create").length).toBe(2);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+
+  it("Linear: files into the configured team, creating the swarm label when missing", async () => {
+    const { IssueFiler } = await import("./issues");
+    const { store, findings, file } = await setup(`[tasks]\nsource = "linear"\nteam = "ENG"\n`);
+    const calls: Array<{ query: string; variables: Record<string, unknown> }> = [];
+    const fake = (async (_url: string, init: RequestInit) => {
+      const b = JSON.parse(String(init.body)) as (typeof calls)[number];
+      calls.push(b);
+      const data = b.query.includes("issueCreate")
+        ? { issueCreate: { issue: { identifier: "ENG-9", url: "https://linear.app/x/ENG-9" } } }
+        : b.query.includes("issueLabelCreate")
+          ? { issueLabelCreate: { issueLabel: { id: "L1" } } }
+          : b.query.includes("issueLabels")
+            ? { issueLabels: { nodes: [] } }
+            : b.query.includes("teams")
+              ? { teams: { nodes: [{ id: "T1", key: "ENG" }] } }
+              : { issues: { nodes: [] } };
+      return new Response(JSON.stringify({ data }));
+    }) as unknown as typeof fetch;
+    store.issues = new IssueFiler({ LINEAR_API_KEY: "k" }, undefined, fake);
+    const fp = (await findings()).findings[0]?.fingerprint ?? "";
+    const r = await file(fp);
+    expect(await r.json()).toMatchObject({ ok: true, ref: "ENG-9" });
+    expect(calls[0]?.variables).toEqual({ marker: `swarm-finding:${fp}` });
+    expect(calls[1]?.variables).toEqual({ key: "ENG" });
+    expect(calls.at(-1)?.variables).toMatchObject({ teamId: "T1", labelIds: ["L1"] });
+  });
+});

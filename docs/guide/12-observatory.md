@@ -18,6 +18,14 @@ Every recorded [gate](04-claims-and-worktrees.md#gates) run over the last 30 day
 
 **Flaky** is a fact here, not a guess: the same gate returned both a pass and a fail *on the same task*. A gate that fails on task A and passes on task B is doing its job and is never counted; one that flips on a single task told you two different things about identical work. The count of flaky gates rides on the nav entry, so a gate nobody can trust is visible from any view. Durations cover gates the daemon executed — a gate an agent merely recorded has no wall-clock to report.
 
+Below the gates, **Recurring failures** lists tool calls that failed at least three times across at least two sessions in the last 14 days. One session repeating a failing command already gets the **Stuck** badge on Fleet. When several sessions fail on the same call, the cause is usually in the repo: a broken script, a missing dependency, or an instruction that points at a file that isn't there. A call counts as failed by the same test the Stuck badge uses, and whitespace differences don't make two calls different.
+
+### Turning a finding into an issue
+
+With a project selected whose `[tasks] source` is `"github"` or `"linear"`, every flaky gate and every recurring failure has an **Open issue** button. It files an issue on that source, labelled `swarm` plus your `[tasks] labels`, so it appears on the [Board](04-claims-and-worktrees.md) like any other task and an agent can claim it. The issue explains what was seen: a flaky gate's recent runs, or the failing call and its last error. The row then links to the issue.
+
+Each finding is filed at most once. Its fingerprint (the kind, the project and the gate or call) is written into the issue body. Before filing, Swarm searches the source for that fingerprint, so if a teammate's machine already filed the issue, you get a link to theirs instead of a duplicate. Filing uses the credentials the task source already reads with: the authenticated `gh` CLI, or `LINEAR_API_KEY` from the daemon's environment (on Linear, set `[tasks] team` if the workspace has more than one team). Over HTTP: `GET /v1/findings?project=…` and `POST /v1/findings/:fingerprint/issue {projectId}`.
+
 ## MCP — server health
 
 Which MCP servers your agents actually use, how much of the fleet's tool time each one carries, and which are slow or failing: calls, sessions, p50/p95/slowest, total time waited, unanswered calls and error rate, plus each server's busiest tools. Built-in tools are grouped under `builtin` so there is a baseline to compare against.

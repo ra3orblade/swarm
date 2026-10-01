@@ -265,3 +265,22 @@ export async function joinTeam(body: { invite: string }): Promise<TeamActionResu
 export async function leaveTeam(stopHosted: boolean): Promise<TeamActionResult> {
   return (await send("/v1/team/leave", "POST", { stopHosted })) as TeamActionResult;
 }
+
+export interface FileFindingResult {
+  ok: boolean;
+  ref?: string;
+  url?: string;
+  existed?: boolean;
+  error?: string;
+}
+/** M13.11: file a report row as an issue on the project's task source (idempotent). */
+export async function fileFinding(
+  projectId: string,
+  fingerprint: string,
+): Promise<FileFindingResult> {
+  return await send<FileFindingResult>(
+    `/v1/findings/${encodeURIComponent(fingerprint)}/issue`,
+    "POST",
+    { projectId },
+  );
+}

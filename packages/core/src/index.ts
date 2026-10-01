@@ -15,6 +15,7 @@ export * from "./dag";
 export * from "./dashboard";
 export * from "./dispatch";
 export * from "./dryrun";
+export * from "./findings";
 export * from "./forge";
 export * from "./gatehealth";
 export * from "./gates";
