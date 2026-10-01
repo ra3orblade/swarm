@@ -307,6 +307,23 @@ export function guardConfigFile(path: string, home: string): string | null {
   return null;
 }
 
+/**
+ * M13.8: the `ConfigChange` sources config_tamper watches, as `guardConfigFile` names them.
+ * `skills` is not a guard file; `policy_settings` cannot be blocked and is the org's to change.
+ */
+export function configSourceWhat(source: unknown): string | null {
+  switch (source) {
+    case "user_settings":
+      return "Claude Code settings (hooks and permissions) (~/.claude/settings.json)";
+    case "project_settings":
+      return "Claude Code settings (hooks and permissions) (.claude/settings.json)";
+    case "local_settings":
+      return "Claude Code settings (hooks and permissions) (.claude/settings.local.json)";
+    default:
+      return null;
+  }
+}
+
 const WRITE_CMDS = /^(tee|rm|mv|truncate|unlink|shred|chmod|chown)$/;
 const COPY_CMDS = /^(cp|ln|install|rsync|scp)$/;
 const SQL_WRITE = /\b(delete|update|drop|insert|replace|alter|create|vacuum)\b/i;

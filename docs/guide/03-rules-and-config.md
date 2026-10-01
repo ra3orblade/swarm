@@ -127,7 +127,8 @@ redact = []                # extra regexes replaced by [redacted] in every store
 
 [models]
 # Model allow-list: globs, empty = every model allowed. Spawned runs refuse a
-# disallowed model; an interactive session on one opens an incident (never interrupted).
+# disallowed model; so does /model in Claude Code — the switch is refused with the
+# reason. A session that started on one opens an incident (never interrupted).
 allow = []                 # e.g. ["claude-*"]
 
 [notify]
@@ -175,7 +176,7 @@ Two rules have a third answer besides *ask* and *deny*: **rewrite**. The call ru
 
 Five more rules watch for the commands nobody can take back. **`destructive_fs`** catches a recursive `rm` aimed at `/`, your home, `..`, a path that starts with a variable (`rm -rf "$OUT"/` is `rm -rf /` the day `OUT` is empty) or anything outside the repository; plus `mkfs`, `dd` onto a device and `find / … -delete`. `rm -rf node_modules` and anything under `/tmp` are fine. **`destructive_infra`** catches `terraform destroy`, `kubectl delete` of a namespace or `--all`, `helm uninstall`, cloud deletes (`aws s3 rb`, `gcloud … delete`), and SQL `DROP` / `TRUNCATE` / unbounded `DELETE` sent through a database client. **`pipe_to_shell`** catches `curl … | sh` and its `bash <(curl …)` cousins. **`secrets`** catches reading, printing or copying a credential file (`cat .env`, `Read ~/.ssh/id_ed25519`, `curl -d @.env`) and writing a `.env*` or key file; `.env.example` and friends are not secrets. **`config_tamper`** catches edits to Claude Code's settings, anything under `~/.swarm`, `.swarm.toml`, the other agents' hook config, and `swarm uninstall` — the files that decide what agents may do.
 
-All five **ask** (they shipped `off` in 0.15 so their hits could be watched first). The **Security** view (Guard → Security) counts what each one catches, with an example, whatever its mode — so a rule you set to `"off"` still shows what it would have stopped. Set one to `"deny"` or `"off"` like any other rule. On Codex, Gemini CLI and Cursor, which cannot ask, an *ask* is a refusal with the reason (see below). They match the command text, so like the rest they are a lint, not a sandbox.
+All five **ask** (they shipped `off` in 0.15 so their hits could be watched first). The **Security** view (Guard → Security) counts what each one catches, with an example, whatever its mode — so a rule you set to `"off"` still shows what it would have stopped. Set one to `"deny"` or `"off"` like any other rule. On Codex, Gemini CLI and Cursor, which cannot ask, an *ask* is a refusal with the reason (see below). They match the command text, so like the rest they are a lint, not a sandbox — with one backstop: when Claude Code's own settings change in the middle of a command the agent ran (a script that edits `~/.claude/settings.json`, say), `config_tamper` hears about it from Claude Code, opens the incident and tells the agent; set to `"deny"`, it also blocks the change. A change you make yourself, or the "don't ask again" answer in a permission dialog, is not counted.
 
 ### Other agents
 

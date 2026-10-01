@@ -51,6 +51,7 @@ import {
   commandHead,
   compileRedactions,
   gateHealth as computeGateHealth,
+  configSourceWhat,
   contextReport,
   costUsd,
   type DashboardSnapshot,
@@ -119,6 +120,7 @@ import {
   type Message,
   mcpHealth,
   modelAllowed,
+  modelSwitchRefusal,
   needsBootstrap,
   nextExpiry,
   normalizeCommand,
@@ -6896,6 +6898,81 @@ export class Store {
       task: string;
       cost: number | null;
     }>;
+  }
+
+  /**
+   * M13.8: a `PreModelSwitch` to a model outside `[models] allow` is refused at the moment, with
+   * the reason, instead of being found by `checkModels` once the session already runs on it.
+   */
+  modelSwitch(raw: Record<string, unknown>): string | null {
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const project = cwd && existsSync(cwd) ? this.resolveProject(cwd) : null;
+    const allow = project
+      ? this.config(project.id).models.allow
+      : this.policyFor(null).config.models.allow;
+    const from = typeof raw.from_model === "string" ? raw.from_model : "";
+    const to = typeof raw.to_model === "string" ? raw.to_model : "";
+    const reason = modelSwitchRefusal(from, to, allow);
+    if (!reason) return null;
+    const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    if (sid) this.modelFlagged.add(sid); // already said; checkModels need not say it again
+    this.append({
+      ts: new Date().toISOString(),
+      type: "incident.opened",
+      projectId: project?.id ?? "p_unknown",
+      sessionId: sid,
+      payload: { rule: "model_allowlist", action: "deny", command: to, reason },
+    });
+    return reason;
+  }
+
+  /**
+   * M13.8: a Claude Code settings file changed mid-session. `config_tamper` already asks on the
+   * edits it can see in a command; this catches the ones it cannot (a script, an obfuscated
+   * write) — but only when the agent plausibly made the change: a Bash / file-write call in the
+   * last 20 s, no permission dialog in that window (Claude Code writes `settings.local.json`
+   * itself when the person picks "don't ask again"), and no config_tamper hit already raised on
+   * that call (the person was asked then). Anything else is the person or another program, and
+   * is only recorded for the Timeline. `deny` blocks the change; `ask` cannot ask here, so the
+   * agent and the person are told.
+   */
+  configChange(raw: Record<string, unknown>): { block: boolean; reason: string } | null {
+    const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    const cwd = typeof raw.cwd === "string" ? raw.cwd : "";
+    const what = configSourceWhat(raw.config_source);
+    if (!sid || !what) return null;
+    const mode = this.rulesFor(this.toplevel(cwd)).config_tamper ?? "off";
+    if (mode === "off") return null;
+    const since = new Date(Date.now() - 20_000).toISOString();
+    const recent = this.db
+      .query(
+        `SELECT type, json_extract(payload, '$.tool') AS tool, json_extract(payload, '$.rule') AS rule
+         FROM events WHERE session_id = ? AND ts >= ?
+           AND type IN ('tool.requested', 'permission.requested', 'incident.opened')`,
+      )
+      .all(sid, since) as Array<{ type: string; tool: string | null; rule: string | null }>;
+    const byAgent = recent.some(
+      (e) => e.type === "tool.requested" && (e.tool === "Bash" || WRITE_TOOLS.has(e.tool ?? "")),
+    );
+    if (
+      !byAgent ||
+      recent.some((e) => e.type === "permission.requested") ||
+      recent.some((e) => e.type === "incident.opened" && e.rule === "config_tamper")
+    )
+      return null;
+    const block = mode === "deny";
+    const reason = `${what} changed while this session was running a command — ${
+      block
+        ? "the change was blocked; edit the file by hand if it was meant"
+        : "Swarm would have asked before it; check that the change was meant"
+    }`;
+    this.openIncident(
+      { action: block ? "deny" : "ask", rule: "config_tamper", reason },
+      cwd,
+      sid,
+      `ConfigChange ${String(raw.config_source)}`,
+    );
+    return { block, reason };
   }
 
   /** M8.4 model allow-list observation: a live session on a disallowed model opens one incident. */
