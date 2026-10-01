@@ -1,8 +1,8 @@
 /**
  * The destructive / secrets / tamper rule families (M12.5). Pure detectors over what a tool call
  * asks for; `guardBash` and `guardFile` in `rules.ts` turn a hit into a decision, and the Security
- * report (`security.ts`) counts hits whatever the mode — every family ships `off` for one release
- * and is watched there first (the M9.9 order: observation, then `ask`).
+ * report (`security.ts`) counts hits whatever the mode. Every family shipped `off` in 0.15 and was
+ * watched there first (the M9.9 order: observation, then `ask`); they ask from 0.16.
  *
  * Like the rest of the rules these are a **lint, not a sandbox**: they read the command string.
  * An obfuscated command will not match. Each detector is tuned for the case an agent actually
@@ -32,10 +32,27 @@ function segments(cmd: string): string[] {
 
 /** Words of one simple command, quotes removed (a lint, not a shell parser). */
 function words(seg: string): string[] {
-  return (seg.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""));
+  // adjacent quoted and bare parts are one word, as in a shell: `"$DIR"/x` is `$DIR/x`
+  return (seg.match(/(?:"[^"]*"|'[^']*'|[^\s"']+)+/g) ?? []).map((w) =>
+    w.replace(/"([^"]*)"|'([^']*)'/g, "$1$2"),
+  );
 }
 
 // ---------- destructive_fs
+
+/**
+ * `S=/tmp/x; rm -rf "$S"/` — a variable given a literal value earlier in the same command is
+ * not unset; spell it out so the target is judged by what it is. Values that are themselves
+ * expansions (`$(mktemp -d)`) stay as they were.
+ */
+function assignedVars(cmd: string): string {
+  const vars = new Map<string, string>();
+  const re = /(?:^|[\s;&(])(\w+)=("[^"$`]+"|'[^']+'|[^\s;&|'"$`()]+)(?=[\s;&]|$)/g;
+  for (const m of cmd.matchAll(re))
+    vars.set(m[1] as string, (m[2] as string).replace(/^["']|["']$/g, ""));
+  if (!vars.size) return cmd;
+  return cmd.replace(/\$\{?(\w+)\}?/g, (all, name: string) => vars.get(name) ?? all);
+}
 
 const SYSTEM_DIRS = [
   "/",
@@ -60,8 +77,10 @@ const SCRATCH = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders)(
 
 /** Why removing `target` recursively is out of bounds, or null. */
 function dangerousTarget(target: string, home: string, toplevel: string | null): string | null {
-  if (/^\$\{?\w+\}?(\/|$)/.test(target) && !target.startsWith(home))
+  // `rm -rf "$DIR"` with DIR empty removes nothing; `rm -rf "$DIR"/` removes /
+  if (/^\$\{?\w+\}?\//.test(target) && !target.startsWith(home))
     return `starts with ${target.match(/^\$\{?\w+\}?/)?.[0]} — if that is ever unset, it is /`;
+  if (/^\$\{?\w+\}?$/.test(target)) return null;
   const t = trimSlash(target.replace(/\/\*$/, "/").replace(/\/\.$/, "/"));
   if (t === "*" || target === "/*") return "removes everything the glob matches, from the top";
   if (t === "." || t === ".." || t.startsWith("../"))
@@ -83,7 +102,7 @@ export function destructiveFs(
   home: string,
   toplevel: string | null,
 ): FamilyHit | null {
-  const c = expandHome(cmd, home);
+  const c = assignedVars(expandHome(cmd, home));
   for (const seg of segments(c)) {
     const w = words(seg.replace(/^sudo\s+/, ""));
     if (w[0] === "rm") {
@@ -180,10 +199,26 @@ export function destructiveInfra(cmd: string): FamilyHit | null {
 const FETCHER = String.raw`\b(curl|wget|fetch|http|xh)\b`;
 const INTERP = String.raw`(sudo\s+(-\S+\s+)*)?(env\s+(\w+=\S+\s+)*)?(ba|z|k|da|fi)?sh|python[0-9.]*|node|perl|ruby|php|iex`;
 
+/**
+ * Whether an interpreter given these arguments runs what arrives on stdin. `python3 -c '…'`,
+ * `node -e '…'`, `python3 -m json.tool` and `node script.js` run their own code and only read the
+ * download as data; a bare interpreter, `-` or `-s` runs the download.
+ */
+function runsStdin(args: string): boolean {
+  for (const a of words(args)) {
+    if (a === "-" || a === "-s" || a === "/dev/stdin") return true;
+    if (/^-([ceEpmr]|-eval|-print|-command)$/.test(a)) return false;
+    if (!a.startsWith("-")) return false; // a script file
+  }
+  return true;
+}
+
 /** `curl … | sh`, `bash <(curl …)`, `sh -c "$(curl …)"` — running a script nobody read. */
 export function pipeToShell(cmd: string): FamilyHit | null {
-  if (new RegExp(`${FETCHER}[^|;&]*\\|\\s*(${INTERP})\\b`).test(cmd))
-    return { what: "pipes a downloaded script straight into an interpreter" };
+  const pipe = new RegExp(`${FETCHER}[^|;&\\n]*\\|\\s*(${INTERP})\\b([^|;&\\n]*)`, "g");
+  for (const m of cmd.matchAll(pipe))
+    if (runsStdin(m.at(-1) ?? ""))
+      return { what: "pipes a downloaded script straight into an interpreter" };
   if (/\b((ba|z)?sh|source|\.)\s+<\(\s*(curl|wget)\b/.test(cmd))
     return { what: "runs a downloaded script via process substitution" };
   if (/\b(ba|z)?sh\s+-c\s+["']?\$\(\s*(curl|wget)\b/.test(cmd))
@@ -272,17 +307,44 @@ export function guardConfigFile(path: string, home: string): string | null {
   return null;
 }
 
-const WRITERS =
-  /(^|[\s;&|(])(>>?|tee|rm|mv|cp|truncate|ln|chmod|chown|unlink|shred)\b|>>?\s*\S|\bsed\s+(-[a-zA-Z]*\s+)*-i|\bperl\s+-[a-zA-Z]*i|\bsqlite3\b[^|;&]*\b(delete|update|drop|insert)\b/i;
+const WRITE_CMDS = /^(tee|rm|mv|truncate|unlink|shred|chmod|chown)$/;
+const COPY_CMDS = /^(cp|ln|install|rsync|scp)$/;
+const SQL_WRITE = /\b(delete|update|drop|insert|replace|alter|create|vacuum)\b/i;
+
+/**
+ * What one simple command writes: redirect targets (`> f`, `>> f`, `&> f` — not `2>&1`, and not
+ * a `>=` inside a quoted SQL string), the operands of rm / mv / tee …, the destination of a copy,
+ * the file of `sed -i` / `perl -i`, and the database of a `sqlite3` that changes it.
+ */
+function writeTargets(seg: string): string[] {
+  const out: string[] = [];
+  for (const part of seg.split(/\s\|\s*|\s*\|\s/)) {
+    const w = words(part.trim());
+    for (let i = 0; i < w.length; i++) {
+      const m = /^(?:\d|&)?>>?(.*)$/.exec(w[i] as string);
+      if (!m || (m[1] ?? "").startsWith("&")) continue;
+      const t = m[1] || w[i + 1];
+      if (t) out.push(t);
+    }
+    const args = w.filter((x) => !/^(?:\d|&)?>/.test(x));
+    while (args[0] === "sudo" || /^\w+=/.test(args[0] ?? "")) args.shift();
+    const [cmd, ...rest] = args;
+    const operands = rest.filter((x) => !x.startsWith("-"));
+    if (WRITE_CMDS.test(cmd ?? "")) out.push(...operands);
+    else if (COPY_CMDS.test(cmd ?? "")) out.push(...operands.slice(-1));
+    else if ((cmd === "sed" || cmd === "perl") && rest.some((x) => /^-[a-zA-Z]*i/.test(x)))
+      out.push(...operands.slice(1));
+    else if (cmd === "sqlite3" && rest.some((x) => SQL_WRITE.test(x)))
+      out.push(...operands.slice(0, 1));
+  }
+  return out;
+}
 
 /** A Bash command that rewrites, removes or edits a guard config file — or uninstalls Swarm. */
 export function configTamperCommand(cmd: string, home: string): FamilyHit | null {
   if (/(^|[\s;&|])swarm\s+uninstall\b/.test(cmd)) return { what: "uninstalls Swarm's hooks" };
   for (const seg of segments(expandHome(cmd, home))) {
-    if (!WRITERS.test(seg)) continue;
-    for (const w of words(seg)) {
-      const target = w.replace(/^>+/, "");
-      if (!target.includes("/") && !target.startsWith(".")) continue;
+    for (const target of writeTargets(seg)) {
       const what = guardConfigFile(target, home);
       if (what) return { what: `changes ${what} (${target})` };
     }
