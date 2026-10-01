@@ -1759,6 +1759,99 @@ describe("rules + incidents (Phase 2)", () => {
     );
   });
 
+  const post = (
+    app: { request: (p: string, init?: RequestInit) => Response | Promise<Response> },
+    event: string,
+    body: unknown,
+  ) =>
+    app.request(`/v1/hook/${event}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("M13.8: PreModelSwitch outside [models] allow is denied with the reason", async () => {
+    const fs = require("node:fs");
+    const home = tmpHome();
+    fs.writeFileSync(join(home, "config.toml"), `[models]\nallow = ["claude-sonnet-*"]\n`);
+    const { app, store } = createApp(new Store(home));
+    const dir = repo();
+    const sw = async (to: string) =>
+      (await (
+        await post(app, "PreModelSwitch", {
+          session_id: "s-sw",
+          cwd: dir,
+          hook_event_name: "PreModelSwitch",
+          from_model: "claude-sonnet-5",
+          to_model: to,
+        })
+      ).json()) as {
+        hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+      };
+    const denied = await sw("claude-opus-5");
+    expect(denied.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(denied.hookSpecificOutput?.permissionDecisionReason).toContain("outside [models] allow");
+    expect(await sw("claude-sonnet-5-5")).toEqual({});
+    const inc = store.incidents(5) as Array<{ rule?: string; action?: string }>;
+    expect(inc.map((i) => [i.rule, i.action])).toEqual([["model_allowlist", "deny"]]);
+  });
+
+  it("M13.8: ConfigChange right after the agent's own command is config_tamper; a person's edit is not", async () => {
+    const fs = require("node:fs");
+    const { app, store } = createApp(new Store(tmpHome()));
+    const dir = repo();
+    const change = async (sid: string, source = "user_settings", cwd = dir) =>
+      (await (
+        await post(app, "ConfigChange", {
+          session_id: sid,
+          cwd,
+          hook_event_name: "ConfigChange",
+          config_source: source,
+        })
+      ).json()) as { decision?: string; systemMessage?: string };
+    // nobody ran anything: the person edited it
+    expect(await change("s-idle")).toEqual({});
+    // the agent ran a script that rewrote the settings (the command itself matches nothing)
+    await post(app, "PreToolUse", {
+      session_id: "s-agent",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "node tools/setup.mjs" },
+    });
+    expect(await change("s-agent", "skills")).toEqual({}); // not a guard file
+    const told = await change("s-agent");
+    expect(told.decision).toBeUndefined(); // ask cannot ask here — it tells
+    expect(told.systemMessage).toContain("Claude Code settings");
+    // "don't ask again" in a permission dialog writes settings.local.json: the person's doing
+    await post(app, "PreToolUse", {
+      session_id: "s-perm",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "make" },
+    });
+    await post(app, "PermissionRequest", {
+      session_id: "s-perm",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "make" },
+    });
+    expect(await change("s-perm", "local_settings")).toEqual({});
+    // deny blocks
+    const strict = repo(); // a fresh repo: config is cached 30 s per repo
+    fs.writeFileSync(join(strict, ".swarm.toml"), `[rules]\nconfig_tamper = "deny"\n`);
+    await post(app, "PreToolUse", {
+      session_id: "s-deny",
+      cwd: strict,
+      tool_name: "Bash",
+      tool_input: { command: "node x.mjs" },
+    });
+    expect((await change("s-deny", "user_settings", strict)).decision).toBe("block");
+    const rules = (store.incidents(10) as Array<{ rule?: string; sessionId?: string | null }>)
+      .filter((i) => i.rule === "config_tamper")
+      .map((i) => i.sessionId);
+    expect(rules.sort()).toEqual(["s-agent", "s-deny"]);
+  });
+
   it("protected ports from config guard kill-by-port", async () => {
     const fs = require("node:fs");
     const dir = repo();

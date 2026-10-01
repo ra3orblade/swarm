@@ -50,6 +50,15 @@ export interface TeamClaimsReply {
  * Model allow-list (M8.4): globs, `*` only. Empty list = everything allowed.
  * "claude-*" matches "claude-sonnet-4-5"; matching is case-insensitive.
  */
+/**
+ * M13.8: why a switch to `to` is refused, or null when it may go ahead. The reason is what the
+ * person reads in the terminal and the agent reads as the refusal.
+ */
+export function modelSwitchRefusal(from: string, to: string, allow: string[]): string | null {
+  if (!to || modelAllowed(to, allow)) return null;
+  return `"${to}" is outside [models] allow (${allow.join(", ")}) — the session stays on ${from || "its current model"}; change the allow-list to use it`;
+}
+
 export function modelAllowed(model: string, allow: string[]): boolean {
   if (!allow.length) return true;
   return allow.some((g) => {

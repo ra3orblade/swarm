@@ -1350,6 +1350,31 @@ export function createApp(
         });
     }
     const sid = typeof raw.session_id === "string" ? raw.session_id : null;
+    // M13.8: guards at the moment. Verified 2026-10-01: PreModelSwitch reads permissionDecision
+    // (allow / deny / ask) + permissionDecisionReason under hookSpecificOutput; ConfigChange
+    // reads top-level decision "block" + reason, and can add additionalContext.
+    if (event === "PreModelSwitch") {
+      const reason = store.modelSwitch(raw);
+      if (reason)
+        return c.json({
+          hookSpecificOutput: {
+            hookEventName: "PreModelSwitch",
+            permissionDecision: "deny",
+            permissionDecisionReason: `[swarm] ${reason}`,
+          },
+        });
+      return c.json({});
+    }
+    if (event === "ConfigChange") {
+      const d = store.configChange(raw);
+      if (!d) return c.json({});
+      const note = `[swarm] ${d.reason}`;
+      return c.json({
+        ...(d.block ? { decision: "block", reason: note } : {}),
+        systemMessage: note,
+        hookSpecificOutput: { hookEventName: "ConfigChange", additionalContext: note },
+      });
+    }
     // M13.2: an interactive session's permission prompt becomes a card while a dashboard is
     // watching; the hook waits [broker] interactive_wait for an answer, then the terminal dialog
     // takes over unchanged (verified 2026-09-12: the dialog is not drawn while the hook runs).

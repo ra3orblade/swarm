@@ -21,7 +21,11 @@ export type HookEventName =
   // M13.9: a tool that started and failed; may return additionalContext (verified 2026-09-18)
   | "PostToolUseFailure"
   // M13.2: fires before the permission dialog; the daemon may answer it (verified 2026-09-12)
-  | "PermissionRequest";
+  | "PermissionRequest"
+  // M13.8: before a model switch (may deny) and when a settings file changes (may block) —
+  // both verified 2026-10-01 against the hooks reference
+  | "PreModelSwitch"
+  | "ConfigChange";
 
 export const HOOK_EVENTS: HookEventName[] = [
   "SessionStart",
@@ -36,6 +40,8 @@ export const HOOK_EVENTS: HookEventName[] = [
   "PreCompact",
   "PermissionRequest",
   "PostToolUseFailure",
+  "PreModelSwitch",
+  "ConfigChange",
 ];
 
 export interface HookInput {
@@ -69,6 +75,8 @@ const MAP: Record<HookEventName, EventType> = {
   PermissionRequest: "permission.requested",
   // a failure closes the tool call like a success does; `failed` + `error` say how it ended
   PostToolUseFailure: "tool.completed",
+  PreModelSwitch: "agent.text",
+  ConfigChange: "agent.text",
 };
 
 export interface HookPayload {
@@ -91,6 +99,11 @@ export interface HookPayload {
   display?: string;
   reason?: string;
   source?: "interactive";
+  /** M13.8 PreModelSwitch: the switch asked for. */
+  fromModel?: string;
+  toModel?: string;
+  /** M13.8 ConfigChange: `user_settings` | `project_settings` | `local_settings` | `policy_settings` | `skills`. */
+  configSource?: string;
 }
 
 /** M13.2: why Claude Code is asking, from its own suggestions when it gave any. */
@@ -211,6 +224,12 @@ export function normalizeHook(
     case "PermissionRequest":
       summary = `permission: ${tool ?? "?"} ${summarizeToolInput(tool, raw.tool_input)}`.trim();
       break;
+    case "PreModelSwitch":
+      summary = `model switch ${raw.from_model ?? "?"} → ${raw.to_model ?? "?"}`;
+      break;
+    case "ConfigChange":
+      summary = `config changed (${raw.config_source ?? "?"})`;
+      break;
     default:
       summary = event;
   }
@@ -230,6 +249,12 @@ export function normalizeHook(
     // the reference says treat it as display text; keep the head, the whole thing is under raw
     if (typeof raw.error === "string") payload.error = raw.error.slice(0, 2000);
   }
+  if (event === "PreModelSwitch") {
+    if (typeof raw.from_model === "string") payload.fromModel = raw.from_model;
+    if (typeof raw.to_model === "string") payload.toModel = raw.to_model;
+  }
+  if (event === "ConfigChange" && typeof raw.config_source === "string")
+    payload.configSource = raw.config_source;
   if (raw.agent_id) payload.agentId = raw.agent_id;
   if (raw.agent_type) payload.agentType = raw.agent_type;
   if (raw.prompt) payload.prompt = raw.prompt;
