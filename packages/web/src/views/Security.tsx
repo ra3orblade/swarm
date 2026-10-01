@@ -144,7 +144,7 @@ export function Security() {
 
         <Panel
           title="What the new rules would catch"
-          hint="counted whatever their mode — each ships off for a release"
+          hint="counted whatever their mode, so a rule you turned off still shows what it would catch"
         >
           <table className="mini">
             <colgroup>

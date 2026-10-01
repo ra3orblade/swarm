@@ -176,7 +176,7 @@ export interface RuleModes {
   dry_run_first?: RewriteMode;
   /** `[[rules.custom]]` in config order (M13.5). */
   custom?: CustomRule[];
-  /** M12.5 families — optional for the same reason as `no_verify`: absent means "off". */
+  /** M12.5 families — optional for the same reason as `no_verify`: absent means "off" (an older policy cache). */
   destructive_fs?: "ask" | "deny" | "off";
   destructive_infra?: "ask" | "deny" | "off";
   pipe_to_shell?: "ask" | "deny" | "off";
@@ -198,11 +198,11 @@ export const DEFAULT_MODES: RuleModes = {
   no_verify: "off",
   dry_run_first: "off",
   custom: [],
-  destructive_fs: "off",
-  destructive_infra: "off",
-  pipe_to_shell: "off",
-  secrets: "off",
-  config_tamper: "off",
+  destructive_fs: "ask",
+  destructive_infra: "ask",
+  pipe_to_shell: "ask",
+  secrets: "ask",
+  config_tamper: "ask",
   protected: { ports: [] },
 };
 
