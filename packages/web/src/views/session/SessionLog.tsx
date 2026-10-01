@@ -10,10 +10,12 @@
  * reading under their eyes when new ones land above it.
  */
 import type { SwarmEvent } from "@swarm/core/types";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { get } from "../../api/client";
 import { Markdown } from "../../components/Markdown";
-import { hhmm, tokens } from "../../lib/format";
+import { big, duration, hhmm, tokens } from "../../lib/format";
 import { plain } from "../../lib/markdown";
+import { reportText, type SubagentRun, subagentRuns } from "./subagentRuns";
 import type { Turn } from "./types";
 
 /** Short labels for a narrow column; a dotted event type falls back to its last segment. */
@@ -35,6 +37,8 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   PreCompact: "compact",
   assistant: "agent",
   subagent: "sub",
+  // M12.12: a delegated agent's start, stop, report and notification, as one row
+  "subagent.run": "sub",
   // Ledger events reach the transcript too, and their dotted names are the longest of all.
   "incident.opened": "rule",
   "question.asked": "asks",
@@ -65,6 +69,7 @@ interface Row {
   markdown?: true;
   output?: number;
   cost?: number | null;
+  run?: SubagentRun;
 }
 
 /** A PostToolUse is the other half of a PreToolUse already shown; two rows per call is noise. */
@@ -89,7 +94,32 @@ const PROSE = new Set([
   "message.delivered",
 ]);
 
-function eventRow(event: SwarmEvent): Row {
+/** What a run's row says: what it was asked, how it went, and the first line of what it said. */
+function runText(run: SubagentRun): string {
+  const what = run.title ?? run.agentType ?? "subagent";
+  const facts = [
+    run.ranMs === null ? "running" : `ran ${duration(run.ranMs)}`,
+    run.tokens !== null && `${big(run.tokens)} tokens`,
+    run.toolUses !== null && `${run.toolUses} tool${run.toolUses === 1 ? "" : "s"}`,
+  ].filter(Boolean);
+  const said = (run.report?.payload as { summary?: string } | undefined)?.summary;
+  // the stored summary is cut at 120 characters (core/prompt.ts); say so rather than end mid-word
+  const line = said && (said.length >= 120 ? `${plain(said)}…` : plain(said));
+  return `${what} — ${facts.join(" · ")}${line ? `\n${line}` : ""}`;
+}
+
+function runRow(at: SwarmEvent, run: SubagentRun): Row {
+  return {
+    key: `r${run.agentId}`,
+    ts: at.ts,
+    kind: "subagent.run",
+    text: runText(run),
+    className: "subagent",
+    run,
+  };
+}
+
+function plainEventRow(event: SwarmEvent): Row {
   const payload = event.payload as { hook?: string; summary?: string; origin?: string } | undefined;
   const summary = payload?.summary ?? "";
   const relayed = event.type === "prompt.submitted" && payload?.origin;
@@ -120,11 +150,22 @@ function turnRow(turn: Turn): Row {
  * then flip the result so the newest row comes first.
  */
 function merge(events: SwarmEvent[], turns: Turn[]): Row[] {
+  const runs = subagentRuns(events);
+  // A run's members fold into the one row drawn at its newest member; the rest are skipped,
+  // the same way a PostToolUse is.
+  const skip = (e: SwarmEvent): boolean => {
+    const r = runs.get(e.seq as number);
+    return isResultHalf(e) || (r !== undefined && !r.at);
+  };
+  const eventRow = (e: SwarmEvent): Row => {
+    const r = runs.get(e.seq as number);
+    return r ? runRow(e, r.run) : plainEventRow(e);
+  };
   const rows: Row[] = [];
   let i = 0;
   let j = 0;
   while (i < events.length || j < turns.length) {
-    if (i < events.length && isResultHalf(events[i] as SwarmEvent)) i++;
+    if (i < events.length && skip(events[i] as SwarmEvent)) i++;
     else if (j < turns.length && isSilent(turns[j] as Turn)) j++;
     else if (j >= turns.length) rows.push(eventRow(events[i++] as SwarmEvent));
     else if (i >= events.length) rows.push(turnRow(turns[j++] as Turn));
@@ -174,6 +215,7 @@ export function SessionLog({ events, turns }: SessionLogProps) {
               cannot legally hold. The grid cell behaves the same either way. */}
           <div className="m">
             {row.markdown ? <Markdown text={row.text} /> : row.text}
+            {row.run?.report ? <FullReport seq={row.run.report.seq as number} /> : null}
             {row.output ? (
               <span className="dim">
                 {" "}
@@ -185,6 +227,41 @@ export function SessionLog({ events, turns }: SessionLogProps) {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * The whole report, fetched when asked for: the log's events come without their prompt text (it
+ * can be pages long), so `/v1/events/:seq` supplies it — the same call Replay makes.
+ */
+function FullReport({ seq }: { seq: number }) {
+  const [text, setText] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const toggle = () => {
+    setOpen(!open);
+    if (text === null)
+      void get<SwarmEvent>(`/v1/events/${seq}`)
+        .then((e) => {
+          const prompt = (e.payload as { prompt?: string } | null)?.prompt;
+          setText(
+            prompt
+              ? reportText(prompt)
+              : "The report was not kept ([privacy] store_prompts is off).",
+          );
+        })
+        .catch(() => setText("Could not load the report."));
+  };
+  // `.ev .m > .dim` puts the control on its own line under the clipped first line
+  return (
+    <>
+      <span className="dim">
+        <button type="button" className="link" onClick={toggle}>
+          {open ? "hide report" : "full report"}
+        </button>
+        {open && text === null ? " · loading…" : null}
+      </span>
+      {open && text !== null && <Markdown text={text} />}
+    </>
   );
 }
 

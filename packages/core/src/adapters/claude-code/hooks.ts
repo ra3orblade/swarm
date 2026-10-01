@@ -4,7 +4,7 @@
  * object is always kept under `raw` so nothing is lost if the schema drifts.
  */
 import { askedQuestions } from "../../permissions";
-import { describePrompt, type PromptOrigin } from "../../prompt";
+import { describePrompt, type PromptOrigin, type TaskUsage } from "../../prompt";
 import type { EventType, SwarmEvent } from "../../types";
 
 export type HookEventName =
@@ -91,6 +91,9 @@ export interface HookPayload {
   prompt?: string;
   /** Who the prompt came from, when it was not a person (core/prompt.ts). Absent means `user`. */
   origin?: Exclude<PromptOrigin, "user">;
+  /** M12.12: the subagent a report / task notification is about, and the task's own usage. */
+  ref?: string;
+  usage?: TaskUsage;
   /** PostToolUseFailure: the call ran and failed; `error` is the head of what Claude saw. */
   failed?: true;
   error?: string;
@@ -259,8 +262,10 @@ export function normalizeHook(
   if (raw.agent_type) payload.agentType = raw.agent_type;
   if (raw.prompt) payload.prompt = raw.prompt;
   if (event === "UserPromptSubmit") {
-    const { origin } = describePrompt(raw.prompt);
+    const { origin, ref, usage } = describePrompt(raw.prompt);
     if (origin !== "user") payload.origin = origin;
+    if (ref) payload.ref = ref;
+    if (usage) payload.usage = usage;
   }
   return { ts, type, projectId, sessionId: raw.session_id ?? null, payload, raw };
 }

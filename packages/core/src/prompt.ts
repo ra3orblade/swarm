@@ -15,7 +15,22 @@ export interface PromptInfo {
   origin: PromptOrigin;
   /** One line, at most `SUMMARY_MAX` characters. */
   summary: string;
+  /**
+   * M12.12: the subagent a report or task notification is about — `from` on `<agent-message>`,
+   * `<task-id>` on `<task-notification>`; the same id `SubagentStart` / `SubagentStop` carry.
+   */
+  ref?: string;
+  /** M12.12: what a finished task reported about its own run. */
+  usage?: TaskUsage;
 }
+
+export interface TaskUsage {
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+}
+
+const num = (s: string): number | undefined => (/^\d+$/.test(s) ? Number(s) : undefined);
 
 const SUMMARY_MAX = 120;
 
@@ -51,7 +66,18 @@ export function describePrompt(prompt: string | null | undefined): PromptInfo {
   const origin = ORIGIN[tag] as PromptOrigin;
   const body = text.slice(m[0].length).replace(new RegExp(`</${tag}>\\s*$`), "");
   let summary: string;
+  const info: Pick<PromptInfo, "ref" | "usage"> = {};
   if (origin === "task") {
+    const id = inner(body, "task-id");
+    if (id) info.ref = id;
+    const usage: TaskUsage = {};
+    const tokens = num(inner(body, "subagent_tokens"));
+    const tools = num(inner(body, "tool_uses"));
+    const ms = num(inner(body, "duration_ms"));
+    if (tokens !== undefined) usage.tokens = tokens;
+    if (tools !== undefined) usage.toolUses = tools;
+    if (ms !== undefined) usage.durationMs = ms;
+    if (Object.keys(usage).length) info.usage = usage;
     // `<summary>` already reads as a sentence ("Agent "x" finished"); the status only adds
     // something when it is not the usual one.
     const status = inner(body, "status");
@@ -60,6 +86,10 @@ export function describePrompt(prompt: string | null | undefined): PromptInfo {
   } else if (origin === "session") {
     const name = attr(m[2] ?? "", "from-name");
     summary = (name ? `${name}: ` : "") + firstLine(body);
-  } else summary = firstLine(body, HANDBACK);
-  return { origin, summary: summary.slice(0, SUMMARY_MAX) };
+  } else {
+    summary = firstLine(body, HANDBACK);
+    const from = attr(m[2] ?? "", "from");
+    if (from) info.ref = from;
+  }
+  return { origin, summary: summary.slice(0, SUMMARY_MAX), ...info };
 }
