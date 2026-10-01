@@ -133,3 +133,47 @@ describe("waitingReport", () => {
     expect(r.totals).toMatchObject({ episodes: 0, blockedMs: 0, medianMs: 0, waitingNow: 0 });
   });
 });
+
+describe("who ended the wait (M12.11)", () => {
+  const n = (phase: "start" | "end", min: number, key: string, over: Partial<WaitSample> = {}) =>
+    s(phase, min, { kind: "notification", key, ...over });
+
+  test("a wait closed by a relayed prompt is a wake, not an answer", () => {
+    const eps = pairWaits(
+      [
+        n("start", 0, "1"),
+        n("end", 3, "1"), // typed
+        n("start", 10, "2"),
+        n("end", 40, "2", { endedBy: "task" }), // a background task finished
+        n("start", 41, "3"),
+        n("end", 42, "3", { endedBy: "agent" }), // a subagent's report
+      ],
+      NOW,
+    );
+    expect(eps.map((e) => e.endedBy)).toEqual(["you", "task", "agent"]);
+    const r = waitingReport(eps);
+    // the half hour the task took is not the person being slow to answer
+    expect(r.totals).toMatchObject({ episodes: 1, blockedMs: 3 * 60_000, longestMs: 3 * 60_000 });
+    expect(r.totals.woken).toEqual({
+      episodes: 2,
+      ms: 31 * 60_000,
+      byOrigin: { task: 1, agent: 1, session: 0 },
+    });
+    expect(r.sessions[0]?.woken.episodes).toBe(2);
+    expect(r.sessions[0]?.episodes).toBe(1);
+  });
+
+  test("an open wait has no end yet, and still counts as waiting on you", () => {
+    const eps = pairWaits([n("start", 50, "9")], NOW);
+    expect(eps[0]?.endedBy).toBeNull();
+    expect(waitingReport(eps).totals.waitingNow).toBe(1);
+  });
+
+  test("a session woken every time has nothing answered", () => {
+    const r = waitingReport(
+      pairWaits([n("start", 0, "1"), n("end", 9, "1", { endedBy: "session" })], NOW),
+    );
+    expect(r.sessions[0]).toMatchObject({ episodes: 0, blockedMs: 0, medianMs: 0 });
+    expect(r.totals.woken.byOrigin.session).toBe(1);
+  });
+});

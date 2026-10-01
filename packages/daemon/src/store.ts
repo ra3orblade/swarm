@@ -4960,9 +4960,10 @@ export class Store {
    * Waiting-on-human (M9.4): the spans where a session sat blocked on a person.
    *
    * `permission.*` and `question.*` already come in pairs. `session.notification` has no closing
-   * event, so it is closed by the session's *next activity* — its next prompt or tool call is
-   * exactly the moment the human unblocked it. Ordering uses `seq` rather than `ts` so the
-   * `events(session_id, seq)` index does the work.
+   * event, so it is closed by the session's *next activity* — its next prompt or tool call. That
+   * is the person coming back unless the prompt carries an `origin` (M12.11): a finished task, a
+   * subagent's report or another session's message woke it, and the wait is recorded as a wake.
+   * Ordering uses `seq` rather than `ts` so the `events(session_id, seq)` index does the work.
    */
   waiting(projectId?: string, days = 7) {
     const since = new Date(Date.now() - days * 86_400_000).toISOString();
@@ -4990,10 +4991,12 @@ export class Store {
       .query(
         `SELECT n.seq, n.session_id, n.project_id, n.ts,
                 json_extract(n.payload,'$.summary') AS label,
-                (SELECT MIN(a.ts) FROM events a
-                  WHERE a.session_id = n.session_id AND a.seq > n.seq
-                    AND a.type IN ('prompt.submitted','tool.requested')) AS resumed
+                a.ts AS resumed, json_extract(a.payload,'$.origin') AS origin
          FROM events n
+         LEFT JOIN events a ON a.seq = (
+           SELECT MIN(x.seq) FROM events x
+            WHERE x.session_id = n.session_id AND x.seq > n.seq
+              AND x.type IN ('prompt.submitted','tool.requested'))
          WHERE n.type = 'session.notification' AND n.ts >= ?${projectId ? " AND n.project_id = ?" : ""}`,
       )
       .all(since, ...pArgs) as Array<{
@@ -5003,6 +5006,7 @@ export class Store {
       ts: string;
       label: string | null;
       resumed: string | null;
+      origin: string | null;
     }>;
 
     const samples: WaitSample[] = [];
@@ -5039,6 +5043,9 @@ export class Store {
           key,
           phase: "end",
           ts: n.resumed,
+          ...(n.origin === "task" || n.origin === "agent" || n.origin === "session"
+            ? { endedBy: n.origin }
+            : {}),
         });
     }
 
