@@ -296,10 +296,16 @@ export interface WorktreeDiff {
 }
 
 /** Files + commits a worktree carries beyond the main checkout's branch, working tree included. */
-export async function worktreeDiff(root: string, path: string): Promise<WorktreeDiff> {
+export async function worktreeDiff(
+  root: string,
+  path: string,
+  /** M13.10: diff against this ref (a PR's base) instead of the main checkout's branch. */
+  baseOverride?: string,
+): Promise<WorktreeDiff> {
   const wts = parseWorktreeList((await gitAsync(root, ["worktree", "list", "--porcelain"])) ?? "");
   const baseRef =
-    wts[0]?.path === realpathOr(root) || wts[0]?.main ? (wts[0]?.branch ?? null) : null;
+    baseOverride ??
+    (wts[0]?.path === realpathOr(root) || wts[0]?.main ? (wts[0]?.branch ?? null) : null);
   const isMain = wts[0]?.path === path;
   const mb =
     baseRef && !isMain ? (await gitAsync(path, ["merge-base", baseRef, "HEAD"]))?.trim() : null;

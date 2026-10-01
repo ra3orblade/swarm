@@ -2972,3 +2972,152 @@ describe("findings → issues (M13.11)", () => {
     expect(calls.at(-1)?.variables).toMatchObject({ teamId: "T1", labelIds: ["L1"] });
   });
 });
+
+describe("schedules (M13.10)", () => {
+  it("inert until armed; gates in a scratch worktree; review-prs comments once per head, skips forks", async () => {
+    const fs = require("node:fs");
+    const sh = (cwd: string, ...a: string[]) => {
+      const r = Bun.spawnSync(a, { cwd, stdout: "pipe", stderr: "pipe" });
+      return r.stdout.toString().trim();
+    };
+    const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-sched-")));
+    const bare = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-sched-origin-")));
+    const g = (...a: string[]) => sh(dir, "git", "-c", "user.email=t@t", "-c", "user.name=t", ...a);
+    g("init", "-q", "-b", "main");
+    fs.writeFileSync(join(dir, "README.md"), "# r\n");
+    g("add", "README.md");
+    g("commit", "-qm", "init");
+    sh(bare, "git", "init", "-q", "--bare", "-b", "main");
+    g("remote", "add", "origin", bare);
+    g("push", "-q", "origin", "main");
+    g("remote", "set-head", "origin", "-a");
+    const mainSha = g("rev-parse", "HEAD");
+    // a PR: a branch pushed where GitHub keeps PR heads
+    g("checkout", "-q", "-b", "feat");
+    fs.writeFileSync(join(dir, "b.txt"), "leak\n");
+    g("add", "b.txt");
+    g("commit", "-qm", "feat");
+    const prSha = g("rev-parse", "HEAD");
+    g("push", "-q", "origin", "feat:refs/pull/1/head");
+    g("checkout", "-q", "main");
+    fs.writeFileSync(
+      join(dir, ".swarm.toml"),
+      [
+        "[gates]",
+        'required = ["tests"]',
+        "[gates.tests]",
+        'cmd = "test -f README.md"',
+        "[gates.review]",
+        'builtin = "review"',
+        "[[workflows]]",
+        'name = "nightly"',
+        'steps = ["gates", "review-prs"]',
+        "[[schedules]]",
+        'name = "nightly"',
+        'cron = "* * * * *"',
+        'workflow = "nightly"',
+        "post = true",
+        "",
+      ].join("\n"),
+    );
+
+    const binDir = fs.mkdtempSync(join(tmpdir(), "swarm-fakebin-"));
+    const ghLog = join(binDir, "gh.log");
+    const prs = JSON.stringify([
+      {
+        number: 1,
+        headRefOid: prSha,
+        baseRefName: "main",
+        isCrossRepository: false,
+        isDraft: false,
+      },
+      {
+        number: 2,
+        headRefOid: prSha,
+        baseRefName: "main",
+        isCrossRepository: true,
+        isDraft: false,
+      },
+    ]);
+    fs.writeFileSync(
+      join(binDir, "gh"),
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$*" >> ${ghLog}`,
+        'case "$1 $2" in',
+        `  "pr list") echo '${prs}' ;;`,
+        `  "pr view") echo '{"comments":[],"reviews":[]}' ;;`,
+        "esac",
+        "",
+      ].join("\n"),
+    );
+    const verdict = JSON.stringify({
+      result: JSON.stringify({
+        verdict: "fail",
+        summary: "one finding",
+        findings: [{ file: "b.txt", line: 1, severity: "major", summary: "leaks a handle" }],
+      }),
+    });
+    fs.writeFileSync(join(binDir, "claude"), `#!/bin/sh\necho '${verdict}'\n`);
+    for (const b of ["gh", "claude"]) fs.chmodSync(join(binDir, b), 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath}`;
+    try {
+      const { store, scheduler, app } = createApp(new Store(tmpHome()));
+      const p = store.resolveProject(dir, true);
+      const soon = new Date(Date.now() + 120_000);
+      expect(scheduler.list(p.id)[0]).toMatchObject({ name: "nightly", armed: false });
+      expect(scheduler.tick(soon)).toBe(0); // not armed: never fires
+
+      const r = await app.request("/v1/schedules/arm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: p.id, name: "nightly" }),
+      });
+      expect(r.status).toBe(200);
+      expect(scheduler.tick(soon)).toBe(1);
+      expect(scheduler.tick(soon)).toBe(0); // stamped: not again in the same minute
+      const finished = async () => {
+        const t = Date.now() + 15_000;
+        while (Date.now() < t) {
+          const runs = store.wfRuns(p.id) as Array<{ state: string; detail: string | null }>;
+          if (runs[0] && runs[0].state !== "running") return runs[0];
+          await Bun.sleep(100);
+        }
+        return null;
+      };
+      const w = await finished();
+      expect(w?.state).toBe("done");
+      const gates = store.db
+        .query("SELECT task, gate, verdict FROM gates WHERE project_id = ? ORDER BY id")
+        .all(p.id);
+      expect(gates).toEqual([
+        { task: `main@${mainSha.slice(0, 7)}`, gate: "tests", verdict: "pass" },
+        { task: `PR-1@${prSha.slice(0, 7)}`, gate: "review", verdict: "fail" },
+      ]);
+      const log = () => fs.readFileSync(ghLog, "utf8") as string;
+      expect(log()).toContain("pr review 1 --comment --body");
+      expect(log()).toContain(`swarm-review:${prSha}`);
+      expect(log()).not.toContain("pr review 2"); // a fork is never reviewed
+      // scratch worktrees are gone; the main checkout was never touched
+      expect(g("worktree", "list").split("\n").length).toBe(1);
+      expect(g("status", "--porcelain")).toBe("?? .swarm.toml");
+
+      // run again by hand: the same head is not reviewed or commented on twice
+      expect(scheduler.fire(p.id, "nightly").ok).toBe(true);
+      await Bun.sleep(50);
+      await finished();
+      expect(log().split("pr review 1").length).toBe(2);
+
+      // an edit disarms it
+      fs.writeFileSync(
+        join(dir, ".swarm.toml"),
+        fs.readFileSync(join(dir, ".swarm.toml"), "utf8").replace('"* * * * *"', '"@hourly"'),
+      );
+      expect(scheduler.list(p.id)[0]).toMatchObject({ armed: false, changed: true });
+      expect(scheduler.tick(new Date(Date.now() + 7_200_000))).toBe(0);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+});

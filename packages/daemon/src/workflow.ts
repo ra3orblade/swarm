@@ -7,6 +7,7 @@
 import { stepLabel, type WorkflowDef, workflowStepPrompt } from "@swarm/core";
 import type { ForgeService } from "./forge";
 import type { PermissionMode, Run, Runner } from "./runner";
+import type { Scheduler } from "./schedules";
 import type { Store } from "./store";
 
 interface Active {
@@ -18,6 +19,8 @@ interface Active {
   step: number;
   runId: string | null;
   owner: string;
+  /** M13.10 review-prs: post findings as a PR comment (the schedule's `post`). */
+  post: boolean;
 }
 
 export class WorkflowEngine {
@@ -27,16 +30,20 @@ export class WorkflowEngine {
     private store: Store,
     private runner: Runner,
     private forge: ForgeService,
+    private scheduler: Scheduler | null = null,
   ) {
     store.wfSweepOrphans();
     runner.onEnd((run) => void this.onRunEnd(run));
+    scheduler?.onFire((projectId, task, workflow, o) =>
+      this.start(projectId, task, workflow, { owner: o.owner, post: o.post }),
+    );
   }
 
   start(
     projectId: string,
     task: string,
     workflow: string,
-    opts: { owner?: string; sessionId?: string | null } = {},
+    opts: { owner?: string; sessionId?: string | null; post?: boolean } = {},
   ): { ok: true; id: number } | { ok: false; error: string } {
     const def = this.store.config(projectId).workflows[workflow];
     if (!def) {
@@ -58,7 +65,17 @@ export class WorkflowEngine {
       def.steps.map(stepLabel),
       this.store.actorFor(owner, opts.sessionId ?? null),
     );
-    const w: Active = { id, projectId, task, title, def, step: 0, runId: null, owner };
+    const w: Active = {
+      id,
+      projectId,
+      task,
+      title,
+      def,
+      step: 0,
+      runId: null,
+      owner,
+      post: opts.post === true,
+    };
     this.active.set(key, w);
     this.store.append({
       ts: new Date().toISOString(),
@@ -128,6 +145,18 @@ export class WorkflowEngine {
         if (!run)
           return this.fail(w, `gate ${s.gate} did not run: ${r.skipped[0]?.reason ?? "unknown"}`);
         if (run.verdict !== "pass") return this.fail(w, `gate ${s.gate} failed — ${run.rubric}`);
+        w.step++;
+        continue;
+      }
+      if (s.kind === "gates" || s.kind === "review-prs") {
+        // M13.10 built-ins: no claimed worktree; each brings a scratch one and removes it
+        if (!this.scheduler) return this.fail(w, `${s.kind}: the scheduler is not running`);
+        const r =
+          s.kind === "gates"
+            ? await this.scheduler.gatesStep(w.projectId, w.owner)
+            : await this.scheduler.reviewPrsStep(w.projectId, w.owner, w.post);
+        this.store.wfUpdate(w.id, { detail: r.detail });
+        if (!r.ok) return this.fail(w, `${s.kind}: ${r.detail}`);
         w.step++;
         continue;
       }

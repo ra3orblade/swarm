@@ -214,6 +214,38 @@ One workflow runs on a task at a time, and steps run one at a time. The engine o
 
 Nothing in a workflow ever writes to your task source: flipping a task to done stays a human act. The Board's **Workflows** section shows each run as its chain of steps — ✓ done, ● running, ✗ where it stopped, ○ still to come — with a *Stop*.
 
+### Scheduled workflows
+
+Two more steps exist for workflows that run on their own. Neither needs a claimed worktree.
+
+- **`gates`** runs the required gates that have a `cmd` on the default branch's newest commit (`origin/HEAD`). It does this in a scratch worktree under `~/.swarm/scratch`, never in your main checkout, and removes it afterwards. The runs are recorded like any gate run, under the task `<branch>@<sha7>`. A gate that passes one night and fails the next on the same commit therefore shows as flaky in [Gates](12-observatory.md#gates--flakiness-and-wall-clock), and one that fails opens an incident.
+- **`review-prs`** runs your builtin [review gate](#gates) (`[gates.review] builtin = "review"`) over each open, non-draft GitHub PR from this repository. It checks out the PR head in a scratch worktree and diffs it against the PR's base. Each PR head is reviewed once, under the task `PR-<n>@<sha7>`, so a new push gets a new review. PRs from forks are skipped.
+
+A `[[schedules]]` entry starts a workflow on a cron:
+
+```toml
+[[workflows]]
+name  = "nightly"
+steps = ["gates", "review-prs"]
+
+[[schedules]]
+name     = "nightly"
+cron     = "0 3 * * *"   # minute hour day month weekday, local time; or @hourly, @daily, @nightly, @weekly
+workflow = "nightly"
+post     = false         # true: review-prs also posts its findings on the PR
+```
+
+```sh
+swarm schedule              # this repo's schedules: armed or not, next and last run
+swarm schedule arm nightly  # let it fire
+swarm schedule run nightly  # once, now
+swarm schedule disarm nightly
+```
+
+**A schedule does nothing until you arm it.** Swarm picks up every repository a session has run in, so a repository you cloned must not be able to start agents or comment on pull requests by itself. Arming records exactly what you approved: if the schedule's cron, workflow, task or `post` changes later, it goes back to unarmed until you arm it again. The daemon checks once a minute. If it was down when a schedule was due, the schedule runs once when the daemon comes back, not once for every run it missed.
+
+With `post = true`, `review-prs` posts its findings as a **comment** review. It never approves or requests changes. It posts once per PR head (a marker in the comment body is checked first), and uses your `gh` login.
+
 ## When the agent needs you
 
 An autonomous run hits a question only a person can answer — which of two designs, whether to drop a column, a credential. Instead of guessing or stalling, it calls `swarm_ask` (up to eight suggested answers). The question shows in the header's **N waiting** panel and on the session page under **waiting on you** with the options as one-click buttons (or *Answer…* for free text), the session gets an **Asking** badge on Fleet, and a desktop notification fires if you've enabled them. `swarm questions` lists what's open for the repo; `swarm answer <id> <text>` answers from a terminal.
