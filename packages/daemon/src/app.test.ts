@@ -1389,6 +1389,104 @@ describe("runner (M3.1)", () => {
       process.env.PATH = oldPath;
     }
   });
+
+  it("M12.6: --sandbox wraps claude in srt, refuses without it, a refusal opens one incident", async () => {
+    const fs = require("node:fs");
+    const { findBin } = await import("./forge");
+    const srtInstalled = findBin("srt") !== null;
+    const binDir = fs.mkdtempSync(join(tmpdir(), "swarm-fakebin-"));
+    // A stand-in claude whose Bash call is refused by the sandbox (twice: one incident).
+    const use = (id: string) =>
+      `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"${id}","name":"Bash","input":{"command":"echo x > /etc/nope"}}]}}`;
+    const refused = (id: string) =>
+      `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"${id}","is_error":true,"content":"(eval):1: operation not permitted: /etc/nope"}]}}`;
+    fs.writeFileSync(
+      join(binDir, "claude"),
+      [
+        "#!/bin/sh",
+        "while IFS= read -r line; do",
+        `  echo '${use("tu1")}'`,
+        `  echo '${refused("tu1")}'`,
+        `  echo '${use("tu2")}'`,
+        `  echo '${refused("tu2")}'`,
+        '  echo \'{"type":"result","total_cost_usd":0.1,"num_turns":1,"is_error":false}\'',
+        "done",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(join(binDir, "claude"), 0o755);
+    const oldPath = process.env.PATH;
+    try {
+      const { app, store, runner } = createApp(new Store(tmpHome()));
+      const dir = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), "swarm-sbx-")));
+      const sh = (...a: string[]) => Bun.spawnSync(a, { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      sh("git", "init", "-q", "-b", "main");
+      sh(
+        "git",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "i",
+      );
+      const p = store.resolveProject(dir, true);
+      const start = (task: string) =>
+        app.request("/v1/runs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: p.id, task, prompt: "go", owner: "a", sandbox: true }),
+        });
+
+      process.env.PATH = `${binDir}:${oldPath}`;
+      if (!srtInstalled) {
+        const r = await start("s0");
+        expect(r.status).toBe(409);
+        expect(((await r.json()) as { error: string }).error).toContain("npm install -g");
+        expect(store.claims(p.id).find((c) => c.task === "s0")).toBeUndefined();
+      }
+
+      // A stand-in srt: records its argv, then runs what follows `--`.
+      const argvLog = join(binDir, "srt-argv");
+      fs.writeFileSync(
+        join(binDir, "srt"),
+        `#!/bin/sh\necho "$@" > ${argvLog}\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n`,
+      );
+      fs.chmodSync(join(binDir, "srt"), 0o755);
+      const r = await start("s1");
+      expect(r.status).toBe(201);
+      const { run } = (await r.json()) as {
+        run: { id: string; worktree: string; sandbox: { settings: string; domains: string[] } };
+      };
+      expect(run.sandbox.domains).toContain("api.anthropic.com");
+      const settings = JSON.parse(fs.readFileSync(run.sandbox.settings, "utf8"));
+      expect(settings.filesystem.allowWrite[0]).toBe(run.worktree);
+      expect(settings.filesystem.allowWrite).toContain(join(dir, ".git"));
+      expect(settings.filesystem.allowWrite).not.toContain(dir);
+      const until = async (f: () => boolean, ms = 4000) => {
+        const t = Date.now() + ms;
+        while (!f() && Date.now() < t) await Bun.sleep(50);
+      };
+      await until(() => runner.get("s1")?.result != null);
+      expect(fs.readFileSync(argvLog, "utf8")).toStartWith(
+        `--settings ${run.sandbox.settings} -- `,
+      );
+      const inc = (store.incidents(10) as Array<{ rule?: string; reason?: string }>).filter(
+        (i) => i.rule === "sandbox",
+      );
+      expect(inc.length).toBe(1);
+      expect(inc[0]?.reason).toContain("/etc/nope");
+      await app.request(`/v1/runs/${run.id}`, { method: "DELETE" });
+      await until(() => runner.list(p.id).length === 0);
+      expect(fs.existsSync(run.sandbox.settings)).toBe(false);
+      store.release(p.id, "s1", true);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
 });
 
 describe("gates (M2.2)", () => {

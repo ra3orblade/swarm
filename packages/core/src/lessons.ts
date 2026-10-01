@@ -165,6 +165,13 @@ export function suggestFromIncident(inc: IncidentLike): LessonSuggestion {
         toml: null,
         lesson: `A gate failed here — ${inc.reason.slice(0, 120)}. Fix it and re-record the gate before marking the task done.`,
       };
+    case "sandbox":
+      return {
+        title: "The sandbox refused a write or a connection",
+        toml: null,
+        lesson:
+          "Sandboxed runs may write only inside the worktree and reach only allowed hosts — work inside the worktree, and ask the owner to add a host to [sandbox] allowed_domains rather than working around the refusal.",
+      };
     default:
       return {
         title: `Codify the ${inc.rule} intent`,
