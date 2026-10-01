@@ -47,6 +47,7 @@ export const EVENT_TYPES = [
   "handoff.recorded",
   "permission.requested",
   "permission.resolved",
+  "permission.reviewed", // M12.7: the reviewer looked at an ask
   "session.notification",
   "session.stuck",
   "workflow.started",

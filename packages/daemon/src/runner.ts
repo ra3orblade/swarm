@@ -13,7 +13,14 @@
  */
 import { appendFileSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
-import { modelAllowed, RUN_PROFILES, runProfile } from "@swarm/core";
+import {
+  type CardReview,
+  modelAllowed,
+  NEVER_REVIEWED,
+  RUN_PROFILES,
+  reviewerMayDecide,
+  runProfile,
+} from "@swarm/core";
 import { findBin } from "./forge";
 import type { Store } from "./store";
 
@@ -69,6 +76,8 @@ export interface PendingPermission {
   display: string;
   reason: string;
   askedAt: string;
+  /** M12.7: the reviewer's state on this card. */
+  review?: CardReview;
 }
 
 const PERMISSION_MODES: PermissionMode[] = [
@@ -375,14 +384,15 @@ export class Runner {
       return;
     }
     // "ask": surface it to the dashboard and wait for a human decision.
-    run.pending.push({
+    const pend: PendingPermission = {
       requestId,
       tool,
       input,
       display,
       reason: decision.reason,
       askedAt: new Date().toISOString(),
-    });
+    };
+    run.pending.push(pend);
     this.store.append({
       ts: new Date().toISOString(),
       type: "permission.requested",
@@ -397,7 +407,54 @@ export class Runner {
         summary: `permission: ${tool} — waiting`,
       },
     });
+    this.reviewPending(run, pend, decision.rule);
     this.store.touch();
+  }
+
+  /**
+   * M12.7: the reviewer on a spawned run's ask. `advise` (or a locked rule) puts the verdict on
+   * the card; `decide` answers it, unless someone answered the card first.
+   */
+  private reviewPending(run: Run, pend: PendingPermission, rule: string) {
+    const rv = this.store.reviewerFor(run.worktree);
+    if (rv.mode === "off" || NEVER_REVIEWED.has(pend.tool)) return;
+    const mode = rv.mode;
+    const acts = mode === "decide" && reviewerMayDecide(rule, rv.locked);
+    pend.review = { state: "running", mode };
+    void this.store
+      .reviewPermission({
+        requestId: pend.requestId,
+        projectId: run.projectId,
+        sessionId: run.sessionId,
+        cwd: run.worktree,
+        tool: pend.tool,
+        input: pend.input,
+        display: pend.display,
+        reason: pend.reason,
+        rule,
+        mode,
+        model: rv.model,
+        timeoutMs: rv.timeoutMs,
+        acts,
+      })
+      .then(({ review, why }) => {
+        if (!this.live.get(run.id)?.run.pending.includes(pend)) return; // answered already
+        if (review && acts) {
+          this.answerPermission(
+            run.id,
+            pend.requestId,
+            review.decision === "allow",
+            `[swarm] the reviewer denied this: ${review.reason}`,
+            undefined,
+            "reviewer",
+          );
+          return;
+        }
+        pend.review = review
+          ? { state: "done", mode, decision: review.decision, reason: review.reason }
+          : { state: "none", mode, why };
+        this.store.touch();
+      });
   }
 
   /** Resolve a pending prompt (from the dashboard) or auto-resolve internally. */
@@ -408,6 +465,8 @@ export class Runner {
     message?: string,
     /** M13.5: the input to run instead of what was asked (a rewrite). */
     updatedInput?: Record<string, unknown>,
+    /** M12.7: who answered, for the record. */
+    by: "dashboard" | "reviewer" = "dashboard",
   ): { ok: boolean; reason?: string } {
     const entry = this.live.get(runId);
     if (!entry) return { ok: false, reason: "no live run" };
@@ -433,7 +492,8 @@ export class Runner {
           requestId,
           tool: pend.tool,
           allow,
-          summary: `permission: ${pend.tool} — ${allow ? "allowed" : "denied"}`,
+          by,
+          summary: `permission: ${pend.tool} — ${allow ? "allowed" : "denied"}${by === "reviewer" ? " by the reviewer" : ""}`,
         },
       });
     this.store.touch();

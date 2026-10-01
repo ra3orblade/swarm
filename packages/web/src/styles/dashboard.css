@@ -1027,6 +1027,21 @@ button.pk-row {
   border-radius: var(--r-xs);
   padding: 6px 8px;
 }
+/* M12.7: what the reviewer made of the call, between the call and the buttons */
+.perm-r {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin: 0 0 8px;
+}
+.perm-r b {
+  font-weight: 600;
+}
+.perm-r.allow b {
+  color: var(--acc);
+}
+.perm-r.deny b {
+  color: var(--bad);
+}
 .perm-b {
   display: flex;
   flex-wrap: wrap;

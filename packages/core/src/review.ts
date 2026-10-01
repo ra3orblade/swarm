@@ -77,6 +77,11 @@ export function reviewArgs(prompt: string, opts: { model?: string | null } = {})
     "WebSearch",
     "--permission-mode",
     "dontAsk",
+    // Swarm's own headless runs must not fire the hooks Swarm installs user-wide: inside a claimed
+    // worktree the Stop hook runs that claim's required gates and held a 6-second review open for
+    // 90 s (found 2026-10-01, M12.7), and every run would also show up as a session of its own
+    "--settings",
+    JSON.stringify({ disableAllHooks: true }),
   ];
   if (opts.model) args.push("--model", opts.model);
   return args;
