@@ -30,6 +30,7 @@ test("a task notification is summarised by its <summary>, not its tag", () => {
   expect(describePrompt(p)).toEqual({
     origin: "task",
     summary: 'Agent "Implement HUB-39 tolerant search parser" finished',
+    ref: "aac244ce8c140d800",
   });
 });
 
@@ -54,6 +55,7 @@ test("a subagent report skips the hand-back preamble and the harness's indent", 
   expect(describePrompt(p)).toEqual({
     origin: "agent",
     summary: "HUB-39 (BB-1792) done; two files changed, uncommitted.",
+    ref: "aac244ce8c140d800",
   });
 });
 
@@ -77,5 +79,37 @@ test("a wrapper cut off before its closing tag still yields a line", () => {
   expect(describePrompt('<agent-message from="a1">\n  half a rep')).toEqual({
     origin: "agent",
     summary: "half a rep",
+    ref: "a1",
   });
+});
+
+test("M12.12: a report and a task notification name the subagent they are about", () => {
+  const report = describePrompt(
+    '<agent-message from="a8b1ba530ecd19692">\n[Subagent hand-back] The text below is the final report.\n  Review of M1.1\n</agent-message>',
+  );
+  expect(report).toMatchObject({
+    origin: "agent",
+    ref: "a8b1ba530ecd19692",
+    summary: "Review of M1.1",
+  });
+  const task = describePrompt(
+    [
+      "<task-notification>",
+      "<task-id>a8b1ba530ecd19692</task-id>",
+      "<status>completed</status>",
+      '<summary>Agent "Independent review" finished</summary>',
+      "<usage><subagent_tokens>87549</subagent_tokens><tool_uses>18</tool_uses><duration_ms>1765679</duration_ms></usage>",
+      "</task-notification>",
+    ].join("\n"),
+  );
+  expect(task).toMatchObject({
+    origin: "task",
+    ref: "a8b1ba530ecd19692",
+    usage: { tokens: 87549, toolUses: 18, durationMs: 1765679 },
+  });
+  // a background shell command's notification has no usage block
+  expect(
+    describePrompt("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>").usage,
+  ).toBeUndefined();
+  expect(describePrompt("plain text").ref).toBeUndefined();
 });

@@ -6379,7 +6379,26 @@ export class Store {
         `SELECT * FROM (SELECT ${WIRE_COLS} FROM events WHERE session_id = ? AND seq > ? ORDER BY seq DESC LIMIT ?) ORDER BY seq`,
       )
       .all(id, after, limit) as Array<Record<string, unknown>>;
-    return rows.map(wireRowToEvent);
+    const events = rows.map(wireRowToEvent);
+    // M12.12: a report / task notification stored before `ref` existed still names its subagent
+    // in the prompt — read it there on the way out rather than rewriting every row
+    const stale = events.filter((e) => {
+      const p = e.payload as { origin?: string; ref?: string } | null;
+      return e.type === "prompt.submitted" && p?.origin && p.origin !== "session" && !p.ref;
+    });
+    if (stale.length) {
+      const prompt = this.db.query(
+        "SELECT json_extract(payload, '$.prompt') AS prompt FROM events WHERE seq = ?",
+      );
+      for (const e of stale) {
+        const r = prompt.get(e.seq as number) as { prompt: string | null } | null;
+        const { ref, usage } = describePrompt(r?.prompt);
+        const p = e.payload as Record<string, unknown>;
+        if (ref) p.ref = ref;
+        if (usage) p.usage = usage;
+      }
+    }
+    return events;
   }
   /** One stored event with everything (payload incl. clipped tool I/O, raw hook input). */
   event(seq: number): SwarmEvent | null {

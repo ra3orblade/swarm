@@ -2034,6 +2034,13 @@ main:has(> .sess) > h2.hrow {
   color: var(--fg-2);
   font-weight: 400;
 }
+/* M12.12: a subagent's run, folded into one row — the agent's colour, like its turns. */
+.ev.subagent .k {
+  color: var(--violet);
+}
+.ev.subagent .m > .md {
+  margin-top: 6px;
+}
 
 /* Rendered markdown (M11.14): what `components/Markdown.tsx` builds.
 
