@@ -25,6 +25,7 @@ import { useUiStore } from "../state/ui";
 import { Records } from "./stats/Records";
 import { StatsHeadline } from "./stats/StatsHeadline";
 import type { StatsReport } from "./stats/types";
+import { WaitingStrip } from "./stats/WaitingStrip";
 
 const RANGES = [30, 90, 365];
 
@@ -150,6 +151,8 @@ export function Stats() {
       />
 
       <StatsHeadline report={data} />
+
+      <WaitingStrip project={project} days={days} />
 
       <div className="chart-card">
         <h3>

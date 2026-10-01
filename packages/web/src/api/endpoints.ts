@@ -32,6 +32,7 @@ import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import type { FoundTeam } from "@swarm/core/mdns";
+import type { WaitingReport } from "@swarm/core/waiting";
 import type { TeamStatus } from "./actions";
 import { query } from "./client";
 
@@ -88,6 +89,9 @@ export const routes = {
   incidents: (project: string | null, openOnly: boolean): Route<IncidentEvent[]> =>
     `/v1/incidents${query({ project, limit: 500, open: openOnly ? 1 : null })}`,
   trials: (project: string | null) => byProject<TrialsResponse>("/v1/ab", project),
+  /** M9.4 / M12.11: time blocked on a person, and the waits something else ended. */
+  waiting: (project: string | null, days: number): Route<WaitingReport> =>
+    `/v1/waiting${query({ project, days })}`,
   /**
    * Unbranded on purpose: the daemon composes this report route-side and its shape is declared by
    * the Stats view (`views/stats/types.ts`), so branding it here would make `api/` import out of
