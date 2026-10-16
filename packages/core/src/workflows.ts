@@ -11,7 +11,11 @@
  * M13.10 adds two built-in steps that need no claimed worktree, for scheduled workflows: `gates`
  * runs the required gates on the default branch's head in a scratch worktree, and `review-prs`
  * runs the review gate over each open GitHub PR (see `schedules.ts`).
+ *
+ * M12.10: `on_fail = "resume"` keeps the workflow on the PR its `pr` step opened — a failed check
+ * or a review asking for changes resumes the task, at most `max_attempts` times (`prwatch.ts`).
  */
+import { type OnFail, parseOnFail } from "./prwatch";
 import type { TaskView } from "./tasks";
 
 export type WorkflowStep =
@@ -24,6 +28,9 @@ export type WorkflowStep =
 export interface WorkflowDef {
   name: string;
   steps: WorkflowStep[];
+  /** What a failed check or requested change on the opened PR does (M12.10). */
+  onFail: OnFail;
+  maxAttempts: number;
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9_.-]{0,39}$/i;
@@ -69,7 +76,11 @@ export function parseWorkflows(raw: unknown): Record<string, WorkflowDef> {
         break;
       }
     }
-    if (steps.length) out[w.name] = { name: w.name, steps };
+    const fail = parseOnFail(w.on_fail, w.max_attempts);
+    if (!fail) continue;
+    // resume watches the PR the `pr` step opened; without one there is nothing to watch
+    if (fail.onFail === "resume" && !steps.some((s) => s.kind === "pr")) continue;
+    if (steps.length) out[w.name] = { name: w.name, steps, ...fail };
   }
   return out;
 }

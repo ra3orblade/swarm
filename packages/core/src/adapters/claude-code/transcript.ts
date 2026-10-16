@@ -50,6 +50,8 @@ export interface Turn {
   sidechain: boolean;
   /** Cost the agent itself reported (aider, opencode). Wins over the pricing table and is never repriced. */
   cost?: number | null;
+  /** The skill this turn ran under (M12.9): from its `Skill` call or a `/skill` command until the next real prompt. */
+  skill?: string | null;
 }
 
 export interface TranscriptDelta {
@@ -58,15 +60,46 @@ export interface TranscriptDelta {
   branch: string | null;
   version: string | null;
   turnDurationsMs: number[];
+  /** The skill still active at the end of the chunk — hand it back as `skill` with the next one. */
+  skill: string | null;
 }
 
-export function parseTranscriptChunk(chunk: string): TranscriptDelta {
+/** `<command-name>/plan</command-name>` → `plan` — a skill or command the user typed. */
+const COMMAND = /<command-name>\/?([^<\s]+)<\/command-name>/;
+
+/**
+ * What a user line does to the active skill: a typed `/skill` starts one, a real prompt ends it,
+ * and everything else — tool results, the skill's own expanded instructions (`isMeta`), the
+ * tagged notices Claude Code injects as prompts — leaves it alone (`undefined`).
+ */
+function skillAfterUserLine(d: TranscriptLine): string | null | undefined {
+  if (d.isMeta === true) return undefined;
+  const c = d.message?.content;
+  const text =
+    typeof c === "string"
+      ? c
+      : Array.isArray(c)
+        ? c.some((x) => x.type === "tool_result")
+          ? null
+          : c.map((x) => (x.type === "text" ? (x.text ?? "") : "")).join("")
+        : null;
+  if (text == null) return undefined;
+  const cmd = COMMAND.exec(text);
+  if (cmd) return cmd[1] ?? null;
+  const t = text.trimStart();
+  if (!t || t.startsWith("<")) return undefined;
+  return null;
+}
+
+/** `skill` is the skill active where the chunk starts (the previous chunk's `skill`). */
+export function parseTranscriptChunk(chunk: string, skill: string | null = null): TranscriptDelta {
   const out: TranscriptDelta = {
     turns: [],
     title: null,
     branch: null,
     version: null,
     turnDurationsMs: [],
+    skill,
   };
   const byId = new Map<string, Turn>();
   for (const line of chunk.split("\n")) {
@@ -82,6 +115,10 @@ export function parseTranscriptChunk(chunk: string): TranscriptDelta {
     if (d.version) out.version = d.version;
     if (d.type === "system" && d.subtype === "turn_duration" && typeof d.durationMs === "number")
       out.turnDurationsMs.push(d.durationMs);
+    if (d.type === "user" && !d.isSidechain) {
+      const next = skillAfterUserLine(d);
+      if (next !== undefined) out.skill = next;
+    }
     if (d.type !== "assistant" || !d.message) continue;
     const m = d.message;
     const u = m.usage;
@@ -98,6 +135,7 @@ export function parseTranscriptChunk(chunk: string): TranscriptDelta {
       tools: [],
       effort: d.effort ?? null,
       sidechain: Boolean(d.isSidechain),
+      skill: out.skill,
     };
     if (u) {
       turn.usage = {
@@ -112,7 +150,15 @@ export function parseTranscriptChunk(chunk: string): TranscriptDelta {
     for (const c of content) {
       if (c.type === "text" && c.text && turn.text.length < 400)
         turn.text = `${turn.text}${turn.text ? "\n" : ""}${c.text}`.slice(0, 400);
-      if (c.type === "tool_use" && c.name) turn.tools.push(c.name);
+      if (c.type === "tool_use" && c.name) {
+        turn.tools.push(c.name);
+        // the call that loads a skill is the first turn spent under it
+        const named = (c.input as { skill?: unknown } | undefined)?.skill;
+        if (c.name === "Skill" && typeof named === "string" && named) {
+          out.skill = named;
+          turn.skill = named;
+        }
+      }
     }
     if (!prev) {
       byId.set(id, turn);

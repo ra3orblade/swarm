@@ -210,9 +210,30 @@ swarm workflow                   # what this repo declares, and the runs in flig
 swarm workflow stop login-form   # stop the one on this task
 ```
 
-One workflow runs on a task at a time, and steps run one at a time. The engine only reacts to things that already happen — a run ending, a gate recording, a PR opening — so nothing is polled and a step that takes an hour costs nothing while it waits. **A failed step stops the workflow** and opens an incident naming the step and its log; it never carries on to the next one. The claim and worktree are kept, so you can look, fix, and start it again.
+One workflow runs on a task at a time, and steps run one at a time. The engine only reacts to things that already happen — a run ending, a gate recording, a PR opening — so a step that takes an hour costs nothing while it waits. **A failed step stops the workflow** and opens an incident naming the step and its log; it never carries on to the next one. The claim and worktree are kept, so you can look, fix, and start it again.
 
 Nothing in a workflow ever writes to your task source: flipping a task to done stays a human act. The Board's **Workflows** section shows each run as its chain of steps — ✓ done, ● running, ✗ where it stopped, ○ still to come — with a *Stop*.
+
+### When CI or a review says no
+
+By default a workflow is done the moment its `pr` step opens the pull request. With `on_fail = "resume"` it stays on that PR instead, and sends the task back to an agent when the PR fails:
+
+```toml
+[[workflows]]
+name         = "ship"
+steps        = ["implement", "gate:tests", "pr"]
+on_fail      = "resume"   # default "stop"
+max_attempts = 2          # 1–10, default 2
+```
+
+Once a minute the daemon looks at the PR through `gh` / `glab`, the same poll the PRs view uses. When a check fails, or a reviewer requests changes, it starts another run on the task. The run has the same owner, so it works in the same claimed worktree. Its prompt names the PR, the checks that failed (GitHub names each one; GitLab reports the pipeline), and how to read the details, such as `gh pr checks <n>` or `gh pr view <n> --comments`. It also tells the agent to fix the cause, not loosen the check, and to push to the same branch. Each attempt is a `dispatch.started` / `dispatch.finished` pair in the event log, marked with the workflow and the attempt number.
+
+- A failed check is acted on **once per commit**. After the agent pushes, the next failure on the new commit is a new attempt.
+- A review asking for changes is acted on **when it arrives**. It doesn't fire again on every poll while it stands, so a second round of requested changes is a second attempt.
+- An attempt that ends **without pushing**, while CI is still red on the same commit, fails the workflow. So does running out of attempts while the PR still fails. Both open a `workflow_failed` incident.
+- The workflow is **done** when the PR is merged or closed. It also stops watching after 7 days; the PR itself is never touched.
+
+Like any workflow, a watch does not survive a daemon restart: the run shows as stopped, and you start the workflow again to keep watching.
 
 ### Scheduled workflows
 

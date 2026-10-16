@@ -42,3 +42,51 @@ describe("parseTranscriptChunk", () => {
     expect(parseTranscriptChunk("not json\n{}\n").turns).toHaveLength(0);
   });
 });
+
+describe("parseTranscriptChunk · the skill a turn ran under (M12.9)", () => {
+  const L = (o: unknown) => `${JSON.stringify(o)}\n`;
+  const assistant = (id: string, content: unknown[] = [{ type: "text", text: id }]) =>
+    L({
+      type: "assistant",
+      message: { id, model: "claude-opus-5", content, usage: { output_tokens: 1 } },
+    });
+  const user = (content: unknown, extra: object = {}) =>
+    L({ type: "user", message: { role: "user", content }, ...extra });
+  const skillOf = (d: ReturnType<typeof parseTranscriptChunk>) =>
+    d.turns.map((t) => [t.id, t.skill]);
+
+  it("starts at the Skill call, holds through tool results and its own instructions, ends at the next prompt", () => {
+    const d = parseTranscriptChunk(
+      user("fix the bug") +
+        assistant("t1") +
+        assistant("t2", [{ type: "tool_use", name: "Skill", input: { skill: "review" } }]) +
+        user("Base directory for this skill: …", { isMeta: true }) +
+        user([{ type: "tool_result", content: "ok" }]) +
+        assistant("t3") +
+        user("<task-notification>done</task-notification>") +
+        assistant("t4") +
+        user("thanks, now the docs") +
+        assistant("t5"),
+    );
+    expect(skillOf(d)).toEqual([
+      ["t1", null],
+      ["t2", "review"], // the call that loads the skill is spent under it
+      ["t3", "review"],
+      ["t4", "review"], // an injected notice is not the user moving on
+      ["t5", null],
+    ]);
+    expect(d.skill).toBeNull();
+  });
+
+  it("a typed /command starts one, and the active skill carries into the next chunk", () => {
+    const first = parseTranscriptChunk(
+      user("<command-name>/plan</command-name>\n<command-message>plan</command-message>") +
+        assistant("p1"),
+    );
+    expect(skillOf(first)).toEqual([["p1", "plan"]]);
+    expect(first.skill).toBe("plan");
+    const next = parseTranscriptChunk(assistant("p2"), first.skill);
+    expect(skillOf(next)).toEqual([["p2", "plan"]]);
+    expect(parseTranscriptChunk(assistant("p3")).turns[0]?.skill).toBeNull(); // no carry: none
+  });
+});

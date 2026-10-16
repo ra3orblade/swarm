@@ -54,7 +54,7 @@ export interface MergedPR {
 }
 
 const GH_FIELDS =
-  "number,title,headRefName,url,author,isDraft,mergeable,reviewDecision,statusCheckRollup,createdAt";
+  "number,title,headRefName,headRefOid,url,author,isDraft,mergeable,reviewDecision,statusCheckRollup,createdAt";
 
 export class ForgeService {
   private cache = new Map<string, { at: number; prs: ProjectPR[] }>();
@@ -67,6 +67,11 @@ export class ForgeService {
     void this.refresh();
     const all = [...this.cache.values()].flatMap((c) => c.prs);
     return all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  /** Forget one project's queue, so the next refresh asks the forge again (M12.10). */
+  invalidate(projectId: string): void {
+    this.cache.delete(projectId);
   }
 
   async refresh(maxAgeMs = 120_000): Promise<void> {
