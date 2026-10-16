@@ -3,11 +3,13 @@
  * the ways to reach it: a message for its next tool call, the questions it is waiting on, and the
  * transcript file behind all of it.
  */
+import type { CostBucket } from "@swarm/core/costby";
 import type { Message } from "@swarm/core/messages";
 import type { Question } from "@swarm/core/questions";
 import type { SessionView } from "@swarm/core/types";
 import { useState } from "react";
 import { query, send } from "../../api/client";
+import { routes } from "../../api/endpoints";
 import { useResource } from "../../api/useResource";
 import { BarList } from "../../components/BarList";
 import { CompositionBar } from "../../components/charts";
@@ -96,6 +98,8 @@ export function SessionStats({ session, turns }: SessionStatsProps) {
         </>
       )}
 
+      <CostBy session={session} />
+
       <h4>tools</h4>
       {tools.length > 0 ? (
         <BarList
@@ -113,6 +117,37 @@ export function SessionStats({ session, turns }: SessionStatsProps) {
       <QuestionCards sessionId={session.id} />
       <TranscriptRow path={session.transcriptPath} />
     </aside>
+  );
+}
+
+/** Which bucket a bar row belongs to, ahead of its name. */
+const BY_KIND = { mcp: "mcp", skills: "skill", subagents: "agent" } as const;
+
+/**
+ * M12.9: where the session's spend went — MCP servers, skills, subagent types. Views of the same
+ * spend rather than a partition, so each row is a share of the session total on its own.
+ */
+function CostBy({ session }: { session: SessionView }) {
+  const { data } = useResource(routes.sessionCostBy(session.id));
+  if (!data || data.totalUsd <= 0) return null;
+  const rows: [keyof typeof BY_KIND, CostBucket][] = [
+    ...data.mcp.map((b) => ["mcp", b] as [keyof typeof BY_KIND, CostBucket]),
+    ...data.skills.map((b) => ["skills", b] as [keyof typeof BY_KIND, CostBucket]),
+    ...data.subagents.map((b) => ["subagents", b] as [keyof typeof BY_KIND, CostBucket]),
+  ];
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => b[1].costUsd - a[1].costUsd);
+  return (
+    <>
+      <h4>cost by</h4>
+      <BarList
+        bars={rows.slice(0, 8).map(([kind, b]) => ({
+          label: `${BY_KIND[kind]} · ${b.name}`,
+          value: b.costUsd,
+          detail: `${usd(b.costUsd)} · ${b.share > 0 && b.share < 0.005 ? "<1" : Math.round(b.share * 100)}%`,
+        }))}
+      />
+    </>
   );
 }
 

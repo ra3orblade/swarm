@@ -311,6 +311,16 @@ export function createApp(
       ),
     ),
   );
+  // M12.9: spend by MCP server, skill and subagent — a project's last `days`, or one session
+  app.get("/v1/cost/by", (c) =>
+    c.json(
+      store.costBy({
+        ...(c.req.query("project") ? { projectId: c.req.query("project") as string } : {}),
+        ...(c.req.query("session") ? { sessionId: c.req.query("session") as string } : {}),
+        days: Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7)),
+      }),
+    ),
+  );
   app.get("/v1/hygiene", (c) => c.json(store.hygiene(c.req.query("project") || undefined)));
   // ---- M13.11: findings → issues on the project's task source
   app.get("/v1/findings", (c) => {

@@ -10,7 +10,7 @@ import { routes } from "../api/endpoints";
 import { useResource } from "../api/useResource";
 import { type Column, DataGrid } from "../components/DataGrid";
 import { Absent, Badge, Empty, Failed, Loading, Section } from "../components/ui";
-import { duration, latency } from "../lib/format";
+import { duration, latency, usd } from "../lib/format";
 import { useUiStore } from "../state/ui";
 
 const ms = (value: number | null) => latency(value) ?? <Absent />;
@@ -35,6 +35,21 @@ const COLUMNS: Column<ServerHealth>[] = [
     num: true,
     get: (s) => s.calls,
     cell: (s) => s.calls.toLocaleString(),
+  },
+  {
+    key: "cost",
+    label: "cost",
+    width: 74,
+    num: true,
+    get: (s) => s.costUsd ?? -1,
+    cell: (s) =>
+      s.costUsd == null ? (
+        <Absent />
+      ) : (
+        <span title="Spend of the turns that called this server, each turn split evenly across its tool calls">
+          {usd(s.costUsd)}
+        </span>
+      ),
   },
   {
     key: "sessions",
@@ -116,7 +131,7 @@ const COLUMNS: Column<ServerHealth>[] = [
             className="br"
             title={`${t.tool} · ${t.calls} calls${t.p50Ms === null ? "" : ` · p50 ${t.p50Ms}ms`}`}
           >
-            {t.tool} <b>{t.calls}</b>
+            {t.tool} <b>{t.calls}</b>{" "}
           </span>
         ))}
       </>
@@ -141,11 +156,15 @@ export function Mcp() {
 
   const t = data.totals;
   const share = t.totalMs ? Math.round((t.mcpMs / t.totalMs) * 100) : 0;
+  const spend =
+    t.costUsd && t.mcpCostUsd !== undefined
+      ? ` · ${usd(t.mcpCostUsd)} of ${usd(t.costUsd)} spent in turns that called MCP`
+      : "";
 
   return (
     <Section
       title="MCP"
-      hint={`${t.servers} MCP server${t.servers === 1 ? "" : "s"} · ${t.calls.toLocaleString()} call${t.calls === 1 ? "" : "s"} · last 7 days · ${duration(t.mcpMs)} waiting on MCP (${share}% of all tool time)`}
+      hint={`${t.servers} MCP server${t.servers === 1 ? "" : "s"} · ${t.calls.toLocaleString()} call${t.calls === 1 ? "" : "s"} · last 7 days · ${duration(t.mcpMs)} waiting on MCP (${share}% of all tool time)${spend}`}
     >
       <DataGrid
         id="mcp-health"
@@ -158,7 +177,9 @@ export function Mcp() {
         Latency is measured hook to hook, so it is the wall-clock an agent actually waited — a call
         held behind a permission prompt carries that wait too, which is why <b>slowest</b> can be
         hours and p50/p95 are the numbers to read. <b>errors</b> counts only unambiguous failures: a
-        command that merely prints the word “error” is not one.
+        command that merely prints the word “error” is not one. <b>cost</b> is the spend of the
+        turns that called the server, each turn split evenly across its tool calls — not what its
+        output cost later turns to carry in context, which a transcript cannot separate out.
       </p>
     </Section>
   );
