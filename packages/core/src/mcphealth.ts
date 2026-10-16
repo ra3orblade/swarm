@@ -53,6 +53,11 @@ export interface ServerHealth {
   /** Busiest tools first, capped by `toolLimit`. */
   tools: ToolStat[];
   lastAt: string | null;
+  /**
+   * M12.9: spend of the turns that called this server, each turn split evenly across its calls
+   * (core/src/costby.ts). null for the built-in baseline, which that split does not single out.
+   */
+  costUsd?: number | null;
 }
 
 export interface McpHealthReport {
@@ -65,6 +70,9 @@ export interface McpHealthReport {
     totalMs: number;
     /** Just the MCP part, which is the number this view exists to surface. */
     mcpMs: number;
+    /** M12.9: spend attributed to MCP servers, and the total it is a share of. */
+    mcpCostUsd?: number;
+    costUsd?: number;
   };
 }
 

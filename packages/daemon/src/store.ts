@@ -39,6 +39,7 @@ import {
   budgetStatus,
   buildPolicyCache,
   COACH_AT,
+  type CostByReport,
   canAcquire,
   canClaim,
   canRelease,
@@ -55,6 +56,7 @@ import {
   recurringFailures as computeRecurringFailures,
   configSourceWhat,
   contextReport,
+  costBy,
   costUsd,
   type DashboardSnapshot,
   DEFAULT_COLLISION_WINDOW_MIN,
@@ -402,6 +404,11 @@ export class Store {
     // M13.7: null = Swarm made the worktree; "claude-code" = adopted — recorded, never removed
     this.ensureColumn("claims", "origin", "TEXT");
     this.ensureColumn("turns", "cost_fixed", "INTEGER DEFAULT 0");
+    // M12.9: the skill a turn ran under; the tail carries the active one across chunks, and a
+    // subagent's tail its type (from the subagent's .meta.json)
+    this.ensureColumn("turns", "skill", "TEXT");
+    this.ensureColumn("tails", "skill", "TEXT");
+    this.ensureColumn("tails", "agent_type", "TEXT");
     this.ensureColumn("projects", "sort_order", "INTEGER");
     this.ensureColumn("projects", "icon", "TEXT");
     this.ensureColumn("projects", "color", "TEXT");
@@ -4291,10 +4298,11 @@ export class Store {
     const privacy = this.policyFor(null).config.privacy;
     const res = this.redactions();
     const up = this.db.query(
-      `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, cost_fixed, text, tools)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO turns (id, session_id, agent_id, ts, model, effort, sidechain, input, output, cache_write, cache_write_1h, cache_read, thinking, cost_usd, cost_fixed, text, tools, skill)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET input=excluded.input, output=excluded.output, cache_write=excluded.cache_write, cache_write_1h=excluded.cache_write_1h,
-         cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, cost_fixed=excluded.cost_fixed, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools`,
+         cache_read=excluded.cache_read, thinking=excluded.thinking, cost_usd=excluded.cost_usd, cost_fixed=excluded.cost_fixed, text=CASE WHEN excluded.text != '' THEN excluded.text ELSE turns.text END, tools=excluded.tools,
+         skill=COALESCE(excluded.skill, turns.skill)`,
     );
     const tx = this.db.transaction((ts: Turn[]) => {
       for (const t of ts) {
@@ -4316,6 +4324,7 @@ export class Store {
           t.cost != null ? 1 : 0,
           privacy.store_reasoning ? redactValue(t.text, res) : "",
           JSON.stringify(t.tools),
+          t.skill ?? null,
         );
       }
     });
@@ -4324,12 +4333,13 @@ export class Store {
   }
 
   private tailFile(path: string, sessionId: string, agentId: string | null): number {
-    const row = this.db.query("SELECT offset FROM tails WHERE path = ?").get(path) as {
+    const row = this.db.query("SELECT offset, skill FROM tails WHERE path = ?").get(path) as {
       offset: number;
+      skill: string | null;
     } | null;
     const r = this.readFrom(path, row?.offset ?? 0);
     if (!r) return 0;
-    const d = parseTranscriptChunk(r.chunk);
+    const d = parseTranscriptChunk(r.chunk, row?.skill ?? null);
     this.persistTurns(sessionId, agentId, d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text && !t.sidechain)?.text ?? null;
     const lastModel = [...d.turns].reverse().find((t) => !t.sidechain)?.model ?? null;
@@ -4354,12 +4364,70 @@ export class Store {
       } | null;
       this.autoRenewFor(sessionId, cwdRow?.cwd);
     }
+    // a subagent's type sits beside its transcript: agent-<id>.meta.json {"agentType": …}
+    const agentType = agentId && !row ? subagentType(path) : null;
     this.db
       .query(
-        "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+        "INSERT INTO tails (path, session_id, agent_id, offset, skill, agent_type) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset, skill = excluded.skill, agent_type = COALESCE(tails.agent_type, excluded.agent_type)",
       )
-      .run(path, sessionId, agentId, r.next);
+      .run(path, sessionId, agentId, r.next, d.skill, agentType);
     return d.turns.length;
+  }
+
+  /**
+   * M12.9: spend by MCP server, skill and subagent type (core/src/costby.ts says how a turn is
+   * split). Scoped to a project, or to one session for its stats panel.
+   */
+  costBy(opts: { projectId?: string; sessionId?: string; days?: number } = {}): CostByReport {
+    const since = new Date(Date.now() - (opts.days ?? 7) * 86_400_000).toISOString();
+    const where = ["t.ts >= ?"];
+    const args: string[] = [since];
+    if (opts.sessionId) {
+      where.length = 0;
+      args.length = 0;
+      where.push("t.session_id = ?");
+      args.push(opts.sessionId);
+    } else if (opts.projectId) {
+      where.push("s.project_id = ?");
+      args.push(opts.projectId);
+    }
+    const rows = this.db
+      .query(
+        `SELECT t.session_id, t.agent_id, t.cost_usd, t.tools, t.skill
+         FROM turns t LEFT JOIN sessions s ON s.id = t.session_id
+         WHERE ${where.join(" AND ")}`,
+      )
+      .all(...args) as Array<{
+      session_id: string;
+      agent_id: string | null;
+      cost_usd: number | null;
+      tools: string | null;
+      skill: string | null;
+    }>;
+    const types = new Map<string, string>();
+    // the SubagentStart hook names the type too, for a subagent whose metadata file is gone
+    for (const r of this.db
+      .query(
+        "SELECT json_extract(payload,'$.agentId') AS id, json_extract(payload,'$.agentType') AS type FROM events WHERE type = 'subagent.started' AND json_extract(payload,'$.agentType') IS NOT NULL",
+      )
+      .all() as Array<{ id: string | null; type: string }>)
+      if (r.id) types.set(r.id, r.type);
+    for (const r of this.db
+      .query(
+        "SELECT agent_id, agent_type FROM tails WHERE agent_id IS NOT NULL AND agent_type IS NOT NULL",
+      )
+      .all() as Array<{ agent_id: string; agent_type: string }>)
+      types.set(r.agent_id, r.agent_type);
+    return costBy(
+      rows.map((r) => ({
+        sessionId: r.session_id,
+        agentId: r.agent_id,
+        costUsd: r.cost_usd,
+        tools: (safeJson(r.tools) as string[] | null) ?? [],
+        skill: r.skill,
+      })),
+      types,
+    );
   }
 
   tailSession(sessionId: string): number {
@@ -6027,7 +6095,14 @@ export class Store {
     for (const [sessionId, perSession] of pending)
       for (const [tool, at] of perSession) abandon(sessionId, tool, at);
 
-    return mcpHealth(calls);
+    const report = mcpHealth(calls);
+    // M12.9: what the turns that called each server cost, over the same window
+    const cost = this.costBy(projectId ? { projectId, days } : { days });
+    const byName = new Map(cost.mcp.map((b) => [b.name, b.costUsd]));
+    for (const s of report.servers) s.costUsd = s.mcp ? (byName.get(s.server) ?? 0) : null;
+    report.totals.mcpCostUsd = cost.mcp.reduce((a, b) => a + b.costUsd, 0);
+    report.totals.costUsd = cost.totalUsd;
+    return report;
   }
 
   /**
@@ -8840,6 +8915,18 @@ function safeJson(v: string | null): unknown {
 /** Columns the dashboard and CLI actually consume; payload is reduced to hook + summary + small keys. */
 const WIRE_COLS =
   "seq, ts, type, project_id, session_id, actor_kind, actor_id, json_remove(payload, '$.toolInput', '$.toolResponse', '$.prompt') AS payload";
+
+/** `agentType` from a subagent transcript's `.meta.json` sibling; null when there is none. */
+function subagentType(transcript: string): string | null {
+  try {
+    const meta = JSON.parse(readFileSync(transcript.replace(/\.jsonl$/, ".meta.json"), "utf8")) as {
+      agentType?: unknown;
+    };
+    return typeof meta.agentType === "string" && meta.agentType ? meta.agentType : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Tool I/O keys across adapters (Claude Code snake_case, Grok/Codex camelCase). */
 const RAW_TOOL_KEYS = ["tool_input", "tool_response", "toolInput", "toolResponse", "toolResult"];

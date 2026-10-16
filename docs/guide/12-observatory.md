@@ -32,6 +32,16 @@ Which MCP servers your agents actually use, how much of the fleet's tool time ea
 
 Latency is measured **hook to hook** — the wall-clock between `PreToolUse` and `PostToolUse` for one call. That is what the agent actually waited, including the hook round trip and any time the call sat behind a permission prompt, which is why *slowest* can be hours and p50/p95 are the numbers to read.
 
+## Cost by MCP server, skill and subagent
+
+**Cost** on the MCP view, and **cost by** on a session's sidebar, say where spend went. All three come from the transcript, and each is a view of the same spend rather than a slice of it — one turn can belong to a subagent, run under a skill and call an MCP server — so each share is of the whole on its own:
+
+- **MCP server** — the spend of the turns that called it, each turn split evenly across the tool calls it made. It is not what the server's output cost the turns after it, carrying that output in context: that cost is real, but nothing in a transcript separates it from the rest.
+- **Skill** — every turn that ran under it, from the `Skill` call (or the `/skill` you typed) until your next real prompt.
+- **Subagent** — every turn of the subagent's own transcript, by its type (`Explore`, `Plan`, …).
+
+`GET /v1/cost/by?project=…&days=…` (or `?session=…`) returns all three.
+
 ## Context — where the window goes
 
 For the last 7 days: how many characters tool results pushed into the window, broken down by tool, and how much of that was spent **re-reading** — the same file read again by the same session. Reading one file five times costs the window five copies of it; the first is work, the rest is the price of having forgotten. Sessions are ranked by waste with their worst offending files.
