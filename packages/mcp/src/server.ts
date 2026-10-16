@@ -11,7 +11,40 @@ import { ensureDaemon, authedFetch as fetch, resolveBaseUrl } from "@swarm/clien
 import { z } from "zod";
 
 const OWNER = process.env.SWARM_OWNER ?? "agent";
-const SESSION = process.env.CLAUDE_SESSION_ID ?? null;
+const ENV_SESSION = process.env.CLAUDE_SESSION_ID ?? process.env.SWARM_SESSION_ID ?? null;
+
+/** This server's parent and grandparent: the agent process, directly or through a shell. */
+let parents: string | null = null;
+function parentPids(): string {
+  if (parents !== null) return parents;
+  const pids = [process.ppid];
+  try {
+    const up = Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(process.ppid)], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const gp = Number(up.stdout.toString().trim());
+    if (gp > 1) pids.push(gp);
+  } catch {
+    /* parent alone */
+  }
+  parents = pids.join(",");
+  return parents;
+}
+
+/**
+ * The session this server serves. Claude Code puts it in the environment; Codex does not, so the
+ * daemon matches this server's parent process against the one the session's hooks run under.
+ * Asked per call, not cached: one Codex app-server can host several threads.
+ */
+async function session(): Promise<string | null> {
+  if (ENV_SESSION) return ENV_SESSION;
+  const q = new URLSearchParams({ pids: parentPids(), cwd: process.cwd() });
+  const r = await api<{ sessionId?: string | null }>(`/v1/agent-session?${q}`).catch(() => ({
+    sessionId: null,
+  }));
+  return r.sessionId ?? null;
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const base = await ensureDaemon({ quiet: true }).catch(() => resolveBaseUrl());
@@ -146,6 +179,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ task, done, remaining, files, verify }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{ ok: boolean; error?: string; handoff?: unknown }>("/v1/handoffs", {
         method: "POST",
@@ -158,7 +192,7 @@ export function buildServer(): McpServer {
           files: files ?? [],
           verify: verify ?? null,
           by: OWNER,
-          sessionId: SESSION,
+          sessionId: sid,
         }),
       });
       if (!r.ok) return fail(`REFUSED: ${r.error}`);
@@ -199,6 +233,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ task, gate, verdict, rubric, evidence }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{ ok: boolean; error?: string; run?: unknown }>("/v1/gates", {
         method: "POST",
@@ -210,7 +245,7 @@ export function buildServer(): McpServer {
           verdict,
           rubric,
           evidence,
-          sessionId: SESSION,
+          sessionId: sid,
         }),
       });
       if (!r.ok) return fail(`REFUSED: ${r.error}`);
@@ -233,6 +268,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ task, gates }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{
         ok: boolean;
@@ -243,7 +279,7 @@ export function buildServer(): McpServer {
       }>("/v1/gates/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId: pid, task, gates, sessionId: SESSION }),
+        body: JSON.stringify({ projectId: pid, task, gates, sessionId: sid }),
       });
       if (!r.started?.length)
         return fail(`REFUSED: ${r.error ?? r.skipped?.[0]?.reason ?? "nothing ran"}`);
@@ -265,8 +301,9 @@ export function buildServer(): McpServer {
       inputSchema: {},
     },
     async () => {
+      const sid = await session();
       const r = await api<{ text: string | null }>(
-        `/v1/context?cwd=${encodeURIComponent(process.cwd())}&session=${encodeURIComponent(SESSION ?? "")}`,
+        `/v1/context?cwd=${encodeURIComponent(process.cwd())}&session=${encodeURIComponent(sid ?? "")}`,
       );
       return ok(
         r.text ?? "[swarm] nothing to report: no claim here, no open questions, default rules.",
@@ -287,6 +324,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ question, options }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{ ok: boolean; error?: string; question?: { id: number } }>(
         "/v1/questions",
@@ -295,7 +333,7 @@ export function buildServer(): McpServer {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             projectId: pid,
-            sessionId: SESSION,
+            sessionId: sid,
             text: question,
             options,
             askedBy: "agent",
@@ -320,12 +358,13 @@ export function buildServer(): McpServer {
       inputSchema: {},
     },
     async () => {
+      const sid = await session();
       const qs = await api<
         Array<{ id: number; text: string; answer: string; answeredBy: string | null }>
-      >(`/v1/inbox?session=${encodeURIComponent(SESSION ?? "")}`);
+      >(`/v1/inbox?session=${encodeURIComponent(sid ?? "")}`);
       const ms = await api<
         Array<{ id: number; from: string | null; task: string | null; text: string }>
-      >(`/v1/messages/inbox?session=${encodeURIComponent(SESSION ?? "")}`);
+      >(`/v1/messages/inbox?session=${encodeURIComponent(sid ?? "")}`);
       if (!qs.length && !ms.length) return ok("nothing new", []);
       const lines = [
         ...qs.map((q) => `answer #${q.id} "${q.text}" → ${q.answeredBy ?? "a human"}: ${q.answer}`),
@@ -350,6 +389,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ to, text }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{
         ok: boolean;
@@ -362,8 +402,8 @@ export function buildServer(): McpServer {
           projectId: pid,
           to,
           text,
-          sessionId: SESSION,
-          from: OWNER === "agent" && SESSION ? `agent ${SESSION.slice(0, 8)}` : OWNER,
+          sessionId: sid,
+          from: OWNER === "agent" && sid ? `agent ${sid.slice(0, 8)}` : OWNER,
         }),
       });
       if (!r.ok) return fail(r.error ?? "send failed");
@@ -483,6 +523,7 @@ export function buildServer(): McpServer {
       },
     },
     async ({ task, owner }) => {
+      const sid = await session();
       const pid = await projectId();
       const r = await api<{
         ok: boolean;
@@ -493,7 +534,7 @@ export function buildServer(): McpServer {
       }>("/v1/claims", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER, sessionId: SESSION }),
+        body: JSON.stringify({ projectId: pid, task, owner: owner ?? OWNER, sessionId: sid }),
       });
       if (!r.ok) return fail(`REFUSED: ${r.error}`);
       return ok(

@@ -3,11 +3,16 @@
  * request the rules already understand, and the decision mapped back.
  *
  * Verified against each agent's reference on 2026-09-18 (not memory):
- * - **Codex** `PreToolUse` (`~/.codex/hooks.json`; stable since rust-v0.124.0). Claude-shaped
- *   input — `session_id`, `cwd`, `tool_name`, `tool_input`, plus `turn_id`. `Bash` carries
- *   `{command: string}`, `apply_patch` carries `{command: <patch>}` (codex-rs/core/src/tools/
- *   approvals.rs). Output is Claude's `hookSpecificOutput.permissionDecision`; `ask` is parsed but
- *   "not supported yet".
+ * - **Codex** (`~/.codex/hooks.json`; on by default). Re-verified 2026-10-16 against the hooks
+ *   reference: 12 events — SessionStart, SessionEnd, SubagentStart/Stop, PreToolUse,
+ *   PermissionRequest, PostToolUse, Pre/PostCompact, UserPromptSubmit, Stop, Interrupt — with
+ *   Claude-shaped input (`session_id`, `cwd`, `tool_name`, `tool_input`, `transcript_path` = the
+ *   rollout) plus `turn_id` on every event but SessionEnd. `exec_command` arrives as `Bash`
+ *   `{command}`, `apply_patch` as `{command: <patch>}`. Output is Claude's shape throughout
+ *   (`permissionDecision`, `updatedInput` with `permissionDecision: "allow"`, `additionalContext`,
+ *   Stop `decision: "block"`, PermissionRequest `decision.behavior`); `ask` is not supported — the
+ *   hook is marked failed and the call goes ahead. So Codex runs Swarm's whole hook pipeline
+ *   (`codexAsClaude`), not just the rules.
  * - **Gemini CLI** `BeforeTool` (`~/.gemini/settings.json` `hooks`; on by default since v0.26).
  *   `tool_name` is `run_shell_command` (`command`, `dir_path`), `write_file` / `replace` /
  *   `read_file` (`file_path`). Output `{decision: "deny", reason}`; no ask from a hook.
@@ -40,8 +45,32 @@ export const AGENT_LABEL: Record<HookAgent, string> = {
   grok: "Grok",
 };
 
+/**
+ * The Codex events `swarm install` puts in ~/.codex/hooks.json, with their timeouts (seconds).
+ * Stop holds the repair loop's gates and PermissionRequest the dashboard card, as on Claude Code;
+ * Codex caps SessionEnd at 3.
+ */
+export const CODEX_HOOK_EVENTS: Readonly<Record<string, number>> = {
+  SessionStart: 5,
+  UserPromptSubmit: 5,
+  PreToolUse: 5,
+  PermissionRequest: 150,
+  PostToolUse: 5,
+  Stop: 330,
+  SessionEnd: 3,
+};
+
 /** Agents whose pre-tool hook can put a question to the user. */
 const CAN_ASK: ReadonlySet<HookAgent> = new Set(["claude-code"]);
+/** Agents whose pre-tool hook can hand back a corrected command (`updatedInput`). */
+const CAN_REWRITE: ReadonlySet<HookAgent> = new Set(["claude-code", "codex"]);
+
+/** The agents a `swarm-hook <Event> <agent>` command may name (the hook knows who installed it). */
+export function hookAgentArg(v: unknown): HookAgent | null {
+  return v === "codex" || v === "gemini" || v === "cursor" || v === "grok" || v === "claude-code"
+    ? v
+    : null;
+}
 
 /** One tool call in the rules' vocabulary (Claude Code's tool names). */
 export interface ToolRequest {
@@ -57,6 +86,12 @@ export function detectAgent(raw: Record<string, unknown>): HookAgent {
     return "cursor";
   if (raw.hook_event_name === "BeforeTool") return "gemini";
   if (typeof raw.turn_id === "string") return "codex";
+  // Codex's SessionEnd carries no turn_id; its transcript is a rollout under ~/.codex/sessions
+  if (
+    typeof raw.transcript_path === "string" &&
+    /\/rollout-[^/]*\.jsonl$/.test(raw.transcript_path)
+  )
+    return "codex";
   // Grok sends the event name twice, camelCase beside snake_case; Claude Code sends only the latter
   if (typeof raw.hookEventName === "string" && typeof raw.workspaceRoot === "string") return "grok";
   return "claude-code";
@@ -153,9 +188,9 @@ export function effectiveDecision(agent: HookAgent, d: AgentDecision): AgentDeci
       reason:
         `${d.reason ?? ""} (Swarm would ask the user here; ${AGENT_LABEL[agent]}'s hooks cannot ask, so the call is refused — ask the user to run it, or to turn the rule off.)`.trim(),
     };
-  // A rewrite needs `updatedInput` plumbing per agent; until then the fixed command is offered
-  // as the reason and the original is refused, never run unfixed.
-  if (d.action === "rewrite" && agent !== "claude-code")
+  // An agent that cannot take `updatedInput` is offered the fixed command as the reason, and the
+  // original is refused, never run unfixed.
+  if (d.action === "rewrite" && !CAN_REWRITE.has(agent))
     return {
       ...d,
       action: "deny",
@@ -170,6 +205,17 @@ export function renderAgentDecision(agent: HookAgent, d: AgentDecision): string 
   if (e.action === "allow") return "{}";
   const reason = `[swarm] ${e.reason ?? ""}`.trim();
   if (agent === "gemini") return JSON.stringify({ decision: "deny", reason });
+  // Codex reads a rewrite as `allow` + `updatedInput` (a string `command` for Bash)
+  if (e.action === "rewrite")
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: reason,
+        updatedInput: { command: e.command ?? "" },
+        additionalContext: `${reason}\nran: ${e.command ?? ""}`,
+      },
+    });
   // Codex, Cursor and Grok read Claude's shape (Cursor maps permissionDecisionReason to user_message)
   return JSON.stringify({
     hookSpecificOutput: {
@@ -178,6 +224,37 @@ export function renderAgentDecision(agent: HookAgent, d: AgentDecision): string 
       permissionDecisionReason: reason,
     },
   });
+}
+
+/**
+ * A Codex hook payload in Claude Code's vocabulary, so it can run the same pipeline: `apply_patch`
+ * becomes an `Edit` of the first file it touches (every path under `tool_input.file_paths`), and
+ * `transcript_path` goes — it names the rollout, which the Codex adapter tails, and the Claude
+ * Code transcript reader would claim the same file. `files` are absolute.
+ */
+export function codexAsClaude(raw: Record<string, unknown>): {
+  raw: Record<string, unknown>;
+  files: string[];
+} {
+  const { transcript_path: _rollout, ...rest } = raw;
+  const cwd = str(raw.cwd) ?? "";
+  const input = (
+    raw.tool_input && typeof raw.tool_input === "object" ? raw.tool_input : {}
+  ) as Record<string, unknown>;
+  const patch = raw.tool_name === "apply_patch" ? str(input.command) : undefined;
+  if (!patch) return { raw: { ...rest, agent: "codex" }, files: [] };
+  const files = patchPaths(patch).map((p) =>
+    p.startsWith("/") || !cwd ? p : `${cwd.replace(/\/$/, "")}/${p}`,
+  );
+  return {
+    raw: {
+      ...rest,
+      agent: "codex",
+      tool_name: "Edit",
+      tool_input: { ...input, ...(files[0] ? { file_path: files[0] } : {}), file_paths: files },
+    },
+    files,
+  };
 }
 
 // ---------- where the rules hold (the Rules view, `swarm doctor`)
@@ -229,9 +306,9 @@ export function agentCoverage(files: {
       agent: "codex",
       label: AGENT_LABEL.codex,
       present: files.present.codex,
-      installed: hasOurHook(files.codexHooks, "PreToolUse"),
-      covers: "shell commands, and files written by apply_patch",
-      note: `${cannotAsk} · trust it once in /hooks`,
+      installed: Object.keys(CODEX_HOOK_EVENTS).every((ev) => hasOurHook(files.codexHooks, ev)),
+      covers: "every rule; shell commands and files written by apply_patch",
+      note: `${cannotAsk} · trust the hooks once in /hooks`,
     },
     {
       agent: "gemini",

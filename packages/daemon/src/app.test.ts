@@ -545,6 +545,41 @@ describe("codex ingestion", () => {
     expect(store.sessions().find((x) => x.id === "cx1")?.tokens.output).toBe(700);
     // and the offset advanced: nothing new to read
     expect(store.tailCodex(3650 * 24 * 60 * 60_000)).toBe(0);
+    // A session resumed weeks later writes the rollout it started in, under its old date: the
+    // default 3-day window would skip that folder, the tails it already follows do not. The turn
+    // ended (task_complete), so it waits on the user — not "ended" after a quiet 90 s.
+    require("node:fs").appendFileSync(
+      roll,
+      L({ type: "event_msg", payload: { type: "task_started" } }) +
+        L({
+          type: "event_msg",
+          timestamp: "2026-10-16T09:00:00Z",
+          payload: {
+            type: "token_count",
+            info: {
+              last_token_usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 1 },
+            },
+          },
+        }) +
+        L({ type: "event_msg", payload: { type: "task_complete" } }),
+    );
+    const old = new Date(Date.now() - 10 * 60_000);
+    require("node:fs").utimesSync(roll, old, old);
+    expect(store.tailCodex()).toBe(1);
+    const resumed = store.sessions().find((x) => x.id === "cx1");
+    expect(resumed?.tokens.output).toBe(701);
+    expect(resumed?.model).toBe("gpt-5.5"); // the chunk had no turn_context: the session's model
+    expect(resumed?.state).not.toBe("ended");
+    expect(
+      store.db.query("SELECT state, ended_at FROM sessions WHERE id = 'cx1'").get() as object,
+    ).toEqual({ state: "waiting", ended_at: null });
+    // Codex's thread name (its sidebar title) wins over the first-prompt title
+    require("node:fs").writeFileSync(
+      join(home, "session_index.jsonl"),
+      `${L({ id: "cx1", thread_name: "Old name" })}${L({ id: "cx1", thread_name: "Fix the login bug" })}`,
+    );
+    store.tailCodex();
+    expect(store.sessions().find((x) => x.id === "cx1")?.title).toBe("Fix the login bug");
     delete process.env.SWARM_CODEX_DIR;
   });
 });
@@ -1790,11 +1825,117 @@ describe("rules + incidents (Phase 2)", () => {
     expect(cu.hookSpecificOutput?.permissionDecision).toBe("deny");
     expect(await post("SessionStart", { ...cursor, hook_event_name: "sessionStart" })).toEqual({});
 
-    // none of it became Claude Code events; the incidents are there
-    for (const sid of ["cx-1", "gm-1", "cur-1"])
+    // Gemini and Cursor did not become Claude Code events (Codex runs the pipeline: below); the
+    // incidents are there
+    for (const sid of ["gm-1", "cur-1"])
       expect(store.sessionEvents(sid).filter((e) => e.type !== "incident.opened")).toHaveLength(0);
     expect(store.incidents(10).length).toBeGreaterThanOrEqual(4);
     store.release(p.id, "auth", true);
+  });
+
+  it("Codex runs the whole hook pipeline: context with its id, its session found by pid, collisions per patched file, rewrites", async () => {
+    const fs = require("node:fs");
+    const dir = repo();
+    fs.writeFileSync(join(dir, ".swarm.toml"), `[rules]\nno_verify = "rewrite"\n`);
+    const { app, store } = createApp(new Store(tmpHome()));
+    const post = async (event: string, body: Record<string, unknown>, q = "?agent=codex") =>
+      (await (
+        await app.request(`/v1/hook/${event}${q}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).json()) as Record<string, unknown> & {
+        hookSpecificOutput?: Record<string, unknown>;
+      };
+    const rollout = join(tmpHome(), "rollout-2026-10-16T10-00-00-cx-2.jsonl");
+    const cx = {
+      session_id: "cx-2",
+      turn_id: "t1",
+      cwd: dir,
+      transcript_path: rollout,
+      model: "gpt-5.5",
+    };
+
+    const start = await post(
+      "SessionStart",
+      { ...cx, hook_event_name: "SessionStart", source: "startup" },
+      "?agent=codex&pids=4242,4241",
+    );
+    expect(String(start.hookSpecificOutput?.additionalContext)).toContain(
+      "your Swarm session id is cx-2",
+    );
+    const row = store.db
+      .query("SELECT agent, transcript_path FROM sessions WHERE id = 'cx-2'")
+      .get() as {
+      agent: string;
+      transcript_path: string | null;
+    };
+    expect(row.agent).toBe("codex");
+    expect(row.transcript_path).toBeNull(); // the rollout is the Codex adapter's, not a Claude transcript
+    // the MCP server, another child of the same Codex process, finds its session
+    const who = (await (await app.request("/v1/agent-session?pids=4242")).json()) as {
+      sessionId: string | null;
+    };
+    expect(who.sessionId).toBe("cx-2");
+    expect(
+      ((await (await app.request("/v1/agent-session?pids=99")).json()) as { sessionId: null })
+        .sessionId,
+    ).toBeNull();
+
+    // a Claude Code session edits a.ts, then a Codex patch touches b.ts and a.ts: a heads-up for a.ts
+    await post(
+      "PreToolUse",
+      {
+        session_id: "cc-1",
+        cwd: dir,
+        tool_name: "Edit",
+        tool_input: { file_path: join(dir, "a.ts") },
+      },
+      "",
+    );
+    const patch = `*** Begin Patch\n*** Update File: b.ts\n@@\n+x\n*** Update File: a.ts\n@@\n+y\n*** End Patch`;
+    const edit = {
+      ...cx,
+      tool_name: "apply_patch",
+      tool_input: { command: patch },
+      tool_use_id: "c1",
+    };
+    expect(await post("PreToolUse", { ...edit, hook_event_name: "PreToolUse" })).toEqual({});
+    const after = await post("PostToolUse", {
+      ...edit,
+      hook_event_name: "PostToolUse",
+      tool_response: "ok",
+    });
+    expect(String(after.hookSpecificOutput?.additionalContext)).toContain("a.ts");
+    expect(String(after.hookSpecificOutput?.additionalContext)).not.toContain("b.ts");
+
+    // a rewrite rule hands Codex the fixed command
+    const rw = await post("PreToolUse", {
+      ...cx,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit --no-verify -m x" },
+    });
+    expect(rw.hookSpecificOutput?.permissionDecision).toBe("allow");
+    expect(
+      String((rw.hookSpecificOutput?.updatedInput as { command?: string } | undefined)?.command),
+    ).not.toContain("--no-verify");
+    expect(rw.hookSpecificOutput?.updatedInput).toBeDefined();
+
+    // Stop → waiting; SessionEnd (no turn_id) still lands on the Codex session
+    await post("Stop", { ...cx, hook_event_name: "Stop", stop_hook_active: false });
+    const state = () =>
+      (store.db.query("SELECT state FROM sessions WHERE id = 'cx-2'").get() as { state: string })
+        .state;
+    expect(state()).toBe("waiting");
+    await post("SessionEnd", {
+      session_id: "cx-2",
+      cwd: dir,
+      hook_event_name: "SessionEnd",
+      reason: "exit",
+    });
+    expect(state()).toBe("ended");
   });
 
   it("M12.5 families: ask by default (M12.13), silent where a repo turns them off, deny where it says so", async () => {

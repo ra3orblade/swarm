@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { binCommand, resolveBin } from "@swarm/client";
 import {
+  CODEX_HOOK_EVENTS,
   HOOK_EVENTS,
   type HookCoverage,
   hookCoverage,
@@ -153,20 +154,26 @@ function putHook(p: string, event: string, group: HookGroup | null): boolean {
   return true;
 }
 
-/** Codex `PreToolUse` in ~/.codex/hooks.json: Bash and apply_patch (Codex asks the user to trust it once, in /hooks). */
+/**
+ * Codex's hooks in ~/.codex/hooks.json — the same events Swarm answers for Claude Code, since
+ * Codex reads the same output shapes. The command names the agent (`swarm-hook <Event> codex`)
+ * because Codex's SessionEnd payload has nothing else that says so. Codex asks the user to trust
+ * new hooks once, in /hooks.
+ */
 function guardCodex(on: boolean): boolean {
   const p = codexHooksPath();
   if (!existsSync(join(p, ".."))) return false;
-  return putHook(
-    p,
-    "PreToolUse",
-    on
-      ? {
-          matcher: "Bash|apply_patch",
-          hooks: [{ type: "command", command: hookCommand("PreToolUse"), timeout: 5 }],
-        }
-      : null,
-  );
+  let changed = false;
+  for (const [event, timeout] of Object.entries(CODEX_HOOK_EVENTS))
+    changed =
+      putHook(
+        p,
+        event,
+        on
+          ? { hooks: [{ type: "command", command: `${hookCommand(event)} codex`, timeout }] }
+          : null,
+      ) || changed;
+  return changed;
 }
 
 /** Gemini CLI `BeforeTool` in ~/.gemini/settings.json: shell, writes and reads (timeout in ms). */
@@ -195,7 +202,11 @@ function guardedAgents(): string[] {
     const groups = (c?.hooks as Record<string, HookGroup[]> | undefined)?.[event] ?? [];
     return groups.some(oursIn);
   };
-  if (existsSync(codexHooksPath()) && has(codexHooksPath(), "PreToolUse")) out.push("codex");
+  if (
+    existsSync(codexHooksPath()) &&
+    Object.keys(CODEX_HOOK_EVENTS).every((ev) => has(codexHooksPath(), ev))
+  )
+    out.push("codex");
   if (existsSync(geminiSettingsPath()) && has(geminiSettingsPath(), "BeforeTool"))
     out.push("gemini");
   return out;

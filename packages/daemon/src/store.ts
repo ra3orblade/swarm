@@ -3405,9 +3405,66 @@ export class Store {
   guardForeign(agent: HookAgent, raw: Record<string, unknown>): string {
     for (const r of toToolRequests(agent, raw)) {
       const { decision } = this.evaluateTool(r.tool, r.input, r.sessionId, r.cwd, true);
-      if (decision.action !== "allow") return renderAgentDecision(agent, decision);
+      if (decision.action === "allow") continue;
+      // M13.5's second pass: the fixed command is judged again, and anything but allow wins
+      if (decision.action === "rewrite" && decision.command) {
+        const second = this.evaluateTool(
+          r.tool,
+          { command: decision.command },
+          r.sessionId,
+          r.cwd,
+          false,
+        ).decision;
+        if (second.action === "deny" || second.action === "ask")
+          return renderAgentDecision(agent, second);
+      }
+      return renderAgentDecision(agent, decision);
     }
     return "{}";
+  }
+
+  // ---------- which session an MCP server belongs to, for agents that don't say (Codex)
+  private agentPids = new Map<number, { sid: string; at: number }[]>();
+
+  /** The agent process(es) a session's hooks run under (see `swarm-hook`'s agentPids). */
+  notePids(sid: string, pids: number[]) {
+    const now = Date.now();
+    for (const pid of pids) {
+      const list = (this.agentPids.get(pid) ?? []).filter((e) => e.sid !== sid);
+      list.push({ sid, at: now });
+      this.agentPids.set(pid, list.slice(-32));
+    }
+  }
+
+  /**
+   * The live session an MCP server under these pids serves. One process can host several threads
+   * (Codex's app-server), so a pid shared by several sessions picks the one in the server's cwd
+   * most recently heard from — the agent was also told its id at SessionStart, for when that guess
+   * is not good enough.
+   */
+  sessionForPids(pids: number[], cwd: string | null): string | null {
+    const seen = new Map<string, number>();
+    for (const pid of pids)
+      for (const e of this.agentPids.get(pid) ?? [])
+        seen.set(e.sid, Math.max(seen.get(e.sid) ?? 0, e.at));
+    if (!seen.size) return null;
+    const rows = this.db
+      .query(
+        `SELECT id, cwd, last_seen_at FROM sessions WHERE state != 'ended' AND id IN (${[...seen.keys()].map(() => "?").join(",")})`,
+      )
+      .all(...seen.keys()) as Array<{ id: string; cwd: string | null; last_seen_at: string }>;
+    if (rows.length <= 1) return rows[0]?.id ?? null;
+    const here = cwd ? rows.filter((r) => r.cwd === cwd) : [];
+    const pool = here.length ? here : rows;
+    pool.sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+    return pool[0]?.id ?? null;
+  }
+
+  /** The session's agent, when its hooks say so before its log does. */
+  markAgentSession(sid: string, agent: string) {
+    this.db
+      .query("UPDATE sessions SET agent = ? WHERE id = ? AND (agent IS NULL OR agent != ?)")
+      .run(agent, sid, agent);
   }
 
   guardHook(
@@ -4058,9 +4115,12 @@ export class Store {
     }
     // M13.3: remember who is editing what, for the heads-up after the edit lands
     if (event === "PreToolUse" && typeof raw.session_id === "string") {
-      const fp = (raw.tool_input as { file_path?: unknown } | undefined)?.file_path;
-      if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
-        this.noteEdit(raw.session_id, absolutePath(fp, cwd));
+      const ti = raw.tool_input as { file_path?: unknown; file_paths?: unknown } | undefined;
+      // file_paths: every file of a Codex apply_patch (codexAsClaude)
+      const files = Array.isArray(ti?.file_paths) ? ti.file_paths : [ti?.file_path];
+      if (WRITE_TOOLS.has(String(raw.tool_name)))
+        for (const fp of files)
+          if (typeof fp === "string") this.noteEdit(raw.session_id, absolutePath(fp, cwd));
     }
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
@@ -4363,12 +4423,60 @@ export class Store {
   }
 
   tailCodex(windowMs = 3 * 24 * 60 * 60_000): number {
-    if (!existsSync(this.codexRoot())) return 0;
+    const root = this.codexRoot();
+    if (!existsSync(root)) return 0;
+    const paths = new Set(this.codexRolloutFiles(Date.now() - windowMs));
+    // A resumed session keeps writing the rollout it started in, under the day it started — so
+    // the date window alone stops following it. Every rollout already being tailed is checked by
+    // size (readFrom), whatever its folder says.
+    for (const { path } of this.db
+      .query("SELECT path FROM tails WHERE path LIKE ? ESCAPE '\\'")
+      .all(`${root.replace(/[\\%_]/g, (m) => `\\${m}`)}/%`) as Array<{ path: string }>)
+      paths.add(path);
     let n = 0;
-    for (const path of this.codexRolloutFiles(Date.now() - windowMs)) {
-      n += this.ingestLog(path, "codex", parseCodexRollout);
-    }
+    for (const path of paths) n += this.ingestLog(path, "codex", parseCodexRollout);
+    this.codexThreadNames();
     return n;
+  }
+
+  /**
+   * Codex keeps each thread's name (the one its sidebar shows, generated or renamed) in
+   * ~/.codex/session_index.jsonl, one `{id, thread_name}` line per change; the last line for an id
+   * wins. Re-read only when the file changed. The name replaces the first-prompt title the rollout
+   * gave (a Codex session has no other source of one).
+   */
+  private codexIndexMtime = 0;
+  private codexThreadNames() {
+    const p = join(this.codexRoot(), "..", "session_index.jsonl");
+    let mtime = 0;
+    try {
+      mtime = statSync(p).mtimeMs;
+    } catch {
+      return;
+    }
+    if (mtime === this.codexIndexMtime) return;
+    this.codexIndexMtime = mtime;
+    const names = new Map<string, string>();
+    try {
+      for (const line of readFileSync(p, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const r = JSON.parse(line) as { id?: unknown; thread_name?: unknown };
+          if (typeof r.id === "string" && typeof r.thread_name === "string" && r.thread_name.trim())
+            names.set(r.id, r.thread_name.trim());
+        } catch {
+          /* a half-written line */
+        }
+      }
+    } catch {
+      return;
+    }
+    const q = this.db.query(
+      "UPDATE sessions SET title = ? WHERE id = ? AND agent = 'codex' AND (title IS NULL OR title != ?)",
+    );
+    let changed = 0;
+    for (const [id, name] of names) changed += q.run(name, id, name).changes;
+    if (changed) this.touch();
   }
 
   private grokRoot(): string {
@@ -4751,7 +4859,11 @@ export class Store {
   private ingestLog(
     path: string,
     agent: string,
-    parse: (chunk: string, sessionIdHint?: string | null) => LogParseResult,
+    parse: (
+      chunk: string,
+      sessionIdHint?: string | null,
+      modelHint?: string | null,
+    ) => LogParseResult,
     cwdHint?: string,
     titleHint?: string,
   ): number {
@@ -4763,8 +4875,14 @@ export class Store {
     if (!r) return 0;
     // Codex rollouts and Gemini chats carry the session id only in a header record the first poll
     // consumes, so hand the parser the id remembered for this file: without it every later chunk
-    // would bail below and the offset would never advance past those bytes.
-    const d = parse(r.chunk, off.session_id);
+    // would bail below and the offset would never advance past those bytes. The model, likewise,
+    // is named once per user turn, and a chunk can start in the middle of one.
+    const known = off.session_id
+      ? ((this.db.query("SELECT model FROM sessions WHERE id = ?").get(off.session_id) as {
+          model: string | null;
+        } | null) ?? null)
+      : null;
+    const d = parse(r.chunk, off.session_id, known?.model ?? null);
     const sid = d.sessionId ?? off.session_id;
     if (!sid) return 0; // header not seen yet
     const mtime = (() => {
@@ -4777,11 +4895,15 @@ export class Store {
     this.ensureAgentSession(sid, agent, d.cwd ?? cwdHint ?? "", mtime);
     this.persistTurns(sid, null, d.turns);
     const lastText = [...d.turns].reverse().find((t) => t.text)?.text ?? null;
-    const state = Date.now() - mtime < 90_000 ? "active" : "ended";
+    // A log that marks turn boundaries (Codex) says whether the session is working or on the
+    // user, and ending it is SessionEnd's or the stale sweep's call: a 90 s silence used to stamp
+    // it ended, so a Codex session the user took two minutes to answer showed as gone. Logs that
+    // say nothing keep the silence rule. Either way a session that writes again is not ended.
+    const state = d.state ?? (Date.now() - mtime < 90_000 ? "active" : "ended");
     const lastSeen = new Date(mtime).toISOString();
     this.db
       .query(
-        "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' AND ended_at IS NULL THEN ? ELSE ended_at END WHERE id = ?",
+        "UPDATE sessions SET title = COALESCE(title, ?), model = COALESCE(?, model), last_text = COALESCE(?, last_text), last_seen_at = ?, state = ?, ended_at = CASE WHEN ? = 'ended' THEN COALESCE(ended_at, ?) ELSE NULL END WHERE id = ?",
       )
       .run(
         d.title ?? titleHint ?? null,
