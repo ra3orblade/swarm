@@ -580,6 +580,19 @@ describe("codex ingestion", () => {
     );
     store.tailCodex();
     expect(store.sessions().find((x) => x.id === "cx1")?.title).toBe("Fix the login bug");
+    // a rollout last written longer ago than the stale window is over, whatever its last turn said
+    require("node:fs").appendFileSync(
+      roll,
+      L({ type: "event_msg", payload: { type: "task_started" } }),
+    );
+    const stale = new Date(Date.now() - 7 * 60 * 60_000);
+    require("node:fs").utimesSync(roll, stale, stale);
+    store.tailCodex();
+    expect(
+      store.db
+        .query("SELECT state, ended_at IS NOT NULL AS ended FROM sessions WHERE id = 'cx1'")
+        .get(),
+    ).toEqual({ state: "ended", ended: 1 });
     delete process.env.SWARM_CODEX_DIR;
   });
 });
@@ -1923,11 +1936,15 @@ describe("rules + incidents (Phase 2)", () => {
     ).not.toContain("--no-verify");
     expect(rw.hookSpecificOutput?.updatedInput).toBeDefined();
 
-    // Stop → waiting; SessionEnd (no turn_id) still lands on the Codex session
-    await post("Stop", { ...cx, hook_event_name: "Stop", stop_hook_active: false });
     const state = () =>
       (store.db.query("SELECT state FROM sessions WHERE id = 'cx-2'").get() as { state: string })
         .state;
+    // Interrupt (Codex only) puts it on the user at once, like Stop
+    await post("UserPromptSubmit", { ...cx, hook_event_name: "UserPromptSubmit", prompt: "go" });
+    await post("Interrupt", { ...cx, hook_event_name: "Interrupt" });
+    expect(state()).toBe("waiting");
+    // Stop → waiting; SessionEnd (no turn_id) still lands on the Codex session
+    await post("Stop", { ...cx, hook_event_name: "Stop", stop_hook_active: false });
     expect(state()).toBe("waiting");
     await post("SessionEnd", {
       session_id: "cx-2",

@@ -25,7 +25,10 @@ export type HookEventName =
   // M13.8: before a model switch (may deny) and when a settings file changes (may block) —
   // both verified 2026-10-01 against the hooks reference
   | "PreModelSwitch"
-  | "ConfigChange";
+  | "ConfigChange"
+  // Codex only (re-verified 2026-10-16): the user interrupted the turn; output cannot stop it.
+  // Not in HOOK_EVENTS — Claude Code has no such event.
+  | "Interrupt";
 
 export const HOOK_EVENTS: HookEventName[] = [
   "SessionStart",
@@ -77,6 +80,7 @@ const MAP: Record<HookEventName, EventType> = {
   PostToolUseFailure: "tool.completed",
   PreModelSwitch: "agent.text",
   ConfigChange: "agent.text",
+  Interrupt: "agent.text",
 };
 
 export interface HookPayload {
@@ -232,6 +236,9 @@ export function normalizeHook(
       break;
     case "ConfigChange":
       summary = `config changed (${raw.config_source ?? "?"})`;
+      break;
+    case "Interrupt":
+      summary = "interrupted · waiting for input";
       break;
     default:
       summary = event;

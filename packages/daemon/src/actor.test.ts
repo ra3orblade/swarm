@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store";
@@ -159,6 +159,82 @@ describe("actor on ledger records (M8.2a)", () => {
       { id: "notice", cost_usd: 0 },
       { id: "real", cost_usd: 0.5 },
       { id: "unknown", cost_usd: null }, // spent tokens on a model with no price: still unknown
+    ]);
+  });
+  it("migration v5 re-reads Codex rollouts whose duplicate token_counts were stored as turns", () => {
+    const home = mkdtempSync(join(tmpdir(), "swarm-home-"));
+    const day = join(home, "codex", "2026", "10", "01");
+    mkdirSync(day, { recursive: true });
+    const roll = join(day, "rollout-2026-10-01T10-00-00-cx.jsonl");
+    const L = (o: unknown) => `${JSON.stringify(o)}\n`;
+    const usage = (ts: string) =>
+      L({
+        type: "event_msg",
+        timestamp: ts,
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10 },
+            total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10 },
+          },
+        },
+      });
+    writeFileSync(
+      roll,
+      L({ type: "session_meta", payload: { session_id: "cx", cwd: home } }) +
+        usage("2026-10-01T10:00:01Z") +
+        usage("2026-10-01T10:00:04Z"), // Codex's re-emit: same totals, later timestamp
+    );
+    const first = new Store(home);
+    const ins = first.db.query(
+      "INSERT INTO turns (id, session_id, ts, model, sidechain, input, output, cache_write, cache_read, thinking, cost_usd) VALUES (?, ?, 't', 'gpt-5', 0, 100, 10, 0, 0, 0, 0)",
+    );
+    const session = first.db.query(
+      "INSERT INTO sessions (id, project_id, kind, agent, cwd, started_at, last_seen_at, last, last_type, state) VALUES (?, 'p', 'interactive', ?, '', 't', 't', '', '', 'ended')",
+    );
+    session.run("cx", "codex");
+    session.run("cx-gone", "codex");
+    session.run("cc", "claude-code");
+    // the old reader's ids: one per timestamp, so the re-emit was a second turn
+    ins.run("cx-2026-10-01T10:00:01Z-100-0-10-0", "cx");
+    ins.run("cx-2026-10-01T10:00:04Z-100-0-10-0", "cx");
+    ins.run("gone-1", "cx-gone");
+    ins.run("cc-1", "cc");
+    const tail = first.db.query(
+      "INSERT INTO tails (path, session_id, agent_id, offset) VALUES (?, ?, NULL, ?)",
+    );
+    tail.run(roll, "cx", 999);
+    tail.run(join(day, "rollout-deleted.jsonl"), "cx-gone", 999);
+    tail.run(join(home, "cc.jsonl"), "cc", 999);
+    first.db.run("UPDATE meta SET value = '4' WHERE key = 'schema_version'");
+    first.db.close();
+
+    const store = new Store(home);
+    expect(store.schemaVersion()).toBe(Store.SCHEMA_VERSION);
+    const turns = () =>
+      store.db
+        .query(
+          "SELECT session_id, COUNT(*) AS n FROM turns GROUP BY session_id ORDER BY session_id",
+        )
+        .all();
+    // cx is rewound and emptied; a Codex session whose rollout is gone, and Claude Code, keep theirs
+    expect(turns()).toEqual([
+      { session_id: "cc", n: 1 },
+      { session_id: "cx-gone", n: 1 },
+    ]);
+    expect(store.db.query("SELECT offset FROM tails WHERE session_id = 'cx'").get()).toEqual({
+      offset: 0,
+    });
+    process.env.SWARM_CODEX_DIR = join(home, "codex");
+    try {
+      store.tailCodex(); // its folder is outside the 3-day window: found through its tail
+    } finally {
+      delete process.env.SWARM_CODEX_DIR;
+    }
+    expect(turns()).toEqual([
+      { session_id: "cc", n: 1 },
+      { session_id: "cx", n: 1 }, // the re-emit counted once
+      { session_id: "cx-gone", n: 1 },
     ]);
   });
 });
