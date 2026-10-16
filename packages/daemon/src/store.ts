@@ -22,6 +22,7 @@ import {
   type Actor,
   ADOPTED,
   type AiderCarry,
+  ANOMALY_MIN_TURNS,
   type Arm,
   AUDIT_TYPES_SQL,
   absolutePath,
@@ -67,6 +68,8 @@ import {
   detectStall,
   dryRunRules,
   effectiveReviewer,
+  efficiencyScore,
+  efficiencyTrend,
   executedGateInput,
   FAMILY_RULES,
   type FailingCall,
@@ -127,6 +130,7 @@ import {
   type MemoryDoc,
   type MemoryKind,
   type Message,
+  matchSequence,
   mcpHealth,
   modelAllowed,
   modelSwitchRefusal,
@@ -195,7 +199,11 @@ import {
   reviewGateInput,
   reviewPrompt,
   ruleEffect,
+  type SequenceStep,
   type SessionView,
+  type SignalCall,
+  type SignalDef,
+  type SignalsReport,
   type Stall,
   type StatuslinePayload,
   type StatuslineState,
@@ -205,6 +213,7 @@ import {
   securityScan,
   sessionDoc,
   shouldAutoRenew,
+  shouldFire,
   splitArmTask,
   suggestFromIncident,
   summarizeBootstrap,
@@ -219,6 +228,7 @@ import {
   taskBoard,
   taskSourceKind,
   tightestWindow,
+  tokenAnomaly,
   toolResponseErrored,
   toToolRequests,
   transitionGraph,
@@ -6673,6 +6683,356 @@ export class Store {
     return { ok: true as const, plan, removed, freedKb };
   }
 
+  // ---------- M12.8 signals, the efficiency score and the tokens-per-turn anomaly
+
+  /** `signal|session` / `anomaly|session` → when it last fired (ms), so a hit fires once a window. */
+  private signalFired = new Map<string, number>();
+  /** FTS5 queries SQLite refused, so a broken one is skipped without being retried every tick. */
+  private badSignalQueries = new Set<string>();
+
+  /**
+   * M12.8, on the tick: every `[[signals]]` entry against every live session in its repo, and the
+   * one anomaly alert. A hit is an `incident.opened` with rule `signal` (or `budget`), never a
+   * block. Returns how many fired.
+   */
+  checkSignals(): number {
+    const live = this.db
+      .query(
+        "SELECT id, project_id, cwd FROM sessions WHERE state IN ('active','waiting') AND ended_at IS NULL AND last_seen_at >= ?",
+      )
+      .all(new Date(Date.now() - LIVE_WINDOW_MS).toISOString()) as Array<{
+      id: string;
+      project_id: string;
+      cwd: string | null;
+    }>;
+    if (!live.length) return 0;
+    const now = Date.now();
+    let fired = 0;
+    // sessions grouped by the config that applies to them
+    const byRepo = new Map<string, typeof live>();
+    for (const r of live) {
+      const key = r.cwd ? (this.toplevel(r.cwd) ?? "") : "";
+      byRepo.set(key, [...(byRepo.get(key) ?? []), r]);
+    }
+    for (const [repo, sessions] of byRepo) {
+      const signals = this.policyFor(repo || null).config.signals;
+      for (const sig of signals) {
+        const since = new Date(now - sig.windowMin * 60_000).toISOString();
+        const hits = sig.match
+          ? this.signalTextHits(
+              sig.match,
+              sessions.map((x) => x.id),
+              since,
+            )
+          : this.signalSequenceHits(
+              sig.sequence ?? [],
+              sessions.map((x) => x.id),
+              since,
+            );
+        for (const [sid, at] of hits) {
+          const key = `${sig.name}|${sid}`;
+          if (!shouldFire(this.signalFired, key, sig.windowMin, now)) continue;
+          this.signalFired.set(key, now);
+          const row = sessions.find((x) => x.id === sid);
+          const task = row?.cwd
+            ? (this.heldClaimsWithWorktree().find((c) => isInside(row.cwd as string, c.worktree))
+                ?.task ?? null)
+            : null;
+          this.append({
+            ts: new Date().toISOString(),
+            type: "incident.opened",
+            projectId: row?.project_id ?? "p_unknown",
+            sessionId: sid,
+            payload: {
+              rule: "signal",
+              signal: sig.name,
+              action: "warn",
+              command: sig.name,
+              task,
+              at,
+              reason: sig.reason ?? `signal "${sig.name}" matched in the last ${sig.windowMin} min`,
+            },
+          });
+          fired += 1;
+        }
+      }
+    }
+    fired += this.checkTokenAnomalies(live, now);
+    if (fired) this.touch();
+    return fired;
+  }
+
+  /** Sessions whose words or tool calls in the window match an FTS5 query → when the last match was. */
+  private signalTextHits(query: string, sessions: string[], since: string): Map<string, string> {
+    const out = new Map<string, string>();
+    if (this.badSignalQueries.has(query) || !sessions.length) return out;
+    const marks = sessions.map(() => "?").join(",");
+    this.db.run(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS temp.signal_docs USING fts5(session_id UNINDEXED, ts UNINDEXED, text)",
+    );
+    this.db.run("DELETE FROM temp.signal_docs");
+    this.db
+      .query(
+        `INSERT INTO temp.signal_docs (session_id, ts, text)
+         SELECT session_id, ts, text FROM turns WHERE session_id IN (${marks}) AND ts >= ? AND text != ''
+         UNION ALL
+         SELECT session_id, ts, json_extract(payload,'$.summary') FROM events
+         WHERE session_id IN (${marks}) AND ts >= ? AND type IN ('tool.requested','tool.completed','prompt.submitted','agent.text')
+           AND json_extract(payload,'$.summary') IS NOT NULL`,
+      )
+      .run(...sessions, since, ...sessions, since);
+    try {
+      for (const r of this.db
+        .query(
+          "SELECT session_id, MAX(ts) AS at FROM temp.signal_docs WHERE signal_docs MATCH ? GROUP BY session_id",
+        )
+        .all(query) as Array<{ session_id: string; at: string }>)
+        out.set(r.session_id, r.at);
+    } catch {
+      this.badSignalQueries.add(query); // not valid FTS5: skipped from now on
+    }
+    return out;
+  }
+
+  /** Sessions whose tool calls in the window contain the sequence, in order. */
+  private signalSequenceHits(
+    steps: SequenceStep[],
+    sessions: string[],
+    since: string,
+  ): Map<string, string> {
+    const out = new Map<string, string>();
+    if (!sessions.length) return out;
+    const rows = this.db
+      .query(
+        `SELECT session_id, ts, json_extract(payload,'$.tool') AS tool, json_extract(payload,'$.summary') AS summary
+         FROM events WHERE type = 'tool.requested' AND ts >= ? AND session_id IN (${sessions.map(() => "?").join(",")})
+         ORDER BY seq`,
+      )
+      .all(since, ...sessions) as Array<{
+      session_id: string;
+      ts: string;
+      tool: string | null;
+      summary: string | null;
+    }>;
+    const calls = new Map<string, SignalCall[]>();
+    for (const r of rows) {
+      if (!r.tool) continue;
+      const list = calls.get(r.session_id) ?? [];
+      list.push({ tool: r.tool, summary: r.summary ?? "", ts: r.ts });
+      calls.set(r.session_id, list);
+    }
+    for (const [sid, list] of calls) {
+      const at = matchSequence(steps, list);
+      if (at) out.set(sid, at);
+    }
+    return out;
+  }
+
+  /**
+   * The anomaly alert: a live session whose recent turns process more than 3× the tokens of the
+   * project's median turn (last 14 days) opens a `budget` incident, once a day per session.
+   */
+  private checkTokenAnomalies(
+    live: Array<{ id: string; project_id: string }>,
+    now: number,
+  ): number {
+    let fired = 0;
+    const baselines = new Map<string, number[]>();
+    const since = new Date(now - 14 * 86_400_000).toISOString();
+    for (const s of live) {
+      const key = `anomaly|${s.id}`;
+      if (!shouldFire(this.signalFired, key, 24 * 60, now)) continue;
+      const mine = (
+        this.db
+          .query(
+            "SELECT input + output + cache_write + cache_read AS n FROM turns WHERE session_id = ? AND agent_id IS NULL ORDER BY ts DESC LIMIT 10",
+          )
+          .all(s.id) as Array<{ n: number }>
+      ).map((r) => r.n);
+      if (mine.length < ANOMALY_MIN_TURNS) continue;
+      let base = baselines.get(s.project_id);
+      if (!base) {
+        base = (
+          this.db
+            .query(
+              `SELECT t.input + t.output + t.cache_write + t.cache_read AS n FROM turns t JOIN sessions x ON x.id = t.session_id
+               WHERE x.project_id = ? AND t.ts >= ? AND t.agent_id IS NULL ORDER BY t.ts DESC LIMIT 5000`,
+            )
+            .all(s.project_id, since) as Array<{ n: number }>
+        ).map((r) => r.n);
+        baselines.set(s.project_id, base);
+      }
+      const a = tokenAnomaly(mine, base);
+      if (!a) continue;
+      this.signalFired.set(key, now);
+      this.append({
+        ts: new Date().toISOString(),
+        type: "incident.opened",
+        projectId: s.project_id,
+        sessionId: s.id,
+        payload: {
+          rule: "budget",
+          action: "warn",
+          command: "tokens per turn",
+          reason: `this session's recent turns process ${a.perTurn.toLocaleString("en-US")} tokens each — ${a.factor.toFixed(1)}× the project's median turn (${a.median.toLocaleString("en-US")}). A long context being carried turn after turn is the usual cause; /compact or a fresh session with a handoff resets it.`,
+        },
+      });
+      fired += 1;
+    }
+    return fired;
+  }
+
+  /**
+   * M12.8: the efficiency score of every session started in the last `days`, and its week-over-
+   * week trend (core/src/efficiency.ts has the formula and why).
+   */
+  efficiency(projectId?: string, days = 14) {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const sessions = this.db
+      .query(
+        `SELECT id, title, agent, project_id, started_at, last_seen_at FROM sessions WHERE started_at >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      id: string;
+      title: string | null;
+      agent: string | null;
+      project_id: string;
+      started_at: string;
+      last_seen_at: string | null;
+    }>;
+    const reread = new Map(
+      this.context(projectId, days).sessions.map((c) => [c.sessionId, c.wasteShare]),
+    );
+    const waits = new Map(
+      this.waiting(projectId, days).sessions.map((w) => [w.sessionId, w.blockedMs]),
+    );
+    const calls = new Map<string, { n: number; failed: number }>();
+    for (const r of this.db
+      .query(
+        `SELECT session_id, json_extract(payload,'$.failed') AS failed, json_extract(payload,'$.toolResponse') AS response
+         FROM events WHERE type = 'tool.completed' AND ts >= ?${projectId ? " AND project_id = ?" : ""}`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      session_id: string | null;
+      failed: number | null;
+      response: string | null;
+    }>) {
+      if (!r.session_id) continue;
+      const c = calls.get(r.session_id) ?? { n: 0, failed: 0 };
+      c.n += 1;
+      if (r.failed || toolResponseErrored(safeJson(r.response))) c.failed += 1;
+      calls.set(r.session_id, c);
+    }
+    const gates = new Map<string, "pass" | "fail">();
+    for (const g of this.db
+      .query(
+        "SELECT session_id, verdict FROM gates WHERE session_id IS NOT NULL AND created_at >= ? ORDER BY created_at",
+      )
+      .all(since) as Array<{ session_id: string; verdict: string | null }>)
+      if (g.verdict === "pass" || g.verdict === "fail") gates.set(g.session_id, g.verdict);
+    const scores = sessions.map((x) => {
+      const c = calls.get(x.id) ?? { n: 0, failed: 0 };
+      const span = Math.max(
+        0,
+        Date.parse(x.last_seen_at ?? x.started_at) - Date.parse(x.started_at),
+      );
+      return {
+        ...efficiencyScore({
+          sessionId: x.id,
+          startedAt: x.started_at,
+          rereadShare: reread.get(x.id) ?? 0,
+          toolCalls: c.n,
+          failedCalls: c.failed,
+          waitMs: waits.get(x.id) ?? 0,
+          spanMs: span,
+          gate: gates.get(x.id) ?? null,
+        }),
+        title: x.title,
+        agent: x.agent ?? "claude-code",
+        projectId: x.project_id,
+        toolCalls: c.n,
+      };
+    });
+    return { sessions: scores, trend: efficiencyTrend(scores, Date.now()) };
+  }
+
+  /** M12.8: what the Signals view shows — the configured signals, and their incidents by task and rule. */
+  signalsReport(projectId?: string, days = 14): SignalsReport {
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    // one project's config, or — for every project — the global signals plus each repo's own
+    const roots = projectId
+      ? [this.project(projectId)?.root ?? null]
+      : [null, ...this.projects().map((p) => p.root)];
+    const byName = new Map<string, SignalDef>();
+    for (const root of roots)
+      for (const d of this.policyFor(root).config.signals)
+        if (!byName.has(d.name)) byName.set(d.name, d);
+    const defs = [...byName.values()];
+    const rows = this.db
+      .query(
+        `SELECT seq, ts, project_id, session_id, json_extract(payload,'$.rule') AS rule,
+                json_extract(payload,'$.signal') AS signal, json_extract(payload,'$.task') AS task,
+                json_extract(payload,'$.command') AS command
+         FROM events WHERE type = 'incident.opened' AND ts >= ?
+           AND json_extract(payload,'$.rule') IN ('signal','budget')${projectId ? " AND project_id = ?" : ""}
+         ORDER BY seq DESC`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<{
+      seq: number;
+      ts: string;
+      project_id: string;
+      session_id: string | null;
+      rule: string;
+      signal: string | null;
+      task: string | null;
+      command: string | null;
+    }>;
+    const clusters = new Map<
+      string,
+      {
+        name: string;
+        kind: "signal" | "anomaly";
+        task: string | null;
+        hits: number;
+        sessions: Set<string>;
+        lastAt: string;
+        lastSeq: number;
+      }
+    >();
+    for (const r of rows) {
+      // only the per-session anomaly from the budget family; project ceilings have their own view
+      if (r.rule === "budget" && (r.command !== "tokens per turn" || !r.session_id)) continue;
+      const name = r.rule === "signal" ? (r.signal ?? "signal") : "tokens per turn";
+      const key = `${r.rule}|${name}|${r.task ?? ""}`;
+      const c = clusters.get(key) ?? {
+        name,
+        kind: r.rule === "signal" ? ("signal" as const) : ("anomaly" as const),
+        task: r.task,
+        hits: 0,
+        sessions: new Set<string>(),
+        lastAt: r.ts,
+        lastSeq: r.seq,
+      };
+      c.hits += 1;
+      if (r.session_id) c.sessions.add(r.session_id);
+      clusters.set(key, c);
+    }
+    return {
+      defs: defs.map((d) => ({
+        name: d.name,
+        kind: d.match ? ("match" as const) : ("sequence" as const),
+        pattern:
+          d.match ??
+          (d.sequence ?? []).map((x) => (x.input ? `${x.tool}: ${x.input}` : x.tool)).join(" → "),
+        windowMin: d.windowMin,
+        broken: d.match ? this.badSignalQueries.has(d.match) : false,
+      })),
+      clusters: [...clusters.values()]
+        .map((c) => ({ ...c, sessions: [...c.sessions] }))
+        .sort((a, b) => b.hits - a.hits || b.lastAt.localeCompare(a.lastAt)),
+    };
+  }
+
   /** M9.3: sessionId → current stall verdict, kept between ticks so transitions fire once. */
   private stalls = new Map<string, Stall>();
   /**
@@ -7837,6 +8197,8 @@ export class Store {
       tools: Object.entries(tools)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 15),
+      // M12.8: the efficiency score, this week against last
+      efficiency: this.efficiency(projectId, 14).trend,
       records: {
         costliestSession: sessionRow("cost"),
         longestSession: sessionRow("turns"),

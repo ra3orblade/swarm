@@ -5,6 +5,8 @@
  * aggregates in `store.stats()` — there is no pure module behind it to import the shape from.
  */
 
+import type { EfficiencyTrend } from "@swarm/core/efficiency";
+
 /** One day's totals. */
 export interface StatsDay {
   day: string;
@@ -74,6 +76,8 @@ export interface StatsReport {
   byModel: StatsModel[];
   /** `[tool, calls]`, busiest first. */
   tools: [string, number][];
+  /** M12.8: mean efficiency score of the sessions started this week and last. */
+  efficiency?: EfficiencyTrend;
   records: {
     costliestSession: RecordSession | null;
     longestSession: RecordSession | null;

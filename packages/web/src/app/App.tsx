@@ -36,6 +36,7 @@ import { Rules } from "../views/Rules";
 import { Search } from "../views/Search";
 import { Security } from "../views/Security";
 import { Session } from "../views/Session";
+import { Signals } from "../views/Signals";
 import { Spend } from "../views/Spend";
 import { Stats } from "../views/Stats";
 import { Team } from "../views/Team";
@@ -66,6 +67,7 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element | null>> = {
   context: Context,
   heat: Files,
   security: Security,
+  signals: Signals,
   provenance: Provenance,
   rules: Rules,
   team: Team,

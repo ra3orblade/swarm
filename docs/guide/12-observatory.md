@@ -92,6 +92,14 @@ Where the daemon has seen a rule change land it also compares the incident rate 
 
 The nav badge counts the rules that are **not settling** — firing as much as ever, or more.
 
+## Signals — patterns you name, and an efficiency score
+
+**Signals** (Guard → Signals) watches every live session for patterns you describe in config — a full-text query over what the session said and did, or a sequence of tool calls — and opens a `signal` incident on a hit, once per session per window. Hits are grouped by signal and task, so "force-push after an edit happened four times on `auth`" is one row. Signals never block a call; that is what [rules](03-rules-and-config.md) are for. The syntax is in [config](../13-config.md) under `[[signals]]`; a query SQLite cannot parse is marked on the view and skipped.
+
+The same view scores recent sessions, lowest first: **100**, minus up to 30 for re-reading what the session had already read, 30 for failed tool calls, 20 for time spent waiting on a person, and 20 when its last gate failed. Sessions with fewer than five tool calls get no score. It is a heuristic meant to show a trend and an outlier, not a measurement and not a ranking of people; Stats shows this week's mean against last week's.
+
+One anomaly alert rides along: a live session whose last ten turns process, on average, more than **3× the project's median turn** opens a `budget` incident (once a day per session). A long context carried turn after turn is the usual cause.
+
 ## Sending it to your own observability stack
 
 Everything above can also go to the tracing and metrics backend you already use. Set `[otel] endpoint` in `~/.swarm/config.toml` to an OTLP/HTTP address — a local OpenTelemetry Collector, Grafana Alloy, or a vendor's OTLP intake with `headers` for its key — and Swarm sends each session as one trace: a root span for the session, a span per tool call (red when it failed), a span for each wait on you, and claims, incidents and gates as events on the root. Token and cost metrics go with it. The default vocabulary is the OpenTelemetry GenAI conventions, which read the same for every agent Swarm watches; `compat = "claude-code"` uses Claude Code's own metric and span names instead, for dashboards built for those. Commands and paths stay out unless you set `include_content = true`. `swarm doctor` says whether the last export got through; a collector that is down loses nothing — the next export picks up where the last accepted one stopped.

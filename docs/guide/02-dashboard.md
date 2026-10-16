@@ -11,7 +11,7 @@ The views live at the top of the sidebar, in four groups:
 | **Observe** | Fleet, Timeline, Graphs |
 | **Work** | Board, PRs, Trials, Hygiene |
 | **Insight** | Outcomes, Gates, MCP, Context, Files, Spend, Stats, Search |
-| **Guard** | Security, Provenance, Incidents, Rules |
+| **Guard** | Security, Provenance, Incidents, Signals, Rules |
 
 Several carry a badge with the number that wants a decision — contested files, undecided trials, hygiene issues, flaky gates, files worth writing down, secrets read, broken provenance chains, unacknowledged incidents, rules that aren't settling — so you see them from any view. Your last view and the selected project are remembered across reloads.
 

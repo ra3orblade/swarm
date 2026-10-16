@@ -35,6 +35,7 @@ import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import type { FoundTeam } from "@swarm/core/mdns";
 import type { WaitingReport } from "@swarm/core/waiting";
+import type { SignalsResponse } from "../views/Signals";
 import type { TeamStatus } from "./actions";
 import { query } from "./client";
 
@@ -81,6 +82,8 @@ export const routes = {
   /** M13.11: per project only — an issue is filed into one project's task source. */
   findings: (project: string): Route<FindingsReport> => `/v1/findings${query({ project })}`,
   mcpHealth: (project: string | null) => byProject<McpHealthReport>("/v1/mcp/health", project),
+  /** M12.8: signals by task and rule, and the efficiency score. */
+  signals: (project: string | null) => byProject<SignalsResponse>("/v1/signals", project),
   /** M12.9: one session's spend by MCP server, skill and subagent type. */
   sessionCostBy: (session: string): Route<CostByReport> => `/v1/cost/by${query({ session })}`,
   context: (project: string | null) => byProject<ContextReport>("/v1/context", project),

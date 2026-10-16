@@ -19,6 +19,23 @@ const DOLLARS_PER_COFFEE = 5;
 /** A printed page is roughly 300 words — the fallback when the total is under one novel. */
 const WORDS_PER_PAGE = 300;
 
+/**
+ * M12.8: the efficiency score, week over week. A heuristic (core/src/efficiency.ts): 100 minus
+ * what re-reads, failed tools, waiting and failed gates cost.
+ */
+function EfficiencyStat({ report }: { report: StatsReport }) {
+  const e = report.efficiency;
+  if (!e || e.thisWeek === null) return null;
+  const d = e.delta;
+  return (
+    <Stat
+      label="efficiency"
+      value={String(e.thisWeek)}
+      detail={`${d === null ? "no score last week" : `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d)} vs last week`} · ${e.scored.thisWeek} scored`}
+    />
+  );
+}
+
 export interface StatsHeadlineProps {
   report: StatsReport;
 }
@@ -39,7 +56,7 @@ export function StatsHeadline({ report }: StatsHeadlineProps) {
 
   return (
     <>
-      <StatRow>
+      <StatRow wide={report.efficiency?.thisWeek != null}>
         <Stat
           label="all-time spend"
           value={usd(totals.cost) ?? "—"}
@@ -55,6 +72,7 @@ export function StatsHeadline({ report }: StatsHeadlineProps) {
           value={big(totals.turns)}
           detail={`${totals.sessions} sessions · ${big(totals.toolCalls)} tool calls`}
         />
+        <EfficiencyStat report={report} />
         <Stat
           label="streak"
           value={`${streak.current}d`}

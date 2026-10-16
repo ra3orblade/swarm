@@ -95,6 +95,7 @@ const tailer = setInterval(() => {
   if (tick % 6 === 0) store.checkQuota(); // every 30 s: [budget] window_warn_at on the plan windows (M12.3)
   if (tick % 12 === 0) store.checkModels(); // every minute: [models] allow-list observation (M8.4)
   if (tick % 2 === 0) store.checkStalls(); // every 10 s: loop/stall heuristics → stuck badge + event
+  if (tick % 6 === 0) store.checkSignals(); // every 30 s: [[signals]] + tokens-per-turn anomaly → incident (M12.8)
   if (!DEMO && tick % 12 === 0) scheduler.tick(); // every minute: armed [[schedules]] that are due (M13.10)
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
   void otel.tick(); // [otel] export (M12.1): no-op unless an endpoint is set; paced by [otel].interval

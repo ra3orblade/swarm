@@ -102,6 +102,7 @@ import type { BudgetConfig } from "./budget";
 import type { CustomRule } from "./rules";
 import { validDomain } from "./sandbox";
 import { parseSchedules, type ScheduleDef } from "./schedules";
+import { parseSignals, type SignalDef } from "./signals";
 import { parseWorkflows, type WorkflowDef } from "./workflows";
 
 export interface SwarmConfig {
@@ -141,6 +142,8 @@ export interface SwarmConfig {
   workflows: Record<string, WorkflowDef>;
   /** M13.10: `[[schedules]]` — a workflow on a cron; inert until armed (OQ-30). */
   schedules: Record<string, ScheduleDef>;
+  /** M12.8: `[[signals]]` — patterns watched for on live sessions; a hit is a `signal` incident. */
+  signals: SignalDef[];
   /** Spend ceiling per project (0.7.0). */
   budget: BudgetConfig;
   /** Incident webhook (M8.5): every `incident.opened` is POSTed as Slack-compatible `{text}`
@@ -246,6 +249,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
   },
   workflows: {},
   schedules: {},
+  signals: [],
   budget: { daily: null, weekly: null, warn_at: 0.8, on_exceed: "warn", window_warn_at: 0.8 },
   models: { allow: [] },
   notify: { webhook: null },
@@ -425,6 +429,7 @@ function validate(c: SwarmConfig): SwarmConfig {
     },
     workflows: parseWorkflows((c as unknown as Record<string, unknown>).workflows),
     schedules: parseSchedules((c as unknown as Record<string, unknown>).schedules),
+    signals: parseSignals((c as unknown as Record<string, unknown>).signals),
     notify: {
       webhook: (() => {
         const w = (c.notify as { webhook?: unknown } | undefined)?.webhook;
