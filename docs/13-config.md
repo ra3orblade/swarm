@@ -219,6 +219,13 @@ ports = []                # e.g. [3000, 5432, 7777]
 # name = "ship"
 # steps = ["implement", "gate:tests", "gate:review", "pr"]
 # prompts = { implement = "Task {task}: {title}. Work only in this worktree; commit as you go." }
+# M12.10: keep watching the PR the `pr` step opened. A failed check (once per head commit) or a
+# review requesting changes (as it arrives) resumes the task in its worktree with the failure as the
+# prompt, at most max_attempts (1–10) times; an attempt that pushes nothing, or running out, fails
+# the workflow; the PR merging or closing ends it done. Default on_fail = "stop": done once the PR
+# is open. "resume" without a `pr` step is rejected.
+# on_fail = "resume"
+# max_attempts = 2
 #
 # Two more built-in steps need no claimed worktree (M13.10): "gates" runs the required gates on the
 # default branch's head in a scratch worktree; "review-prs" runs the builtin review gate over each

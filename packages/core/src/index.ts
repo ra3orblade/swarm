@@ -40,6 +40,7 @@ export * from "./processes";
 export * from "./project-id";
 export * from "./prompt";
 export * from "./provenance";
+export * from "./prwatch";
 export * from "./questions";
 export * from "./quota";
 export * from "./repair";

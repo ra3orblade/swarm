@@ -47,6 +47,10 @@ export interface ForgePR {
   /** True when the forge reports it cleanly mergeable (no conflicts). */
   mergeable: boolean;
   createdAt: string;
+  /** Head commit, when the forge reports it ("" otherwise). */
+  headSha?: string;
+  /** Names of the checks that failed (GitHub; GitLab reports only the pipeline). */
+  failingChecks?: string[];
 }
 
 /**
@@ -60,7 +64,9 @@ export interface ProjectPR extends ForgePR {
   projectRoot: string;
 }
 
-/** `gh pr list --json number,title,headRefName,url,author,isDraft,mergeable,reviewDecision,statusCheckRollup,createdAt` */
+const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED"];
+
+/** `gh pr list --json number,title,headRefName,headRefOid,url,author,isDraft,mergeable,reviewDecision,statusCheckRollup,createdAt` */
 export function normalizeGithub(raw: unknown, repo: string): ForgePR[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((p) => {
@@ -71,7 +77,7 @@ export function normalizeGithub(raw: unknown, repo: string): ForgePR[] {
     const states = rollup.map((c) => String(c.conclusion ?? c.state ?? "").toUpperCase());
     const checks: CheckState = !states.length
       ? "none"
-      : states.some((s) => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED"].includes(s))
+      : states.some((s) => FAILED.includes(s))
         ? "fail"
         : states.some((s) => ["", "PENDING", "IN_PROGRESS", "QUEUED", "EXPECTED"].includes(s))
           ? "pending"
@@ -95,6 +101,12 @@ export function normalizeGithub(raw: unknown, repo: string): ForgePR[] {
             : "none",
       mergeable: String(r.mergeable ?? "").toUpperCase() !== "CONFLICTING",
       createdAt: String(r.createdAt ?? ""),
+      headSha: String(r.headRefOid ?? ""),
+      // a check run names itself `name`; a commit status names itself `context`
+      failingChecks: rollup
+        .filter((c) => FAILED.includes(String(c.conclusion ?? c.state ?? "").toUpperCase()))
+        .map((c) => String(c.name ?? c.context ?? ""))
+        .filter(Boolean),
     };
   });
 }
@@ -130,6 +142,8 @@ export function normalizeGitlab(raw: unknown, repo: string): ForgePR[] {
           : "none",
       mergeable: String(r.detailed_merge_status ?? r.merge_status ?? "") !== "cannot_be_merged",
       createdAt: String(r.created_at ?? ""),
+      headSha: String(r.sha ?? pipeline?.sha ?? ""),
+      failingChecks: checks === "fail" ? [`pipeline ${status}`] : [],
     };
   });
 }
