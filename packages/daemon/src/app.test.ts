@@ -487,6 +487,67 @@ describe("turns and spend", () => {
     // idempotent re-tail (offset held): no new turns
     expect(store.tailSession("s1")).toBe(0);
   });
+
+  it("M12.9: cost by MCP server, skill and subagent type, with the skill carried across polls", async () => {
+    const fs = require("node:fs");
+    const home = tmpHome();
+    const store = new Store(home);
+    const { app } = createApp(store);
+    const dir = join(home, "t");
+    fs.mkdirSync(join(dir, "s2", "subagents"), { recursive: true });
+    const tpath = join(dir, "s2.jsonl");
+    const now = new Date().toISOString();
+    const L = (o: unknown) => `${JSON.stringify(o)}\n`;
+    const asst = (id: string, content: unknown[]) =>
+      L({
+        type: "assistant",
+        timestamp: now,
+        message: {
+          id,
+          model: "claude-opus-4-5",
+          content,
+          usage: { input_tokens: 1000, output_tokens: 1000 },
+        },
+      });
+    fs.writeFileSync(
+      tpath,
+      L({ type: "user", message: { role: "user", content: "start" } }) +
+        asst("m1", [
+          { type: "tool_use", name: "mcp__github__list_prs", input: {} },
+          { type: "tool_use", name: "Bash", input: { command: "ls" } },
+        ]) +
+        asst("m2", [{ type: "tool_use", name: "Skill", input: { skill: "review" } }]),
+    );
+    const sub = join(dir, "s2", "subagents", "agent-a77.jsonl");
+    fs.writeFileSync(sub, asst("x1", [{ type: "text", text: "found it" }]));
+    fs.writeFileSync(
+      join(dir, "s2", "subagents", "agent-a77.meta.json"),
+      JSON.stringify({ agentType: "Explore" }),
+    );
+    store.append({
+      ts: now,
+      type: "session.started",
+      projectId: "p1",
+      sessionId: "s2",
+      payload: { cwd: dir },
+    });
+    store.db.prepare("UPDATE sessions SET transcript_path = ? WHERE id = 's2'").run(tpath);
+    expect(store.tailSession("s2")).toBe(3);
+    // the next poll: still under the skill, though the Skill call was in the previous chunk
+    fs.appendFileSync(tpath, asst("m3", [{ type: "text", text: "reviewed" }]));
+    expect(store.tailSession("s2")).toBe(1);
+
+    const r = store.costBy({ sessionId: "s2" });
+    const turnCost = r.totalUsd / 4; // four identically priced turns
+    expect(r.mcp).toEqual([expect.objectContaining({ name: "github", count: 1 })]);
+    expect(r.mcp[0]?.costUsd).toBeCloseTo(turnCost / 2); // m1 split across its two calls
+    expect(r.skills).toEqual([expect.objectContaining({ name: "review", turns: 2 })]); // m2, m3
+    expect(r.subagents).toEqual([expect.objectContaining({ name: "Explore", turns: 1, count: 1 })]);
+    // the route, and the MCP view's cost column over the same window
+    const byRoute = (await (await app.request("/v1/cost/by?session=s2")).json()) as typeof r;
+    expect(byRoute.skills[0]?.name).toBe("review");
+    expect(store.costBy({ projectId: "nope" }).totalUsd).toBe(0);
+  });
 });
 
 describe("codex ingestion", () => {

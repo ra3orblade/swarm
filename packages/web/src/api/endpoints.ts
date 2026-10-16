@@ -18,6 +18,7 @@
 
 import type {
   ContextReport,
+  CostByReport,
   FindingsReport,
   GateHealthReport,
   HeatReport,
@@ -80,6 +81,8 @@ export const routes = {
   /** M13.11: per project only — an issue is filed into one project's task source. */
   findings: (project: string): Route<FindingsReport> => `/v1/findings${query({ project })}`,
   mcpHealth: (project: string | null) => byProject<McpHealthReport>("/v1/mcp/health", project),
+  /** M12.9: one session's spend by MCP server, skill and subagent type. */
+  sessionCostBy: (session: string): Route<CostByReport> => `/v1/cost/by${query({ session })}`,
   context: (project: string | null) => byProject<ContextReport>("/v1/context", project),
   heat: (project: string | null) => byProject<HeatReport>("/v1/heat", project),
   security: (project: string | null) => byProject<SecurityReport>("/v1/security", project),

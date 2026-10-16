@@ -368,7 +368,8 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/provenance?project=` | M9.14: which session, model and prompt produced each shipped line |
 | `GET /v1/attribution?project=` | the same join rolled up per author/agent |
 | `GET /v1/ab?project=` · `POST /v1/ab` | M9.15 A/B trials: model/prompt arms and their outcomes |
-| `GET /v1/mcp/health` · `GET /v1/gates/health` | M9.5 / M9.8: MCP server reachability per session, and gate flakiness |
+| `GET /v1/mcp/health` · `GET /v1/gates/health` | M9.5 / M9.8: MCP server reachability per session, and gate flakiness; M12.9 adds each server's `costUsd` |
+| `GET /v1/cost/by?project=&days=` · `?session=` | M12.9: spend by MCP server (each turn split evenly across its calls), skill (turns run under it) and subagent type (`core/src/costby.ts`) |
 | `GET /v1/graphs/lineage` · `GET /v1/graphs/resources` · `GET /v1/graphs/transitions` | the other three M9 graphs: task lineage, resource holding, tool transitions |
 | `GET /v1/team` · `POST /v1/team/host|join|leave|credentials` | M13.13: host or join a team from the app (`~/.swarm/team.toml`); see [14-teams](14-teams.md) |
 | `POST /v1/backup` | `swarm backup` over HTTP (VACUUM INTO, zero downtime) |
