@@ -244,6 +244,13 @@ export function createApp(
     return c.body(body, 200, { ...head, "content-type": "application/json" });
   });
   app.get("/v1/stats", (c) => c.json(store.stats(c.req.query("project") || undefined)));
+  // M12.8: the configured signals and their incidents by task and rule; the efficiency score
+  app.get("/v1/signals", (c) =>
+    c.json({
+      ...store.signalsReport(c.req.query("project") || undefined),
+      efficiency: store.efficiency(c.req.query("project") || undefined),
+    }),
+  );
   app.get("/v1/graphs/collisions", (c) =>
     c.json(store.collisions(c.req.query("project") || undefined)),
   );

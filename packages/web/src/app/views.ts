@@ -44,6 +44,7 @@ export const VIEW_DEFS = [
   { id: "security", label: "Security", icon: "shield", group: "Guard" },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard" },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard" },
+  { id: "signals", label: "Signals", icon: "bell", group: "Guard" },
   { id: "rules", label: "Rules", icon: "shield", group: "Guard" },
   { id: "team", label: "Team", icon: "broadcast", group: "Guard" },
 ] as const satisfies readonly ViewDef[];

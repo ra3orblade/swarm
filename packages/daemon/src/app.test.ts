@@ -3279,3 +3279,121 @@ describe("schedules (M13.10)", () => {
     }
   });
 });
+
+describe("signals and the efficiency score (M12.8)", () => {
+  it("fires a sequence and a text signal once a window, skips a broken query, flags a token-hungry session, and scores sessions", async () => {
+    const fs = require("node:fs");
+    const dir = realpathSync(tmpHome());
+    Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    fs.writeFileSync(
+      join(dir, ".swarm.toml"),
+      `[[signals]]
+name = "force-push"
+sequence = ["Edit", "Bash: git push.*--force"]
+reason = "force-pushed after an edit"
+
+[[signals]]
+name = "gave-up"
+match = "\\"unable to\\""
+
+[[signals]]
+name = "broken"
+match = "AND OR ("
+`,
+    );
+    const { app, store } = createApp(new Store(tmpHome()));
+    const hook = (event: string, sid: string, body: Record<string, unknown>) =>
+      app.request(`/v1/hook/${event}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sid, cwd: dir, hook_event_name: event, ...body }),
+      });
+    await hook("SessionStart", "sg-1", { source: "startup" });
+    await hook("PreToolUse", "sg-1", {
+      tool_name: "Edit",
+      tool_input: { file_path: join(dir, "a.ts") },
+    });
+    await hook("PreToolUse", "sg-1", { tool_name: "Bash", tool_input: { command: "ls" } });
+    await hook("PreToolUse", "sg-1", {
+      tool_name: "Bash",
+      tool_input: { command: "git push --force origin main" },
+    });
+    // a second session that only says it is stuck
+    await hook("SessionStart", "sg-2", { source: "startup" });
+    const now = new Date().toISOString();
+    const turn = store.db.query(
+      "INSERT INTO turns (id, session_id, agent_id, ts, model, sidechain, input, output, cache_write, cache_read, thinking, cost_usd, text, tools) VALUES (?, ?, NULL, ?, 'claude-opus-4-5', 0, ?, 0, 0, 0, 0, 0.01, ?, '[]')",
+    );
+    turn.run("t-sg2", "sg-2", now, 100, "I am unable to reach the database from here.");
+
+    expect(store.checkSignals()).toBe(2);
+    const opened = () =>
+      store
+        .incidents(50)
+        .map((i) => i as Record<string, unknown>)
+        .filter((i) => i.rule === "signal")
+        .map((i) => [i.sessionId, i.signal]);
+    expect(opened().sort()).toEqual([
+      ["sg-1", "force-push"],
+      ["sg-2", "gave-up"],
+    ]);
+    // the same hits inside the window do not fire again; the broken query never fired
+    expect(store.checkSignals()).toBe(0);
+    const report = store.signalsReport();
+    expect(report.defs.find((d) => d.name === "broken")?.broken).toBe(true);
+    expect(report.defs.find((d) => d.name === "force-push")?.pattern).toBe(
+      "Edit → Bash: git push.*--force",
+    );
+    expect(report.clusters.map((c) => [c.name, c.hits])).toEqual(
+      expect.arrayContaining([
+        ["force-push", 1],
+        ["gave-up", 1],
+      ]),
+    );
+
+    // the anomaly: a project baseline of 10k-token turns, and a live session hauling 50k each
+    const project = store.resolveProject(dir).id;
+    store.db
+      .query(
+        "INSERT INTO sessions (id, project_id, kind, cwd, started_at, last_seen_at, last, last_type, state, ended_at) VALUES ('old', ?, 'interactive', ?, ?, ?, '', '', 'ended', ?)",
+      )
+      .run(project, dir, now, now, now);
+    for (let i = 0; i < 60; i++) turn.run(`b${i}`, "old", now, 10_000, "");
+    for (let i = 0; i < 10; i++) turn.run(`h${i}`, "sg-1", now, 50_000, "");
+    expect(store.checkSignals()).toBe(1);
+    const anomaly = store
+      .incidents(50)
+      .map((i) => i as Record<string, unknown>)
+      .find((i) => i.command === "tokens per turn");
+    expect(anomaly?.sessionId).toBe("sg-1");
+    expect(String(anomaly?.reason)).toContain("× the project's median");
+    expect(store.checkSignals()).toBe(0); // once a day
+
+    // the score: sg-1 made three calls, too few to judge; give it more, one failing
+    for (let i = 0; i < 5; i++)
+      await hook("PostToolUse", "sg-1", {
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+        tool_response: "ok",
+      });
+    await hook("PostToolUseFailure", "sg-1", {
+      tool_name: "Bash",
+      tool_input: { command: "bun test" },
+      error: "exit 1",
+    });
+    const eff = store.efficiency(project);
+    const s1 = eff.sessions.find((s) => s.sessionId === "sg-1");
+    expect(s1?.toolCalls).toBe(6);
+    expect(s1?.lost.failed).toBe(5); // 30 × 1/6
+    expect(s1?.score).toBe(95);
+    expect(eff.sessions.find((s) => s.sessionId === "sg-2")?.score).toBeNull();
+    expect(eff.trend.thisWeek).toBe(95);
+    // the route and Stats carry it
+    const r = (await (await app.request(`/v1/signals?project=${project}`)).json()) as {
+      efficiency: { trend: { thisWeek: number } };
+      clusters: unknown[];
+    };
+    expect(r.efficiency.trend.thisWeek).toBe(95);
+    expect(store.stats(project).efficiency.thisWeek).toBe(95);
+  });
+});

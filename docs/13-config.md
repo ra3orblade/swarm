@@ -237,6 +237,21 @@ ports = []                # e.g. [3000, 5432, 7777]
 # workflow = "nightly"
 # post = false
 
+# M12.8: signals — patterns watched for on every live session, every 30 s. A hit opens a
+# `signal` incident (once per session per window) and shows on the Signals view; it never blocks.
+# Exactly one of `match` (an SQLite FTS5 query over what the session said and its tool calls'
+# one-line summaries) or `sequence` (tool calls in this order, not necessarily adjacent: `Tool`
+# or `Tool: <regex on the summary>`, the tool name a regex anchored at both ends).
+# A repo's `[[signals]]` replaces the global list rather than adding to it.
+# [[signals]]
+# name = "force-push"
+# sequence = ["Edit", "Bash: git push.*(--force|-f\\b)"]
+# reason = "force-pushed after an edit"
+# window = 30            # minutes looked back over, and between repeat hits (1–1440)
+# [[signals]]
+# name = "gave-up"
+# match = "\"unable to\" OR \"I cannot\""
+
 [tasks]
 # Optional backlog: a markdown file (relative to the repo root) whose `ID | Task | Depends | Status`
 # tables are the task list. Feeds the Board's Tasks section, `swarm tasks` and `swarm_next_task`.
