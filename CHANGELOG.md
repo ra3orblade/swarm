@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.17.0](#0170--2026-10-16) | Oct 16 | Codex gets the whole hook pipeline · cost by MCP, skill and subagent · CI resumes the run · signals |
 | [0.16.0](#0160--2026-10-01) | Oct 1 | The guards ask by default · sandboxed runs · a reviewer on prompts · scheduled workflows |
 | [0.15.1](#0151--2026-09-25) | Sep 25 | Grok's hooks · idle CPU in the desktop app · a "Waiting on you" panel · tooltips back |
 | [0.15.0](#0150--2026-09-19) | Sep 19 | Rules for Codex, Gemini CLI and Cursor · OpenTelemetry export · team daemon without a clone |
@@ -28,6 +29,26 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.17.0] — 2026-10-16
+
+Codex, done properly, and the end of the Reach milestone. A colleague told me Swarm worked badly with Codex sessions and some of it didn't work at all, and both were true: Codex had grown the same kind of hooks Claude Code has while Swarm still installed one of them. This release gives Codex the whole pipeline, says where your spend goes by MCP server, skill and subagent, lets a workflow go back to work when CI or a reviewer says no, and lets you name patterns to watch for.
+
+### Changes
+
+- **Codex gets the whole hook pipeline.** `swarm install` now puts `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `Stop`, `Interrupt` and `SessionEnd` in `~/.codex/hooks.json`, and the daemon answers them the way it answers Claude Code. Codex sessions now get what they hold and the handoff at startup, permission cards on the dashboard, a heads-up when another session edited the same file (for every file an `apply_patch` touches), the repair loop on Stop, and messages from `swarm_send`. Rewrite rules hand Codex the fixed command instead of refusing the call. The status line and wake have no Codex equivalent. Run `swarm install` again, then trust the hooks once in Codex's `/hooks`.
+- **Claims from Codex know which session made them.** Codex doesn't tell its MCP servers the session id, so every Codex claim was made by an anonymous "agent". The MCP server now finds its session through the Codex process it shares with the hooks, and Codex is told its session id when the session starts.
+- **Cost by MCP server, skill and subagent.** The MCP view has a cost column, and a session's sidebar says where its spend went: `mcp · linear`, `skill · review`, `agent · Explore`. An MCP server gets the spend of the turns that called it, each turn split across its tool calls. A skill gets every turn that ran under it, from the `Skill` call or the `/skill` you typed until your next real prompt. A subagent gets its own turns, by type. They are views of the same spend, not slices of it. `GET /v1/cost/by` has the numbers.
+- **CI and review go back into the run.** A workflow with `on_fail = "resume"` keeps watching the PR its `pr` step opened. A failed check, or a review asking for changes, resumes the task in the worktree it already holds, with the failure as the prompt, up to `max_attempts` times (default 2). Each attempt is a `dispatch` event on the Board. Running out of attempts, or an attempt that pushed nothing while CI is still red, fails the workflow with an incident. The PR is never touched.
+- **Signals and an efficiency score.** `[[signals]]` in config names a pattern to watch for on every live session: a full-text query over what the session said and did, or a sequence of tool calls (`["Edit", "Bash: git push.*--force"]`). A hit opens a `signal` incident, once per session per window, and the new **Signals** view under Guard groups hits by signal and task. The same view scores recent sessions out of 100, losing points for re-reads, failed tool calls, time waiting on a person and a failed gate, and Stats shows this week's mean against last week's. It is a heuristic meant to show a trend, not to rank anyone. A session whose recent turns process more than 3× the project's median turn opens a `budget` incident.
+
+### Fixes
+
+- **Codex spend was 3–10% too high.** Codex writes the same token count twice when only its rate limits change, and Swarm counted the repeat as another turn. Turns are keyed on Codex's running total now, and past sessions are re-read once on upgrade so their history is corrected too (a rollout that has since been deleted keeps what was recorded).
+- **Codex sessions showed as ended while you were still thinking.** Ninety seconds without a log write marked a session ended, and it stayed ended after it carried on. Codex's own turn boundaries say working or waiting now, and an interrupt shows as waiting at once.
+- **A resumed Codex session stopped updating.** Codex keeps writing a resumed session into the file it started in, under that day's folder, which fell outside the window Swarm looked at after three days.
+- Codex sessions have titles (the thread name Codex shows, or the first prompt), the right model on every turn, and tools under the same names as Claude Code's, so the views that count shell calls and edits count Codex's too.
+- The MCP view's busiest-tools list ran its entries together (`list_issues 3save_issue 3`).
 
 ## [0.16.0] — 2026-10-01
 
