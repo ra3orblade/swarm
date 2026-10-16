@@ -731,7 +731,7 @@ export class Store {
   }
 
   /** Current schema version; `meta.schema_version` records what this database has applied. */
-  static readonly SCHEMA_VERSION = 4;
+  static readonly SCHEMA_VERSION = 5;
   schemaVersion(): number {
     return Number(this.meta("schema_version") ?? 0);
   }
@@ -834,6 +834,25 @@ export class Store {
         db.run(
           "UPDATE turns SET cost_usd = 0 WHERE cost_usd IS NULL AND input + output + cache_write + cache_read = 0",
         );
+      },
+      // v5 — Codex turns counted twice (M12.14). A re-emitted token_count (same running total, a
+      // later timestamp) was stored as another turn; the reader now keys turns on the total. Drop
+      // the old turns of every Codex session whose rollout can still be read and rewind its tail,
+      // so the next poll re-reads it whole under the new ids. A rollout that is gone keeps what was
+      // recorded: an overcount beats losing the session's spend.
+      (db) => {
+        const rows = db
+          .query(
+            "SELECT t.path, t.session_id FROM tails t JOIN sessions s ON s.id = t.session_id WHERE s.agent = 'codex'",
+          )
+          .all() as Array<{ path: string; session_id: string }>;
+        const drop = db.query("DELETE FROM turns WHERE session_id = ?");
+        const rewind = db.query("UPDATE tails SET offset = 0 WHERE path = ?");
+        for (const r of rows) {
+          if (!existsSync(r.path)) continue;
+          drop.run(r.session_id);
+          rewind.run(r.path);
+        }
       },
     ];
     for (let v = this.schemaVersion(); v < steps.length; v++) {
@@ -4201,7 +4220,8 @@ export class Store {
     if (e.type === "tool.requested" && p.tool) counts[p.tool] = (counts[p.tool] ?? 0) + 1;
     // A Stop can arrive after SessionEnd (Grok fires one on shutdown); it must not reopen the row
     // as "waiting", which would count toward attention for a session that is gone.
-    const idle = p.hook === "Stop" || e.type === "session.notification";
+    // Codex's Interrupt ends the turn the way Stop does
+    const idle = p.hook === "Stop" || p.hook === "Interrupt" || e.type === "session.notification";
     const state =
       e.type === "session.ended" || (idle && row?.state === "ended")
         ? "ended"
@@ -4899,7 +4919,11 @@ export class Store {
     // user, and ending it is SessionEnd's or the stale sweep's call: a 90 s silence used to stamp
     // it ended, so a Codex session the user took two minutes to answer showed as gone. Logs that
     // say nothing keep the silence rule. Either way a session that writes again is not ended.
-    const state = d.state ?? (Date.now() - mtime < 90_000 ? "active" : "ended");
+    // A log last written longer ago than the stale sweep's window is over, whatever its last turn
+    // boundary says — that is what a back-fill or a full re-read of an old rollout finds.
+    const quiet = Date.now() - mtime;
+    const state =
+      quiet > SESSION_STALE_MS ? "ended" : (d.state ?? (quiet < 90_000 ? "active" : "ended"));
     const lastSeen = new Date(mtime).toISOString();
     this.db
       .query(

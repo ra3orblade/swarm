@@ -56,7 +56,11 @@ export const CODEX_HOOK_EVENTS: Readonly<Record<string, number>> = {
   PreToolUse: 5,
   PermissionRequest: 150,
   PostToolUse: 5,
+  SubagentStart: 5,
+  SubagentStop: 5,
   Stop: 330,
+  // waiting on the user the moment they interrupt, not at the next rollout poll; capped at 3
+  Interrupt: 3,
   SessionEnd: 3,
 };
 
