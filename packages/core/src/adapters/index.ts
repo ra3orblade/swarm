@@ -9,7 +9,7 @@ import type { AgentAdapter } from "./types";
 export type { AiderCarry, AiderSegment } from "./aider/history";
 export { aiderAdapter, parseAiderHistory, parseAiderLog } from "./aider/history";
 export { claudeCodeAdapter } from "./claude-code/adapter";
-export { codexAdapter, parseCodexRollout } from "./codex/rollout";
+export { codexAdapter, codexToolName, parseCodexRollout } from "./codex/rollout";
 export { geminiAdapter, parseGeminiChat } from "./gemini/chats";
 export { grokAdapter, parseGrokUpdates } from "./grok/updates";
 export { opencodeAdapter, opencodeTurn, parseOpencodeLog } from "./opencode/db";

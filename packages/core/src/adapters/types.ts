@@ -8,6 +8,11 @@ export interface LogParseResult {
   model?: string | null;
   title?: string | null;
   version?: string | null;
+  /**
+   * Where the session stands as of the chunk's last turn boundary: `active` inside a turn,
+   * `waiting` once it ended (on the user). null when the chunk says nothing either way.
+   */
+  state?: "active" | "waiting" | null;
 }
 
 /**
@@ -24,6 +29,7 @@ export interface AgentAdapter {
    * Parse newly-appended log text into turns + session facts. Must tolerate partial/garbage lines.
    * `sessionIdHint` is the session id already known for this file — adapters whose id lives only in
    * a header record at the top of the file need it to make sense of an incremental chunk.
+   * `modelHint` is the model already recorded for the session, for the same reason.
    */
-  parseLog(chunk: string, sessionIdHint?: string | null): LogParseResult;
+  parseLog(chunk: string, sessionIdHint?: string | null, modelHint?: string | null): LogParseResult;
 }

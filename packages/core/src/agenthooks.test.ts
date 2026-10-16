@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   agentCoverage,
+  CODEX_HOOK_EVENTS,
+  codexAsClaude,
   detectAgent,
   effectiveDecision,
+  hookAgentArg,
   patchPaths,
   renderAgentDecision,
   toToolRequests,
@@ -188,7 +191,11 @@ describe("agentCoverage", () => {
   test("reads each agent's own file; Cursor follows the Claude Code hooks", () => {
     const cov = agentCoverage({
       claude: null,
-      codexHooks: { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [ours] }] } },
+      codexHooks: {
+        hooks: Object.fromEntries(
+          Object.keys(CODEX_HOOK_EVENTS).map((ev) => [ev, [{ hooks: [ours] }]]),
+        ),
+      },
       gemini: { hooks: { BeforeTool: [{ hooks: [{ type: "command", command: "their.sh" }] }] } },
       present: { codex: true, gemini: true, cursor: false, grok: true },
     });
@@ -200,5 +207,69 @@ describe("agentCoverage", () => {
       ["grok", true, false],
     ]);
     expect(cov.find((c) => c.agent === "codex")?.note).toContain("/hooks");
+  });
+  test("a Codex install from before the full hook set reads as not installed", () => {
+    const cov = agentCoverage({
+      claude: null,
+      codexHooks: { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [ours] }] } },
+      gemini: null,
+      present: { codex: true, gemini: false, cursor: false, grok: false },
+    });
+    expect(cov.find((c) => c.agent === "codex")?.installed).toBe(false);
+  });
+});
+
+describe("Codex through the Claude Code pipeline", () => {
+  test("the hook command names the agent; a rollout transcript gives Codex away too", () => {
+    expect(hookAgentArg("codex")).toBe("codex");
+    expect(hookAgentArg("nope")).toBeNull();
+    expect(hookAgentArg(undefined)).toBeNull();
+    // SessionEnd: no turn_id
+    expect(
+      detectAgent({
+        session_id: "s",
+        hook_event_name: "SessionEnd",
+        transcript_path: "/h/.codex/sessions/2026/10/16/rollout-2026-10-16T10-00-00-abc.jsonl",
+      }),
+    ).toBe("codex");
+    expect(detectAgent({ session_id: "s", transcript_path: "/h/.claude/projects/x/s.jsonl" })).toBe(
+      "claude-code",
+    );
+  });
+  test("apply_patch becomes an Edit of every file it touches; the rollout is not a transcript", () => {
+    const { raw, files } = codexAsClaude({
+      ...CODEX_BASH,
+      transcript_path: "/h/.codex/sessions/rollout-x.jsonl",
+      tool_name: "apply_patch",
+      tool_input: { command: PATCH },
+    });
+    expect(files).toEqual([
+      "/r/app/src/a.ts",
+      "/r/app/.env.local",
+      "/r/app/src/old.ts",
+      "/r/app/src/new.ts",
+    ]);
+    expect(raw.tool_name).toBe("Edit");
+    expect((raw.tool_input as { file_path: string }).file_path).toBe("/r/app/src/a.ts");
+    expect(raw.transcript_path).toBeUndefined();
+    expect(raw.agent).toBe("codex");
+    // Bash is already Claude's name
+    expect(codexAsClaude(CODEX_BASH).raw.tool_name).toBe("Bash");
+  });
+  test("a rewrite reaches Codex as allow + updatedInput", () => {
+    const out = JSON.parse(
+      renderAgentDecision("codex", {
+        action: "rewrite",
+        reason: "no --no-verify",
+        rule: "no_verify",
+        command: "git commit -m x",
+      }),
+    );
+    expect(out.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(out.hookSpecificOutput.updatedInput).toEqual({ command: "git commit -m x" });
+    // Gemini still cannot take one
+    expect(
+      effectiveDecision("gemini", { action: "rewrite", command: "git commit -m x" }).action,
+    ).toBe("deny");
   });
 });

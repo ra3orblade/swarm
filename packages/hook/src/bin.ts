@@ -13,6 +13,7 @@ import { DEFAULT_PORT, authedFetch as fetch, resolveBaseUrl, swarmHome } from "@
 import {
   detectAgent,
   evaluateOffline,
+  hookAgentArg,
   POLICY_CACHE_FILE,
   renderAgentDecision,
   toToolRequests,
@@ -20,6 +21,9 @@ import {
 } from "@swarm/core";
 
 const event = process.argv[2] ?? "Unknown";
+// `swarm-hook <Event> codex`: the agent that installed this hook says who it is (Codex's
+// SessionEnd payload carries nothing that would)
+const agentArg = hookAgentArg(process.argv[3]);
 const input = await Bun.stdin.text();
 // M12.2: `swarm-hook statusline` shares the shim's contract (fast, fails open, never starts the
 // daemon) but prints a line for a human, not JSON for Claude Code.
@@ -74,8 +78,33 @@ const timeout =
     : event === "PermissionRequest"
       ? Number(process.env.SWARM_PERMISSION_TIMEOUT_MS ?? 130_000)
       : fast;
+/**
+ * The agent process this hook runs under: its parent, or the shell's parent when the agent runs
+ * hooks through `sh -c`. Sent on SessionStart / UserPromptSubmit so the daemon can tell which
+ * session an MCP server — another child of the same process — belongs to, for agents that put no
+ * session id in the MCP server's environment (Codex). One `ps`, on two events, never per tool.
+ */
+function agentPids(): string {
+  const pids = [process.ppid];
+  try {
+    const up = Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(process.ppid)], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const gp = Number(up.stdout.toString().trim());
+    if (gp > 1) pids.push(gp);
+  } catch {
+    /* parent alone */
+  }
+  return pids.join(",");
+}
+const query = new URLSearchParams();
+if (agentArg) query.set("agent", agentArg);
+if (agentArg === "codex" && (event === "SessionStart" || event === "UserPromptSubmit"))
+  query.set("pids", agentPids());
+const qs = query.size ? `?${query}` : "";
 const post = async (base: string) => {
-  const r = await fetch(`${base}/v1/hook/${event}`, {
+  const r = await fetch(`${base}/v1/hook/${event}${qs}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: input || "{}",
@@ -112,7 +141,7 @@ function offline(): string | null {
     if (!cache) return null;
     const raw = input ? (JSON.parse(input) as Record<string, unknown>) : {};
     // M12.4: Codex / Gemini CLI / Cursor — same locked rules, answered in their own shape
-    const agent = detectAgent(raw);
+    const agent = agentArg ?? detectAgent(raw);
     if (agent !== "claude-code") {
       for (const r of toToolRequests(agent, raw)) {
         const d = evaluateOffline(

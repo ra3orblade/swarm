@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CODEX_HOOK_EVENTS } from "@swarm/core";
 
 const dir = mkdtempSync(join(tmpdir(), "swarm-settings-"));
 const settings = join(dir, "settings.json");
@@ -73,17 +74,23 @@ describe("install", () => {
 });
 
 describe("rules on Codex and Gemini CLI (M12.4)", () => {
-  it("adds our pre-tool hook beside theirs, once, and removes only ours", () => {
+  it("adds our hooks beside theirs, once, and removes only ours", () => {
     const codexHooks = join(codexDir, "hooks.json");
     const theirs = { matcher: "Bash", hooks: [{ type: "command", command: "their-guard.sh" }] };
     writeFileSync(codexHooks, JSON.stringify({ hooks: { PreToolUse: [theirs] } }));
     install();
     install(); // idempotent
-    const cx = JSON.parse(readFileSync(codexHooks, "utf8")).hooks.PreToolUse;
+    const all = JSON.parse(readFileSync(codexHooks, "utf8")).hooks;
+    const cx = all.PreToolUse;
     expect(cx).toHaveLength(2);
     expect(cx[0]).toEqual(theirs);
-    expect(cx[1].matcher).toBe("Bash|apply_patch");
-    expect(cx[1].hooks[0].command).toMatch(/(swarm-hook|hook\/src\/bin\.ts) PreToolUse$/);
+    expect(cx[1].matcher).toBeUndefined(); // every tool: edits are noted, messages delivered
+    expect(cx[1].hooks[0].command).toMatch(/(swarm-hook|hook\/src\/bin\.ts) PreToolUse codex$/);
+    // the whole pipeline, as on Claude Code: one group per event, with Claude Code's timeouts
+    expect(Object.keys(all).sort()).toEqual(Object.keys(CODEX_HOOK_EVENTS).sort());
+    expect(all.Stop[0].hooks[0]).toMatchObject({ timeout: 330 });
+    expect(all.PermissionRequest[0].hooks[0]).toMatchObject({ timeout: 150 });
+    expect(all.SessionEnd[0].hooks[0]).toMatchObject({ timeout: 3 }); // Codex's cap
     const gm = JSON.parse(readFileSync(process.env.GEMINI_SETTINGS as string, "utf8"));
     expect(gm.theme).toBe("dark");
     expect(gm.hooks.BeforeTool).toHaveLength(1);

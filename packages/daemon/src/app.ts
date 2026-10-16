@@ -7,9 +7,11 @@ import {
   absolutePath,
   agentCoverage,
   armTask,
+  codexAsClaude,
   detectAgent,
   formatAudit,
   formatHandoff,
+  hookAgentArg,
   hookCoverage,
   type LineageNode,
   MEMORY_KINDS,
@@ -1353,12 +1355,18 @@ export function createApp(
   // ---- ingestion
   app.post("/v1/hook/:event", async (c) => {
     const event = c.req.param("event");
-    const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    // M12.4: Codex (PreToolUse), Gemini CLI (BeforeTool), Cursor and Grok (which both run Claude
-    // Code's own hooks from ~/.claude/settings.json) reach this route too. Their sessions are recorded by
-    // their adapters, not as Claude Code events; here they only get the rules, in their own shape.
-    const agent = detectAgent(raw);
-    if (agent !== "claude-code") {
+    const sent = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // `swarm-hook <Event> <agent>` names the agent; older installs leave it to the payload
+    const agent = hookAgentArg(c.req.query("agent")) ?? detectAgent(sent);
+    // Codex reads Claude Code's hook output shapes, so it runs the whole pipeline below on its
+    // payload in Claude Code's vocabulary; the rules still see the original (an apply_patch is
+    // one request per file it touches).
+    const codex = agent === "codex" ? codexAsClaude(sent) : null;
+    const raw = codex?.raw ?? sent;
+    // M12.4: Gemini CLI (BeforeTool), Cursor and Grok (which both run Claude Code's own hooks from
+    // ~/.claude/settings.json) reach this route too. Their sessions are recorded by their
+    // adapters, not as Claude Code events; here they only get the rules, in their own shape.
+    if (agent !== "claude-code" && !codex) {
       if (
         (event === "PreToolUse" || event === "BeforeTool") &&
         !store.guardDisabled(hookRepoRoot(store, raw))
@@ -1367,10 +1375,26 @@ export function createApp(
       return c.json({});
     }
     store.ingestHook(event, raw);
+    if (codex && typeof raw.session_id === "string") {
+      store.markAgentSession(raw.session_id, "codex");
+      const pids = (c.req.query("pids") ?? "")
+        .split(",")
+        .map(Number)
+        .filter((n) => n > 1);
+      if (pids.length) store.notePids(raw.session_id, pids);
+    }
     // M1.3 context injection: tell a starting session what it holds, the handoff, and the rules.
     if (event === "SessionStart" && typeof raw.cwd === "string") {
       store.checkPolicy(raw.cwd, typeof raw.session_id === "string" ? raw.session_id : null);
-      const held = store.sessionContext(raw.cwd);
+      const context = store.sessionContext(raw.cwd);
+      // Codex puts no session id in its MCP servers' environment; the server finds it by process
+      // (notePids), and the agent is told it too, for the case where that is ambiguous.
+      const held =
+        codex && typeof raw.session_id === "string"
+          ? [context, `[swarm] your Swarm session id is ${raw.session_id}`]
+              .filter(Boolean)
+              .join("\n")
+          : context;
       // M13.9: a compacted session keeps its session id and loses what it was told at startup;
       // SessionStart fires again with source "compact" (PostCompact cannot add context — verified
       // 2026-09-18), so say it again and say why.
@@ -1424,12 +1448,14 @@ export function createApp(
       if (watching || decides) {
         const waitMs = Math.max(watching ? waitS * 1000 : 0, reviewed ? rv.timeoutMs + 2000 : 0);
         const a = await store.askInteractive(raw, waitMs, watching);
-        return c.json(
-          permissionHookOutput(
-            a ?? { behavior: null, by: "terminal" },
-            (raw.tool_input ?? {}) as Record<string, unknown>,
-          ),
+        const out = permissionHookOutput(
+          a ?? { behavior: null, by: "terminal" },
+          (raw.tool_input ?? {}) as Record<string, unknown>,
         );
+        // Codex takes the behavior and message, and refuses updatedInput here
+        if (codex)
+          delete (out.hookSpecificOutput?.decision as { updatedInput?: unknown })?.updatedInput;
+        return c.json(out);
       }
       // nobody to ask: record the twin so the pair closes, and let the terminal decide at once
       store.append({
@@ -1471,7 +1497,21 @@ export function createApp(
         : null;
     // M2.1 guard: on PreToolUse, ask before a shared-tree collision (broad git add, destructive git,
     // pattern kills). Returns Claude Code's PreToolUse decision; anything else means allow.
-    if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
+    if (event === "PreToolUse" && codex && !store.guardDisabled(hookRepoRoot(store, raw))) {
+      const out = JSON.parse(store.guardForeign("codex", sent)) as {
+        hookSpecificOutput?: Record<string, unknown>;
+      };
+      if (out.hookSpecificOutput) {
+        if (answers)
+          out.hookSpecificOutput.additionalContext = [
+            out.hookSpecificOutput.additionalContext,
+            answers,
+          ]
+            .filter(Boolean)
+            .join("\n");
+        return c.json(out);
+      }
+    } else if (event === "PreToolUse" && !store.guardDisabled(hookRepoRoot(store, raw))) {
       const guard = store.guardHook(raw);
       if (guard?.action === "rewrite") {
         // M13.5: hand back the fixed command as `updatedInput` and let Claude Code's own
@@ -1520,8 +1560,16 @@ export function createApp(
     let collision: string | null = null;
     if (event === "PostToolUse" && sid && typeof raw.cwd === "string") {
       const fp = (raw.tool_input as { file_path?: unknown } | undefined)?.file_path;
-      if (WRITE_TOOLS.has(String(raw.tool_name)) && typeof fp === "string")
-        collision = store.collisionContext(sid, raw.cwd, absolutePath(fp, raw.cwd));
+      // a Codex apply_patch can touch several files; each gets its heads-up
+      const files = codex?.files.length ? codex.files : typeof fp === "string" ? [fp] : [];
+      if (WRITE_TOOLS.has(String(raw.tool_name)))
+        collision =
+          files
+            .map((f) =>
+              store.collisionContext(sid, raw.cwd as string, absolutePath(f, raw.cwd as string)),
+            )
+            .filter(Boolean)
+            .join("\n") || null;
     }
     // M13.9: the third failure of the same command gets what Swarm knows about verifying it
     const coaching = event === "PostToolUseFailure" && sid ? store.failureCoaching(sid, raw) : null;
@@ -1532,6 +1580,15 @@ export function createApp(
         hookSpecificOutput: { hookEventName: event, additionalContext: context },
       });
     return c.json({});
+  });
+  // The session an MCP server serves, for agents that put no session id in its environment
+  // (Codex): found by the agent process its hooks reported (`swarm-hook` → notePids).
+  app.get("/v1/agent-session", (c) => {
+    const pids = (c.req.query("pids") ?? "")
+      .split(",")
+      .map(Number)
+      .filter((n) => n > 1);
+    return c.json({ sessionId: store.sessionForPids(pids, c.req.query("cwd") ?? null) });
   });
   // M12.2: the statusline shim posts Claude Code's statusLine payload; the answer is what Swarm
   // adds to the line. Fast path — no event is written.

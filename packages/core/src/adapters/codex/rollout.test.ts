@@ -49,7 +49,7 @@ describe("parseCodexRollout", () => {
     expect(t.usage.output).toBe(230);
     expect(t.usage.thinking).toBe(34);
     expect(t.text).toBe("Looking at the workspace.");
-    expect(t.tools).toEqual(["exec_command"]);
+    expect(t.tools).toEqual(["Bash"]); // Codex names in Claude Code's vocabulary
   });
   it("prices a Codex turn via the shared table (gpt-5 prefix)", () => {
     const t = parseCodexRollout(fixture).turns.at(0) as NonNullable<
@@ -88,10 +88,60 @@ describe("parseCodexRollout", () => {
       whole.turns.map((t) => t.id),
     );
   });
-  it("collapses a re-emitted identical usage snapshot onto one id", () => {
+  it("collapses a re-emitted identical usage snapshot onto one turn", () => {
     const lastEvent = `${fixture.split("\n").filter(Boolean).at(-1)}\n`; // the token_count line
     const d = parseCodexRollout(`${fixture}${lastEvent}`);
+    expect(d.turns).toHaveLength(1);
+  });
+  it("counts a token_count Codex re-emits later with the same totals once", () => {
+    const usage = (ts: string, total: number) =>
+      L({
+        type: "event_msg",
+        timestamp: ts,
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10 },
+            total_token_usage: { input_tokens: total, cached_input_tokens: 0, output_tokens: 10 },
+          },
+        },
+      });
+    const head = L({ type: "session_meta", payload: { session_id: "s" } });
+    // the repeat (rate limits changed) arrives seconds later with the same running total
+    const first = usage("2026-07-06T14:00:01Z", 1000);
+    const repeat = usage("2026-07-06T14:00:04Z", 1000);
+    const next = usage("2026-07-06T14:00:09Z", 2000);
+    const d = parseCodexRollout(head + first + repeat + next);
     expect(d.turns).toHaveLength(2);
-    expect(d.turns[0]?.id).toBe(d.turns[1]?.id as string); // same id → upsert, counted once
+    // split across two polls the repeat still lands on the first turn's id (an upsert)
+    const a = parseCodexRollout(head + first);
+    const b = parseCodexRollout(repeat + next, "s");
+    expect(b.turns[0]?.id).toBe(a.turns[0]?.id as string);
+    expect(new Set([...a.turns, ...b.turns].map((t) => t.id)).size).toBe(2);
+  });
+  it("carries the model into a chunk that starts mid-turn", () => {
+    const tail = L({
+      type: "event_msg",
+      timestamp: "2026-07-06T14:00:09Z",
+      payload: { type: "token_count", info: { last_token_usage: { input_tokens: 5 } } },
+    });
+    expect(parseCodexRollout(tail, "sess-cx").turns[0]?.model).toBe("gpt-5"); // no hint: fallback
+    expect(parseCodexRollout(tail, "sess-cx", "gpt-5.5").turns[0]?.model).toBe("gpt-5.5");
+  });
+  it("titles the session from the first real prompt and reads turn boundaries", () => {
+    const ev = (type: string, extra: object = {}) =>
+      L({ type: "event_msg", payload: { type, ...extra } });
+    const d = parseCodexRollout(
+      ev("task_started") +
+        ev("user_message", {
+          message: "<environment_context>x</environment_context>\nfix the login bug\nand more",
+        }) +
+        ev("user_message", { message: "second prompt" }),
+    );
+    expect(d.title).toBe("fix the login bug");
+    expect(d.state).toBe("active");
+    expect(parseCodexRollout(ev("task_started") + ev("task_complete")).state).toBe("waiting");
+    expect(parseCodexRollout(ev("turn_aborted")).state).toBe("waiting");
+    expect(parseCodexRollout(ev("agent_message", { message: "hi" })).state).toBeNull();
   });
 });
