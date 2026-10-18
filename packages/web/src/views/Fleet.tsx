@@ -28,6 +28,12 @@ import { useUiStore } from "../state/ui";
 /** Active or waiting. An idle session is still open but has not spoken in a while. */
 const isLive = (s: SessionView): boolean => s.state === "active" || s.state === "waiting";
 
+/** M13.14: running background tasks + crons a session reported; an ended one has none left. */
+const bgCount = (s: SessionView): number =>
+  s.state === "ended" || !s.background
+    ? 0
+    : s.background.crons.length + s.background.tasks.filter((t) => t.status === "running").length;
+
 /**
  * How the session was started: typed at a keyboard, spawned by `swarm run`, or a subagent.
  *
@@ -123,6 +129,11 @@ export function Fleet() {
             {kindIcon(s)}
             <b>{s.title ?? s.id.slice(0, 8)}</b>
             {s.subagents > 0 && <Badge tone="acc">{s.subagents} Sub</Badge>}
+            {bgCount(s) > 0 && (
+              <span title="Background tasks or crons still running as of its last turn end — open the session to see or stop them">
+                <Badge tone="acc">{bgCount(s)} Bg</Badge>
+              </span>
+            )}
             {asking.has(s.id) && (
               <span title="This agent asked a question only a human can answer — open the session">
                 <Badge tone="warn">Asking</Badge>

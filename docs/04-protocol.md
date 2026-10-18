@@ -30,7 +30,7 @@ Latency budget 50 ms; the shim times out at 400 ms and fails open — except for
 
 ## Normalized event types
 
-`session.started|ended`, `prompt.submitted`, `tool.requested|allowed|denied|completed`, `agent.text`, `agent.delta`, `subagent.started|stopped`, `claim.acquired|renewed|released|expired|orphaned`, `resource.acquired|released`, `process.started|exited`, `gate.recorded`, `incident.opened|acked`, `session.stuck` (M9.3: loop/stall heuristics over recent tool calls), `run.result`.
+`session.started|ended`, `prompt.submitted`, `tool.requested|allowed|denied|completed`, `agent.text`, `agent.delta`, `subagent.started|stopped`, `claim.acquired|renewed|released|expired|orphaned`, `resource.acquired|released`, `process.started|exited`, `gate.recorded`, `incident.opened|acked`, `session.stuck` (M9.3: loop/stall heuristics over recent tool calls), `background.stop_requested` (M13.14: the dashboard asked a session to stop a background task or cron it reported — a message naming `TaskStop` / `CronDelete`, never a kill), `run.result`.
 
 Every event also carries `actor` (`{kind: human|agent|run|daemon, id, session?}`, M8.2a) on the wire and in the DB.
 

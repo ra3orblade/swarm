@@ -3547,6 +3547,22 @@ button.swatch {
   background: var(--acc-soft);
   border-color: transparent;
 }
+/* M13.14: a background task or cron — what it is on the left, Stop on the right, one line each */
+.bg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bg-t {
+  flex: 1;
+  min-width: 0;
+}
+.bg-t > span:last-child {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .msg-f {
   display: block;
   font-size: var(--fs-2xs);

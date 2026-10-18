@@ -17,6 +17,7 @@ import { copyText } from "../../lib/copy";
 import { ago, big, modelName, shortPath, tokens, usd } from "../../lib/format";
 import { icon } from "../../lib/icon";
 import { useSnapshot } from "../../state/snapshot";
+import { Background } from "./Background";
 import { QuestionCard } from "./QuestionCard";
 import { TurnStrip } from "./TurnStrip";
 import type { Turn } from "./types";
@@ -113,6 +114,7 @@ export function SessionStats({ session, turns }: SessionStatsProps) {
         <span className="dim">None yet</span>
       )}
 
+      <Background session={session} />
       <MessageThread session={session} />
       <QuestionCards sessionId={session.id} />
       <TranscriptRow path={session.transcriptPath} />
