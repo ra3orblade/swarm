@@ -31,6 +31,8 @@ import {
   actorFromColumns,
   adoptedTask,
   auditRow,
+  type BackgroundSnapshot,
+  type BackgroundTarget,
   BUDGET_ASK_TOOLS,
   BUILD_DIRS,
   BURN_MIN_SPAN_MS,
@@ -155,6 +157,7 @@ import {
   type Project,
   pairWaits,
   parseAiderHistory,
+  parseBackground,
   parseCodexRollout,
   parseGeminiChat,
   parseGrokUpdates,
@@ -215,6 +218,7 @@ import {
   shouldAutoRenew,
   shouldFire,
   splitArmTask,
+  stopInstruction,
   suggestFromIncident,
   summarizeBootstrap,
   summarizeToolInput,
@@ -400,6 +404,8 @@ export class Store {
     );
     this.db.exec(SCHEMA);
     this.ensureColumn("sessions", "agent", "TEXT DEFAULT 'claude-code'");
+    // M13.14: the background tasks + crons the last Stop / SubagentStop reported (JSON)
+    this.ensureColumn("sessions", "background", "TEXT");
     this.ensureColumn("claims", "team_state", "TEXT"); // M8.3d: null | registered | conflict
     // M13.7: null = Swarm made the worktree; "claude-code" = adopted — recorded, never removed
     this.ensureColumn("claims", "origin", "TEXT");
@@ -1704,6 +1710,38 @@ export class Store {
     });
     this.wakeAll();
     return { ok: true, message };
+  }
+
+  /**
+   * M13.14: ask a session to stop one of the background tasks or crons it reported. Swarm cannot
+   * stop them itself (core/background.ts), so this is a message naming the exact tool call —
+   * refused for an id the last snapshot does not hold, or a session that has ended.
+   */
+  stopBackground(
+    sessionId: string,
+    target: BackgroundTarget,
+  ): { ok: true; message: Message } | { ok: false; error: string } {
+    const row = this.db
+      .query("SELECT project_id, state, background FROM sessions WHERE id = ?")
+      .get(sessionId) as { project_id: string; state: string; background: string | null } | null;
+    if (!row) return { ok: false, error: "unknown session" };
+    if (row.state === "ended") return { ok: false, error: "session has ended" };
+    const ask = stopInstruction(parseStoredBackground(row.background), target);
+    if (!ask)
+      return {
+        ok: false,
+        error: `${target.kind} ${target.id} is not in this session's last report`,
+      };
+    const r = this.send(row.project_id, { to: sessionId, text: ask.text, from: "dashboard" });
+    if (!r.ok) return r;
+    this.append({
+      ts: new Date().toISOString(),
+      type: "background.stop_requested",
+      projectId: row.project_id,
+      sessionId,
+      payload: { kind: target.kind, id: target.id, message: r.message.id, summary: ask.summary },
+    });
+    return r;
   }
 
   message(id: number): Message | null {
@@ -4160,6 +4198,17 @@ export class Store {
     }
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
+    // M13.14: only a turn end reports what is still running; a payload without the fields leaves
+    // the last snapshot alone rather than reading as "nothing running"
+    if ((event === "Stop" || event === "SubagentStop") && e.sessionId) {
+      const bg = parseBackground(raw, e.ts);
+      if (bg) {
+        this.db
+          .query("UPDATE sessions SET background = ? WHERE id = ?")
+          .run(JSON.stringify(bg), e.sessionId);
+        this.touch();
+      }
+    }
     // M4.4: every pause is a potential death — keep a structured auto-handoff current.
     if ((event === "Stop" || event === "SessionEnd") && e.sessionId) {
       if (existsSync(cwd)) {
@@ -4184,6 +4233,7 @@ export class Store {
 
   /** Ledger events that merely reference a session: not its activity, never its state. */
   private static LEDGER_EVENTS = new Set([
+    "background.stop_requested",
     "process.started",
     "process.exited",
     "resource.acquired",
@@ -4214,8 +4264,14 @@ export class Store {
     if (!e.sessionId || Store.LEDGER_EVENTS.has(e.type)) return;
     const p = e.payload as { summary?: string; cwd?: string | null; hook?: string; tool?: string };
     const row = this.db
-      .query("SELECT id, tool_counts, state FROM sessions WHERE id = ?")
-      .get(e.sessionId) as { id: string; tool_counts: string; state: string | null } | null;
+      .query("SELECT id, tool_counts, state, last, last_type FROM sessions WHERE id = ?")
+      .get(e.sessionId) as {
+      id: string;
+      tool_counts: string;
+      state: string | null;
+      last: string | null;
+      last_type: string | null;
+    } | null;
     const branch = p.cwd && existsSync(p.cwd) ? currentBranch(p.cwd) : null;
     if (!row) {
       this.db
@@ -4239,12 +4295,19 @@ export class Store {
     // as "waiting", which would count toward attention for a session that is gone.
     // Codex's Interrupt ends the turn the way Stop does
     const idle = p.hook === "Stop" || p.hook === "Interrupt" || e.type === "session.notification";
+    // M13.14: a subagent finishing says nothing about the parent's turn. Claude Code's own agents
+    // (the away recap, prompt suggestions) stop minutes after the parent's Stop with no start, and
+    // flipping to active there showed an idle session as working until its next prompt.
+    const keep = e.type === "subagent.stopped" && row?.state ? row.state : null;
     const state =
-      e.type === "session.ended" || (idle && row?.state === "ended")
+      keep ??
+      (e.type === "session.ended" || (idle && row?.state === "ended")
         ? "ended"
         : idle
           ? "waiting"
-          : "active";
+          : "active");
+    // ...and an idle session's "now" keeps reading as its turn end, not "subagent stopped"
+    const quiet = keep !== null && keep !== "active" && row?.last != null;
     this.db
       .query(
         `UPDATE sessions SET last_seen_at = ?, last = ?, last_type = ?, state = ?, tool_counts = ?,
@@ -4256,8 +4319,8 @@ export class Store {
       )
       .run(
         e.ts,
-        p.summary ?? e.type,
-        e.type,
+        quiet ? row?.last : (p.summary ?? e.type),
+        quiet ? row?.last_type : e.type,
         state,
         JSON.stringify(counts),
         e.type === "tool.requested" ? 1 : 0,
@@ -7666,6 +7729,7 @@ export class Store {
         lastType: r.last_type as string,
         lastText: (r.last_text as string) ?? null,
         state,
+        background: parseStoredBackground(r.background),
         stuck:
           state === "active" || state === "waiting"
             ? (this.stalls.get(r.id as string)?.reason ?? null)
@@ -8903,6 +8967,16 @@ export class Store {
  * tool response arrives in either shape. Parse when it parses, keep the raw string when it does
  * not — `toolResponseErrored` understands both.
  */
+/** The `sessions.background` column back as a snapshot; null for none or a row that will not parse. */
+function parseStoredBackground(v: unknown): BackgroundSnapshot | null {
+  if (typeof v !== "string") return null;
+  try {
+    return JSON.parse(v) as BackgroundSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 function safeJson(v: string | null): unknown {
   if (v === null) return null;
   try {

@@ -1,4 +1,5 @@
 import type { Actor } from "./actor";
+import type { BackgroundSnapshot } from "./background";
 /** Normalized Swarm event types (docs/04-protocol.md).
  *
  * A runtime list, not a bare union: the dashboard subscribes to the SSE stream by event name,
@@ -50,6 +51,7 @@ export const EVENT_TYPES = [
   "permission.reviewed", // M12.7: the reviewer looked at an ask
   "session.notification",
   "session.stuck",
+  "background.stop_requested", // M13.14: the dashboard asked a session to stop a task / cron
   "workflow.started",
   "workflow.step",
   "workflow.finished",
@@ -137,6 +139,8 @@ export interface SessionView {
   lastType: string;
   lastText: string | null;
   state: "active" | "waiting" | "idle" | "ended";
+  /** M13.14: background tasks + crons as of the last turn end, null when never reported. */
+  background: BackgroundSnapshot | null;
   /** M9.3: stall reason when the loop heuristics flag this live session, else null. */
   stuck: string | null;
   toolCalls: number;

@@ -1367,6 +1367,14 @@ export function createApp(
       ? c.json({ ...r, resumedFrom: c.req.param("id") }, 201)
       : c.json({ ok: false, error: r.reason }, 409);
   });
+  // M13.14: ask the session to stop a background task / cron it reported (a message, not a kill)
+  app.post("/v1/sessions/:id/background/stop", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { kind?: unknown; id?: unknown };
+    if ((b.kind !== "task" && b.kind !== "cron") || typeof b.id !== "string" || !b.id)
+      return c.json({ ok: false, error: 'kind ("task" | "cron") and id required' }, 400);
+    const r = store.stopBackground(c.req.param("id"), { kind: b.kind, id: b.id });
+    return r.ok ? c.json(r) : c.json(r, 400);
+  });
   app.post("/v1/sessions/:id/tail", (c) => c.json({ turns: store.tailSession(c.req.param("id")) }));
 
   // ---- ingestion

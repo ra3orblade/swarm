@@ -189,6 +189,21 @@ export async function claimTask(projectId: string, task: string): Promise<WriteR
   return result;
 }
 
+/**
+ * M13.14: ask a session to stop a background task or cron it reported. The daemon sends the agent
+ * a message naming `TaskStop` / `CronDelete`; nothing is killed from here.
+ */
+export async function stopBackground(
+  sessionId: string,
+  target: { kind: "task" | "cron"; id: string },
+): Promise<WriteResult> {
+  const result = asResult(
+    await send(`/v1/sessions/${encodeURIComponent(sessionId)}/background/stop`, "POST", target),
+  );
+  await refreshSnapshot();
+  return result;
+}
+
 /** What a gate run reported: what ran, what passed, and what was skipped and why. */
 export interface GateRunResult {
   started?: string[];

@@ -6,6 +6,7 @@ export * from "./adapters/claude-code/transcript";
 export * from "./agenthooks";
 export * from "./art";
 export * from "./audit";
+export * from "./background";
 export * from "./budget";
 export * from "./coaching";
 export * from "./collision-context";

@@ -49,6 +49,7 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   "collision.warned": "collide",
   "message.delivered": "woke",
   "session.stuck": "stuck",
+  "background.stop_requested": "stop?",
   "permission.requested": "perm?",
   "permission.resolved": "perm",
   "claim.acquired": "claim",
@@ -98,7 +99,8 @@ const PROSE = new Set([
 function runText(run: SubagentRun): string {
   const what = run.title ?? run.agentType ?? "subagent";
   const facts = [
-    run.ranMs === null ? "running" : `ran ${duration(run.ranMs)}`,
+    // no start seen (Claude Code's own agents never send one): it stopped, for how long is unknown
+    run.ranMs === null ? (run.stop ? "stopped" : "running") : `ran ${duration(run.ranMs)}`,
     run.tokens !== null && `${big(run.tokens)} tokens`,
     run.toolUses !== null && `${run.toolUses} tool${run.toolUses === 1 ? "" : "s"}`,
   ].filter(Boolean);
