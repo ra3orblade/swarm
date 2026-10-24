@@ -67,4 +67,6 @@ Every group above ships today. **v0.14.0 is the Act release** (2026-09-12): inte
 
 **M12 Reach** (from the 2026-09-06 landscape survey in [15-landscape](15-landscape.md)) continues in 0.15: OpenTelemetry export, rules on Codex / Gemini CLI / Cursor, a destructive-command family with secrets and tamper guards, sandboxed runs, a reviewer on permission prompts, user-defined signals and a score, cost by MCP server, and CI feedback into the run — decisions OQ-20 – OQ-23 in [open questions](07-open-questions.md) — alongside the rest of M13 (worktrees Claude Code creates, guards at the moment of a model switch or config change, memory across compaction, scheduled workflows, findings that become issues).
 
+**M14 Secure** is the next release (v0.18.0, direction set 2026-10-24, [16-security](16-security.md)): each project's stack read from its lockfiles, known advisories on the exact versions it runs (OSV, off until you enable it), a security news feed ranked by that stack with customizable sources and a check that a source parses, an incident per advisory, and a `vulnerable_install` rule that asks before an agent installs a version with one — decisions OQ-31 – OQ-36.
+
 See [open questions](07-open-questions.md) for decisions still in the air.
