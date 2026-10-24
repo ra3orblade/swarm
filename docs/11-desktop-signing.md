@@ -41,6 +41,8 @@ With none set, `desktop:build` produces an unsigned dev build.
 
 The workflow uploads the `.dmg` plus the updater artifacts and `latest.json` to a draft Release; the app's updater polls `releases/latest/download/latest.json`.
 
+Each leg of the desktop matrix merges its platforms into that `latest.json` by downloading, deleting and re-uploading it, and two legs that finish within a second of each other read it in each other's gap — 0.18.1 shipped a manifest with only the Linux platforms, and the macOS app reported that none of its fallback platforms were found. The `updater-manifest` job therefore rebuilds the manifest once after every leg with `tools/updater-json.ts`, from the `.sig` assets on the release; run it by hand (`bun tools/updater-json.ts vX.Y.Z > latest.json`, then `gh release upload vX.Y.Z latest.json --clobber`) to repair a release that already shipped.
+
 ## Linux packaging: the daemon ships gzipped
 
 AppImage bundling runs `linuxdeploy`, which walks **every ELF file in the AppDir** — `usr/bin` and
