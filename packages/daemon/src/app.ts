@@ -41,6 +41,7 @@ import { worktreeDiff, worktreePatch } from "./git";
 import { OtelExporter } from "./otel";
 import { type PermissionMode, type RunInput, Runner } from "./runner";
 import { Scheduler } from "./schedules";
+import { SecurityService } from "./security";
 import { Store } from "./store";
 import { TeamForwarder } from "./team";
 import { fetchTeamd, hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
@@ -128,6 +129,7 @@ export function createApp(
   const workflows = new WorkflowEngine(store, runner, forge, scheduler);
   const team = new TeamForwarder(store, VERSION);
   const otel = new OtelExporter(store, VERSION);
+  const security = new SecurityService(store, VERSION);
   // [budget] on_exceed = "stop": halt what is spending on its own — spawned runs and the queue.
   store.onBudgetStop((projectId) => {
     dispatcher.clear(projectId);
@@ -277,6 +279,9 @@ export function createApp(
       ),
     ),
   );
+  // M14.1: what each project runs, from its lockfiles (local, read-only)
+  app.get("/v1/stack", (c) => c.json(store.stackReport(c.req.query("project") || undefined)));
+  app.post("/v1/security/refresh", (c) => c.json({ ok: true, status: security.refresh() }));
   app.get("/v1/heat", (c) =>
     c.json(
       store.fileHeat(
@@ -1705,5 +1710,5 @@ export function createApp(
     });
   });
 
-  return { app, store, forge, runner, dispatcher, workflows, scheduler, team, otel };
+  return { app, store, forge, runner, dispatcher, workflows, scheduler, team, otel, security };
 }

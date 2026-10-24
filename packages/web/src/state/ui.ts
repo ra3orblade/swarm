@@ -24,6 +24,8 @@ interface UiState {
   sidebarWidth: number;
   /** Sub-tab within the Graphs view. */
   graphTab: string;
+  /** Sub-tab within the Security view (M14): activity · stack · advisories. */
+  securityTab: string;
   /**
    * The Search view's query. It lives here rather than in the view because the ⌘K palette seeds it
    * — "search Swarm for X" has to survive the navigation that shows the results.
@@ -45,6 +47,7 @@ interface UiState {
   toggleSidebar: () => void;
   setSidebarWidth: (px: number) => void;
   setGraphTab: (tab: string) => void;
+  setSecurityTab: (tab: string) => void;
   /** Set the query and go to Search. */
   setSearch: (query: string) => void;
   setBoardWorktrees: (mode: "map" | "table") => void;
@@ -73,6 +76,7 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       sidebarWidth: SIDEBAR_WIDTH.default,
       graphTab: "collisions",
+      securityTab: "activity",
       search: "",
       boardWorktrees: "map",
       boardTasks: "table",
@@ -88,6 +92,7 @@ export const useUiStore = create<UiState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
       setGraphTab: (graphTab) => set({ graphTab }),
+      setSecurityTab: (securityTab) => set({ securityTab }),
       setSearch: (search) => set({ search, view: "search", session: null }),
       setBoardWorktrees: (boardWorktrees) => set({ boardWorktrees }),
       setBoardTasks: (boardTasks) => set({ boardTasks }),
@@ -102,6 +107,7 @@ export const useUiStore = create<UiState>()(
         sidebarCollapsed: s.sidebarCollapsed,
         sidebarWidth: s.sidebarWidth,
         graphTab: s.graphTab,
+        securityTab: s.securityTab,
         boardWorktrees: s.boardWorktrees,
         boardTasks: s.boardTasks,
       }),

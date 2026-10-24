@@ -84,6 +84,8 @@ Read it as what it is. A host here means an agent *named* it — `echo https://e
 
 It exists so you know what your fleet actually does, and can then decide what to write an `ask` [rule](03-rules-and-config.md) about.
 
+The view has tabs. **Activity** is the scan above. **Stack** is what each project *runs*: Swarm reads the lockfiles in the project root and one level down — `bun.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `uv.lock`, `poetry.lock`, pinned `requirements.txt` — and the `uses:` lines of the workflows under `.github`, and lists every package with its version, its scope (runtime, development, or unknown for a transitive one) and the manifest it came from. The daemon re-reads a file only when its mtime or size moves, nothing is written into the repository, and no network is involved; a file it cannot parse is listed with the error instead of failing the scan. Turn it off with `[security] stack = false`. An empty folder is an empty stack.
+
 ## Rules — is a rule teaching anyone anything?
 
 A rule that fires once and never again worked: somebody learned. A rule that fires forty times on the same shaped command is not teaching, it is friction — either the habit needs changing or the rule does. This view clusters each rule's incidents by what they actually fired on, shows the trend (rising, steady, falling), a sparkline of the last 30 days, how concentrated the incidents are on one shape, and how many were acknowledged.

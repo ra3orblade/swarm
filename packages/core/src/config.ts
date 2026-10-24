@@ -222,6 +222,8 @@ export interface SwarmConfig {
     /** Also allow the remote hosts this project's agents reached in the last 14 days. */
     seed: boolean;
   };
+  /** M14 security layer (docs/16). Global only: a repo cannot switch advisories on or add a feed. */
+  security: SecurityConfig;
   worktree: {
     /** Shell command run inside every new worktree right after `git worktree add`
      *  (e.g. `"bun install"`); null = nothing. Runs in the background; a non-zero exit opens an
@@ -236,7 +238,116 @@ export interface SwarmConfig {
   };
 }
 
+/** A news source (M14.2): the same shape as a `[[security.feeds]]` entry. */
+export interface FeedSource {
+  name: string;
+  url: string;
+  kind: "vendor" | "authority" | "press" | "ai";
+}
+
+export type AdvisorySeverity = "critical" | "high" | "medium" | "low" | "unknown";
+
+export interface SecurityConfig {
+  /** M14.1: read each project's lockfiles (local, read-only, never written back). */
+  stack: boolean;
+  /** M14.4: ask OSV about the exact versions in the lockfiles. The query carries each dependency's
+   *  ecosystem, name and version — the project's dependency list — and nothing else. Off until set. */
+  advisories: boolean;
+  /** M14.5: open an incident at this severity or above. */
+  advisory_min_severity: AdvisorySeverity;
+  /** M14.2: read the security news feeds (public RSS / Atom; the request carries nothing about you). */
+  news: boolean;
+  /** Days items are kept (1–365). */
+  news_days: number;
+  /** Minutes between feed reads (10–1440). */
+  refresh_minutes: number;
+  /** Built-in feed kinds to read; `vendor` / `ai` items show whole, `authority` / `press` need a keyword. */
+  kinds: FeedSource["kind"][];
+  /** Extra relevance words on top of the ones derived from each project's stack. */
+  keywords: string[];
+  /** Built-in sources to skip, by name. */
+  feeds_off: string[];
+  /** `[[security.feeds]]`: your own sources, appended to the built-ins. */
+  feeds: FeedSource[];
+}
+
+export const DEFAULT_SECURITY: SecurityConfig = {
+  stack: true,
+  advisories: false,
+  advisory_min_severity: "high",
+  news: true,
+  news_days: 30,
+  refresh_minutes: 30,
+  kinds: ["vendor", "authority", "press"],
+  keywords: [],
+  feeds_off: [],
+  feeds: [],
+};
+
+const FEED_KINDS: FeedSource["kind"][] = ["vendor", "authority", "press", "ai"];
+const SEVERITIES: AdvisorySeverity[] = ["critical", "high", "medium", "low", "unknown"];
+
+/** `[[security.feeds]]` entries that are usable: a name, an http(s) URL, a known kind; duplicates by URL dropped. */
+export function parseSecurityFeeds(raw: unknown): FeedSource[] {
+  if (!Array.isArray(raw)) return [];
+  const out: FeedSource[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const f = r as Record<string, unknown>;
+    const name = typeof f.name === "string" ? f.name.trim().slice(0, 60) : "";
+    const url = typeof f.url === "string" ? f.url.trim() : "";
+    if (!name || !/^https?:\/\/\S+$/.test(url)) continue;
+    const key = url
+      .toLowerCase()
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const kind = FEED_KINDS.includes(f.kind as FeedSource["kind"])
+      ? (f.kind as FeedSource["kind"])
+      : "press";
+    out.push({ name, url, kind });
+  }
+  return out;
+}
+
+function validateSecurity(raw: unknown): SecurityConfig {
+  const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const int = (v: unknown, lo: number, hi: number, dflt: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= lo && n <= hi ? Math.round(n) : dflt;
+  };
+  const strings = (v: unknown) =>
+    Array.isArray(v)
+      ? [
+          ...new Set(
+            v
+              .filter((x): x is string => typeof x === "string" && x.trim() !== "")
+              .map((x) => x.trim()),
+          ),
+        ]
+      : [];
+  return {
+    stack: s.stack !== false,
+    advisories: s.advisories === true,
+    advisory_min_severity: SEVERITIES.includes(s.advisory_min_severity as AdvisorySeverity)
+      ? (s.advisory_min_severity as AdvisorySeverity)
+      : "high",
+    news: s.news !== false,
+    news_days: int(s.news_days, 1, 365, 30),
+    refresh_minutes: int(s.refresh_minutes, 10, 1440, 30),
+    kinds: Array.isArray(s.kinds)
+      ? FEED_KINDS.filter((k) => (s.kinds as unknown[]).includes(k))
+      : DEFAULT_SECURITY.kinds,
+    keywords: strings(s.keywords).slice(0, 200),
+    feeds_off: strings(s.feeds_off),
+    feeds: parseSecurityFeeds(s.feeds),
+  };
+}
+
 export const DEFAULT_CONFIG: SwarmConfig = {
+  security: DEFAULT_SECURITY,
   daemon: { port: 7777, auth: "loopback-optional" },
   tasks: { source: null, labels: [], team: null },
   gates: {
@@ -546,6 +657,7 @@ function validate(c: SwarmConfig): SwarmConfig {
         : [],
       seed: (c.sandbox as { seed?: unknown } | undefined)?.seed !== false,
     },
+    security: validateSecurity(c.security),
     worktree: {
       setup: typeof setup === "string" && setup.trim() ? setup.trim() : null,
       copy: Array.isArray(c.worktree?.copy)
