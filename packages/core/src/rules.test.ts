@@ -385,3 +385,44 @@ describe("M14.5 vulnerable_install", () => {
     ]);
   });
 });
+
+describe("M14.10 secret_commit", () => {
+  const { DEFAULT_MODES: M, guardBash: g } = require("./rules") as typeof import("./rules");
+  const current = { id: "s1", toplevel: "/repo" };
+
+  it("asks on a staged credential file and on a staged token, by mode, and fails open without a reader", () => {
+    expect(g("git add .env", current, [], Date.now(), M, {})).toMatchObject({
+      action: "ask",
+      rule: "secret_commit",
+    });
+    const diff = () => '+++ b/x\n+const k = "AKIAIOSFODNN7EXAMPLE";\n';
+    const d = g("git commit -m wip", current, [], Date.now(), M, { stagedDiff: diff });
+    expect(d).toMatchObject({ action: "ask", rule: "secret_commit" });
+    expect((d as { reason: string }).reason).toContain("an AWS access key");
+    expect((d as { reason: string }).reason).toContain("rotate it");
+    expect(
+      g(
+        "git commit -m wip",
+        current,
+        [],
+        Date.now(),
+        { ...M, secret_commit: "deny" },
+        { stagedDiff: diff },
+      ).action,
+    ).toBe("deny");
+    expect(
+      g(
+        "git commit -m wip",
+        current,
+        [],
+        Date.now(),
+        { ...M, secret_commit: "off" },
+        { stagedDiff: diff },
+      ).action,
+    ).toBe("allow");
+    expect(g("git commit -m wip", current, [], Date.now(), M, {}).action).toBe("allow");
+    expect(
+      g("git commit -m wip", current, [], Date.now(), M, { stagedDiff: () => "+clean\n" }).action,
+    ).toBe("allow");
+  });
+});

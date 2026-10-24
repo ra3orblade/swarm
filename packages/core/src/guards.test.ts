@@ -257,3 +257,56 @@ describe("M14.5 vulnerable_install", () => {
     ).toContain("no fixed version is named yet");
   });
 });
+
+describe("M14.10 secret_commit", () => {
+  const { secretCommit, secretTokensIn } = require("./guards") as typeof import("./guards");
+
+  test("stages or commits a credential file by name; a message that mentions .env does not count", () => {
+    expect(secretCommit("git add .env")?.what).toBe(
+      "stages a .env file into the repository (git add)",
+    );
+    expect(secretCommit("git add src && git add .env.production")?.what).toContain(
+      "stages a .env file",
+    );
+    expect(secretCommit("git commit -m fix config/.env")?.what).toContain("commits a .env file");
+    expect(secretCommit("git rm --cached ~/.ssh/id_rsa")?.what).toContain("SSH private key");
+    expect(secretCommit("git add .env.example")).toBeNull();
+    expect(secretCommit('git commit -m "handle .env loading"')).toBeNull();
+    expect(secretCommit("git rm .env")).toBeNull(); // removing it from the tree is the fix, not the leak
+    expect(secretCommit("echo git add .env")).toBeNull(); // not in command position
+  });
+
+  test("a commit whose staged diff adds a token, read lazily and only on commit", () => {
+    const diff = [
+      "diff --git a/app.ts b/app.ts",
+      "+++ b/app.ts",
+      "-const key = process.env.KEY;",
+      '+const key = "AKIAIOSFODNN7EXAMPLE";',
+    ].join("\n");
+    let reads = 0;
+    const staged = () => {
+      reads++;
+      return diff;
+    };
+    expect(secretCommit("git add app.ts", staged)).toBeNull();
+    expect(reads).toBe(0);
+    expect(secretCommit("git commit -m x", staged)?.what).toBe(
+      "commits an AWS access key — it is on an added line of the staged diff",
+    );
+    expect(reads).toBe(1);
+    expect(secretCommit("git commit -m x", () => "+const a = 1;\n")).toBeNull();
+    expect(secretCommit("git commit -m x", () => null)).toBeNull(); // no repo: fail open
+    expect(secretCommit("git commit -m x")).toBeNull(); // no reader (the offline shim)
+  });
+
+  test("secretTokensIn names the shape, never the value, and ignores removed lines", () => {
+    expect(secretTokensIn(`-ghp_${"a".repeat(36)}`)).toBeNull();
+    expect(secretTokensIn(`+token = ghp_${"a".repeat(36)}`)).toBe("a GitHub token");
+    expect(secretTokensIn(`+ANTHROPIC=sk-ant-api03-${"x".repeat(40)}`)).toBe(
+      "an Anthropic API key",
+    );
+    expect(secretTokensIn("+-----BEGIN OPENSSH PRIVATE KEY-----")).toBe("a private key");
+    expect(secretTokensIn("+SLACK=xoxb-1234567890-abcdef")).toBe("a Slack token");
+    expect(secretTokensIn("+const url = 'https://example.com';")).toBeNull();
+  });
+});

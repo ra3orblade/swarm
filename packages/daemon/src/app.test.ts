@@ -4221,3 +4221,39 @@ describe("M14.9 dispatch a fix", () => {
     }
   }, 20_000);
 });
+
+describe("M14.10 secret_commit", () => {
+  const { writeFileSync: writeF } = require("node:fs") as typeof import("node:fs");
+  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+
+  it("asks before a credential file is staged or a token is committed, from the real staged diff", () => {
+    const { store } = createApp(new Store(tmpHome()));
+    const root = mkdtempSync(join(tmpdir(), "swarm-secret-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+    git("init", "-q");
+    git("config", "user.email", "t@example.com");
+    git("config", "user.name", "t");
+    writeF(join(root, "README.md"), "# x\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "init");
+    store.resolveProject(root, true, "secretive");
+
+    const ev = (command: string) =>
+      store.evaluateTool("Bash", { command }, "sess-sec", root, false).decision;
+    expect(ev("git add .env")).toMatchObject({ action: "ask", rule: "secret_commit" });
+    expect(ev("git add README.md").action).toBe("allow");
+
+    // a token on an added, staged line — found through git diff --cached, not the command text
+    writeF(join(root, "app.ts"), 'const key = "AKIAIOSFODNN7EXAMPLE";\n');
+    git("add", "app.ts");
+    const d = ev("git commit -m 'add client'");
+    expect(d).toMatchObject({ action: "ask", rule: "secret_commit" });
+    expect((d as { reason: string }).reason).toContain("an AWS access key");
+
+    // unstaged again: the same commit is clean
+    git("reset", "-q", "app.ts");
+    writeF(join(root, "README.md"), "# x\nmore\n");
+    git("add", "README.md");
+    expect(ev("git commit -m 'docs'").action).toBe("allow");
+  });
+});

@@ -360,3 +360,12 @@ function realpathOr(p: string) {
     return p;
   }
 }
+
+/**
+ * M14.10: the staged diff, added lines only (`-U0`, no colour, no external diff), for the
+ * `secret_commit` family. Null when the directory is not a repository or git fails — the rule
+ * then fails open, which is the documented behaviour.
+ */
+export function stagedDiff(cwd: string): string | null {
+  return git(cwd, ["diff", "--cached", "--no-color", "--no-ext-diff", "-U0"]);
+}
