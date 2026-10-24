@@ -369,14 +369,20 @@ export function createApp(
       ),
     ),
   );
-  app.get("/v1/context", (c) =>
-    c.json(
+  // One path, two readers: with `cwd` it is the M7.10 session context (what `SessionStart`
+  // injects, refreshable through `swarm_context`); without it, the M9.6 context-waste report.
+  // These were two registrations and Hono answered from the first, so `swarm_context` always
+  // got the report and said "nothing to report" — found by the M14.8 test.
+  app.get("/v1/context", (c) => {
+    const cwd = c.req.query("cwd");
+    if (cwd) return c.json(store.contextFor(cwd, c.req.query("session") || null));
+    return c.json(
       store.context(
         c.req.query("project") || undefined,
         Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7)),
       ),
-    ),
-  );
+    );
+  });
   app.get("/v1/mcp/health", (c) =>
     c.json(
       store.mcpHealth(
@@ -909,12 +915,6 @@ export function createApp(
   });
   // M12.3: the plan quota windows the statusline reported (also in the snapshot)
   app.get("/v1/quota", (c) => c.json(store.quota()));
-  // ---- M7.10: the SessionStart context, refreshable mid-session
-  app.get("/v1/context", (c) => {
-    const cwd = c.req.query("cwd");
-    if (!cwd) return c.json({ error: "cwd required" }, 400);
-    return c.json(store.contextFor(cwd, c.req.query("session") || null));
-  });
   // ---- ask the human (M7.7)
   app.get("/v1/questions", (c) =>
     c.json(
