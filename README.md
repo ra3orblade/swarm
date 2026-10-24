@@ -164,7 +164,7 @@ swarm msg send <to> "…" · ls                     # message a session, a task 
 swarm res ls | acquire <name> [--pid n] [--port n] | release <name> [--force]
 swarm serve start [--name web] -- <cmd>   # dev server: port allocated, PORT set, pid tracked, port protected
 swarm proc start [--name n] -- <cmd>      # same, for workers without a port · serve/proc ls | stop
-swarm stats [--json]           # all-time totals, streak, records
+swarm stats [--days n] [--json] # all-time totals, streak, 7d/30d windows, models, tools, records
 swarm search <query>           # memory over handoffs, incidents, gates, what sessions said
 swarm rules dryrun [--set rule=mode,…]    # replay history under rule modes; shows what would fire
 
