@@ -159,6 +159,10 @@ config_tamper     = "ask" # changing Claude Code settings, ~/.swarm, .swarm.toml
 # advisory in the local advisory table. Inert until [security] advisories = true has filled that
 # table; never a network call on the hook path.
 vulnerable_install = "ask"
+# M14.10: `git add .env`, a commit naming a credential file, or a `git commit` whose staged diff
+# adds a token (AWS, GitHub, Anthropic, OpenAI, Slack, GitLab, Google, Stripe, npm, a private key
+# block). The diff is read with `git diff --cached` only when the command commits.
+secret_commit = "ask"
 
 # Your own rules (M13.5): tested in order against every Bash command, after the rules above (a deny
 # above is never softened here). `match` is a regex over the whole command; with action = "rewrite"
