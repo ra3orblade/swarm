@@ -14,6 +14,7 @@ import {
   guardConfigFile,
   pipeToShell,
   secretCommand,
+  secretCommit,
   secretFile,
   type VulnLookup,
   vulnerableInstall,
@@ -136,6 +137,8 @@ export type RuleId =
   | "config_tamper"
   // M14.5: installing an exact version with a known advisory (local table, never the network)
   | "vulnerable_install"
+  // M14.10: staging or committing a credential file, or a staged diff that adds a token
+  | "secret_commit"
   // M13.5 `[[rules.custom]]`: the user's own, named in config
   | `custom:${string}`;
 export type GuardDecision =
@@ -188,6 +191,8 @@ export interface RuleModes {
   config_tamper?: "ask" | "deny" | "off";
   /** M14.5: `npm i a@1.2.3` / `pip install a==1.2.3` naming a version with a known advisory. */
   vulnerable_install?: "ask" | "deny" | "off";
+  /** M14.10: `git add .env`, `git commit` of a credential file, or a staged diff carrying a token. */
+  secret_commit?: "ask" | "deny" | "off";
   /** M13.3, read by the daemon only; optional here so older policy caches still evaluate. */
   collision_context?: boolean;
   collision_window?: number;
@@ -210,6 +215,7 @@ export const DEFAULT_MODES: RuleModes = {
   secrets: "ask",
   config_tamper: "ask",
   vulnerable_install: "ask",
+  secret_commit: "ask",
   protected: { ports: [] },
 };
 
@@ -221,6 +227,7 @@ export const FAMILY_RULES = [
   "secrets",
   "config_tamper",
   "vulnerable_install",
+  "secret_commit",
 ] as const;
 export type FamilyRule = (typeof FAMILY_RULES)[number];
 
@@ -231,6 +238,8 @@ export function familyHitsBash(
   toplevel: string | null,
   /** M14.5: the daemon's local advisory lookup; without it the family is silent (the offline shim). */
   knownVulnerable?: VulnLookup,
+  /** M14.10: the daemon reads `git diff --cached` lazily; without it only the file names count. */
+  stagedDiff?: () => string | null,
 ): Array<{ rule: FamilyRule; what: string }> {
   const out: Array<{ rule: FamilyRule; what: string }> = [];
   const add = (rule: FamilyRule, h: FamilyHit | null) => h && out.push({ rule, what: h.what });
@@ -240,6 +249,7 @@ export function familyHitsBash(
   add("secrets", secretCommand(cmd));
   add("config_tamper", configTamperCommand(cmd, home));
   if (knownVulnerable) add("vulnerable_install", vulnerableInstall(cmd, knownVulnerable));
+  add("secret_commit", secretCommit(cmd, stagedDiff));
   return out;
 }
 
@@ -271,6 +281,8 @@ const FAMILY_REASON: Record<FamilyRule, (what: string) => string> = {
     `This ${w} — the settings that decide what agents may do. Ask the owner to change them.`,
   vulnerable_install: (w) =>
     `This ${w}. Install the fixed version instead, or ask the owner to accept the risk.`,
+  secret_commit: (w) =>
+    `This ${w}. A secret in git history stays there after the next commit removes it: unstage it, move the value to an environment variable or a secret store, and rotate it if it was ever pushed.`,
 };
 
 /** A family hit as a decision under `modes` (first hit whose mode is not off). */
@@ -443,7 +455,12 @@ export function guardBash(
   modes: RuleModes = DEFAULT_MODES,
   /** M13.5: which one-time rewrites this session already went through (by `key`); M12.5: the
    *  home directory the families expand `~` against (defaults to $HOME). */
-  ctx: { rewritesDone?: ReadonlySet<string>; home?: string; knownVulnerable?: VulnLookup } = {},
+  ctx: {
+    rewritesDone?: ReadonlySet<string>;
+    home?: string;
+    knownVulnerable?: VulnLookup;
+    stagedDiff?: () => string | null;
+  } = {},
 ): GuardDecision {
   const other = () => otherLiveInSameTree(current, sessions, now);
   const hit = (
@@ -509,6 +526,7 @@ export function guardBash(
         ctx.home ?? process.env.HOME ?? "",
         current.toplevel,
         ctx.knownVulnerable,
+        ctx.stagedDiff,
       ),
       modes,
     );

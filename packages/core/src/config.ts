@@ -50,6 +50,8 @@ export interface RulesConfig {
   config_tamper: RuleMode;
   /** M14.5: installing an exact version with a known advisory in the local table (never the network). */
   vulnerable_install: RuleMode;
+  /** M14.10: `git add` / `git commit` of a credential file, or a staged diff that adds a token. */
+  secret_commit: RuleMode;
   /** M13.3: after an edit, tell the session when another live session edited the same file
    *  within `collision_window` minutes (on PostToolUse). */
   collision_context: boolean;
@@ -401,6 +403,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     secrets: "ask",
     config_tamper: "ask",
     vulnerable_install: "ask",
+    secret_commit: "ask",
     collision_context: true,
     collision_window: 15,
     protected: { ports: [] },
@@ -686,6 +689,7 @@ function validate(c: SwarmConfig): SwarmConfig {
       secrets: mode(c.rules?.secrets, "ask"),
       config_tamper: mode(c.rules?.config_tamper, "ask"),
       vulnerable_install: mode(c.rules?.vulnerable_install, "ask"),
+      secret_commit: mode(c.rules?.secret_commit, "ask"),
       collision_context: c.rules?.collision_context !== false,
       collision_window: (() => {
         const n = Number(c.rules?.collision_window);

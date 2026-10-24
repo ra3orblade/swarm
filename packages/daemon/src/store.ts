@@ -288,6 +288,7 @@ import {
   heldWork,
   listWorktreesAsync,
   originUrl,
+  stagedDiff,
   type Worktree,
   worktreeAdd,
   worktreeDiff,
@@ -1459,6 +1460,7 @@ export class Store {
         "secrets",
         "config_tamper",
         "vulnerable_install",
+        "secret_commit",
       ] as const
     )
       .filter((k) => (modes[k] ?? "off") !== "off")
@@ -3576,7 +3578,8 @@ export class Store {
           ...modes,
           protected: { ports: [...new Set([...modes.protected.ports, ...this.heldPorts()])] },
         },
-        this.rewriteCtx(sessionId),
+        // M14.10: `git diff --cached` is read only when the command commits and the family is on
+        { ...this.rewriteCtx(sessionId), stagedDiff: () => (cwd ? stagedDiff(cwd) : null) },
       );
       if (d.action !== "allow" && recordIncident) this.openIncident(d, cwd, sessionId, cmd);
       return { decision: d, display: cmd };

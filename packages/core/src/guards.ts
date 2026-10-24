@@ -448,3 +448,58 @@ export function vulnerableInstall(cmd: string, lookup: VulnLookup): FamilyHit | 
   }
   return null;
 }
+
+// ---------- M14.10 secret_commit
+
+/** Token shapes with a vendor prefix: unambiguous enough to name, cheap enough for the hook path. */
+const SECRET_TOKENS: Array<{ what: string; re: RegExp }> = [
+  { what: "a private key", re: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/ },
+  { what: "an AWS access key", re: /\bAKIA[0-9A-Z]{16}\b/ },
+  { what: "a GitHub token", re: /\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b/ },
+  { what: "an Anthropic API key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/ },
+  { what: "an OpenAI API key", re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}/ },
+  { what: "a Slack token", re: /\bxox[baprs]-[A-Za-z0-9-]{10,}/ },
+  { what: "a GitLab token", re: /\bglpat-[A-Za-z0-9_-]{20,}/ },
+  { what: "a Google API key", re: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+  { what: "a Stripe live key", re: /\b[sr]k_live_[0-9a-zA-Z]{24,}\b/ },
+  { what: "an npm token", re: /\bnpm_[A-Za-z0-9]{36}\b/ },
+];
+
+/** The first credential shape on an *added* line of a unified diff, or null. Names only, never the value. */
+export function secretTokensIn(diff: string): string | null {
+  for (const line of diff.split("\n")) {
+    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+    for (const t of SECRET_TOKENS) if (t.re.test(line)) return t.what;
+  }
+  return null;
+}
+
+/**
+ * `git add` / `git commit` naming a credential file, or a `git commit` whose staged diff adds a
+ * token. The diff is read lazily through `stagedDiff` (the daemon runs `git diff --cached`), and
+ * only when the command commits — so an `add` costs nothing beyond the text match. Quoted
+ * strings are dropped first: a commit message that mentions `.env` is not a secret.
+ */
+export function secretCommit(cmd: string, stagedDiff?: () => string | null): FamilyHit | null {
+  let commits = false;
+  for (const raw of cmd.split(/&&|\|\||[;\n|]/)) {
+    const seg = raw.trim();
+    const m = /^git\s+(?:-C\s+\S+\s+)?(add|stage|commit|rm)\b(.*)$/.exec(seg);
+    if (!m) continue;
+    const verb = m[1] as string;
+    const args = (m[2] ?? "").replace(/"[^"]*"|'[^']*'/g, "");
+    if (verb === "rm" && !/--cached\b/.test(args)) continue;
+    if (verb === "commit") commits = true;
+    const what = secretFileIn(args);
+    if (what)
+      return {
+        what: `${verb === "commit" ? "commits" : "stages"} ${what} into the repository (git ${verb})`,
+      };
+  }
+  if (commits && stagedDiff) {
+    const diff = stagedDiff();
+    const what = diff ? secretTokensIn(diff) : null;
+    if (what) return { what: `commits ${what} — it is on an added line of the staged diff` };
+  }
+  return null;
+}
