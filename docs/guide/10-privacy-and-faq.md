@@ -33,7 +33,7 @@ Nothing is written inside your repositories. The dashboard is served on `127.0.0
 
 ## What can leave the machine
 
-Seven things, each optional and under your control:
+Eight things, each optional and under your control:
 
 1. **Model prices.** On start, the daemon fetches LiteLLM's public price list from GitHub so costs stay current (and *Refresh pricing* in settings does it on demand). The request carries nothing about you. Set `SWARM_OFFLINE=1` to never make it; costs then use the built-in table plus `~/.swarm/pricing.json`.
 2. **`gh` and `glab`.** The [PRs view](06-pull-requests.md) runs those CLIs, which talk to GitHub/GitLab with their own credentials. Swarm stores no tokens and makes no forge requests itself. Without the CLIs installed, nothing happens.
@@ -42,6 +42,7 @@ Seven things, each optional and under your control:
 5. **Incident webhook** — only if you set `[notify] webhook`; each incident is POSTed to that URL as `{text}` JSON.
 6. **OTLP export** — only if you set `[otel] endpoint` to a collector of your choosing. Session spans (tool names, timings, success) and token / cost metrics go there; commands, file paths and prompt text do not unless you also set `include_content = true`.
 7. **Security news sources** (M14.2) — on by default: every `[security] refresh_minutes` the daemon reads the built-in list of public RSS / Atom feeds (the projects' own security channels, CISA and CERT-Bund, the security press; the [Observatory guide](12-observatory.md) names them) plus any `[[security.feeds]]` you add. The request carries a `swarm/<version>` user agent and nothing about you or your projects; what your projects run is matched *locally* against what came back. `[security] news = false` or `SWARM_OFFLINE=1` stops it.
+8. **OSV advisories** (M14.4) — **off until you set `[security] advisories = true`**. Then, every six hours and after a lockfile changes, the daemon asks `api.osv.dev` about the exact versions your projects run. The query carries each dependency's ecosystem, name and version — the project's dependency list — and nothing else: no project name, no path, no machine identifier beyond a `swarm/<version>` user agent. `SWARM_OFFLINE=1` wins over the switch.
 
 With none of those configured, no session content, command, transcript, token count or cost ever leaves your machine.
 

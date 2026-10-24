@@ -247,6 +247,12 @@ import {
   WRITE_TOOLS,
   waitingReport,
 } from "@swarm/core";
+import {
+  type Advisory,
+  type AdvisoryHit,
+  type AdvisoryReport,
+  OSV_SENDS,
+} from "@swarm/core/advisories";
 import type { FeedSource } from "@swarm/core/config";
 import {
   type FeedItem,
@@ -411,6 +417,27 @@ CREATE TABLE IF NOT EXISTS news_items (
 );
 CREATE INDEX IF NOT EXISTS news_items_published ON news_items(published);
 CREATE INDEX IF NOT EXISTS news_items_feed ON news_items(feed_url, published);
+-- M14.4: the OSV advisory cache; kept while a hit references it
+CREATE TABLE IF NOT EXISTS advisories (
+  id TEXT PRIMARY KEY, aliases TEXT NOT NULL DEFAULT '[]', summary TEXT NOT NULL DEFAULT '',
+  severity TEXT NOT NULL, cvss REAL, url TEXT NOT NULL, published TEXT, modified TEXT, fetched_at TEXT NOT NULL
+);
+-- M14.4 / M14.5: which package versions an advisory names — the table the hook reads; ranges stay
+-- JSON because version comparison is not SQL's job
+CREATE TABLE IF NOT EXISTS advisory_packages (
+  advisory_id TEXT NOT NULL, ecosystem TEXT NOT NULL, name TEXT NOT NULL,
+  ranges TEXT NOT NULL DEFAULT '[]', versions TEXT NOT NULL DEFAULT '[]', fixed TEXT,
+  PRIMARY KEY (advisory_id, ecosystem, name)
+);
+CREATE INDEX IF NOT EXISTS advisory_packages_pkg ON advisory_packages(ecosystem, name);
+-- M14.4: an advisory that applies to a version a project runs; incident_seq is the once-only dedupe
+CREATE TABLE IF NOT EXISTS advisory_hits (
+  project_id TEXT NOT NULL, advisory_id TEXT NOT NULL, ecosystem TEXT NOT NULL, name TEXT NOT NULL,
+  version TEXT NOT NULL, manifest TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '',
+  first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, resolved_at TEXT, incident_seq INTEGER, acked_at TEXT,
+  PRIMARY KEY (project_id, advisory_id, ecosystem, name, version, manifest)
+);
+CREATE INDEX IF NOT EXISTS advisory_hits_open ON advisory_hits(project_id, resolved_at);
 `;
 
 /** How a gate run is asked for. `worktree`/`diffBase` are M13.10's scratch-worktree runs. */
@@ -4015,6 +4042,7 @@ export class Store {
     this.cwdProject.clear();
     this.wtCache.delete(id);
     this.touch();
+    this.db.query("DELETE FROM advisory_hits WHERE project_id = ?").run(id);
     // M14.1: the stack goes with the project
     this.db.query("DELETE FROM stack_packages WHERE project_id = ?").run(id);
     this.db.query("DELETE FROM stack_manifests WHERE project_id = ?").run(id);
@@ -4216,6 +4244,7 @@ export class Store {
     // M12.3: quota samples are only ever read over the last 8 days
     this.db.query("DELETE FROM quota WHERE at < ?").run(Date.now() - 14 * 86_400_000);
     this.pruneNews();
+    this.pruneAdvisories();
     // chatter (tool calls, deltas, …) ages out; audit records only when [audit] retain_days > 0
     let n = this.db
       .query(`DELETE FROM events WHERE ts < ? AND type NOT IN (${AUDIT_TYPES_SQL})`)
@@ -7049,6 +7078,256 @@ export class Store {
     n += this.db
       .query("DELETE FROM news_items WHERE feed_url NOT IN (SELECT url FROM news_feeds)")
       .run().changes;
+    return n;
+  }
+
+  // ---------- M14.4 advisories
+
+  /** Every cached advisory id with its `modified`, so a re-query fetches only what changed. */
+  knownAdvisories(): Map<string, string | null> {
+    return new Map(
+      (
+        this.db.query("SELECT id, modified FROM advisories").all() as Array<{
+          id: string;
+          modified: string | null;
+        }>
+      ).map((r) => [r.id, r.modified]),
+    );
+  }
+
+  upsertAdvisories(list: readonly Advisory[], fetchedAt: string): void {
+    const up = this.db.query(
+      `INSERT OR REPLACE INTO advisories (id, aliases, summary, severity, cvss, url, published, modified, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const del = this.db.query("DELETE FROM advisory_packages WHERE advisory_id = ?");
+    const pkg = this.db.query(
+      "INSERT OR REPLACE INTO advisory_packages (advisory_id, ecosystem, name, ranges, versions, fixed) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    this.db.transaction(() => {
+      for (const a of list) {
+        up.run(
+          a.id,
+          JSON.stringify(a.aliases),
+          a.summary,
+          a.severity,
+          a.cvss,
+          a.url,
+          a.published,
+          a.modified,
+          fetchedAt,
+        );
+        del.run(a.id);
+        for (const p of a.packages)
+          pkg.run(
+            a.id,
+            p.ecosystem,
+            p.name,
+            JSON.stringify(p.ranges),
+            JSON.stringify(p.versions),
+            p.fixed,
+          );
+      }
+    })();
+  }
+
+  /** The cached records for a set of ids, with their packages. */
+  advisoriesById(ids: readonly string[]): Map<string, Advisory> {
+    const out = new Map<string, Advisory>();
+    if (!ids.length) return out;
+    const want = new Set(ids);
+    const rows = this.db.query("SELECT * FROM advisories").all() as Array<Record<string, unknown>>;
+    for (const r of rows) {
+      if (!want.has(r.id as string)) continue;
+      out.set(r.id as string, {
+        id: r.id as string,
+        aliases: JSON.parse((r.aliases as string) || "[]"),
+        summary: (r.summary as string) ?? "",
+        severity: r.severity as Advisory["severity"],
+        cvss: (r.cvss as number | null) ?? null,
+        url: r.url as string,
+        published: (r.published as string | null) ?? null,
+        modified: (r.modified as string | null) ?? null,
+        packages: [],
+      });
+    }
+    const pkgs = this.db.query("SELECT * FROM advisory_packages").all() as Array<
+      Record<string, unknown>
+    >;
+    for (const p of pkgs) {
+      const a = out.get(p.advisory_id as string);
+      if (!a) continue;
+      a.packages.push({
+        ecosystem: p.ecosystem as Advisory["packages"][number]["ecosystem"],
+        name: p.name as string,
+        ranges: JSON.parse((p.ranges as string) || "[]"),
+        versions: JSON.parse((p.versions as string) || "[]"),
+        fixed: (p.fixed as string | null) ?? null,
+      });
+    }
+    return out;
+  }
+
+  /** The hits of one pass for one project: new rows opened, known rows touched, absent rows resolved. */
+  syncAdvisoryHits(
+    projectId: string,
+    hits: readonly AdvisoryHit[],
+    now: string,
+  ): { opened: number; resolved: number } {
+    const key = (h: {
+      advisoryId: string;
+      ecosystem: string;
+      name: string;
+      version: string;
+      manifest: string;
+    }) => [h.advisoryId, h.ecosystem, h.name, h.version, h.manifest].join("\u0000");
+    const open = new Map(
+      (
+        this.db
+          .query(
+            "SELECT advisory_id, ecosystem, name, version, manifest FROM advisory_hits WHERE project_id = ? AND resolved_at IS NULL",
+          )
+          .all(projectId) as Array<Record<string, string>>
+      ).map((r) => [
+        key({
+          advisoryId: r.advisory_id as string,
+          ecosystem: r.ecosystem as string,
+          name: r.name as string,
+          version: r.version as string,
+          manifest: r.manifest as string,
+        }),
+        r,
+      ]),
+    );
+    const up = this.db.query(
+      `INSERT INTO advisory_hits (project_id, advisory_id, ecosystem, name, version, manifest, scope, first_seen, last_seen)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, advisory_id, ecosystem, name, version, manifest)
+       DO UPDATE SET last_seen = excluded.last_seen, resolved_at = NULL, scope = excluded.scope`,
+    );
+    const resolve = this.db.query(
+      "UPDATE advisory_hits SET resolved_at = ? WHERE project_id = ? AND advisory_id = ? AND ecosystem = ? AND name = ? AND version = ? AND manifest = ? AND resolved_at IS NULL",
+    );
+    let opened = 0;
+    let resolved = 0;
+    this.db.transaction(() => {
+      const seen = new Set<string>();
+      for (const h of hits) {
+        const k = key(h);
+        seen.add(k);
+        if (!open.has(k)) opened++;
+        up.run(
+          projectId,
+          h.advisoryId,
+          h.ecosystem,
+          h.name,
+          h.version,
+          h.manifest,
+          h.scope,
+          now,
+          now,
+        );
+      }
+      for (const [k, r] of open)
+        if (!seen.has(k)) {
+          resolve.run(
+            now,
+            projectId,
+            r.advisory_id as string,
+            r.ecosystem as string,
+            r.name as string,
+            r.version as string,
+            r.manifest as string,
+          );
+          resolved++;
+        }
+    })();
+    if (opened || resolved) this.touch();
+    return { opened, resolved };
+  }
+
+  /** `GET /v1/advisories`: open hits first, then the ones resolved in the last 30 days. */
+  advisoryReport(projectId?: string): AdvisoryReport {
+    const cfg = this.policyFor(null).config.security;
+    const live = new Set(this.liveProjects().map((p) => p.id));
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const rows = this.db
+      .query(
+        `SELECT h.*, a.aliases, a.summary, a.severity, a.cvss, a.url, a.published, a.modified,
+                p.fixed AS fixed, (h.acked_at IS NOT NULL) AS acked
+         FROM advisory_hits h JOIN advisories a ON a.id = h.advisory_id
+         LEFT JOIN advisory_packages p ON p.advisory_id = h.advisory_id AND p.ecosystem = h.ecosystem AND lower(p.name) = lower(h.name)
+         WHERE (h.resolved_at IS NULL OR h.resolved_at >= ?)${projectId ? " AND h.project_id = ?" : ""}
+         ORDER BY h.resolved_at IS NOT NULL, a.severity = 'critical' DESC, a.severity = 'high' DESC, a.severity = 'medium' DESC, h.first_seen DESC`,
+      )
+      .all(...(projectId ? [since, projectId] : [since])) as Array<Record<string, unknown>>;
+    const counts: AdvisoryReport["counts"] = {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      unknown: 0,
+    };
+    const hits: AdvisoryReport["hits"] = [];
+    for (const r of rows) {
+      if (!live.has(r.project_id as string)) continue;
+      const severity = r.severity as Advisory["severity"];
+      if (r.resolved_at == null) counts[severity]++;
+      hits.push({
+        projectId: r.project_id as string,
+        advisory: {
+          id: r.advisory_id as string,
+          aliases: JSON.parse((r.aliases as string) || "[]"),
+          summary: (r.summary as string) ?? "",
+          severity,
+          cvss: (r.cvss as number | null) ?? null,
+          url: r.url as string,
+          published: (r.published as string | null) ?? null,
+          modified: (r.modified as string | null) ?? null,
+        },
+        ecosystem: r.ecosystem as AdvisoryReport["hits"][number]["ecosystem"],
+        name: r.name as string,
+        version: r.version as string,
+        fixed: (r.fixed as string | null) ?? null,
+        manifest: r.manifest as string,
+        scope: r.scope as AdvisoryReport["hits"][number]["scope"],
+        firstSeen: r.first_seen as string,
+        resolvedAt: (r.resolved_at as string | null) ?? null,
+        acked: Boolean(r.acked),
+      });
+    }
+    return {
+      enabled: cfg.advisories,
+      offline: process.env.SWARM_OFFLINE === "1",
+      lastFetch: this.metaValue("security_osv_at"),
+      lastError: this.metaValue("security_osv_error"),
+      minSeverity: cfg.advisory_min_severity,
+      counts,
+      hits,
+      enable: {
+        file: "~/.swarm/config.toml",
+        toml: "[security]\nadvisories = true",
+        sends: OSV_SENDS,
+      },
+    };
+  }
+
+  /** Resolved hits older than 90 days go; so does an advisory no hit references, 30 days after its fetch. */
+  pruneAdvisories(): number {
+    const hits = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    let n = this.db
+      .query("DELETE FROM advisory_hits WHERE resolved_at IS NOT NULL AND resolved_at < ?")
+      .run(hits).changes;
+    const stale = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const gone = this.db
+      .query(
+        "SELECT id FROM advisories WHERE fetched_at < ? AND id NOT IN (SELECT advisory_id FROM advisory_hits)",
+      )
+      .all(stale) as Array<{ id: string }>;
+    for (const g of gone) {
+      this.db.query("DELETE FROM advisory_packages WHERE advisory_id = ?").run(g.id);
+      n += this.db.query("DELETE FROM advisories WHERE id = ?").run(g.id).changes;
+    }
     return n;
   }
 

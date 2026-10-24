@@ -284,9 +284,16 @@ export function createApp(
   app.get("/v1/stack", (c) => c.json(store.stackReport(c.req.query("project") || undefined)));
   app.post("/v1/security/refresh", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { what?: unknown };
-    const what = body.what === "stack" || body.what === "news" ? body.what : "all";
+    const what =
+      body.what === "stack" || body.what === "news" || body.what === "advisories"
+        ? body.what
+        : "all";
     return c.json({ ok: true, status: await security.refresh(what) });
   });
+  // M14.4: known advisories on the exact versions each project runs (opt-in)
+  app.get("/v1/advisories", (c) =>
+    c.json(store.advisoryReport(c.req.query("project") || undefined)),
+  );
   // M14.2: the security news, narrowed to the selected project's stack keywords
   app.get("/v1/news", (c) => {
     const kinds = (c.req.query("kind") ?? "")
