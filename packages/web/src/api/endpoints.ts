@@ -34,6 +34,7 @@ import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import type { FoundTeam } from "@swarm/core/mdns";
+import type { NewsReport } from "@swarm/core/newsfeed";
 import type { StackReport } from "@swarm/core/stack";
 import type { WaitingReport } from "@swarm/core/waiting";
 import type { SignalsResponse } from "../views/Signals";
@@ -92,6 +93,12 @@ export const routes = {
   security: (project: string | null) => byProject<SecurityReport>("/v1/security", project),
   /** M14.1: what each project runs, from its lockfiles. */
   stack: (project: string | null) => byProject<StackReport>("/v1/stack", project),
+  /** M14.2: the security news for the scope; `kinds` empty = every configured kind. */
+  news: (
+    project: string | null,
+    o: { kinds: readonly string[]; unread: boolean; all: boolean },
+  ): Route<NewsReport> =>
+    `/v1/news${query({ project, kind: o.kinds.length ? o.kinds.join(",") : null, unread: o.unread ? 1 : null, all: o.all ? 1 : null })}`,
   provenance: (project: string | null) => byProject<ProvenanceReport>("/v1/provenance", project),
   ruleEffect: (project: string | null) => byProject<RuleEffectReport>("/v1/rules/effect", project),
   /** M12.4: which agents the rules hold on. */

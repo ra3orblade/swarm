@@ -86,6 +86,12 @@ It exists so you know what your fleet actually does, and can then decide what to
 
 The view has tabs. **Activity** is the scan above. **Stack** is what each project *runs*: Swarm reads the lockfiles in the project root and one level down — `bun.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `uv.lock`, `poetry.lock`, pinned `requirements.txt` — and the `uses:` lines of the workflows under `.github`, and lists every package with its version, its scope (runtime, development, or unknown for a transitive one) and the manifest it came from. The daemon re-reads a file only when its mtime or size moves, nothing is written into the repository, and no network is involved; a file it cannot parse is listed with the error instead of failing the scan. Turn it off with `[security] stack = false`. An empty folder is an empty stack.
 
+## News — the security news that concerns your stack
+
+A separate view in the Guard group. The daemon reads a built-in list of public RSS / Atom sources every half hour — the projects' own security channels (Node.js, Python, PyPI, Django, PostgreSQL, GitHub, AWS, …), two authorities (CISA, CERT-Bund) and the security press — and matches every item against the packages your projects run. **The sidebar's project filter is the relevance filter**: a vendor's own channel is shown whole, the authorities and the press only when an item names something the selected project runs (a product like PostgreSQL or Next.js, an ecosystem like npm, a package by name). The words that matched are shown on the row; *All items* shows what was fetched regardless.
+
+Mark an item read with the row's action, or all of them from the heading. Sources are configured in `[security]` ([config](03-rules-and-config.md)): `kinds` picks which built-in kinds are read (the AI press is off by default), `feeds_off` skips a source by name, `keywords` adds words of your own, and `[[security.feeds]]` adds your own sources. The request carries a `swarm/<version>` user agent and nothing about you; `news = false` or `SWARM_OFFLINE=1` stops it entirely.
+
 ## Rules — is a rule teaching anyone anything?
 
 A rule that fires once and never again worked: somebody learned. A rule that fires forty times on the same shaped command is not teaching, it is friction — either the habit needs changing or the rule does. This view clusters each rule's incidents by what they actually fired on, shows the trend (rising, steady, falling), a sparkline of the last 30 days, how concentrated the incidents are on one shape, and how many were acknowledged.

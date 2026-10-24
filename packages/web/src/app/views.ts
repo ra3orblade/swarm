@@ -42,6 +42,7 @@ export const VIEW_DEFS = [
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight" },
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight" },
   { id: "security", label: "Security", icon: "shield", group: "Guard" },
+  { id: "news", label: "News", icon: "broadcast", group: "Guard" },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard" },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard" },
   { id: "signals", label: "Signals", icon: "bell", group: "Guard" },

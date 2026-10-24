@@ -31,6 +31,7 @@ import {
   taskPrompt,
   WRITE_TOOLS,
 } from "@swarm/core";
+import { NEWS_KINDS, type NewsKind } from "@swarm/core/newsfeed";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCodify } from "./codify";
@@ -281,7 +282,35 @@ export function createApp(
   );
   // M14.1: what each project runs, from its lockfiles (local, read-only)
   app.get("/v1/stack", (c) => c.json(store.stackReport(c.req.query("project") || undefined)));
-  app.post("/v1/security/refresh", (c) => c.json({ ok: true, status: security.refresh() }));
+  app.post("/v1/security/refresh", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { what?: unknown };
+    const what = body.what === "stack" || body.what === "news" ? body.what : "all";
+    return c.json({ ok: true, status: await security.refresh(what) });
+  });
+  // M14.2: the security news, narrowed to the selected project's stack keywords
+  app.get("/v1/news", (c) => {
+    const kinds = (c.req.query("kind") ?? "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter((k): k is NewsKind => (NEWS_KINDS as readonly string[]).includes(k));
+    const days = Number(c.req.query("days"));
+    return c.json(
+      store.newsReport(c.req.query("project") || undefined, {
+        kinds,
+        ...(Number.isFinite(days) && days > 0 ? { days } : {}),
+        unread: c.req.query("unread") === "1",
+        all: c.req.query("all") === "1",
+      }),
+    );
+  });
+  app.post("/v1/news/read", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { keys?: unknown; all?: unknown };
+    const keys = Array.isArray(body.keys)
+      ? body.keys.filter((k): k is string => typeof k === "string")
+      : [];
+    const n = body.all === true ? store.markNewsRead("all") : store.markNewsRead(keys);
+    return c.json({ ok: true, marked: n });
+  });
   app.get("/v1/heat", (c) =>
     c.json(
       store.fileHeat(

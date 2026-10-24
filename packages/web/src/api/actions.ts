@@ -95,6 +95,11 @@ export async function ackAllIncidents(project: string | null): Promise<void> {
   await refreshSnapshot();
 }
 
+/** M14.2: mark news items read — the keys given, or everything in the window. The view re-polls. */
+export async function markNewsRead(keys: readonly string[] | "all"): Promise<void> {
+  await send("/v1/news/read", "POST", keys === "all" ? { all: true } : { keys });
+}
+
 /** Release a claim. `force` takes it from whoever holds it; the worktree is untouched either way. */
 export async function releaseClaim(
   projectId: string,
