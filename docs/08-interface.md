@@ -8,8 +8,9 @@ The first three are surfaces you *go to*. The fourth comes to you: it is the onl
 
 ## Shipped today (0.14.0)
 
-- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs / Trials / Hygiene · Insight: Outcomes / Gates / MCP / Context / Files / Spend / Stats / Search · Guard: Security / Provenance / Incidents / Rules / Team — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
+- **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs / Trials / Hygiene · Insight: Outcomes / Gates / MCP / Context / Files / Spend / Stats / Search · Guard: Security / Provenance / Incidents / Signals / Rules / Team — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
 - **Board** = a KPI strip (live / held / worktrees / ready or projects / incidents) + Tasks as a kanban (Ready · In progress · Blocked · Done) + Dispatch + Gates + Processes + Resources + Claims + a Worktree map (one tile per worktree, grouped by project, colored by live / dirty / unpushed / merged) + Incidents. Tasks and Worktrees carry a Cards/Table toggle (persisted). Every row, card and tile has one menu — the hover kebab, right-click, or Enter when focused — instead of inline action links; the menu carries the row's actions (open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy …) with destructive ones last and confirmed. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.
+- **Planned (M14, [16-security](16-security.md))**: Security gains tabs Activity · Stack · Advisories, and **News** joins Guard — a security news feed ranked by the selected project's stack, with customizable sources and a format check. Not shipped; rows ⚪ in the roadmap.
 - **Steering** (M13): Fleet rows carry the permission-broker Allow/Deny card for *interactive* sessions, not just spawned runs, and Incidents carry Codify → Apply. The Session input box exists for spawned runs (M3.3).
 - **Not yet**: the full keyboard map (`g f`, `j/k`, `?`) and the Settings page — project settings live in the sidebar menu, hook/rule status in `swarm doctor`. The ⌘K palette shipped with M9.1.
 - **CLI** and **MCP** sections below are split into *Today* / *Planned*; section D lists the HTTP routes the daemon actually serves and section E the in-session surface.
@@ -363,8 +364,8 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `POST /v1/incidents/:seq/ack` · `POST /v1/incidents/ack` · `POST /v1/incidents/:seq/apply` | ack one / ack all; `apply` is M13.11 **Codify → Apply**: turn a lesson into a repo change on its own branch, committed and PR'd, never in the main checkout |
 | `GET /v1/hygiene?project=` · `POST /v1/hygiene/reclaim` | M10: reclaimable build output and stale worktrees; `reclaim` clears the ones you name |
 | `GET /v1/heat?project=` | M9.13 file heat: which files the fleet touches most, and who contends for them |
-| `GET /v1/security?project=` | M9.16 security audit: what rules stopped, what got through, secrets-adjacent tool calls |
-| `GET /v1/rules/effect?project=` | M9.17 rule effectiveness: per rule, how often it fired, was acked, or was worked around |
+| `GET /v1/security?project=` | M9.9 security audit: what rules stopped, what got through, secrets-adjacent tool calls |
+| `GET /v1/rules/effect?project=` | M9.10 rule effectiveness: per rule, how often it fired, was acked, or was worked around |
 | `GET /v1/provenance?project=` | M9.14: which session, model and prompt produced each shipped line |
 | `GET /v1/attribution?project=` | the same join rolled up per author/agent |
 | `GET /v1/ab?project=` · `POST /v1/ab` | M9.15 A/B trials: model/prompt arms and their outcomes |
@@ -376,6 +377,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `POST /v1/backup` | `swarm backup` over HTTP (VACUUM INTO, zero downtime) |
 | `POST /v1/shutdown` | evict whoever holds `daemon.json` — how the desktop app always runs *its own* daemon rather than serving a clone's stale bundle |
 | `GET /` · `GET /:file.(js|css)` | the dashboard |
+| *planned (M14)* `GET /v1/stack` · `GET /v1/advisories` · `GET /v1/news` · `GET /v1/news/feeds` · `POST /v1/news/feeds/check` · `POST /v1/news/read` · `POST /v1/security/refresh` | the security layer of [16-security](16-security.md): each project's stack, its OSV advisories (opt-in), the news feed and its sources, the "does this source parse" check |
 
 Not built: a unix socket. Stdin for spawned runs is `POST /v1/runs/:id/send`.
 
