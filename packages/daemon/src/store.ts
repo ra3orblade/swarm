@@ -202,6 +202,7 @@ import {
   reviewGateInput,
   reviewPrompt,
   ruleEffect,
+  SETTINGS_FILE,
   type SequenceStep,
   type SessionView,
   type SignalCall,
@@ -246,6 +247,7 @@ import {
   type WorktreeSample,
   WRITE_TOOLS,
   waitingReport,
+  withSetting,
 } from "@swarm/core";
 import {
   type Advisory,
@@ -3360,6 +3362,34 @@ export class Store {
    */
   invalidateConfig(): void {
     this.policyCache.clear();
+  }
+
+  /**
+   * The advisories switch (M14.12). It writes the daemon's own `settings.toml`, never
+   * `config.toml`; that file and the policy sit above it, so a value either sets outright cannot be
+   * switched from here — the answer names the file to change instead.
+   */
+  setAdvisories(
+    enabled: boolean,
+  ):
+    | { ok: true; enabled: boolean; source: "settings" }
+    | { ok: false; error: string; source: "global" | "policy" } {
+    const loaded = this.policyFor(null);
+    const source = loaded.provenance["security.advisories"] ?? "default";
+    if (
+      (source === "global" || source === "policy") &&
+      loaded.config.security.advisories !== enabled
+    )
+      return {
+        ok: false,
+        error: `advisories are set to ${String(!enabled)} in ~/.swarm/${source === "policy" ? "policy.toml" : "config.toml"}; change it there`,
+        source,
+      };
+    const path = join(this.home, SETTINGS_FILE);
+    const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+    writeFileSync(path, withSetting(existing, "security", "advisories", enabled));
+    this.invalidateConfig();
+    return { ok: true, enabled, source: "settings" };
   }
 
   /** Config with provenance for a repo, cached 30 s (same cadence the rules always had). */
@@ -7418,7 +7448,8 @@ export class Store {
 
   /** `GET /v1/advisories`: open hits first, then the ones resolved in the last 30 days. */
   advisoryReport(projectId?: string): AdvisoryReport {
-    const cfg = this.policyFor(null).config.security;
+    const loaded = this.policyFor(null);
+    const cfg = loaded.config.security;
     const live = new Set(this.liveProjects().map((p) => p.id));
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
     const rows = this.db
@@ -7487,6 +7518,8 @@ export class Store {
         file: "~/.swarm/config.toml",
         toml: "[security]\nadvisories = true",
         sends: OSV_SENDS,
+        source: loaded.provenance["security.advisories"] ?? "default",
+        settingsFile: `~/.swarm/${SETTINGS_FILE}`,
       },
     };
   }

@@ -4,7 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
-| [0.18.1](#0181--2026-10-24) | Oct 24 | The news as a paper: datelines, tiers, pictures, a calendar |
+| [0.18.1](#0181--2026-10-24) | Oct 24 | The news as a paper · a switch for advisories |
 | [0.18.0](#0180--2026-10-24) | Oct 24 | What each project runs, what of it is known-bad, what is happening around it · two new rules · `swarm security` |
 | [0.17.0](#0170--2026-10-16) | Oct 16 | Codex gets the whole hook pipeline · cost by MCP, skill and subagent · CI resumes the run · signals |
 | [0.16.0](#0160--2026-10-01) | Oct 1 | The guards ask by default · sandboxed runs · a reviewer on prompts · scheduled workflows |
@@ -34,7 +34,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 ## [0.18.1] — 2026-10-24
 
-The News view reads like a paper now. The table it shipped with a few hours ago was a list of headlines; nobody reads news as a list.
+The News view reads like a paper now, and advisories have a switch. The table News shipped with a few hours ago was a list of headlines, and nobody reads news as a list; and nobody wants to paste two TOML lines to flip one setting.
 
 ### Changes
 
@@ -42,6 +42,7 @@ The News view reads like a paper now. The table it shipped with a few hours ago 
 - **Pictures.** An article's picture comes from its feed, or — since 13 of the 27 built-in sources give a picture to no article at all — from the article's own page: the daemon reads the head of the page once for its Open Graph picture, with the same user agent as a feed read, and never asks that page again. `[security] pictures = false` keeps the daemon to the feeds; the privacy guide says what the default fetches.
 - **A calendar.** A month calendar beside the items shades the days by how many articles they hold; a day narrows the paper and the table to itself, and the chip over them lets it go.
 - **A newspaper icon** for News in the Guard menu, which shared the RSS glyph with Team.
+- **Turn on advisories.** A button on the Advisories tab, and `swarm security advisories on|off`. It writes `~/.swarm/settings.toml`, a file the daemon owns, layered *under* `config.toml` — so a value you wrote by hand still wins, and when it does the tab names the file instead of the button. The daemon never edits `config.toml`. The TOML to paste is still there for anyone who prefers it.
 
 ## [0.18.0] — 2026-10-24
 

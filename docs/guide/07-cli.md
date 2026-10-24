@@ -237,7 +237,7 @@ The [security layer](12-observatory.md#security--what-agents-reached-for) from t
 
 ```sh
 swarm security stack                       # what each project runs, from its lockfiles
-swarm security advisories [--min high] [--all]   # known advisories on those versions (once [security] advisories = true)
+swarm security advisories [on|off] [--min high] [--all]   # known advisories on those versions; on|off is the switch (writes ~/.swarm/settings.toml)
 swarm security news [--kind vendor,press] [--days 7] [--unread] [--all]
 swarm security feeds ls                    # every source with its state
 swarm security feeds check [url]           # one URL, or every configured source, through the daemon's own reader; exit 1 if any is `none`

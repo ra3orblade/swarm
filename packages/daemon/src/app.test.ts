@@ -4015,6 +4015,55 @@ describe("M14.4 advisories", () => {
       server.stop(true);
     }
   }, 20_000);
+  it("the switch writes settings.toml, never config.toml, and defers to a value config.toml sets (M14.12)", async () => {
+    const { readFileSync: readF, existsSync: exists } =
+      require("node:fs") as typeof import("node:fs");
+    const osv = Bun.serve({ port: 0, fetch: () => Response.json({ results: [] }) });
+    try {
+      const home = tmpHome();
+      const { app, security } = createApp(new Store(home));
+      security.osvBase = `http://127.0.0.1:${osv.port}/v1`;
+      const post = (a: ReturnType<typeof createApp>["app"], enabled: unknown) =>
+        a.request("/v1/advisories/enable", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+      const state = async () =>
+        (await (await app.request("/v1/advisories")).json()) as {
+          enabled: boolean;
+          enable: { source: string; settingsFile: string };
+        };
+      expect((await state()).enable).toMatchObject({
+        source: "default",
+        settingsFile: "~/.swarm/settings.toml",
+      });
+      expect(await (await post(app, true)).json()).toEqual({
+        ok: true,
+        enabled: true,
+        source: "settings",
+      });
+      expect(await state()).toMatchObject({ enabled: true, enable: { source: "settings" } });
+      expect(readF(join(home, "settings.toml"), "utf8")).toContain("[security]\nadvisories = true");
+      expect(exists(join(home, "config.toml"))).toBe(false);
+      expect(await (await post(app, false)).json()).toMatchObject({ ok: true, enabled: false });
+      expect((await state()).enabled).toBe(false);
+      expect((await post(app, "yes")).status).toBe(400);
+
+      // config.toml says so outright: the switch cannot win against it and names the file
+      writeF(join(home, "config.toml"), "[security]\nadvisories = false\n");
+      const again = createApp(new Store(home));
+      const refused = (await (await post(again.app, true)).json()) as {
+        ok: boolean;
+        error?: string;
+        source: string;
+      };
+      expect(refused).toMatchObject({ ok: false, source: "global" });
+      expect(refused.error).toContain("config.toml");
+    } finally {
+      osv.stop(true);
+    }
+  });
 });
 
 describe("M14.5 act", () => {

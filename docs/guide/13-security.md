@@ -12,7 +12,7 @@ Local, read-only, no network. `[security] stack = false` turns it off. An empty 
 
 ## Advisories — what of it is known to be bad
 
-**Guard → Security → Advisories.** Off until you set it:
+**Guard → Security → Advisories.** Off until you turn it on: press **Turn on advisories** on the tab (or run `swarm security advisories on`). That writes `~/.swarm/settings.toml`, the daemon's own file; it never edits `config.toml`. The other way is the config itself, which wins over the switch — if `config.toml` or the policy sets `advisories = false` outright, the tab says so and names the file:
 
 ```toml
 # ~/.swarm/config.toml
@@ -51,7 +51,7 @@ Both `ask` by default; see [rules](03-rules-and-config.md).
 
 ```sh
 swarm security stack
-swarm security advisories [--min high] [--all]
+swarm security advisories [on|off] [--min high] [--all]
 swarm security news [--kind vendor,press] [--days 7] [--unread] [--all]
 swarm security feeds ls | feeds check [url]
 swarm security report [--days 7]       # markdown per project, for an issue or a weekly note
@@ -84,4 +84,4 @@ vulnerable_install = "ask"
 secret_commit = "ask"
 ```
 
-Global only (`~/.swarm/config.toml`): a repository's `.swarm.toml` cannot add a source or switch advisories on for the machine. The full reference is in [config](03-rules-and-config.md); what leaves the machine is spelled out in [privacy](10-privacy-and-faq.md).
+Global only (`~/.swarm/config.toml`, or `~/.swarm/settings.toml` for what the switch wrote): a repository's `.swarm.toml` cannot add a source or switch advisories on for the machine. The full reference is in [config](03-rules-and-config.md); what leaves the machine is spelled out in [privacy](10-privacy-and-faq.md).

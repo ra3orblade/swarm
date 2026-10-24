@@ -2,11 +2,12 @@
 
 Status: current. The TOML config layers and the rule modes they control.
 
-Three TOML layers, deep-merged over built-in defaults — later wins:
+Four TOML layers, deep-merged over built-in defaults — later wins:
 
 1. `~/.swarm/policy.toml` (or the file `SWARM_POLICY` points at) — org policy, optional (M8.1)
-2. `~/.swarm/config.toml` — global, per-machine
-3. `<repo>/.swarm.toml` — per-repo (commit it; it's how a repo declares its rules)
+2. `~/.swarm/settings.toml` — what the dashboard's switches wrote (M14.12: `[security] advisories`); the daemon's own file, never `config.toml`
+3. `~/.swarm/config.toml` — global, per-machine; wins over a switch
+4. `<repo>/.swarm.toml` — per-repo (commit it; it's how a repo declares its rules)
 
 The policy layer is the only one that may carry `locked`: a list of dotted keys (or whole
 subtrees) that the layers below cannot change. A locked key keeps the policy's value — or the
@@ -343,7 +344,9 @@ feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark 
 # name = "Our vendor"
 # url = "https://vendor.example/security.rss"
 # kind = "vendor"              # vendor | authority | press | ai (default "press")
-# M14.4: ask OSV (https://api.osv.dev) about the exact versions in the lockfiles — every six hours
+# M14.4: ask OSV (https://api.osv.dev) about the exact versions in the lockfiles — every six hours.
+# The Advisories tab's switch (or `swarm security advisories on`) writes this key to
+# ~/.swarm/settings.toml instead of here; a value written here wins over the switch.
 # and after a stack change. The query carries each dependency's ecosystem, name and version — the
 # project's dependency list — and nothing else. Off until you set it; SWARM_OFFLINE=1 wins.
 advisories = false

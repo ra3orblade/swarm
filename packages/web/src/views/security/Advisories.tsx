@@ -1,13 +1,14 @@
 /**
  * Security › Advisories (M14.4): known advisories on the exact versions each project runs.
  *
- * Off until `[security] advisories = true` — the card below says what the query sends and shows
- * the two lines to paste. The daemon does the asking (OSV, every six hours and after a stack
+ * Off until switched on — the card below says what the query sends and carries the switch
+ * (M14.12: the daemon writes its own `settings.toml`, never `config.toml`), with the two TOML
+ * lines as the other way. The daemon does the asking (OSV, every six hours and after a stack
  * change); this tab only reads the hits.
  */
 import type { AdvisoryReport } from "@swarm/core/advisories";
 import { useMemo, useState } from "react";
-import { fixAdvisory } from "../../api/actions";
+import { fixAdvisory, setAdvisories } from "../../api/actions";
 import { routes } from "../../api/endpoints";
 import { useResource } from "../../api/useResource";
 import { type Column, DataGrid } from "../../components/DataGrid";
@@ -55,10 +56,20 @@ export function AdvisoriesTab() {
 
   if (error && !data) return <Failed error={error} onRetry={reload} />;
   if (!data) return <Loading />;
-  if (!data.enabled) return <EnableAdvisories enable={data.enable} />;
+  if (!data.enabled) return <EnableAdvisories enable={data.enable} onEnabled={reload} />;
 
   const empty = emptyReason(data, Boolean(project));
-  if (empty) return empty;
+  if (empty)
+    return (
+      <>
+        {empty}
+        {data.enable.source === "settings" && (
+          <p className="dim note">
+            Switched on from here. <OffSwitch onDone={reload} />
+          </p>
+        )}
+      </>
+    );
 
   const c = data.counts;
   const open = data.hits.filter((h) => !h.resolvedAt).length;
@@ -124,8 +135,32 @@ export function AdvisoriesTab() {
         {data.lastError ? ` — the last attempt failed: ${data.lastError}` : ""}. The query carries{" "}
         {data.enable.sends}. A row resolves when the version leaves the lockfile; the severity is
         the advisory database's own word, or the CVSS 3.x base score banded.
+        {data.enable.source === "settings" && <OffSwitch onDone={reload} />}
       </p>
     </>
+  );
+}
+
+/** Turn advisories off again — only offered when the switch is what turned them on. */
+function OffSwitch({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className="mini-act"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await setAdvisories(false);
+          onDone();
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      Turn off
+    </button>
   );
 }
 
@@ -145,8 +180,29 @@ function emptyReason(data: AdvisoryReport, scoped: boolean) {
   return null;
 }
 
-function EnableAdvisories({ enable }: { enable: AdvisoryReport["enable"] }) {
+function EnableAdvisories({
+  enable,
+  onEnabled,
+}: {
+  enable: AdvisoryReport["enable"];
+  onEnabled: () => void;
+}) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  // config.toml or the policy sets it outright: the switch cannot win against that file
+  const pinned = enable.source === "global" || enable.source === "policy";
+  const turnOn = async () => {
+    setBusy(true);
+    setFailed(null);
+    try {
+      const r = await setAdvisories(true);
+      if (r.ok) onEnabled();
+      else setFailed(r.error ?? "could not switch advisories on");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Panel title="Advisories are off" hint="nothing has left the machine">
       <p>
@@ -155,8 +211,32 @@ function EnableAdvisories({ enable }: { enable: AdvisoryReport["enable"] }) {
         lists every advisory that applies, with the fixed version. The query carries{" "}
         <b>{enable.sends}</b>.
       </p>
-      <p>
-        To turn it on, add to <code>{enable.file}</code>:
+      <div className="setup-row">
+        {pinned ? (
+          <span className="dim">
+            Set to <code>false</code> in{" "}
+            <code>{enable.source === "policy" ? "~/.swarm/policy.toml" : enable.file}</code> —
+            change it there; a switch here cannot win against that file.
+          </span>
+        ) : (
+          <>
+            <button type="button" className="ok" disabled={busy} onClick={turnOn}>
+              {busy ? "Switching on…" : "Turn on advisories"}
+            </button>
+            <span className="dim">
+              writes <code>{enable.settingsFile}</code>; the first query runs within a minute.{" "}
+              <code>SWARM_OFFLINE=1</code> always wins over it.
+            </span>
+          </>
+        )}
+      </div>
+      {failed && (
+        <p className="note">
+          <Badge tone="warn">{failed}</Badge>
+        </p>
+      )}
+      <p className="dim">
+        Or add to <code>{enable.file}</code>, which wins over the switch either way:
       </p>
       <pre className="mono">{enable.toml}</pre>
       <div className="setup-row">
@@ -170,10 +250,6 @@ function EnableAdvisories({ enable }: { enable: AdvisoryReport["enable"] }) {
         >
           {copied ? "Copied" : "Copy TOML"}
         </button>
-        <span className="dim">
-          takes effect within a minute — the daemon re-reads the file; <code>SWARM_OFFLINE=1</code>{" "}
-          always wins over it.
-        </span>
       </div>
     </Panel>
   );

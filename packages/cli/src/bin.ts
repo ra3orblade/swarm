@@ -19,7 +19,12 @@ import {
   swarmHome,
 } from "@swarm/client";
 import { loadConfigDetailed, SANDBOX_INSTALL } from "@swarm/core";
-import { type AdvisoryReport, type Severity, severityAtLeast } from "@swarm/core/advisories";
+import {
+  type AdvisoryReport,
+  OSV_SENDS,
+  type Severity,
+  severityAtLeast,
+} from "@swarm/core/advisories";
 import type { FeedCheck, NewsFeedsReport, NewsReport } from "@swarm/core/newsfeed";
 import type { SecurityReport } from "@swarm/core/security";
 import { renderSecurityReport, type SecurityReportInput } from "@swarm/core/securityreport";
@@ -77,7 +82,7 @@ const help = `swarm — control plane for AI-agent development
   serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
   proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
-  security [stack|advisories|news|feeds ls|feeds check [url]|report|refresh] [-p] [--project n] [--json]
+  security [stack|advisories [on|off]|news|feeds ls|feeds check [url]|report|refresh] [-p] [--project n] [--json]
                           the security layer (M14): what each project runs, its OSV advisories, the news that concerns it, the sources and their format check, a markdown report
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
@@ -427,6 +432,29 @@ try {
           break;
         }
         case "advisories": {
+          if (positional[1] === "on" || positional[1] === "off") {
+            // M14.12: the switch; the daemon writes its own settings.toml, never config.toml
+            const r = (await api("/v1/advisories/enable", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ enabled: positional[1] === "on" }),
+            })) as { ok: boolean; enabled?: boolean; error?: string; source: string };
+            if (json) {
+              out(r);
+              break;
+            }
+            if (!r.ok) {
+              console.error(r.error);
+              process.exitCode = 1;
+              break;
+            }
+            console.log(
+              r.enabled
+                ? `advisories on — written to ~/.swarm/settings.toml; the first OSV query runs within a minute. It sends ${OSV_SENDS}.`
+                : "advisories off — written to ~/.swarm/settings.toml; nothing is asked from now on.",
+            );
+            break;
+          }
           const r = (await api(scoped("/v1/advisories"))) as AdvisoryReport;
           if (json) {
             out(r);
@@ -434,7 +462,9 @@ try {
           }
           if (!r.enabled) {
             console.log(
-              `advisories are off. Add to ${r.enable.file}:\n  ${r.enable.toml.replace("\n", "\n  ")}\nIt sends ${r.enable.sends}.`,
+              r.enable.source === "global" || r.enable.source === "policy"
+                ? `advisories are off, set in ~/.swarm/${r.enable.source === "policy" ? "policy.toml" : "config.toml"} — change it there. It would send ${r.enable.sends}.`
+                : `advisories are off. \`swarm security advisories on\` switches them on (written to ${r.enable.settingsFile}), or add to ${r.enable.file}:\n  ${r.enable.toml.replace("\n", "\n  ")}\nIt sends ${r.enable.sends}.`,
             );
             break;
           }
@@ -561,7 +591,7 @@ try {
         }
         default:
           console.error(
-            "usage: swarm security stack | advisories [--min critical|high|medium|low] [--all] | news [--kind vendor,press] [--days n] [--unread] [--all] | feeds ls | feeds check [url] | report [--days n] | refresh [stack|news|advisories]   (-p: this project; --project <name|path>; --json)",
+            "usage: swarm security stack | advisories [on|off] [--min critical|high|medium|low] [--all] | news [--kind vendor,press] [--days n] [--unread] [--all] | feeds ls | feeds check [url] | report [--days n] | refresh [stack|news|advisories]   (-p: this project; --project <name|path>; --json)",
           );
           process.exit(2);
       }
