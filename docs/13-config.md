@@ -333,7 +333,13 @@ feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark 
 # name = "Our vendor"
 # url = "https://vendor.example/security.rss"
 # kind = "vendor"              # vendor | authority | press | ai (default "press")
-# advisories and advisory_min_severity land with M14.4 / M14.5; parsed and clamped today, inert.
+# M14.4: ask OSV (https://api.osv.dev) about the exact versions in the lockfiles — every six hours
+# and after a stack change. The query carries each dependency's ecosystem, name and version — the
+# project's dependency list — and nothing else. Off until you set it; SWARM_OFFLINE=1 wins.
+advisories = false
+# The severity at which M14.5 opens an incident ("critical" | "high" | "medium" | "low" |
+# "unknown" = everything). Lower ones still show on the Advisories tab.
+advisory_min_severity = "high"
 
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).

@@ -14,6 +14,15 @@
  */
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  type Advisory,
+  chunk,
+  hitsFor,
+  OSV_API,
+  osvQueries,
+  parseOsvBatch,
+  parseOsvVuln,
+} from "@swarm/core/advisories";
 import { type FeedCheck, type FeedItem, keywordMatcher, parseFeed } from "@swarm/core/newsfeed";
 import { resolveSources } from "@swarm/core/newsfeeds";
 import { type ManifestKind, manifestKind, parseManifest } from "@swarm/core/stack";
@@ -42,6 +51,10 @@ const FEED_RETRY_MS = 1_000;
 const FEED_CONCURRENCY = 6;
 /** A whole-run failure (no network) backs off to at most this. */
 const NEWS_BACKOFF_MAX_MS = 60 * 60_000;
+const OSV_EVERY_MS = 6 * 60 * 60_000;
+const OSV_TIMEOUT_MS = 30_000;
+const OSV_BACKOFF_MIN_MS = 5 * 60_000;
+const OSV_BATCH = 1000;
 
 interface Candidate {
   rel: string;
@@ -116,6 +129,12 @@ export class SecurityService {
   private newsBackoffMs = 0;
   /** Tests inject a fetch; production uses the global one. */
   fetchFn: typeof fetch = fetch;
+  /** Tests point this at a local server. */
+  osvBase = OSV_API;
+  private lastOsv = 0;
+  private busyOsv = false;
+  private osvBackoffMs = 0;
+  private stackChanged = false;
 
   constructor(
     private readonly store: Store,
@@ -142,6 +161,14 @@ export class SecurityService {
         at: this.store.metaValue("security_news_at"),
         error: this.store.metaValue("security_news_error"),
       },
+      advisories: {
+        enabled: cfg.advisories,
+        at: this.store.metaValue("security_osv_at"),
+        error: this.store.metaValue("security_osv_error"),
+        open: cfg.advisories
+          ? this.store.advisoryReport().hits.filter((h) => !h.resolvedAt).length
+          : 0,
+      },
     };
   }
 
@@ -152,20 +179,25 @@ export class SecurityService {
       this.lastStack = now;
       changed = this.scanStacks();
     }
-    if (changed.size) this.rematchIfNeeded();
+    if (changed.size) {
+      this.rematchIfNeeded();
+      this.stackChanged = true;
+    }
     await this.readNews(now);
+    await this.readAdvisories(now);
   }
 
   /** Run one branch now (the refresh route and the CLI). Never throws. */
   async refresh(
-    what: "stack" | "news" | "all" = "all",
+    what: "stack" | "news" | "advisories" | "all" = "all",
   ): Promise<ReturnType<SecurityService["status"]>> {
-    if (what !== "news") {
+    if (what === "stack" || what === "all") {
       this.lastStack = Date.now();
       this.scanStacks();
       this.rematchIfNeeded();
     }
-    if (what !== "stack") await this.readNews(Date.now(), true);
+    if (what === "news" || what === "all") await this.readNews(Date.now(), true);
+    if (what === "advisories" || what === "all") await this.readAdvisories(Date.now(), true);
     return this.status();
   }
 
@@ -453,6 +485,86 @@ export class SecurityService {
       return { ...base, note: fetchReason(e) };
     } finally {
       this.checking = false;
+    }
+  }
+
+  // ---------- M14.4 advisories (opt-in)
+
+  /**
+   * Ask OSV about the exact versions every live project runs — only when `[security] advisories`
+   * is on and not offline; every six hours, after a stack change, or when forced. The query
+   * carries each dependency's ecosystem, name and version and nothing else. Never throws.
+   */
+  async readAdvisories(now = Date.now(), force = false): Promise<void> {
+    const cfg = this.store.policyFor(null).config.security;
+    if (!cfg.advisories || process.env.SWARM_OFFLINE === "1") return;
+    const due = force || this.stackChanged || now - this.lastOsv >= OSV_EVERY_MS;
+    if (!due || this.busyOsv) return;
+    const next = this.store.metaValue("security_osv_next");
+    if (!force && next && Date.parse(next) > now) return;
+    this.busyOsv = true;
+    this.lastOsv = now;
+    const nowIso = new Date(now).toISOString();
+    try {
+      const projects = this.store.liveProjects();
+      const rows = this.store.stackRows();
+      const { keys, queries } = osvQueries(rows);
+      const idsByKey = new Map<string, Array<{ id: string; modified: string | null }>>();
+      for (const [i, part] of chunk(queries, OSV_BATCH).entries()) {
+        const res = await this.fetchFn(`${this.osvBase}/querybatch`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "user-agent": `swarm/${this.version}` },
+          body: JSON.stringify({ queries: part }),
+          signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+        });
+        if (!res.ok) throw new Error(`OSV answered ${res.status}`);
+        const partKeys = keys.slice(i * OSV_BATCH, (i + 1) * OSV_BATCH);
+        for (const [k, v] of parseOsvBatch(partKeys, await res.json())) idsByKey.set(k, v);
+      }
+      const known = this.store.knownAdvisories();
+      const wanted = new Map<string, string | null>();
+      for (const list of idsByKey.values())
+        for (const { id, modified } of list)
+          if (!known.has(id) || (modified && known.get(id) !== modified)) wanted.set(id, modified);
+      const fetched: Advisory[] = [];
+      await pooled(
+        [...wanted.keys()].map((id) => async () => {
+          const res = await this.fetchFn(`${this.osvBase}/vulns/${encodeURIComponent(id)}`, {
+            headers: { "user-agent": `swarm/${this.version}` },
+            signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+          });
+          if (!res.ok) return;
+          const a = parseOsvVuln(await res.json());
+          if (a) fetched.push(a);
+        }),
+        FEED_CONCURRENCY,
+      );
+      if (fetched.length) this.store.upsertAdvisories(fetched, nowIso);
+      const ids = [...new Set([...idsByKey.values()].flat().map((v) => v.id))];
+      const advisories = this.store.advisoriesById(ids);
+      for (const p of projects) {
+        const hits = hitsFor(
+          p.id,
+          rows.filter((r) => r.projectId === p.id),
+          idsByKey,
+          advisories,
+        );
+        this.store.syncAdvisoryHits(p.id, hits, nowIso);
+      }
+      this.store.setMetaValue("security_osv_at", nowIso);
+      this.store.setMetaValue("security_osv_error", "");
+      this.store.setMetaValue("security_osv_next", "");
+      this.stackChanged = false;
+      this.osvBackoffMs = 0;
+    } catch (e) {
+      this.store.setMetaValue("security_osv_error", fetchReason(e));
+      this.osvBackoffMs = Math.min(
+        OSV_EVERY_MS,
+        Math.max(OSV_BACKOFF_MIN_MS, this.osvBackoffMs * 2),
+      );
+      this.store.setMetaValue("security_osv_next", new Date(now + this.osvBackoffMs).toISOString());
+    } finally {
+      this.busyOsv = false;
     }
   }
 }

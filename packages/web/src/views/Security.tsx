@@ -11,24 +11,27 @@
 import { Section } from "../components/ui";
 import { useUiStore } from "../state/ui";
 import { Activity } from "./security/Activity";
+import { AdvisoriesTab } from "./security/Advisories";
 import { StackTab } from "./security/Stack";
 
-type Tab = "activity" | "stack";
+type Tab = "activity" | "stack" | "advisories";
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ["activity", "Activity"],
   ["stack", "Stack"],
+  ["advisories", "Advisories"],
 ];
 
 const HINTS: Record<Tab, string> = {
   activity: "what agents reached for · last 14 days",
   stack: "what each project runs, from its lockfiles",
+  advisories: "known advisories on the exact versions each project runs",
 };
 
 export function Security() {
   const raw = useUiStore((s) => s.securityTab);
   const setTab = useUiStore((s) => s.setSecurityTab);
-  const tab: Tab = raw === "stack" ? "stack" : "activity";
+  const tab: Tab = raw === "stack" || raw === "advisories" ? raw : "activity";
 
   return (
     <>
@@ -47,6 +50,7 @@ export function Security() {
       </div>
       {tab === "activity" && <Activity />}
       {tab === "stack" && <StackTab />}
+      {tab === "advisories" && <AdvisoriesTab />}
     </>
   );
 }

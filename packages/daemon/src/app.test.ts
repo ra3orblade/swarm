@@ -3814,3 +3814,143 @@ describe("M14.3 sources", () => {
     }
   }, 20_000);
 });
+
+describe("M14.4 advisories", () => {
+  const { writeFileSync: writeF, utimesSync: utimes } =
+    require("node:fs") as typeof import("node:fs");
+  const lock = (v: string) =>
+    `{"lockfileVersion":1,"workspaces":{"":{"name":"p","dependencies":{"hono":"^4"}}},"packages":{"hono":["hono@${v}","",{},"sha512-a"]}}`;
+  const GHSA = {
+    id: "GHSA-aaaa-bbbb-cccc",
+    aliases: ["CVE-2026-1"],
+    summary: "Path traversal in hono.",
+    modified: "2026-10-21T00:00:00Z",
+    database_specific: { severity: "HIGH" },
+    affected: [
+      {
+        package: { ecosystem: "npm", name: "hono" },
+        ranges: [{ type: "ECOSYSTEM", events: [{ introduced: "4.0.0" }, { fixed: "4.6.5" }] }],
+      },
+    ],
+  };
+
+  it("asks a fake OSV only when enabled, records a hit with the fix, resolves it when the lockfile moves", async () => {
+    let batches = 0;
+    let vulns = 0;
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/v1/querybatch") {
+          batches++;
+          const body = (await req.json()) as {
+            queries: Array<{ package: { name: string }; version: string }>;
+          };
+          return Response.json({
+            results: body.queries.map((q) =>
+              q.package.name === "hono" && q.version === "4.6.3"
+                ? { vulns: [{ id: GHSA.id, modified: GHSA.modified }] }
+                : {},
+            ),
+          });
+        }
+        if (path === `/v1/vulns/${GHSA.id}`) {
+          vulns++;
+          return Response.json(GHSA);
+        }
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}/v1`;
+      // off by default: nothing is asked
+      {
+        const { security, store } = createApp(new Store(tmpHome()));
+        security.osvBase = base;
+        const root = mkdtempSync(join(tmpdir(), "swarm-osv-off-"));
+        writeF(join(root, "bun.lock"), lock("4.6.3"));
+        store.resolveProject(root, true, "off");
+        security.scanStacks();
+        await security.readAdvisories(Date.now(), true);
+        expect(batches).toBe(0);
+        const r = (await (await createApp(store).app.request("/v1/advisories")).json()) as {
+          enabled: boolean;
+          enable: { toml: string };
+        };
+        expect(r.enabled).toBe(false);
+        expect(r.enable.toml).toContain("advisories = true");
+      }
+
+      const home = tmpHome();
+      writeF(join(home, "config.toml"), "[security]\nadvisories = true\nnews = false\n");
+      const { app, store, security } = createApp(new Store(home));
+      security.osvBase = base;
+      const root = mkdtempSync(join(tmpdir(), "swarm-osv-"));
+      writeF(join(root, "bun.lock"), lock("4.6.3"));
+      const p = store.resolveProject(root, true, "vuln");
+      security.scanStacks();
+      await security.readAdvisories(Date.now(), true);
+      expect(batches).toBe(1);
+      expect(vulns).toBe(1);
+
+      const report = (await (await app.request(`/v1/advisories?project=${p.id}`)).json()) as {
+        enabled: boolean;
+        lastFetch: string | null;
+        counts: Record<string, number>;
+        hits: Array<{
+          advisory: { id: string; severity: string; url: string };
+          name: string;
+          version: string;
+          fixed: string | null;
+          manifest: string;
+          resolvedAt: string | null;
+        }>;
+      };
+      expect(report.enabled).toBe(true);
+      expect(report.lastFetch).toBeTruthy();
+      expect(report.counts.high).toBe(1);
+      expect(report.hits).toHaveLength(1);
+      expect(report.hits[0]).toMatchObject({
+        advisory: {
+          id: GHSA.id,
+          severity: "high",
+          url: `https://osv.dev/vulnerability/${GHSA.id}`,
+        },
+        name: "hono",
+        version: "4.6.3",
+        fixed: "4.6.5",
+        manifest: "bun.lock",
+        resolvedAt: null,
+      });
+
+      // a second pass fetches nothing new (cached, same `modified`) and keeps the hit open
+      await security.readAdvisories(Date.now(), true);
+      expect(batches).toBe(2);
+      expect(vulns).toBe(1);
+
+      // the lockfile moves to the fixed version: the hit resolves, the counts drop
+      writeF(join(root, "bun.lock"), lock("4.6.5"));
+      utimes(join(root, "bun.lock"), new Date(), new Date(Date.now() + 5000));
+      expect(security.scanStacks().has(p.id)).toBe(true);
+      await security.readAdvisories(Date.now(), true);
+      const after = (await (
+        await app.request(`/v1/advisories?project=${p.id}`)
+      ).json()) as typeof report;
+      expect(after.counts.high).toBe(0);
+      expect(after.hits[0]?.resolvedAt).toBeTruthy();
+
+      // the refresh route accepts the new branch
+      const r = await app.request("/v1/security/refresh", {
+        method: "POST",
+        body: JSON.stringify({ what: "advisories" }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(
+        ((await r.json()) as { status: { advisories: { enabled: boolean } } }).status.advisories
+          .enabled,
+      ).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+});
