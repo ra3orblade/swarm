@@ -1,12 +1,14 @@
 /**
  * Swarm configuration (M0.9.7, org policy layer M8.1).
  *
- * Three layers, deep-merged over built-in defaults — later wins:
+ * Four layers, deep-merged over built-in defaults — later wins:
  *   1. `~/.swarm/policy.toml` (or `$SWARM_POLICY`) — org policy; the only layer that may
  *      carry `locked = ["rules.destructive_git", …]`: dotted keys (or whole subtrees) that
  *      the layers below cannot override. Overrides are reported, not silently applied.
- *   2. `~/.swarm/config.toml`   — global, per-machine
- *   3. `<repo>/.swarm.toml`     — per-repo, wins over global
+ *   2. `~/.swarm/settings.toml` — what the dashboard's switches wrote (M14.12); the daemon's
+ *      own file, so a hand-written `config.toml` always wins over it
+ *   3. `~/.swarm/config.toml`   — global, per-machine
+ *   4. `<repo>/.swarm.toml`     — per-repo, wins over global
  *
  * TOML is parsed with Bun's built-in parser. Unknown keys are kept (forward
  * compatibility); known keys are validated and fall back to defaults with a
@@ -720,7 +722,67 @@ export interface LoadConfigOptions {
 }
 
 /** Which file a merged value came from. */
-export type ConfigLayer = "default" | "policy" | "global" | "repo";
+export type ConfigLayer = "default" | "policy" | "settings" | "global" | "repo";
+
+/** The daemon-owned layer the dashboard's switches write (M14.12), under `<home>`. */
+export const SETTINGS_FILE = "settings.toml";
+
+function tomlValue(v: unknown): string | null {
+  if (typeof v === "string") return JSON.stringify(v);
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  if (typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) {
+    const parts = v.map(tomlValue);
+    return parts.every((p) => p !== null) ? `[${parts.join(", ")}]` : null;
+  }
+  return null;
+}
+
+/**
+ * `settings.toml` rendered from its parsed form: top-level scalars, then one `[table]` per record
+ * of scalars or arrays of scalars. That is all a switch ever writes, so the renderer is that small;
+ * anything else in the file is dropped on the next write, and a comment does not survive one.
+ */
+export function renderSettings(raw: Record<string, unknown>): string {
+  const lines = [
+    "# Written by the Swarm dashboard's switches. ~/.swarm/config.toml wins over this file; edit either.",
+    "",
+  ];
+  const top = Object.entries(raw).filter(([, v]) => !isRecord(v));
+  for (const [k, v] of top) {
+    const t = tomlValue(v);
+    if (t !== null) lines.push(`${k} = ${t}`);
+  }
+  if (top.length) lines.push("");
+  for (const [section, table] of Object.entries(raw)) {
+    if (!isRecord(table)) continue;
+    lines.push(`[${section}]`);
+    for (const [k, v] of Object.entries(table)) {
+      const t = tomlValue(v);
+      if (t !== null) lines.push(`${k} = ${t}`);
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
+/** The settings file's text with one key set in one table, everything else it held kept. */
+export function withSetting(
+  existing: string,
+  section: string,
+  key: string,
+  value: string | number | boolean | string[],
+): string {
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = existing.trim() ? parseToml(existing, SETTINGS_FILE) : {};
+  } catch {
+    raw = {};
+  }
+  const table = isRecord(raw[section]) ? { ...(raw[section] as Record<string, unknown>) } : {};
+  table[key] = value;
+  return renderSettings({ ...raw, [section]: table });
+}
 
 export interface LockedOverride {
   /** Dotted key that a lower layer tried to set. */
@@ -792,6 +854,7 @@ export function loadConfigDetailed(opts: LoadConfigOptions = {}): LoadedConfig {
 
   const layers: Array<[ConfigLayer, Record<string, unknown> | null]> = [
     ["policy", policyRaw ? policy : null],
+    ["settings", readLayer(join(home, SETTINGS_FILE))],
     ["global", readLayer(join(home, "config.toml"))],
     ["repo", opts.repoRoot ? readLayer(join(opts.repoRoot, ".swarm.toml")) : null],
   ];

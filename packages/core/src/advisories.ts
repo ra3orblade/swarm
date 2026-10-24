@@ -9,7 +9,7 @@
  * dependency's ecosystem, name and version — the project's dependency list — and nothing else.
  * That sentence is the wording everywhere (OQ-33).
  */
-import type { AdvisorySeverity } from "./config";
+import type { AdvisorySeverity, ConfigLayer } from "./config";
 import type { Ecosystem, StackRow } from "./stack";
 
 export type Severity = AdvisorySeverity;
@@ -90,8 +90,18 @@ export interface AdvisoryReport {
     /** A claim is held on that task: an upgrade is under way (or its worktree is still there). */
     fixing: boolean;
   }>;
-  /** How to switch it on, shown by the tab and the CLI while it is off. */
-  enable: { file: string; toml: string; sends: string };
+  /**
+   * How to switch it on, shown by the tab and the CLI while it is off: the switch (M14.12) writes
+   * `settingsFile`; `source` says which layer holds the value in effect — the switch cannot win
+   * against `global` (config.toml) or `policy`, so the tab names that file instead.
+   */
+  enable: {
+    file: string;
+    toml: string;
+    sends: string;
+    source: ConfigLayer;
+    settingsFile: string;
+  };
 }
 
 /** A version OSV can be asked about: a release (dotted digits), not a tag, a bare major or a sha. */

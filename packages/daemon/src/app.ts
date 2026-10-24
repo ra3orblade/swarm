@@ -49,7 +49,7 @@ import { TeamForwarder } from "./team";
 import { fetchTeamd, hostingStatus, hostTeam, joinTeam, leaveTeam } from "./teamctl";
 import { WorkflowEngine } from "./workflow";
 
-export const VERSION = process.env.SWARM_VERSION ?? "0.18.0";
+export const VERSION = process.env.SWARM_VERSION ?? "0.18.1";
 export { Store };
 
 // Overridable so a packaged app (e.g. the Tauri sidecar) can point at bundled web assets.
@@ -295,6 +295,16 @@ export function createApp(
   app.get("/v1/advisories", (c) =>
     c.json(store.advisoryReport(c.req.query("project") || undefined)),
   );
+  // M14.12: the switch — writes ~/.swarm/settings.toml (the daemon's own layer), never config.toml;
+  // `ok: false` names the file that holds the value when config.toml or the policy sets it outright
+  app.post("/v1/advisories/enable", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+    if (typeof body.enabled !== "boolean")
+      return c.json({ ok: false, error: "enabled must be true or false" }, 400);
+    const r = store.setAdvisories(body.enabled);
+    if (r.ok && body.enabled) void security.refresh("advisories");
+    return c.json(r);
+  });
   // M14.9: dispatch an upgrade for one advisory into its own claimed worktree (M3.1 runner);
   // `dry` answers the task and the prompt without starting anything (the CLI shows it first)
   app.post("/v1/advisories/fix", async (c) => {

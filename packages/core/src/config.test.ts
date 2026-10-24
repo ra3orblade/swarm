@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_CONFIG, loadConfig, loadConfigDetailed } from "./config";
+import { DEFAULT_CONFIG, loadConfig, loadConfigDetailed, withSetting } from "./config";
 
 const dirs: string[] = [];
 const tmp = () => {
@@ -227,5 +227,32 @@ describe("[security] (M14)", () => {
     );
     expect(loadConfig({ home }).security.advisories).toBe(false);
     expect(loadConfig({ home, repoRoot: repo }).security.feeds.length).toBe(1);
+  });
+});
+
+describe("settings layer (M14.12)", () => {
+  test("sits between policy and global: a switch wins over the default, config.toml wins over the switch", () => {
+    const home = tmp();
+    writeFileSync(join(home, "settings.toml"), withSetting("", "security", "advisories", true));
+    let r = loadConfigDetailed({ home });
+    expect(r.config.security.advisories).toBe(true);
+    expect(r.provenance["security.advisories"]).toBe("settings");
+    writeFileSync(join(home, "config.toml"), "[security]\nadvisories = false\n");
+    r = loadConfigDetailed({ home });
+    expect(r.config.security.advisories).toBe(false);
+    expect(r.provenance["security.advisories"]).toBe("global");
+  });
+
+  test("withSetting keeps what the file held and renders scalars, arrays and tables", () => {
+    const once = withSetting("", "security", "advisories", true);
+    expect(once).toContain("[security]\nadvisories = true");
+    const twice = withSetting(once, "security", "keywords", ["pg", "hono"]);
+    expect(twice).toContain('keywords = ["pg", "hono"]');
+    expect(twice).toContain("advisories = true");
+    const off = withSetting(twice, "security", "advisories", false);
+    expect(off).toContain("advisories = false");
+    expect(withSetting("not = [toml", "daemon", "port", 7001)).toBe(
+      withSetting("", "daemon", "port", 7001),
+    );
   });
 });

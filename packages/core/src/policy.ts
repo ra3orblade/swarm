@@ -75,7 +75,7 @@ export function policyFindings(input: PolicyFindingsInput): PolicyFinding[] {
   for (const o of input.loaded.overridden)
     out.push({
       key: `override:${repo}:${o.layer}:${o.key}`,
-      subject: `${o.layer === "repo" ? ".swarm.toml" : "config.toml"} ${o.key}`,
+      subject: `${o.layer === "repo" ? ".swarm.toml" : o.layer === "settings" ? "settings.toml" : "config.toml"} ${o.key}`,
       reason: `locked by policy; ${o.layer} config tried to set ${JSON.stringify(o.attempted)}`,
     });
   const cov = input.coverage;

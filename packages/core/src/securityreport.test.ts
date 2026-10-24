@@ -60,6 +60,8 @@ const advisories: AdvisoryReport = {
   enable: {
     file: "~/.swarm/config.toml",
     toml: "[security]\nadvisories = true",
+    source: "default",
+    settingsFile: "~/.swarm/settings.toml",
     sends: "the list",
   },
 };

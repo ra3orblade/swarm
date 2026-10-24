@@ -302,7 +302,7 @@ Both `ask` and `deny` are recorded as incidents. Set `SWARM_GUARD=off` in the da
 
 ## Org policy
 
-A third config layer sits above the two files: `~/.swarm/policy.toml` (or `$SWARM_POLICY`), merged **first** and the only layer that may carry `locked = ["rules.destructive_git", …]` — dotted keys that machine and repo config cannot override. Overrides are reported, not silently applied, and `swarm doctor` shows which file each effective value came from. Locked rules keep working even when the daemon is down (the hook shim evaluates them from an integrity-checked local cache) and even under `SWARM_GUARD=off`.
+A switch in the dashboard (today: **Turn on advisories** on the Security view) writes `~/.swarm/settings.toml`, the daemon's own file, merged *under* `config.toml` — so anything you wrote by hand still wins, and the daemon never edits `config.toml`. A fourth config layer sits above all of these: `~/.swarm/policy.toml` (or `$SWARM_POLICY`), merged **first** and the only layer that may carry `locked = ["rules.destructive_git", …]` — dotted keys that machine and repo config cannot override. Overrides are reported, not silently applied, and `swarm doctor` shows which file each effective value came from. Locked rules keep working even when the daemon is down (the hook shim evaluates them from an integrity-checked local cache) and even under `SWARM_GUARD=off`.
 
 On a [team](11-teams.md), the policy file is distributed automatically: the team daemon serves a signed policy, every machine verifies the signature against the key pinned at `swarm login`, and a tampered policy is never installed.
 

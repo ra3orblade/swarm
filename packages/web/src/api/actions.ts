@@ -113,6 +113,11 @@ export async function fixAdvisory(hit: {
   return r;
 }
 
+/** M14.12: the advisories switch. The daemon writes its own settings.toml; the tab re-polls. */
+export async function setAdvisories(enabled: boolean): Promise<{ ok: boolean; error?: string }> {
+  return send<{ ok: boolean; error?: string }>("/v1/advisories/enable", "POST", { enabled });
+}
+
 /** M14.3: fetch one URL once through the daemon's feed parser and say what came back. A read, not a write; nothing to re-poll. */
 export async function checkFeed(url: string): Promise<FeedCheck> {
   return send<FeedCheck>("/v1/news/feeds/check", "POST", { url });
