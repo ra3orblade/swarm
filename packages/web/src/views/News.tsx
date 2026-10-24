@@ -16,12 +16,14 @@ import { Empty, Failed, Loading, Section } from "../components/ui";
 import { ago } from "../lib/format";
 import { useUiStore } from "../state/ui";
 import { KIND_LABEL, NEWS_COLUMNS } from "./news/columns";
+import { Sources } from "./news/Sources";
 
 export function News() {
   const project = useUiStore((s) => s.project);
   const [off, setOff] = useState<ReadonlySet<NewsKind>>(new Set());
   const [unread, setUnread] = useState(false);
   const [all, setAll] = useState(false);
+  const [sources, setSources] = useState(false);
   const kinds = NEWS_KINDS.filter((k) => !off.has(k));
   // the feeds move every refresh_minutes; a 30 s poll is plenty
   const { data, error, reload } = useResource<NewsReport>(
@@ -86,7 +88,15 @@ export function News() {
         >
           All items
         </button>
+        <button
+          type="button"
+          className={sources ? "chip on" : "chip"}
+          onClick={() => setSources((v) => !v)}
+        >
+          Sources
+        </button>
       </div>
+      {sources && <Sources />}
       <NewsBody data={data} scoped={Boolean(project)} all={all} onRead={read} />
     </>
   );

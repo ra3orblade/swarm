@@ -3706,3 +3706,111 @@ describe("M14.2 news", () => {
     }
   }, 20_000);
 });
+
+describe("M14.3 sources", () => {
+  const { writeFileSync: writeF } = require("node:fs") as typeof import("node:fs");
+  const RSS = `<rss><channel><title>Checkable</title><item><title>One</title><link>https://x.example/1</link><pubDate>${new Date().toUTCString()}</pubDate></item><item><title>Two</title><link>https://x.example/2</link></item></channel></rss>`;
+
+  it("lists sources with their state and checks a URL through the poller's own parser", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/rss")
+          return new Response(RSS, {
+            headers: { "content-type": "application/rss+xml; charset=utf-8" },
+          });
+        if (path === "/page")
+          return new Response("<html><body>a blog, not a feed</body></html>", {
+            headers: { "content-type": "text/html" },
+          });
+        if (path === "/forbidden") return new Response("no", { status: 403 });
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const home = tmpHome();
+      writeF(
+        join(home, "config.toml"),
+        `[security]\nkinds = []\n[[security.feeds]]\nname = "Mine"\nurl = "${base}/rss"\nkind = "vendor"\n`,
+      );
+      const { app, security } = createApp(new Store(home));
+      await security.readNews(Date.now(), true);
+
+      const feeds = (await (await app.request("/v1/news/feeds")).json()) as {
+        enabled: boolean;
+        feeds: Array<{
+          name: string;
+          source: string;
+          state: string;
+          format: string | null;
+          items: number;
+          lastOk: string | null;
+        }>;
+      };
+      expect(feeds.enabled).toBe(true);
+      const mine = feeds.feeds.find((f) => f.name === "Mine");
+      expect(mine).toMatchObject({ source: "config", state: "on", format: "rss", items: 2 });
+      expect(mine?.lastOk).toBeTruthy();
+      expect(
+        feeds.feeds.filter((f) => f.source === "builtin").every((f) => f.state === "off"),
+      ).toBe(true);
+
+      const check = async (url: string) =>
+        (await (
+          await app.request("/v1/news/feeds/check", {
+            method: "POST",
+            body: JSON.stringify({ url }),
+            headers: { "content-type": "application/json" },
+          })
+        ).json()) as {
+          ok: boolean;
+          format: string | null;
+          status: number | null;
+          contentType: string | null;
+          title: string | null;
+          items: number;
+          sample: unknown[];
+          note: string;
+        };
+
+      const good = await check(`${base}/rss`);
+      expect(good).toMatchObject({
+        ok: true,
+        format: "rss",
+        status: 200,
+        title: "Checkable",
+        items: 2,
+      });
+      expect(good.sample.length).toBe(2);
+      expect(good.contentType).toContain("application/rss+xml");
+
+      const page = await check(`${base}/page`);
+      expect(page.ok).toBe(false);
+      expect(page.format).toBe("none");
+      expect(page.contentType).toContain("text/html");
+      expect(page.note).toContain("no RSS item or Atom entry");
+
+      const forbidden = await check(`${base}/forbidden`);
+      expect(forbidden).toMatchObject({ ok: false, status: 403, note: "answered 403" });
+
+      expect((await check("ftp://nope")).note).toBe("not an http(s) URL");
+      const missing = await app.request("/v1/news/feeds/check", {
+        method: "POST",
+        body: "{}",
+        headers: { "content-type": "application/json" },
+      });
+      expect(missing.status).toBe(400);
+
+      process.env.SWARM_OFFLINE = "1";
+      try {
+        expect((await check(`${base}/rss`)).note).toContain("SWARM_OFFLINE");
+      } finally {
+        delete process.env.SWARM_OFFLINE;
+      }
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+});
