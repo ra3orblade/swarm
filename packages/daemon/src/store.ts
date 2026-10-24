@@ -254,6 +254,7 @@ import {
   advisoryReason,
   inRange,
   OSV_SENDS,
+  SEVERITIES,
   severityAtLeast,
 } from "@swarm/core/advisories";
 import type { FeedSource } from "@swarm/core/config";
@@ -1436,6 +1437,12 @@ export class Store {
       lines.push(
         `[swarm] resources held: ${res.map((r) => `${r.name}${r.port ? `:${r.port}` : ""} (${r.owner})`).join(", ")} — their ports are protected; don't kill them`,
       );
+    // M14.8: what the lockfiles run that has a known advisory, so the agent avoids the version
+    // before a rule has to ask, and can upgrade it when it touches the dependency
+    if (project) {
+      const adv = this.advisoryContextLine(project.id);
+      if (adv) lines.push(adv);
+    }
     const modes = this.rulesFor(toplevel);
     const on = (
       [
@@ -1450,14 +1457,45 @@ export class Store {
         "pipe_to_shell",
         "secrets",
         "config_tamper",
+        "vulnerable_install",
       ] as const
     )
-      .filter((k) => modes[k] !== "off")
+      .filter((k) => (modes[k] ?? "off") !== "off")
       .map((k) => `${k}=${modes[k]}`);
     // Worth a line on its own when the repo hard-denies something; otherwise only alongside other news.
     if (on.length && (lines.length || on.some((x) => x.endsWith("=deny"))))
       lines.push(`[swarm] rules: ${on.join(" ")}`);
     return lines.length ? lines.join("\n") : null;
+  }
+
+  /**
+   * M14.8: one line naming the project's open advisories (worst first, one per package and
+   * version, at most six) with the fixed versions — null while advisories are off or clean.
+   */
+  advisoryContextLine(projectId: string): string | null {
+    const cfg = this.policyFor(null).config.security;
+    if (!cfg.advisories) return null;
+    const open = this.advisoryReport(projectId).hits.filter((h) => !h.resolvedAt);
+    if (!open.length) return null;
+    const rank = (s: string) => SEVERITIES.indexOf(s as (typeof SEVERITIES)[number]);
+    const byPkg = new Map<string, (typeof open)[number]>();
+    for (const h of open) {
+      const k = `${h.ecosystem}\u0000${h.name}\u0000${h.version}`;
+      const have = byPkg.get(k);
+      if (!have || rank(h.advisory.severity) < rank(have.advisory.severity)) byPkg.set(k, h);
+    }
+    const list = [...byPkg.values()].sort(
+      (a, b) =>
+        rank(a.advisory.severity) - rank(b.advisory.severity) || a.name.localeCompare(b.name),
+    );
+    const shown = list
+      .slice(0, 6)
+      .map(
+        (h) =>
+          `${h.name} ${h.version}${h.fixed ? ` → ${h.fixed}` : " (no fix yet)"} (${h.advisory.severity}, ${h.advisory.id})`,
+      );
+    const more = list.length > shown.length ? ` +${list.length - shown.length} more` : "";
+    return `[swarm] known advisories in this project's lockfiles (OSV): ${shown.join(", ")}${more} — don't install these versions; upgrade to the fixed one when you touch the dependency (Security › Advisories lists them all)`;
   }
 
   /**
