@@ -4128,3 +4128,96 @@ describe("M14.8 advisories in the agent's context", () => {
     }
   }, 20_000);
 });
+
+describe("M14.9 dispatch a fix", () => {
+  const { writeFileSync: writeF } = require("node:fs") as typeof import("node:fs");
+  const lock = `{"lockfileVersion":1,"workspaces":{"":{"name":"p","dependencies":{"hono":"^4"}}},"packages":{"hono":["hono@4.6.3","",{},"sha512-a"]}}`;
+  const GHSA = {
+    id: "GHSA-fix1-fix1-fix1",
+    summary: "Path traversal in hono.",
+    modified: "2026-10-21T00:00:00Z",
+    database_specific: { severity: "HIGH" },
+    affected: [
+      {
+        package: { ecosystem: "npm", name: "hono" },
+        ranges: [{ type: "ECOSYSTEM", events: [{ introduced: "4.0.0" }, { fixed: "4.6.5" }] }],
+      },
+    ],
+  };
+
+  it("answers the task and the prompt for an open hit, refuses what it cannot find", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/v1/querybatch") {
+          const body = (await req.json()) as {
+            queries: Array<{ package: { name: string }; version: string }>;
+          };
+          return Response.json({
+            results: body.queries.map((q) =>
+              q.package.name === "hono"
+                ? { vulns: [{ id: GHSA.id, modified: GHSA.modified }] }
+                : {},
+            ),
+          });
+        }
+        if (path === `/v1/vulns/${GHSA.id}`) return Response.json(GHSA);
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const home = tmpHome();
+      writeF(join(home, "config.toml"), "[security]\nadvisories = true\nnews = false\n");
+      const { app, store, security } = createApp(new Store(home));
+      security.osvBase = `http://127.0.0.1:${server.port}/v1`;
+      const root = mkdtempSync(join(tmpdir(), "swarm-fix-"));
+      writeF(join(root, "bun.lock"), lock);
+      const p = store.resolveProject(root, true, "fixme");
+      security.scanStacks();
+      await security.readAdvisories(Date.now(), true);
+
+      const report = (await (await app.request(`/v1/advisories?project=${p.id}`)).json()) as {
+        hits: Array<{ fixTask: string | null; fixing: boolean }>;
+      };
+      expect(report.hits[0]).toMatchObject({ fixTask: "sec/hono-4.6.5", fixing: false });
+
+      const post = (body: unknown) =>
+        app.request("/v1/advisories/fix", {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        });
+      const dry = await post({
+        project: p.id,
+        advisory: GHSA.id,
+        ecosystem: "npm",
+        name: "hono",
+        version: "4.6.3",
+        dry: true,
+      });
+      expect(dry.status).toBe(200);
+      const d = (await dry.json()) as { ok: boolean; task: string; prompt: string };
+      expect(d.task).toBe("sec/hono-4.6.5");
+      expect(d.prompt).toContain("Upgrade hono from 4.6.3 to 4.6.5 or later");
+      expect(d.prompt).toContain(GHSA.id);
+      expect(d.prompt).toContain("bun.lock (npm)");
+
+      expect((await post({ project: p.id })).status).toBe(400);
+      expect(
+        (
+          await post({
+            project: p.id,
+            advisory: "GHSA-nope",
+            ecosystem: "npm",
+            name: "hono",
+            version: "4.6.3",
+            dry: true,
+          })
+        ).status,
+      ).toBe(404);
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+});

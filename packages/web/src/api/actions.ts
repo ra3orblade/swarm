@@ -96,6 +96,23 @@ export async function ackAllIncidents(project: string | null): Promise<void> {
   await refreshSnapshot();
 }
 
+/** M14.9: dispatch an upgrade for one advisory into its own claimed worktree; the Board shows the run. */
+export async function fixAdvisory(hit: {
+  project: string;
+  advisory: string;
+  ecosystem: string;
+  name: string;
+  version: string;
+}): Promise<{ ok: boolean; error?: string; task?: string }> {
+  const r = await send<{ ok: boolean; error?: string; task?: string }>(
+    "/v1/advisories/fix",
+    "POST",
+    hit,
+  );
+  await refreshSnapshot();
+  return r;
+}
+
 /** M14.3: fetch one URL once through the daemon's feed parser and say what came back. A read, not a write; nothing to re-poll. */
 export async function checkFeed(url: string): Promise<FeedCheck> {
   return send<FeedCheck>("/v1/news/feeds/check", "POST", { url });

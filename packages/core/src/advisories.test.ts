@@ -219,3 +219,36 @@ describe("records and ranges", () => {
     expect(hitsFor("p1", rows, idsByKey, new Map([[a.id, fixedEarlier]]))).toEqual([]);
   });
 });
+
+describe("M14.9 dispatch a fix", () => {
+  const { fixPrompt, fixTaskId } = require("./advisories") as typeof import("./advisories");
+
+  test("fixTaskId is a safe branch-shaped id", () => {
+    expect(fixTaskId("hono", "4.6.5")).toBe("sec/hono-4.6.5");
+    expect(fixTaskId("@modelcontextprotocol/sdk", "1.32.0")).toBe(
+      "sec/modelcontextprotocol-sdk-1.32.0",
+    );
+    expect(fixTaskId("Django", "4.2.11")).toBe("sec/django-4.2.11");
+  });
+
+  test("fixPrompt names what, why, where and the limits", () => {
+    const p = fixPrompt({
+      advisory: {
+        id: "GHSA-1",
+        severity: "high",
+        summary: "Path traversal.",
+        url: "https://osv.dev/vulnerability/GHSA-1",
+      },
+      ecosystem: "npm",
+      name: "hono",
+      version: "4.6.3",
+      fixed: "4.6.5",
+      manifest: "bun.lock",
+    });
+    expect(p).toContain("Upgrade hono from 4.6.3 to 4.6.5 or later");
+    expect(p).toContain("GHSA-1 (high): Path traversal — https://osv.dev/vulnerability/GHSA-1");
+    expect(p).toContain("bun.lock (npm)");
+    expect(p).toContain("open a pull request");
+    expect(p).toContain("Do not change anything unrelated");
+  });
+});

@@ -7,11 +7,12 @@
  */
 import type { AdvisoryReport } from "@swarm/core/advisories";
 import { useMemo, useState } from "react";
+import { fixAdvisory } from "../../api/actions";
 import { routes } from "../../api/endpoints";
 import { useResource } from "../../api/useResource";
 import { type Column, DataGrid } from "../../components/DataGrid";
 import { Panel } from "../../components/Panel";
-import { Empty, Failed, Loading, Stat, StatRow } from "../../components/ui";
+import { Badge, Empty, Failed, Loading, Stat, StatRow } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { ago } from "../../lib/format";
 import { useSnapshot } from "../../state/snapshot";
@@ -31,6 +32,26 @@ export function AdvisoriesTab() {
     () => (project ? ADVISORY_COLUMNS : [advisoryProjectColumn(projectName), ...ADVISORY_COLUMNS]),
     [project, projectName],
   );
+
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const upgrade = async (h: AdvisoryRow) => {
+    setBusy(`${h.projectId}:${h.advisory.id}:${h.name}@${h.version}`);
+    setFailed(null);
+    try {
+      const r = await fixAdvisory({
+        project: h.projectId,
+        advisory: h.advisory.id,
+        ecosystem: h.ecosystem,
+        name: h.name,
+        version: h.version,
+      });
+      if (!r.ok) setFailed(r.error ?? "could not start the upgrade");
+      reload();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (error && !data) return <Failed error={error} onRetry={reload} />;
   if (!data) return <Loading />;
@@ -73,7 +94,31 @@ export function AdvisoriesTab() {
             />
           ),
         }}
+        trailing={{
+          width: 96,
+          cell: (h) =>
+            h.resolvedAt || !h.fixTask ? null : (
+              <button
+                type="button"
+                className="mini-act"
+                disabled={h.fixing || busy !== null}
+                title={
+                  h.fixing
+                    ? `an upgrade holds ${h.fixTask}`
+                    : `dispatch an agent to upgrade ${h.name} to ${h.fixed} in its own worktree, gated, and open a PR`
+                }
+                onClick={() => upgrade(h)}
+              >
+                {h.fixing ? "Upgrading…" : "Upgrade"}
+              </button>
+            ),
+        }}
       />
+      {failed && (
+        <p className="note">
+          <Badge tone="warn">{failed}</Badge>
+        </p>
+      )}
       <p className="dim note">
         OSV was last asked {data.lastFetch ? `${ago(data.lastFetch)} ago` : "never"}
         {data.lastError ? ` — the last attempt failed: ${data.lastError}` : ""}. The query carries{" "}

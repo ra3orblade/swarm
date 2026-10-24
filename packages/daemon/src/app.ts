@@ -31,6 +31,7 @@ import {
   taskPrompt,
   WRITE_TOOLS,
 } from "@swarm/core";
+import { fixPrompt } from "@swarm/core/advisories";
 import { NEWS_KINDS, type NewsKind } from "@swarm/core/newsfeed";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -294,6 +295,66 @@ export function createApp(
   app.get("/v1/advisories", (c) =>
     c.json(store.advisoryReport(c.req.query("project") || undefined)),
   );
+  // M14.9: dispatch an upgrade for one advisory into its own claimed worktree (M3.1 runner);
+  // `dry` answers the task and the prompt without starting anything (the CLI shows it first)
+  app.post("/v1/advisories/fix", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      project?: unknown;
+      advisory?: unknown;
+      ecosystem?: unknown;
+      name?: unknown;
+      version?: unknown;
+      owner?: unknown;
+      dry?: unknown;
+    };
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const project = str(b.project);
+    const advisory = str(b.advisory);
+    const ecosystem = str(b.ecosystem);
+    const name = str(b.name);
+    const version = str(b.version);
+    if (!project || !advisory || !ecosystem || !name || !version)
+      return c.json(
+        { ok: false, error: "project, advisory, ecosystem, name and version required" },
+        400,
+      );
+    const hit = store
+      .advisoryReport(project)
+      .hits.find(
+        (h) =>
+          h.advisory.id === advisory &&
+          h.ecosystem === ecosystem &&
+          h.name === name &&
+          h.version === version,
+      );
+    if (!hit) return c.json({ ok: false, error: "no such advisory hit in this project" }, 404);
+    if (hit.resolvedAt)
+      return c.json({ ok: false, error: "already resolved: that version left the lockfile" }, 409);
+    if (!hit.fixed || !hit.fixTask)
+      return c.json(
+        { ok: false, error: "no fixed version is named yet; nothing to upgrade to" },
+        409,
+      );
+    const task = hit.fixTask;
+    const prompt = fixPrompt({
+      advisory: hit.advisory,
+      ecosystem: hit.ecosystem,
+      name: hit.name,
+      version: hit.version,
+      fixed: hit.fixed,
+      manifest: hit.manifest,
+    });
+    if (b.dry === true) return c.json({ ok: true, task, prompt });
+    const r = await runner.start({
+      projectId: project,
+      task,
+      prompt,
+      owner: str(b.owner) ?? "dashboard",
+    });
+    return r.ok
+      ? c.json({ ok: true, task, run: r.run }, 201)
+      : c.json({ ok: false, error: r.reason, task }, 409);
+  });
   // M14.2: the security news, narrowed to the selected project's stack keywords
   app.get("/v1/news", (c) => {
     const kinds = (c.req.query("kind") ?? "")

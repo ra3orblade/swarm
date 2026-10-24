@@ -85,6 +85,10 @@ export interface AdvisoryReport {
     firstSeen: string;
     resolvedAt: string | null;
     acked: boolean;
+    /** M14.9: the task a dispatched upgrade runs under, or null when no fixed version is named. */
+    fixTask: string | null;
+    /** A claim is held on that task: an upgrade is under way (or its worktree is still there). */
+    fixing: boolean;
   }>;
   /** How to switch it on, shown by the tab and the CLI while it is off. */
   enable: { file: string; toml: string; sends: string };
@@ -392,4 +396,40 @@ export function hitsFor(
     }
   }
   return out;
+}
+
+// ---------- M14.9 dispatch a fix
+
+/** The task id a dispatched upgrade runs under: `sec/<package>-<fixed>`, safe for a branch name. */
+export function fixTaskId(name: string, fixed: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/^@/, "")
+    .replace(/[^a-z0-9.]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `sec/${slug}-${fixed.replace(/[^0-9a-z.]/gi, "")}`;
+}
+
+/** The prompt a dispatched upgrade starts with: what, why, how, and the two things not to do. */
+export function fixPrompt(h: {
+  advisory: Pick<Advisory, "id" | "severity" | "summary" | "url">;
+  ecosystem: Ecosystem;
+  name: string;
+  version: string;
+  fixed: string;
+  manifest: string;
+}): string {
+  const why = h.advisory.summary ? `: ${h.advisory.summary.replace(/\.$/, "")}` : "";
+  return [
+    `Upgrade ${h.name} from ${h.version} to ${h.fixed} or later in this project.`,
+    `Reason: ${h.advisory.id} (${h.advisory.severity})${why} — ${h.advisory.url}.`,
+    `The version comes from ${h.manifest} (${h.ecosystem}).`,
+    "",
+    "1. Update the dependency with the project's own package manager — the one the lockfile belongs to (bun, pnpm, npm, yarn, uv, poetry, pip) — so the manifest and the lockfile move together. Do not edit the lockfile by hand.",
+    "2. If the fixed version is a major bump, read its changelog and say what else changed before you continue.",
+    "3. Run the project's required gates (tests, typecheck, lint). Fix what the upgrade broke, nothing else.",
+    "4. Commit on this branch with a message that names the advisory, then open a pull request.",
+    "",
+    "Do not change anything unrelated, and do not install any other package at a version with a known advisory.",
+  ].join("\n");
 }
