@@ -368,3 +368,83 @@ export function configTamperCommand(cmd: string, home: string): FamilyHit | null
   }
   return null;
 }
+
+// ---------- M14.5 vulnerable_install
+
+/** An exact version an install command names, in one of the two ecosystems the stack reads. */
+export interface InstallTarget {
+  ecosystem: "npm" | "PyPI";
+  name: string;
+  version: string;
+}
+
+/** What the daemon knows about a target from its local advisory table; never a network call. */
+export type VulnLookup = (
+  t: InstallTarget,
+) => { id: string; severity: string; fixed: string | null; summary: string } | null;
+
+const INSTALL_CMDS: Array<{ ecosystem: InstallTarget["ecosystem"]; re: RegExp }> = [
+  {
+    ecosystem: "npm",
+    re: /^(?:npm\s+(?:i|install|add)|pnpm\s+(?:i|install|add)|yarn\s+add|bun\s+(?:i|install|add)|npx\s+-y)\b(.*)$/i,
+  },
+  {
+    ecosystem: "PyPI",
+    re: /^(?:pip3?\s+install|python3?\s+-m\s+pip\s+install|uv\s+pip\s+install|uv\s+add|poetry\s+add|pipx\s+install)\b(.*)$/i,
+  },
+];
+/** A release, not a range or a tag: `1.2.3`, `4.6`, `2026.1.0`. */
+const EXACT = /^\d+(\.\d+)+$/;
+
+/**
+ * The exact versions an install command names: `npm i a@1.2.3`, `bun add @s/a@1.2.3`,
+ * `pip install a==1.2.3`, `uv add a==1.2.3`, `poetry add a@1.2.3`. Ranges, tags, bare names and
+ * installs from a manifest are not targets — there is nothing to look up without the network.
+ * The installer must be in command position, as `installsIn` requires.
+ */
+export function installTargets(cmd: string): InstallTarget[] {
+  const out: InstallTarget[] = [];
+  for (const raw of cmd.split(/&&|\|\||[;\n|]/)) {
+    const segment = raw.trim();
+    if (!segment) continue;
+    for (const { ecosystem, re } of INSTALL_CMDS) {
+      const m = re.exec(segment);
+      if (!m) continue;
+      for (const tok of (m[1] ?? "").split(/\s+/)) {
+        const a = tok.trim().replace(/^["']|["']$/g, "");
+        if (!a || a.startsWith("-")) continue;
+        if (/^\d*[<>&]/.test(a)) break; // a redirection: nothing after it is a package
+        if (ecosystem === "npm") {
+          const at = a.lastIndexOf("@");
+          if (at <= 0) continue;
+          const name = a.slice(0, at);
+          const version = a.slice(at + 1);
+          if (/^(@[\w.-]+\/)?[a-z0-9][\w.-]*$/i.test(name) && EXACT.test(version))
+            out.push({ ecosystem, name, version });
+        } else {
+          const p = /^([A-Za-z0-9][\w.-]*)(?:\[[^\]]*\])?(?:==|@)(\d+(?:\.\d+)+)$/.exec(a);
+          if (p)
+            out.push({
+              ecosystem,
+              name: (p[1] as string).toLowerCase().replace(/[-_.]+/g, "-"),
+              version: p[2] as string,
+            });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** The first install target the lookup knows an advisory for. */
+export function vulnerableInstall(cmd: string, lookup: VulnLookup): FamilyHit | null {
+  for (const t of installTargets(cmd)) {
+    const v = lookup(t);
+    if (!v) continue;
+    const fix = v.fixed ? `; ${v.fixed} fixes it` : "; no fixed version is named yet";
+    return {
+      what: `installs ${t.name} ${t.version}, which has a known ${v.severity} advisory (${v.id})${fix}`,
+    };
+  }
+  return null;
+}

@@ -19,6 +19,7 @@
  * an obfuscated command will not match, and a comment mentioning `.env` will. Sold as what it is.
  */
 
+import type { VulnLookup } from "./guards";
 import { FAMILY_RULES, type FamilyRule, familyHitsBash, familyHitsFile } from "./rules";
 
 /** One tool call worth scanning, from a `tool.requested` event. */
@@ -171,7 +172,12 @@ export function secretsIn(text: string): string[] {
   return SECRETS.filter((s) => s.re.test(text)).map((s) => s.what);
 }
 
-export function securityScan(rows: readonly ScanRow[], home = ""): SecurityReport {
+/** M14.5: the daemon passes its local advisory lookup so `vulnerable_install` counts too. */
+export function securityScan(
+  rows: readonly ScanRow[],
+  home = "",
+  knownVulnerable?: VulnLookup,
+): SecurityReport {
   const watch = new Map<
     FamilyRule,
     { hits: number; sessions: Set<string>; whats: Map<string, number> }
@@ -213,7 +219,7 @@ export function securityScan(rows: readonly ScanRow[], home = ""): SecurityRepor
     // counts only the always-dangerous targets — the audit under-reports that one, never over)
     const fam =
       r.tool === "Bash" && r.command
-        ? familyHitsBash(r.command, home, null)
+        ? familyHitsBash(r.command, home, null, knownVulnerable)
         : r.path
           ? familyHitsFile(r.tool, r.path, home)
           : [];

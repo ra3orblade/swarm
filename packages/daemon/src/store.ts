@@ -251,9 +251,13 @@ import {
   type Advisory,
   type AdvisoryHit,
   type AdvisoryReport,
+  advisoryReason,
+  inRange,
   OSV_SENDS,
+  severityAtLeast,
 } from "@swarm/core/advisories";
 import type { FeedSource } from "@swarm/core/config";
+import type { VulnLookup } from "@swarm/core/guards";
 import {
   type FeedItem,
   isRelevant,
@@ -3730,7 +3734,106 @@ export class Store {
     return {
       rewritesDone: this.rewritesDone.get(sessionId) ?? new Set<string>(),
       home: homedir(), // M12.5: the families expand ~ against the daemon user's home
+      knownVulnerable: this.knownVulnerable, // M14.5: one indexed local read, never a fetch
     };
+  }
+
+  /**
+   * M14.5 `vulnerable_install`: is this exact version named by a cached advisory? One prepared,
+   * indexed read on `advisory_packages` plus the range check in memory — the hook path never
+   * touches the network. Empty until `[security] advisories` has filled the table.
+   */
+  readonly knownVulnerable: VulnLookup = (t) => {
+    const name = t.ecosystem === "PyPI" ? t.name.toLowerCase() : t.name;
+    const rows = this.db
+      .query(
+        `SELECT a.id, a.severity, a.summary, p.ranges, p.versions, p.fixed
+         FROM advisory_packages p JOIN advisories a ON a.id = p.advisory_id
+         WHERE p.ecosystem = ? AND p.name = ?`,
+      )
+      .all(t.ecosystem, name) as Array<Record<string, unknown>>;
+    let best: ReturnType<VulnLookup> = null;
+    for (const r of rows) {
+      const pkg = {
+        ecosystem: t.ecosystem,
+        name,
+        ranges: JSON.parse((r.ranges as string) || "[]"),
+        versions: JSON.parse((r.versions as string) || "[]"),
+        fixed: (r.fixed as string | null) ?? null,
+      };
+      if (!inRange(t.version, pkg)) continue;
+      const severity = r.severity as Advisory["severity"];
+      if (!best || severityAtLeast(severity, best.severity as Advisory["severity"]))
+        best = {
+          id: r.id as string,
+          severity,
+          fixed: pkg.fixed,
+          summary: (r.summary as string) ?? "",
+        };
+    }
+    return best;
+  };
+
+  /**
+   * M14.5: one incident per advisory × project at or above `[security] advisory_min_severity`,
+   * for open hits that have none yet. The webhook, the badge and the Incidents view follow.
+   */
+  openAdvisoryIncidents(projectId: string): number {
+    const cfg = this.policyFor(null).config.security;
+    const rows = this.db
+      .query(
+        `SELECT h.advisory_id, h.ecosystem, h.name, h.version, h.manifest, a.severity, a.summary, p.fixed
+         FROM advisory_hits h JOIN advisories a ON a.id = h.advisory_id
+         LEFT JOIN advisory_packages p ON p.advisory_id = h.advisory_id AND p.ecosystem = h.ecosystem AND lower(p.name) = lower(h.name)
+         WHERE h.project_id = ? AND h.resolved_at IS NULL AND h.incident_seq IS NULL`,
+      )
+      .all(projectId) as Array<Record<string, unknown>>;
+    const mark = this.db.query(
+      "UPDATE advisory_hits SET incident_seq = ? WHERE project_id = ? AND advisory_id = ? AND ecosystem = ? AND name = ? AND version = ? AND manifest = ?",
+    );
+    let opened = 0;
+    const seen = new Map<string, number>();
+    for (const r of rows) {
+      const severity = r.severity as Advisory["severity"];
+      if (!severityAtLeast(severity, cfg.advisory_min_severity)) continue;
+      const fixed = (r.fixed as string | null) ?? null;
+      // one incident per advisory × project, however many manifests carry the version
+      let seq = seen.get(r.advisory_id as string);
+      if (seq === undefined) {
+        const ev = this.append({
+          ts: new Date().toISOString(),
+          type: "incident.opened",
+          projectId,
+          sessionId: null,
+          payload: {
+            rule: "security.advisory",
+            action: "warn",
+            command: `${r.ecosystem} ${r.name}@${r.version}`,
+            reason: advisoryReason(
+              { id: r.advisory_id as string, severity, summary: (r.summary as string) ?? "" },
+              { name: r.name as string, version: r.version as string, fixed },
+            ),
+            advisory: r.advisory_id,
+            severity,
+            fixed,
+            manifest: r.manifest,
+          },
+        });
+        seq = ev.seq ?? -1;
+        seen.set(r.advisory_id as string, seq);
+        opened++;
+      }
+      mark.run(
+        seq,
+        projectId,
+        r.advisory_id as string,
+        r.ecosystem as string,
+        r.name as string,
+        r.version as string,
+        r.manifest as string,
+      );
+    }
+    return opened;
   }
 
   /** Worktrees of every held, unexpired claim — the hot-path input for the ownership rules. */
@@ -3799,6 +3902,7 @@ export class Store {
     }
     const report = dryRunRules(calls, modes, {
       toplevel: (cwd) => (cwd && existsSync(cwd) ? this.toplevel(cwd) : null),
+      knownVulnerable: this.knownVulnerable, // M14.5: the dry-run replays the family too
       claims: this.heldWorktrees(),
     });
     return { ...report, modes };
@@ -6739,6 +6843,7 @@ export class Store {
         at: r.ts,
       })),
       homedir(),
+      this.knownVulnerable, // M14.5
     );
     // M12.5: next to what each family would have caught, what it is set to here
     const root = projectId ? (this.project(projectId)?.root ?? null) : null;

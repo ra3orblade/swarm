@@ -155,6 +155,10 @@ destructive_infra = "ask" # terraform destroy, kubectl delete ns / --all, helm u
 pipe_to_shell     = "ask" # curl … | sh, bash <(curl …), sh -c "$(curl …)"
 secrets           = "ask" # reading / printing / copying credential files (Read included); writing .env* or key files
 config_tamper     = "ask" # changing Claude Code settings, ~/.swarm, .swarm.toml, other agents' hook config; swarm uninstall
+# M14.5: `npm i left-pad@1.3.0` / `pip install requests==2.19.0` naming an exact version with a known
+# advisory in the local advisory table. Inert until [security] advisories = true has filled that
+# table; never a network call on the hook path.
+vulnerable_install = "ask"
 
 # Your own rules (M13.5): tested in order against every Bash command, after the rules above (a deny
 # above is never softened here). `match` is a regex over the whole command; with action = "rewrite"
