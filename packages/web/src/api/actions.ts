@@ -9,6 +9,7 @@
  * ledger is the truth, and a claim the daemon refused must not flicker as held.
  */
 
+import type { FeedCheck } from "@swarm/core/newsfeed";
 import type { Project } from "@swarm/core/types";
 import { refreshSnapshot } from "../state/snapshot";
 import { ApiError, OfflineError, query, send } from "./client";
@@ -93,6 +94,11 @@ export async function ackIncident(seq: number): Promise<void> {
 export async function ackAllIncidents(project: string | null): Promise<void> {
   await send(`/v1/incidents/ack${query({ project })}`, "POST");
   await refreshSnapshot();
+}
+
+/** M14.3: fetch one URL once through the daemon's feed parser and say what came back. A read, not a write; nothing to re-poll. */
+export async function checkFeed(url: string): Promise<FeedCheck> {
+  return send<FeedCheck>("/v1/news/feeds/check", "POST", { url });
 }
 
 /** M14.2: mark news items read — the keys given, or everything in the window. The view re-polls. */

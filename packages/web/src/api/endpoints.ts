@@ -34,7 +34,7 @@ import type { AgentCoverage } from "@swarm/core/agenthooks";
 import type { IncidentEvent } from "@swarm/core/dashboard";
 import type { ProjectPR } from "@swarm/core/forge";
 import type { FoundTeam } from "@swarm/core/mdns";
-import type { NewsReport } from "@swarm/core/newsfeed";
+import type { NewsFeedsReport, NewsReport } from "@swarm/core/newsfeed";
 import type { StackReport } from "@swarm/core/stack";
 import type { WaitingReport } from "@swarm/core/waiting";
 import type { SignalsResponse } from "../views/Signals";
@@ -93,6 +93,8 @@ export const routes = {
   security: (project: string | null) => byProject<SecurityReport>("/v1/security", project),
   /** M14.1: what each project runs, from its lockfiles. */
   stack: (project: string | null) => byProject<StackReport>("/v1/stack", project),
+  /** M14.3: every news source with its state. */
+  newsFeeds: (): Route<NewsFeedsReport> => "/v1/news/feeds" as Route<NewsFeedsReport>,
   /** M14.2: the security news for the scope; `kinds` empty = every configured kind. */
   news: (
     project: string | null,

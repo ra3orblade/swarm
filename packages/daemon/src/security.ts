@@ -14,7 +14,7 @@
  */
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type FeedItem, keywordMatcher, parseFeed } from "@swarm/core/newsfeed";
+import { type FeedCheck, type FeedItem, keywordMatcher, parseFeed } from "@swarm/core/newsfeed";
 import { resolveSources } from "@swarm/core/newsfeeds";
 import { type ManifestKind, manifestKind, parseManifest } from "@swarm/core/stack";
 import type { NewsFeedRow, Store } from "./store";
@@ -392,6 +392,67 @@ export class SecurityService {
         failures,
         nextTry,
       });
+    }
+  }
+
+  // ---------- M14.3 the format check
+
+  private checking = false;
+
+  /**
+   * Fetch one URL once with the poller's own headers, timeout and parser, and say what came back.
+   * Never throws; refused under SWARM_OFFLINE; one check at a time so a pasted URL cannot be used
+   * to fan requests out from the daemon.
+   */
+  async checkFeed(url: string): Promise<FeedCheck> {
+    const base: FeedCheck = {
+      ok: false,
+      url,
+      format: null,
+      status: null,
+      contentType: null,
+      title: null,
+      items: 0,
+      sample: [],
+      note: "",
+    };
+    if (!/^https?:\/\/\S+$/.test(url)) return { ...base, note: "not an http(s) URL" };
+    if (process.env.SWARM_OFFLINE === "1")
+      return { ...base, note: "SWARM_OFFLINE=1 is set; nothing is fetched" };
+    if (this.checking) return { ...base, note: "another check is running; try again in a moment" };
+    this.checking = true;
+    try {
+      const res = await this.fetchFn(url, {
+        headers: {
+          accept:
+            "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1",
+          "user-agent": `swarm/${this.version}`,
+        },
+        signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+        redirect: "follow",
+      });
+      const contentType = res.headers.get("content-type");
+      if (!res.ok)
+        return { ...base, status: res.status, contentType, note: `answered ${res.status}` };
+      const parsed = parseFeed(await res.text());
+      const ok = parsed.format !== "none" && parsed.items.length > 0;
+      return {
+        ...base,
+        ok,
+        status: res.status,
+        contentType,
+        format: parsed.format,
+        title: parsed.title,
+        items: parsed.items.length,
+        sample: parsed.items.slice(0, 3),
+        note: ok
+          ? `${parsed.format} · ${parsed.items.length} item${parsed.items.length === 1 ? "" : "s"}`
+          : "no RSS item or Atom entry could be read: not a feed, or a format the reader does not know",
+      };
+    } catch (e) {
+      return { ...base, note: fetchReason(e) };
+    } finally {
+      this.checking = false;
     }
   }
 }

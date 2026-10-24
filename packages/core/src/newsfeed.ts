@@ -627,3 +627,27 @@ export function stackKeywords(rows: readonly StackRow[], extra: readonly string[
   }
   return out.slice(0, MAX_KEYWORDS);
 }
+
+/** `GET /v1/news/feeds` */
+export interface NewsFeedsReport {
+  enabled: boolean;
+  offline: boolean;
+  feeds: NewsFeedState[];
+}
+
+/**
+ * `POST /v1/news/feeds/check`: one URL fetched once through the poller's own parser — the answer
+ * to "does this source apply to the format we read". `ok` only when the format is known and at
+ * least one item came back; `status` and `contentType` tell a 403 from a page that is not a feed.
+ */
+export interface FeedCheck {
+  ok: boolean;
+  url: string;
+  format: ParsedFeed["format"] | null;
+  status: number | null;
+  contentType: string | null;
+  title: string | null;
+  items: number;
+  sample: FeedItem[];
+  note: string;
+}

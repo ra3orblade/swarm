@@ -311,6 +311,32 @@ export function createApp(
     const n = body.all === true ? store.markNewsRead("all") : store.markNewsRead(keys);
     return c.json({ ok: true, marked: n });
   });
+  // M14.3: per-source state, and the format check for a URL you are about to add
+  app.get("/v1/news/feeds", (c) => {
+    const cfg = store.policyFor(null).config.security;
+    return c.json({
+      enabled: cfg.news,
+      offline: process.env.SWARM_OFFLINE === "1",
+      feeds: store.newsFeeds().map((f) => ({
+        name: f.name,
+        kind: f.kind,
+        url: f.url,
+        source: f.source,
+        state: f.state,
+        format: f.format,
+        note: f.note,
+        items: f.items,
+        lastOk: f.lastOk,
+        lastTry: f.lastTry,
+      })),
+    });
+  });
+  app.post("/v1/news/feeds/check", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+    if (typeof body.url !== "string" || !body.url.trim())
+      return c.json({ ok: false, error: "url required" }, 400);
+    return c.json(await security.checkFeed(body.url.trim()));
+  });
   app.get("/v1/heat", (c) =>
     c.json(
       store.fileHeat(
