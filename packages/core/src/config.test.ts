@@ -162,6 +162,7 @@ describe("[security] (M14)", () => {
       advisory_min_severity: "high",
       news: true,
       news_days: 30,
+      pictures: true,
       refresh_minutes: 30,
       kinds: ["vendor", "authority", "press"],
       keywords: [],

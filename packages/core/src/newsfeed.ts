@@ -159,6 +159,30 @@ export function imageOf(block: string): string | null {
   return candidates.find((u) => IMAGE_URL.test(u)) ?? null;
 }
 
+const META = /<meta\s[^>]*>/gi;
+const PICTURE_META = ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"];
+
+/**
+ * The publisher's own picture for an article whose feed gave none: the Open Graph or Twitter card
+ * picture the page's head names, in that order of preference. Only an https address counts, and
+ * a logo drawn as SVG is not a picture of the article. The caller hands in the head of the page
+ * (the first few hundred KB); a long article need not be downloaded.
+ */
+export function pageImage(html: string): string | null {
+  const found: Record<string, string> = {};
+  for (const m of String(html ?? "").matchAll(META)) {
+    const t = m[0];
+    const name = (attr(t, "property") || attr(t, "name")).toLowerCase();
+    if (PICTURE_META.includes(name) && !found[name]) found[name] = attr(t, "content");
+  }
+  return (
+    PICTURE_META.map((k) => found[k]).find(
+      (u): u is string =>
+        Boolean(u) && IMAGE_URL.test(u as string) && !/\.svg(?:[?#]|$)/i.test(u as string),
+    ) ?? null
+  );
+}
+
 /**
  * The items of an RSS or Atom feed, as the feed orders them, and which branch read them. A
  * malformed feed answers what can be read of it; a page that is not a feed answers `none`.

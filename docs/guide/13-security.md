@@ -34,6 +34,8 @@ Three things happen once an advisory applies:
 
 **Guard → News.** The daemon reads a built-in list of public RSS / Atom sources every half hour — the projects' own security channels (Node.js, Python, PyPI, Django, PostgreSQL, GitHub, AWS, HashiCorp, Next.js), two authorities (CISA, CERT-Bund) and the security press — and matches every item against the packages your projects run. **The sidebar's project filter is the relevance filter**: a vendor's own channel is shown whole, the authorities and the press only when an item names something the selected project runs — a product (PostgreSQL, Next.js), an ecosystem (npm, PyPI), or a package by name. The words that matched sit on the row; *All items* shows what was fetched regardless.
 
+**A paper, or a table.** By default the items set as a paper: a dateline per day, and under it the day's articles in tiers as a front page sets them — two heroes across the width, three features in a row, the rest as briefs — each card the link to the article, and a click marks it read. The heading switches to a table. A month calendar beside the items shades the days by how many articles they hold; a day narrows both views to itself. A picture comes from the feed, or from the article's own page, which the daemon reads once, head only; `[security] pictures = false` keeps it to the feeds.
+
 The keywords come from the lockfiles, not from a list you maintain: products behind the packages, the ecosystems, and the declared runtime package names (transitive helpers are left out — a package called `which` would match every headline). `[security] keywords` adds your own words.
 
 **Sources.** The **Sources** chip lists every source with its state and the last error. To add one, paste its URL there and press **Check**: the daemon fetches it once with the same reader it runs every round and says whether it parsed as RSS or Atom and how many items it holds — or the status and content type it got back, so a 403 is told from a page that is not a feed. A source that passes comes with the `[[security.feeds]]` block to paste. `kinds` picks which built-in kinds are read (the AI press is off by default), `feeds_off` skips a source by name. The request carries a `swarm/<version>` user agent and nothing about you; `news = false` or `SWARM_OFFLINE=1` stops it.
@@ -67,6 +69,7 @@ advisories = false             # off until you set it; the query carries the dep
 advisory_min_severity = "high" # the incident threshold
 news = true
 news_days = 30
+pictures = true                # the page of an article without a picture is read once for its Open Graph picture
 refresh_minutes = 30
 kinds = ["vendor", "authority", "press"]   # add "ai"
 keywords = []

@@ -263,6 +263,10 @@ export interface SecurityConfig {
   news: boolean;
   /** Days items are kept (1–365). */
   news_days: number;
+  /** M14.11: fetch the page of an article whose feed gave no picture, once, for its Open Graph
+   *  picture — the paper layout wants one per hero. The request carries the same user agent and
+   *  nothing else; false keeps the daemon to one fetch per feed. */
+  pictures: boolean;
   /** Minutes between feed reads (10–1440). */
   refresh_minutes: number;
   /** Built-in feed kinds to read; `vendor` / `ai` items show whole, `authority` / `press` need a keyword. */
@@ -281,6 +285,7 @@ export const DEFAULT_SECURITY: SecurityConfig = {
   advisory_min_severity: "high",
   news: true,
   news_days: 30,
+  pictures: true,
   refresh_minutes: 30,
   kinds: ["vendor", "authority", "press"],
   keywords: [],
@@ -340,6 +345,7 @@ function validateSecurity(raw: unknown): SecurityConfig {
       : "high",
     news: s.news !== false,
     news_days: int(s.news_days, 1, 365, 30),
+    pictures: s.pictures !== false,
     refresh_minutes: int(s.refresh_minutes, 10, 1440, 30),
     kinds: Array.isArray(s.kinds)
       ? FEED_KINDS.filter((k) => (s.kinds as unknown[]).includes(k))

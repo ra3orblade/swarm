@@ -23,7 +23,13 @@ import {
   parseOsvBatch,
   parseOsvVuln,
 } from "@swarm/core/advisories";
-import { type FeedCheck, type FeedItem, keywordMatcher, parseFeed } from "@swarm/core/newsfeed";
+import {
+  type FeedCheck,
+  type FeedItem,
+  keywordMatcher,
+  pageImage,
+  parseFeed,
+} from "@swarm/core/newsfeed";
 import { resolveSources } from "@swarm/core/newsfeeds";
 import { type ManifestKind, manifestKind, parseManifest } from "@swarm/core/stack";
 import type { NewsFeedRow, Store } from "./store";
@@ -48,6 +54,9 @@ const MAX_BYTES = 20 * 1024 * 1024;
 const STACK_EVERY_MS = 60_000;
 const FEED_TIMEOUT_MS = 20_000;
 const FEED_RETRY_MS = 1_000;
+/** An article page is asked for its picture with a shorter patience than a feed, and only its head is read. */
+const PAGE_TIMEOUT_MS = 10_000;
+const PAGE_MAX_BYTES = 300_000;
 const FEED_CONCURRENCY = 6;
 /** A whole-run failure (no network) backs off to at most this. */
 const NEWS_BACKOFF_MAX_MS = 60 * 60_000;
@@ -108,6 +117,21 @@ function fetchReason(e: unknown): string {
 }
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** At most the first `max` characters of a response: the head is at the top, and the rest is not downloaded. */
+async function readHead(res: Response, max: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return (await res.text()).slice(0, max);
+  const decoder = new TextDecoder();
+  let text = "";
+  while (text.length < max) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  reader.cancel().catch(() => {});
+  return text;
+}
 
 /** Run at most `width` of the jobs at once. */
 async function pooled(jobs: Array<() => Promise<void>>, width: number): Promise<void> {
@@ -326,6 +350,7 @@ export class SecurityService {
         ),
         FEED_CONCURRENCY,
       );
+      if (cfg.pictures) await this.readPictures(cfg.news_days, nowIso);
       this.store.setMetaValue("security_news_at", nowIso);
       this.store.setMetaValue("security_news_error", "");
       this.newsBackoffMs = 0;
@@ -335,6 +360,36 @@ export class SecurityService {
     } finally {
       this.busyNews = false;
     }
+  }
+
+  /**
+   * The pictures the feeds left empty, from the articles' own pages (M14.11): six at a time, the
+   * head of the page only, each page asked once in its life — a page without a picture, or one
+   * that cannot be read, is remembered as asked so no round asks it again. The request carries
+   * the same user agent as a feed read and nothing else.
+   */
+  private async readPictures(newsDays: number, nowIso: string): Promise<void> {
+    const since = new Date(Date.parse(nowIso) - newsDays * 86_400_000).toISOString();
+    const pending = this.store.newsWithoutPicture(since);
+    await pooled(
+      pending.map((i) => async () => {
+        let image: string | null = null;
+        try {
+          const res = await this.fetchFn(i.url, {
+            headers: { accept: "text/html", "user-agent": `swarm/${this.version}` },
+            signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+            redirect: "follow",
+          });
+          if (res.ok && /html/i.test(res.headers.get("content-type") ?? "text/html"))
+            image = pageImage(await readHead(res, PAGE_MAX_BYTES));
+          else await res.body?.cancel().catch(() => {});
+        } catch {
+          image = null;
+        }
+        this.store.setNewsPicture(i.key, image, nowIso);
+      }),
+      FEED_CONCURRENCY,
+    );
   }
 
   private async fetchFeed(f: NewsFeedRow): Promise<Response> {

@@ -327,6 +327,8 @@ stack = true
 # SWARM_OFFLINE=1 also stops it.
 news = true
 news_days = 30                 # keep items this long (1–365)
+pictures = true                # M14.11: fetch the page of an article whose feed gave no picture, once, for its
+                               # Open Graph picture — the head of the page only. false: one fetch per feed.
 refresh_minutes = 30           # how often the sources are re-read (10–1440); conditional requests
 kinds = ["vendor", "authority", "press"]   # built-in kinds to read; add "ai" for the AI press.
                                # "vendor" / "ai" items are shown whole; "authority" / "press" only
