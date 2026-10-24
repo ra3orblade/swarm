@@ -15,6 +15,8 @@ import {
   pipeToShell,
   secretCommand,
   secretFile,
+  type VulnLookup,
+  vulnerableInstall,
 } from "./guards";
 
 export interface LiveSession {
@@ -132,6 +134,8 @@ export type RuleId =
   | "pipe_to_shell"
   | "secrets"
   | "config_tamper"
+  // M14.5: installing an exact version with a known advisory (local table, never the network)
+  | "vulnerable_install"
   // M13.5 `[[rules.custom]]`: the user's own, named in config
   | `custom:${string}`;
 export type GuardDecision =
@@ -182,6 +186,8 @@ export interface RuleModes {
   pipe_to_shell?: "ask" | "deny" | "off";
   secrets?: "ask" | "deny" | "off";
   config_tamper?: "ask" | "deny" | "off";
+  /** M14.5: `npm i a@1.2.3` / `pip install a==1.2.3` naming a version with a known advisory. */
+  vulnerable_install?: "ask" | "deny" | "off";
   /** M13.3, read by the daemon only; optional here so older policy caches still evaluate. */
   collision_context?: boolean;
   collision_window?: number;
@@ -203,6 +209,7 @@ export const DEFAULT_MODES: RuleModes = {
   pipe_to_shell: "ask",
   secrets: "ask",
   config_tamper: "ask",
+  vulnerable_install: "ask",
   protected: { ports: [] },
 };
 
@@ -213,6 +220,7 @@ export const FAMILY_RULES = [
   "pipe_to_shell",
   "secrets",
   "config_tamper",
+  "vulnerable_install",
 ] as const;
 export type FamilyRule = (typeof FAMILY_RULES)[number];
 
@@ -221,6 +229,8 @@ export function familyHitsBash(
   cmd: string,
   home: string,
   toplevel: string | null,
+  /** M14.5: the daemon's local advisory lookup; without it the family is silent (the offline shim). */
+  knownVulnerable?: VulnLookup,
 ): Array<{ rule: FamilyRule; what: string }> {
   const out: Array<{ rule: FamilyRule; what: string }> = [];
   const add = (rule: FamilyRule, h: FamilyHit | null) => h && out.push({ rule, what: h.what });
@@ -229,6 +239,7 @@ export function familyHitsBash(
   add("pipe_to_shell", pipeToShell(cmd));
   add("secrets", secretCommand(cmd));
   add("config_tamper", configTamperCommand(cmd, home));
+  if (knownVulnerable) add("vulnerable_install", vulnerableInstall(cmd, knownVulnerable));
   return out;
 }
 
@@ -258,6 +269,8 @@ const FAMILY_REASON: Record<FamilyRule, (what: string) => string> = {
     `This ${w}. Credentials stay out of the transcript: use the variable by name, or ask the owner.`,
   config_tamper: (w) =>
     `This ${w} — the settings that decide what agents may do. Ask the owner to change them.`,
+  vulnerable_install: (w) =>
+    `This ${w}. Install the fixed version instead, or ask the owner to accept the risk.`,
 };
 
 /** A family hit as a decision under `modes` (first hit whose mode is not off). */
@@ -430,7 +443,7 @@ export function guardBash(
   modes: RuleModes = DEFAULT_MODES,
   /** M13.5: which one-time rewrites this session already went through (by `key`); M12.5: the
    *  home directory the families expand `~` against (defaults to $HOME). */
-  ctx: { rewritesDone?: ReadonlySet<string>; home?: string } = {},
+  ctx: { rewritesDone?: ReadonlySet<string>; home?: string; knownVulnerable?: VulnLookup } = {},
 ): GuardDecision {
   const other = () => otherLiveInSameTree(current, sessions, now);
   const hit = (
@@ -491,7 +504,12 @@ export function guardBash(
   // M12.5 families: before the user's rules, so a custom rewrite never softens one of these.
   if (FAMILY_RULES.some((r) => (modes[r] ?? "off") !== "off")) {
     const d = familyDecision(
-      familyHitsBash(cmd, ctx.home ?? process.env.HOME ?? "", current.toplevel),
+      familyHitsBash(
+        cmd,
+        ctx.home ?? process.env.HOME ?? "",
+        current.toplevel,
+        ctx.knownVulnerable,
+      ),
       modes,
     );
     if (d) return d;

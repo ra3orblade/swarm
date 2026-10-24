@@ -13,6 +13,7 @@
  * Either way it is worth a look; the dry-run says so.
  */
 
+import type { VulnLookup } from "./guards";
 import {
   absolutePath,
   type GuardDecision,
@@ -99,6 +100,8 @@ export function dryRunRules(
     claims?: HeldWorktree[];
     /** M12.5: the home the families expand `~` against (defaults to $HOME). */
     home?: string;
+    /** M14.5: the daemon's local advisory lookup, so `vulnerable_install` replays too. */
+    knownVulnerable?: VulnLookup;
     minRepeat?: number;
     maxHits?: number;
   },
@@ -140,7 +143,10 @@ export function dryRunRules(
         const sessions = [...live.values()].filter(
           (s) => now - new Date(s.lastSeenAt).getTime() <= LIVE_WINDOW_MS,
         );
-        d = guardBash(c.command, current, sessions, now, modes, ctx.home ? { home: ctx.home } : {});
+        d = guardBash(c.command, current, sessions, now, modes, {
+          ...(ctx.home ? { home: ctx.home } : {}),
+          ...(ctx.knownVulnerable ? { knownVulnerable: ctx.knownVulnerable } : {}),
+        });
       }
     } else continue;
     if (d.action === "allow") continue;

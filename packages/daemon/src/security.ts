@@ -550,6 +550,7 @@ export class SecurityService {
           advisories,
         );
         this.store.syncAdvisoryHits(p.id, hits, nowIso);
+        this.store.openAdvisoryIncidents(p.id); // M14.5
       }
       this.store.setMetaValue("security_osv_at", nowIso);
       this.store.setMetaValue("security_osv_error", "");

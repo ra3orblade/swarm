@@ -3954,3 +3954,109 @@ describe("M14.4 advisories", () => {
     }
   }, 20_000);
 });
+
+describe("M14.5 act", () => {
+  const { writeFileSync: writeF } = require("node:fs") as typeof import("node:fs");
+  const lock = (v: string) =>
+    `{"lockfileVersion":1,"workspaces":{"":{"name":"p","dependencies":{"hono":"^4"}}},"packages":{"hono":["hono@${v}","",{},"sha512-a"]}}`;
+  const GHSA = {
+    id: "GHSA-act1-act1-act1",
+    summary: "Path traversal in hono.",
+    modified: "2026-10-21T00:00:00Z",
+    database_specific: { severity: "HIGH" },
+    affected: [
+      {
+        package: { ecosystem: "npm", name: "hono" },
+        ranges: [{ type: "ECOSYSTEM", events: [{ introduced: "4.0.0" }, { fixed: "4.6.5" }] }],
+      },
+    ],
+  };
+
+  it("opens one incident per advisory × project and asks before installing the vulnerable version", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/v1/querybatch") {
+          const body = (await req.json()) as {
+            queries: Array<{ package: { name: string }; version: string }>;
+          };
+          return Response.json({
+            results: body.queries.map((q) =>
+              q.package.name === "hono" && q.version === "4.6.3"
+                ? { vulns: [{ id: GHSA.id, modified: GHSA.modified }] }
+                : {},
+            ),
+          });
+        }
+        if (path === `/v1/vulns/${GHSA.id}`) return Response.json(GHSA);
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const home = tmpHome();
+      writeF(join(home, "config.toml"), "[security]\nadvisories = true\nnews = false\n");
+      const { app, store, security } = createApp(new Store(home));
+      security.osvBase = `http://127.0.0.1:${server.port}/v1`;
+      const root = mkdtempSync(join(tmpdir(), "swarm-act-"));
+      writeF(join(root, "bun.lock"), lock("4.6.3"));
+      const p = store.resolveProject(root, true, "act");
+      security.scanStacks();
+      await security.readAdvisories(Date.now(), true);
+
+      const incidents = async () =>
+        (
+          (await (await app.request(`/v1/incidents?project=${p.id}&open=1`)).json()) as Array<
+            Record<string, unknown>
+          >
+        ).filter((i) => i.rule === "security.advisory");
+      const first = await incidents();
+      expect(first).toHaveLength(1);
+      expect(first[0]).toMatchObject({
+        action: "warn",
+        command: "npm hono@4.6.3",
+        advisory: GHSA.id,
+        severity: "high",
+        fixed: "4.6.5",
+      });
+      expect(String(first[0]?.reason)).toContain("Fixed in 4.6.5");
+      // a second pass does not open another
+      await security.readAdvisories(Date.now(), true);
+      expect(await incidents()).toHaveLength(1);
+
+      // the hook path: a local read, an ask with the reason; the fixed version is allowed
+      const ask = store.evaluateTool(
+        "Bash",
+        { command: "bun add hono@4.6.3" },
+        "sess-act",
+        root,
+        false,
+      );
+      expect(ask.decision).toMatchObject({ action: "ask", rule: "vulnerable_install" });
+      expect((ask.decision as { reason: string }).reason).toContain("4.6.5 fixes it");
+      expect(
+        store.evaluateTool("Bash", { command: "bun add hono@4.6.5" }, "sess-act", root, false)
+          .decision.action,
+      ).toBe("allow");
+      expect(
+        store.evaluateTool(
+          "Bash",
+          { command: "pip install requests==2.19.0" },
+          "sess-act",
+          root,
+          false,
+        ).decision.action,
+      ).toBe("allow");
+
+      // the Activity scan counts the family, and the mode shows beside it
+      const sec = (await (await app.request(`/v1/security?project=${p.id}`)).json()) as {
+        rules: Array<{ rule: string }>;
+        modes: Record<string, string>;
+      };
+      expect(sec.rules.some((r) => r.rule === "vulnerable_install")).toBe(true);
+      expect(sec.modes.vulnerable_install).toBe("ask");
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+});

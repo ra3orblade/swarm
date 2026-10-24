@@ -211,3 +211,49 @@ describe("config_tamper", () => {
     "cp ~/.claude/settings.json /tmp/backup.json",
   ])("allows %s", (c) => expect(configTamperCommand(c, HOME)).toBeNull());
 });
+
+describe("M14.5 vulnerable_install", () => {
+  const { installTargets, vulnerableInstall } = require("./guards") as typeof import("./guards");
+
+  test("installTargets: exact versions only, in command position, both ecosystems", () => {
+    expect(installTargets("npm i left-pad@1.3.0 && bun add @scope/thing@2.1.4 lodash@^4")).toEqual([
+      { ecosystem: "npm", name: "left-pad", version: "1.3.0" },
+      { ecosystem: "npm", name: "@scope/thing", version: "2.1.4" },
+    ]);
+    expect(installTargets("pip install requests==2.19.0 'Django[argon2]==4.2.0' flask>=2")).toEqual(
+      [
+        { ecosystem: "PyPI", name: "requests", version: "2.19.0" },
+        { ecosystem: "PyPI", name: "django", version: "4.2.0" },
+      ],
+    );
+    expect(installTargets("uv add fast_api==0.120.0; poetry add httpx@0.27.0")).toEqual([
+      { ecosystem: "PyPI", name: "fast-api", version: "0.120.0" },
+      { ecosystem: "PyPI", name: "httpx", version: "0.27.0" },
+    ]);
+    expect(installTargets("npm install")).toEqual([]); // from the manifest
+    expect(installTargets("npm i hono@latest hono@next")).toEqual([]); // tags
+    expect(installTargets("echo npm i hono@4.6.3")).toEqual([]); // not in command position
+    expect(installTargets("npm i hono@4.6.3 > /tmp/log 2>&1")).toEqual([
+      { ecosystem: "npm", name: "hono", version: "4.6.3" },
+    ]);
+  });
+
+  test("vulnerableInstall: the first target the lookup knows", () => {
+    const lookup = (t: { name: string; version: string }) =>
+      t.name === "hono" && t.version === "4.6.3"
+        ? { id: "GHSA-1", severity: "high", fixed: "4.6.5", summary: "x" }
+        : null;
+    expect(vulnerableInstall("bun add zod@3.0.0 hono@4.6.3", lookup)?.what).toBe(
+      "installs hono 4.6.3, which has a known high advisory (GHSA-1); 4.6.5 fixes it",
+    );
+    expect(vulnerableInstall("bun add hono@4.6.5", lookup)).toBeNull();
+    expect(
+      vulnerableInstall("bun add hono@4.6.3", () => ({
+        id: "MAL-1",
+        severity: "critical",
+        fixed: null,
+        summary: "",
+      }))?.what,
+    ).toContain("no fixed version is named yet");
+  });
+});

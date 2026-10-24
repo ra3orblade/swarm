@@ -48,6 +48,8 @@ export interface RulesConfig {
   secrets: RuleMode;
   /** M12.5: changing Claude Code settings, Swarm's config / ledger, or `swarm uninstall`. */
   config_tamper: RuleMode;
+  /** M14.5: installing an exact version with a known advisory in the local table (never the network). */
+  vulnerable_install: RuleMode;
   /** M13.3: after an edit, tell the session when another live session edited the same file
    *  within `collision_window` minutes (on PostToolUse). */
   collision_context: boolean;
@@ -398,6 +400,7 @@ export const DEFAULT_CONFIG: SwarmConfig = {
     pipe_to_shell: "ask",
     secrets: "ask",
     config_tamper: "ask",
+    vulnerable_install: "ask",
     collision_context: true,
     collision_window: 15,
     protected: { ports: [] },
@@ -682,6 +685,7 @@ function validate(c: SwarmConfig): SwarmConfig {
       pipe_to_shell: mode(c.rules?.pipe_to_shell, "ask"),
       secrets: mode(c.rules?.secrets, "ask"),
       config_tamper: mode(c.rules?.config_tamper, "ask"),
+      vulnerable_install: mode(c.rules?.vulnerable_install, "ask"),
       collision_context: c.rules?.collision_context !== false,
       collision_window: (() => {
         const n = Number(c.rules?.collision_window);

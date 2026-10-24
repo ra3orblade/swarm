@@ -334,3 +334,54 @@ describe("rewrite rules (M13.5)", async () => {
     expect(guardBash("npm i x", cur, [], 0, modes)).toMatchObject({ action: "rewrite" });
   });
 });
+
+describe("M14.5 vulnerable_install", () => {
+  const {
+    DEFAULT_MODES: M,
+    guardBash: g,
+    familyHitsBash: fam,
+  } = require("./rules") as typeof import("./rules");
+  const current = { id: "s1", toplevel: "/repo" };
+  const lookup = (t: { name: string; version: string }) =>
+    t.name === "hono" && t.version === "4.6.3"
+      ? { id: "GHSA-1", severity: "high", fixed: "4.6.5", summary: "Path traversal" }
+      : null;
+
+  it("asks by default, denies or stays off by mode, and is silent without a lookup", () => {
+    const d = g("bun add hono@4.6.3", current, [], Date.now(), M, { knownVulnerable: lookup });
+    expect(d).toMatchObject({ action: "ask", rule: "vulnerable_install" });
+    expect((d as { reason: string }).reason).toContain("hono 4.6.3");
+    expect((d as { reason: string }).reason).toContain("4.6.5 fixes it");
+    expect(
+      g(
+        "bun add hono@4.6.3",
+        current,
+        [],
+        Date.now(),
+        { ...M, vulnerable_install: "deny" },
+        { knownVulnerable: lookup },
+      ).action,
+    ).toBe("deny");
+    expect(
+      g(
+        "bun add hono@4.6.3",
+        current,
+        [],
+        Date.now(),
+        { ...M, vulnerable_install: "off" },
+        { knownVulnerable: lookup },
+      ).action,
+    ).toBe("allow");
+    expect(
+      g("bun add hono@4.6.5", current, [], Date.now(), M, { knownVulnerable: lookup }).action,
+    ).toBe("allow");
+    // the offline shim has no lookup: nothing fires, so it fails open as documented (OQ-36)
+    expect(g("bun add hono@4.6.3", current, [], Date.now(), M, {}).action).toBe("allow");
+    expect(
+      fam("bun add hono@4.6.3", "/home/x", null).some((h) => h.rule === "vulnerable_install"),
+    ).toBe(false);
+    expect(fam("bun add hono@4.6.3", "/home/x", null, lookup).map((h) => h.rule)).toEqual([
+      "vulnerable_install",
+    ]);
+  });
+});
