@@ -231,6 +231,22 @@ active days (365d): 39
 busiest day: 2026-08-14 (412 turns, $38.20)
 ```
 
+## Security
+
+The [security layer](12-observatory.md#security--what-agents-reached-for) from the terminal. Every command takes `-p` (this project), `--project <name|path>` or nothing (every project), and `--json`.
+
+```sh
+swarm security stack                       # what each project runs, from its lockfiles
+swarm security advisories [--min high] [--all]   # known advisories on those versions (once [security] advisories = true)
+swarm security news [--kind vendor,press] [--days 7] [--unread] [--all]
+swarm security feeds ls                    # every source with its state
+swarm security feeds check [url]           # one URL, or every configured source, through the daemon's own reader; exit 1 if any is `none`
+swarm security report [--days 7]           # markdown per project: stack, advisories, 14-day activity, the news that matched
+swarm security refresh [stack|news|advisories]
+```
+
+`report` is meant to be pasted into an issue or a weekly note; `--json` gives the four payloads it was rendered from. `feeds check` is the answer to "does this source apply to the format we read" before you add it to `[[security.feeds]]`. `swarm doctor` prints one `security:` line with the same numbers.
+
 ## A dashboard to look at
 
 ```sh

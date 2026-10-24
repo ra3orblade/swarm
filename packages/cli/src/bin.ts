@@ -19,6 +19,11 @@ import {
   swarmHome,
 } from "@swarm/client";
 import { loadConfigDetailed, SANDBOX_INSTALL } from "@swarm/core";
+import { type AdvisoryReport, type Severity, severityAtLeast } from "@swarm/core/advisories";
+import type { FeedCheck, NewsFeedsReport, NewsReport } from "@swarm/core/newsfeed";
+import type { SecurityReport } from "@swarm/core/security";
+import { renderSecurityReport, type SecurityReportInput } from "@swarm/core/securityreport";
+import type { StackReport } from "@swarm/core/stack";
 import { install, installStatusline, setTeamUrl, status, uninstall } from "./install";
 import * as procs from "./procs";
 
@@ -72,6 +77,8 @@ const help = `swarm — control plane for AI-agent development
   serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
   proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
   stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
+  security [stack|advisories|news|feeds ls|feeds check [url]|report|refresh] [-p] [--project n] [--json]
+                          the security layer (M14): what each project runs, its OSV advisories, the news that concerns it, the sources and their format check, a markdown report
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
   rules dryrun [--set rule=mode,…] [--limit n] [--json]   replay this repo's history under rule modes; shows what would fire + flaky signals
   workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
@@ -315,6 +322,249 @@ try {
       console.log(
         `\nsettings: ${st.path}\ndaemon cmd: ${daemonCommand().join(" ")}\nurl: ${resolveBaseUrl()}`,
       );
+      // M14.6: the security layer in one line (an older daemon without the routes is skipped)
+      if (running)
+        try {
+          const st = (await api("/v1/stack")) as {
+            enabled: boolean;
+            projects: unknown[];
+            rows: unknown[];
+          };
+          const adv = (await api("/v1/advisories")) as {
+            enabled: boolean;
+            counts: Record<string, number>;
+          };
+          const feeds = (await api("/v1/news/feeds")) as {
+            enabled: boolean;
+            feeds: Array<{ state: string }>;
+          };
+          const open = Object.values(adv.counts).reduce((a, b) => a + b, 0);
+          const on = feeds.feeds.filter((f) => f.state === "on").length;
+          const failing = feeds.feeds.filter((f) => f.state === "error").length;
+          console.log(
+            `✓ security: stack ${st.enabled ? `${st.projects.length} projects / ${st.rows.length} packages` : "off"} · advisories ${adv.enabled ? `on, ${open} open` : "off ([security] advisories = true to enable)"} · news ${feeds.enabled ? `${on} sources on${failing ? `, ${failing} failing` : ""}` : "off"}`,
+          );
+        } catch {
+          // routes missing: nothing to report
+        }
+      break;
+    }
+    case "security": {
+      // M14.6: the security layer from the terminal — stack, advisories, news, sources, a report
+      await ensureDaemon({ quiet: true });
+      const VALUE_FLAGS = ["--project", "--kind", "--days", "--min"];
+      const positional = rest.filter(
+        (a, i) => !a.startsWith("-") && !VALUE_FLAGS.includes(rest[i - 1] ?? ""),
+      );
+      const sub = positional[0] ?? "report";
+      const flag = (n: string) => {
+        const i = rest.indexOf(n);
+        return i >= 0 ? rest[i + 1] : undefined;
+      };
+      const projects = (await api("/v1/projects")) as Array<{
+        id: string;
+        name: string;
+        root: string;
+      }>;
+      let project: { id: string; name: string } | undefined;
+      const want = flag("--project");
+      if (want) {
+        project = projects.find((p) => p.name === want || p.root === resolve(want));
+        if (!project) {
+          console.error(`no project named ${want} — swarm ls lists them`);
+          process.exit(2);
+        }
+      } else if (rest.includes("-p")) {
+        project = (await api("/v1/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: resolve(".") }),
+        })) as { id: string; name: string };
+      }
+      const scoped = (path: string, extra: Record<string, string | undefined> = {}) => {
+        const qs = new URLSearchParams();
+        if (project) qs.set("project", project.id);
+        for (const [k, v] of Object.entries(extra)) if (v) qs.set(k, v);
+        const s = qs.toString();
+        return s ? `${path}?${s}` : path;
+      };
+      const nameOf = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+      const post = (path: string, body: unknown) =>
+        api(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const out = (v: unknown) => console.log(JSON.stringify(v));
+      switch (sub) {
+        case "stack": {
+          const r = (await api(scoped("/v1/stack"))) as StackReport;
+          if (json) {
+            out(r);
+            break;
+          }
+          if (!r.enabled) {
+            console.log("stack detection is off ([security] stack = false)");
+            break;
+          }
+          for (const p of r.projects)
+            console.log(
+              `${p.name} · ${p.manifests.length} manifest${p.manifests.length === 1 ? "" : "s"} · ${p.total} packages (npm ${p.byEcosystem.npm} · PyPI ${p.byEcosystem.PyPI} · GitHub Actions ${p.byEcosystem["GitHub Actions"]})${r.scannedAt ? ` · scanned ${r.scannedAt}` : ""}`,
+            );
+          if (!r.rows.length) {
+            console.log(
+              "no lockfile found — Swarm reads bun.lock, pnpm-lock.yaml, package-lock.json, yarn.lock, uv.lock, poetry.lock, requirements.txt and .github workflows",
+            );
+            break;
+          }
+          console.log(
+            `${"ECOSYSTEM".padEnd(15)} ${"PACKAGE".padEnd(36)} ${"VERSION".padEnd(14)} ${"SCOPE".padEnd(12)} MANIFEST${project ? "" : "  PROJECT"}`,
+          );
+          for (const x of r.rows)
+            console.log(
+              `${x.ecosystem.padEnd(15)} ${x.name.slice(0, 36).padEnd(36)} ${x.version.slice(0, 14).padEnd(14)} ${(x.scope || "—").padEnd(12)} ${x.manifest}${project ? "" : `  ${nameOf(x.projectId)}`}`,
+            );
+          break;
+        }
+        case "advisories": {
+          const r = (await api(scoped("/v1/advisories"))) as AdvisoryReport;
+          if (json) {
+            out(r);
+            break;
+          }
+          if (!r.enabled) {
+            console.log(
+              `advisories are off. Add to ${r.enable.file}:\n  ${r.enable.toml.replace("\n", "\n  ")}\nIt sends ${r.enable.sends}.`,
+            );
+            break;
+          }
+          const min = flag("--min") as Severity | undefined;
+          const all = rest.includes("--all");
+          const hits = r.hits.filter(
+            (h) => (all || !h.resolvedAt) && (!min || severityAtLeast(h.advisory.severity, min)),
+          );
+          console.log(
+            `${r.hits.filter((h) => !h.resolvedAt).length} open (${r.counts.critical} critical, ${r.counts.high} high, ${r.counts.medium} medium, ${r.counts.low + r.counts.unknown} low / unknown) · OSV read ${r.lastFetch ?? "never"}${r.lastError ? ` · last error: ${r.lastError}` : ""}`,
+          );
+          if (!hits.length) break;
+          console.log(
+            `${"SEVERITY".padEnd(13)} ${"ADVISORY".padEnd(24)} ${"PACKAGE".padEnd(34)} ${"RUNNING → FIXED".padEnd(26)} ${"MANIFEST".padEnd(22)} ${project ? "" : "PROJECT"}`,
+          );
+          for (const h of hits)
+            console.log(
+              `${`${h.advisory.severity}${h.advisory.cvss !== null ? ` ${h.advisory.cvss.toFixed(1)}` : ""}`.padEnd(13)} ${h.advisory.id.padEnd(24)} ${`${h.name} (${h.ecosystem})`.slice(0, 34).padEnd(34)} ${`${h.version} → ${h.fixed ?? "no fix yet"}${h.resolvedAt ? " (resolved)" : ""}`.padEnd(26)} ${h.manifest.slice(0, 22).padEnd(22)} ${project ? "" : nameOf(h.projectId)}`,
+            );
+          break;
+        }
+        case "news": {
+          const r = (await api(
+            scoped("/v1/news", {
+              kind: flag("--kind"),
+              days: flag("--days"),
+              unread: rest.includes("--unread") ? "1" : undefined,
+              all: rest.includes("--all") ? "1" : undefined,
+            }),
+          )) as NewsReport;
+          if (json) {
+            out(r);
+            break;
+          }
+          if (!r.enabled) {
+            console.log("news is off ([security] news = false)");
+            break;
+          }
+          console.log(
+            `${r.counts.shown} shown · ${r.counts.unread} unread · ${r.keywords.length} keywords · read ${r.lastFetch ?? "never"}${r.lastError ? ` · last error: ${r.lastError}` : ""}`,
+          );
+          for (const i of r.items)
+            console.log(
+              `${i.published.slice(0, 10)}  ${i.kind.padEnd(9)} ${i.feed.slice(0, 28).padEnd(28)} ${i.title.slice(0, 72).padEnd(72)} ${i.matched.join(",").padEnd(18)} ${i.url}`,
+            );
+          break;
+        }
+        case "feeds": {
+          const verb = positional[1] ?? "ls";
+          if (verb === "ls") {
+            const r = (await api("/v1/news/feeds")) as NewsFeedsReport;
+            if (json) {
+              out(r);
+              break;
+            }
+            // failing first, then read, then off; kinds in their order — as the Sources panel lists them
+            const order: Record<string, number> = { error: 0, on: 1, pending: 2, off: 3 };
+            const kinds = ["vendor", "authority", "press", "ai"];
+            const sorted = [...r.feeds].sort(
+              (x, y) =>
+                (order[x.state] ?? 9) - (order[y.state] ?? 9) ||
+                kinds.indexOf(x.kind) - kinds.indexOf(y.kind) ||
+                x.name.localeCompare(y.name),
+            );
+            for (const f of sorted)
+              console.log(
+                `${f.state.padEnd(8)} ${f.kind.padEnd(10)} ${f.name.slice(0, 34).padEnd(34)} ${(f.format ?? "—").padEnd(5)} ${String(f.items).padStart(4)}  ${f.note || f.url}`,
+              );
+            break;
+          }
+          if (verb === "check") {
+            // one URL, or every configured source: the same reader the daemon runs every round
+            const url = positional[2];
+            const urls = url
+              ? [url]
+              : ((await api("/v1/news/feeds")) as NewsFeedsReport).feeds
+                  .filter((f) => f.state !== "off")
+                  .map((f) => f.url);
+            const results: FeedCheck[] = [];
+            for (const u of urls)
+              results.push((await post("/v1/news/feeds/check", { url: u })) as FeedCheck);
+            if (json) out(results);
+            else
+              for (const c of results)
+                console.log(
+                  `${c.ok ? "ok  " : "none"} ${c.ok ? `${c.format} · ${c.items} item${c.items === 1 ? "" : "s"}` : c.note}${c.status !== null ? ` · HTTP ${c.status}` : ""}  ${c.url}`,
+                );
+            if (results.some((c) => !c.ok)) process.exit(1);
+            break;
+          }
+          console.error("usage: swarm security feeds ls | check [url]");
+          process.exit(2);
+          break;
+        }
+        case "report": {
+          const days = Number(flag("--days") ?? 7) || 7;
+          const targets = project ? [project] : projects;
+          const stack = (await api("/v1/stack")) as StackReport;
+          const payloads: SecurityReportInput[] = [];
+          for (const p of targets) {
+            const pq = (path: string, extra: Record<string, string> = {}) =>
+              `${path}?${new URLSearchParams({ project: p.id, ...extra }).toString()}`;
+            payloads.push({
+              project: { id: p.id, name: p.name },
+              generatedAt: new Date().toISOString(),
+              stack,
+              advisories: (await api(pq("/v1/advisories"))) as AdvisoryReport,
+              activity: (await api(pq("/v1/security"))) as SecurityReport,
+              news: (await api(pq("/v1/news", { days: String(days) }))) as NewsReport,
+              newsDays: days,
+            });
+          }
+          if (json) out(payloads);
+          else console.log(payloads.map(renderSecurityReport).join("\n"));
+          break;
+        }
+        case "refresh": {
+          const r = (await post("/v1/security/refresh", { what: positional[1] ?? "all" })) as {
+            status: unknown;
+          };
+          if (json) out(r);
+          else console.log(JSON.stringify(r.status));
+          break;
+        }
+        default:
+          console.error(
+            "usage: swarm security stack | advisories [--min critical|high|medium|low] [--all] | news [--kind vendor,press] [--days n] [--unread] [--all] | feeds ls | feeds check [url] | report [--days n] | refresh [stack|news|advisories]   (-p: this project; --project <name|path>; --json)",
+          );
+          process.exit(2);
+      }
       break;
     }
     case "add": {
