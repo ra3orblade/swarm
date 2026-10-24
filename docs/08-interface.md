@@ -227,7 +227,7 @@ swarm run ls | send <task|id> "text" | stop <task|id>     steer over stdin / sto
 swarm run resume <session-id> [--model] [--permission-mode]   spawn a run that picks up where a dead session stopped (handoff + tail)
 swarm rules dryrun [--set rule=mode,…] [--limit n]        replay this repo's history under rule modes; what would fire + flaky signals
 swarm search <query…> [-p] [--kind handoff|incident|gate|session]   memory over Swarm's own data (never the codebase)
-swarm stats [-p] [--json]          the Stats view's numbers (totals, per-day classes, records)
+swarm stats [-p] [--days n] [--json]   the Stats view's numbers: totals, streak, 7d/30d windows with deltas, models, tools, records; --days is a per-day table
 swarm security stack | advisories | news | feeds ls | feeds check [url] | report | refresh   the security layer (M14.6): -p / --project, --json
 swarm workflow <name> <task> | workflow ls | workflow stop <task>   run a [[workflows]] sequence on a task (M7.8)
 swarm msg send <to> <text…> [-p] | msg ls [-p]   message a session id, a task's holder, or "lead" (M7.6)

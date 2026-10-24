@@ -31,6 +31,7 @@ import { renderSecurityReport, type SecurityReportInput } from "@swarm/core/secu
 import type { StackReport } from "@swarm/core/stack";
 import { install, installStatusline, setTeamUrl, status, uninstall } from "./install";
 import * as procs from "./procs";
+import { renderStats, type StatsReport } from "./stats";
 
 /** Root of the git checkout we were run in, or null outside a repo. */
 function gitToplevel(): string | null {
@@ -81,7 +82,7 @@ const help = `swarm — control plane for AI-agent development
                           start a dev server: port allocated, PORT set, pid tracked, port protected
   serve ls | stop [name]  list / stop servers this project started (by pid, never by pattern)
   proc start [--name n] -- <cmd> | ls | stop <name|pid>   same, for workers without a port
-  stats [-p] [--json]     all-time totals, streak, records (the dashboard's Stats view)
+  stats [-p] [--days n] [--json]   all-time totals, streak, 7d/30d windows, models, tools, records (the dashboard's Stats view); --days prints a per-day table
   security [stack|advisories [on|off]|news|feeds ls|feeds check [url]|report|refresh] [-p] [--project n] [--json]
                           the security layer (M14): what each project runs, its OSV advisories, the news that concerns it, the sources and their format check, a markdown report
   search <query…> [-p] [--kind handoff|incident|gate|session] [--json]   memory over Swarm's own data (handoffs, incidents, gates, what sessions said)
@@ -1941,42 +1942,21 @@ try {
         })) as { id: string };
         q = `?project=${encodeURIComponent(proj.id)}`;
       }
-      const st = (await api(`/v1/stats${q}`)) as {
-        totals: {
-          turns: number;
-          sessions: number;
-          toolCalls: number;
-          input: number;
-          output: number;
-          cacheRead: number;
-          cacheWrite: number;
-          thinking: number;
-          cost: number | null;
-          firstTs: string | null;
-        };
-        daily: Array<{ day: string; turns: number }>;
-        byModel: Array<{ model: string; turns: number; output: number }>;
-        records: { busiestDay: { day: string; turns: number; cost: number | null } | null };
-      };
+      const st = (await api(`/v1/stats${q}`)) as StatsReport;
       if (json) {
         console.log(JSON.stringify(st));
         break;
       }
-      const T = st.totals;
-      const usd = (n: number | null) => (n == null ? "—" : `$${n.toFixed(2)}`);
-      console.log(
-        `since ${T.firstTs?.slice(0, 10) ?? "—"}: ${T.turns} turns, ${T.sessions} sessions, ${T.toolCalls} tool calls, ${usd(T.cost)}`,
-      );
-      console.log(
-        `tokens: in ${T.input} · out ${T.output} · cache read ${T.cacheRead} · cache write ${T.cacheWrite} · thinking ${T.thinking}`,
-      );
-      console.log(`active days (365d): ${st.daily.filter((d) => d.turns).length}`);
-      for (const m of st.byModel.slice(0, 5))
-        console.log(`  ${m.model.padEnd(28)} ${String(m.turns).padStart(6)} turns ${m.output} out`);
-      if (st.records.busiestDay)
-        console.log(
-          `busiest day: ${st.records.busiestDay.day} (${st.records.busiestDay.turns} turns, ${usd(st.records.busiestDay.cost)})`,
-        );
+      // `--days` alone is a fortnight; `--days 30` is the last thirty.
+      const di = rest.indexOf("--days");
+      const daysArg = di >= 0 ? Number(rest[di + 1]) : Number.NaN;
+      const days =
+        di < 0
+          ? undefined
+          : Number.isFinite(daysArg) && daysArg > 0
+            ? Math.min(366, Math.floor(daysArg))
+            : 14;
+      for (const line of renderStats(st, { days })) console.log(line);
       break;
     }
     case "res": {

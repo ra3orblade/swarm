@@ -219,17 +219,31 @@ swarm audit export [--since 30d] [-p] [--type claim.acquired] [--format jsonl|cs
 ```sh
 swarm stats                      # whole machine
 swarm stats -p                   # the project of the current directory
+swarm stats --days 14            # one row per day for the last 14 days (default when --days has no number)
 swarm stats --json
 ```
 
 ```
-since 2026-07-01: 4812 turns, 213 sessions, 19640 tool calls, $412.17
-tokens: in 1.2M · out 8.9M · cache read 310M · cache write 22M · thinking 1.1M
-active days (365d): 39
-  claude-opus-4-1-20250805       3104 turns 6.2M out
-  claude-sonnet-4-20250514       1708 turns 2.7M out
-busiest day: 2026-08-14 (412 turns, $38.20)
+since 2026-07-01 (115 days): 4,812 turns · 213 sessions · 19,640 tool calls · $412
+tokens: in 1.20M · out 9.80M · cache read 2.10B · cache write 41.0M · thinking 1.70M · cache hit 98%
+streak: 3d (longest 16d) · 71 active days this year
+last 7d: 612 turns · 1.10M out · $58 (+22% turns, +31% spend vs the 7d before)
+last 30d: 2,104 turns · 4.20M out · $190 (−8% turns, −12% spend vs the 30d before)
+turns/day, last 14d: ▁▅▂▂▁▂▁██▃  ▂▁
+efficiency: 81 this week (78 last week, +3)
+peak hour: 10:00 (705 turns, all time)
+models:
+  fable-5-1                 2,321 turns   4.20M out     $251
+  opus-5                    1,672 turns   3.10M out     $140
+tools: Bash 9,254 · Read 3,660 · Edit 1,453 · Write 1,469
+records:
+  busiest day       2026-08-22  439 turns  $123
+  costliest session $52          2026-08-20  "Claude Code streaming protocol"
+  longest session   528 turns    2026-10-18  "Dashboard regression survey"
+  biggest turn      128k out     2026-09-30  fable-5-1 "Portal performance"
 ```
+
+The windows, streak and sparkline are computed from the same per-day rows the dashboard's activity calendar uses, so the two agree. `--days` prints a per-day table instead (turns, output tokens, context tokens, cost, and a bar), with a total line.
 
 ## Security
 
