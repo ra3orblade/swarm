@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.18.0](#0180--2026-10-24) | Oct 24 | What each project runs, what of it is known-bad, what is happening around it · two new rules · `swarm security` |
 | [0.17.0](#0170--2026-10-16) | Oct 16 | Codex gets the whole hook pipeline · cost by MCP, skill and subagent · CI resumes the run · signals |
 | [0.16.0](#0160--2026-10-01) | Oct 1 | The guards ask by default · sandboxed runs · a reviewer on prompts · scheduled workflows |
 | [0.15.1](#0151--2026-09-25) | Sep 25 | Grok's hooks · idle CPU in the desktop app · a "Waiting on you" panel · tooltips back |
@@ -29,6 +30,25 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.18.0] — 2026-10-24
+
+The security release. There are a lot of security incidents in the package ecosystems right now, and Swarm could watch every agent on the machine without knowing what any project actually ran. Now it reads the lockfiles, can ask OSV about the exact versions (off until you turn it on — the query is your dependency list), follows the security news that concerns that stack, tells the agent, and can dispatch the upgrade. Nothing new leaves the machine by default except the public feed reads, and `SWARM_OFFLINE=1` silences all of it.
+
+### Changes
+
+- **Stack: what each project runs.** The daemon reads `bun.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `uv.lock`, `poetry.lock`, pinned `requirements.txt` and the `uses:` lines of the workflows under `.github` — in the project root and one level down — and re-reads a file only when it moves. Every package with its version, its scope and the manifest it came from, on the new **Stack** tab of the Security view. Local, read-only, never written back; an empty folder is an empty stack.
+- **Advisories, off until you enable it.** With `[security] advisories = true` the daemon asks OSV about the exact versions every six hours and after a lockfile changes. The query carries the ecosystem, name and version of each dependency — the project's dependency list — and nothing else; the **Advisories** tab says so while it is off and gives the two lines to paste. Each hit shows the severity (the database's word, or the CVSS 3.x base score computed from the vector), the advisory, the version you run and the fixed one; a version that leaves the lockfile resolves its row. At or above `advisory_min_severity` an advisory opens a `security.advisory` incident, once per advisory and project.
+- **The agent is told, and can be sent to fix it.** A session that starts in the project (or asks `swarm_context`) gets one line naming the open advisories with their fixed versions. **Upgrade** on an advisory row dispatches an agent into its own worktree on the task `sec/<package>-<fixed>`, with a prompt that names the advisory, the manifest and the package manager, asks for the gates, a commit and a pull request, and forbids unrelated changes.
+- **News that concerns your stack.** A new **News** view in Guard reads a built-in list of public RSS / Atom sources every half hour — the projects' own security channels, CISA and CERT-Bund, the security press — and matches every item against the packages your projects run. The sidebar's project filter is the relevance filter: a vendor's own channel is shown whole, authorities and the press only when they name something the project runs. The keywords come from the lockfiles (products behind the packages, ecosystems, declared runtime names), not from a list you maintain. `[security] keywords` adds words; `kinds` and `feeds_off` switch built-ins off.
+- **Your own sources, checked before you add them.** `[[security.feeds]]` appends to the built-ins. The **Sources** panel fetches a URL once with the same reader the daemon runs and says whether it parsed as RSS or Atom and how many items it holds — or the status and content type it got, so a 403 is told from a page that is not a feed — and gives the TOML to paste. `swarm security feeds check` does the same from the terminal and exits 1 when a configured source stops parsing.
+- **Two new rules, both `ask`.** `vulnerable_install` asks before `npm i hono@4.6.3`, `pip install requests==2.19.0` and the pnpm / yarn / bun / uv / poetry forms when that exact version has a known advisory — answered from the advisory table on the machine, one local read, never the network. `secret_commit` asks before `git add .env`, a commit that names a credential file, or a `git commit` whose staged diff adds a token (AWS, GitHub, Anthropic, OpenAI, Slack, GitLab, Google, Stripe, npm, a private key block): the daemon reads `git diff --cached` at that moment and names the shape, never the value.
+- **`swarm security`.** `stack`, `advisories`, `news`, `feeds ls | check`, `report` (markdown per project: stack, advisories with links, the 14-day activity scan, the news that matched) and `refresh`, each with `-p`, `--project` and `--json`. `swarm doctor` prints one `security:` line.
+
+### Fixes
+
+- **`swarm_context` always said "nothing to report".** `/v1/context` was registered twice and the daemon answered from the first registration — the Observatory's context-waste report, which has no text to show. One handler serves both now. Found by the test for the advisory line.
+- The first real run of the news matcher turned transitive package names like `which` into keywords and matched every headline with them; keywords now come from declared runtime packages only.
 
 ## [0.17.0] — 2026-10-16
 

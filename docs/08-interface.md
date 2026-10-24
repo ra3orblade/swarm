@@ -6,7 +6,7 @@ Status: living. The four surfaces below are shipped unless a line says otherwise
 
 The first three are surfaces you *go to*. The fourth comes to you: it is the only one an agent cannot ignore, because it arrives in the session's own footer and tool results. When a capability has to reach someone mid-task, it belongs in section E.
 
-## Shipped today (0.14.0)
+## Shipped today (0.18.0)
 
 - **Nav**: grouped sidebar nav from the view registry (M9.1) — Observe: Fleet / Timeline / Graphs · Work: Board / PRs / Trials / Hygiene · Insight: Outcomes / Gates / MCP / Context / Files / Spend / Stats / Search · Guard: Security / News / Provenance / Incidents / Signals / Rules / Team — plus a Session detail reached from any session row, and a ⌘K palette. Every list is a data-grid (sortable, resizable, filterable columns, layouts persisted per table).
 - **Board** = a KPI strip (live / held / worktrees / ready or projects / incidents) + Tasks as a kanban (Ready · In progress · Blocked · Done) + Dispatch + Gates + Processes + Resources + Claims + a Worktree map (one tile per worktree, grouped by project, colored by live / dirty / unpushed / merged) + Incidents. Tasks and Worktrees carry a Cards/Table toggle (persisted). Every row, card and tile has one menu — the hover kebab, right-click, or Enter when focused — instead of inline action links; the menu carries the row's actions (open, diff, PR, run, claim, gates, release, stop, ack, codify, merge, copy …) with destructive ones last and confirmed. "View 4 — Incidents" ships as its own **Incidents** view (feed, Open/All, ack, ack-all) with a short open-only section on the Board.

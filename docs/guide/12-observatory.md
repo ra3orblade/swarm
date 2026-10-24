@@ -78,6 +78,8 @@ The interesting output is the **broken** chains — a task nobody claimed, a cla
 
 ## Security — what agents reached for
 
+> The security layer has its own page now — [Security](13-security.md): the stack, advisories, upgrades, the news and its sources, the two rules, the CLI. This section covers the Activity tab.
+
 Three things over the last 14 days, all **observations, not enforcement**: hosts named in a command or a fetch, packages installed (by ecosystem), and credential files opened by name.
 
 Read it as what it is. A host here means an agent *named* it — `echo https://example.com` counts, because from the outside the two are indistinguishable without running the command, and over-reporting is the safe direction. Secret reads are matched on the *path*: Swarm never reads the contents, so this says something opened your `.env` and nothing whatsoever about what was in it. Everything is matched against the recorded command text, which makes this **a lint, not a sandbox** — an obfuscated command will not match, and a comment mentioning `.env` will.

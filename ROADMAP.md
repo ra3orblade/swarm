@@ -64,7 +64,11 @@ Close the loop: one session dispatches work into worktrees, gates are executed r
 ## Phase 8 — Teams ⚪
 One view for a team without giving up local-first: policy precedence and tamper detection, an actor on every ledger record and audit export, a self-hosted team daemon the local daemon forwards to, chargeback, fleet operations.
 
-## Phase 14 — Secure ⚪
-What each project runs, what of it is known-bad, and what is happening around it: the stack read from lockfiles (local, never written back), OSV advisories on the exact versions (off until you enable it), a security news feed ranked by your stack with your own sources, an incident per advisory, and a rule that asks before an agent installs a vulnerable version. Design: [`docs/16-security.md`](docs/16-security.md).
+## Phase 14 — Secure ✅
+What each project runs, what of it is known-bad, and what is happening around it. Design and what shipped: [`docs/16-security.md`](docs/16-security.md).
+- ✅ The **stack** read from lockfiles (bun, pnpm, npm, yarn, uv, poetry, pinned requirements, GitHub Actions), local and never written back
+- ✅ **Advisories** from OSV on the exact versions, off until you enable it; an incident per advisory, the agent told at session start, **Upgrade** dispatching a fix into its own worktree
+- ✅ A **security news** feed matched against what each project runs, your own sources, and a format check that runs the daemon's own reader
+- ✅ Two rules: `vulnerable_install` and `secret_commit`; `swarm security …` and a markdown report per project
 
 Ideas and priorities are open — see [open questions](docs/07-open-questions.md) and [features](docs/09-features.md), and file an issue.

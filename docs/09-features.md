@@ -58,6 +58,12 @@ Status: living. Grouped by what you can use today. The engineering plan behind t
 - **Rule effectiveness** — is a rule teaching anyone anything, or just costing everyone time; **stall detection**, **waiting-on-human** time, and five graphs: collisions, lineage, tool transitions, resource holding and file heat.
 - **A/B trials** — the same task on several models at once, compared on cost, wall time, gates and diff size; an arm wins only if it finished and passed every gate it ran.
 
+### Secure (what the project runs, what is known-bad, what is happening around it)
+- **Stack** — every project's packages from its lockfiles (bun, pnpm, npm, yarn, uv, poetry, pinned requirements, GitHub Actions `uses:`), re-read when a file moves; local, read-only, never written back.
+- **Advisories** — off until `[security] advisories = true`; then OSV is asked about the exact versions, every six hours and after a lockfile changes. The query carries the dependency list and nothing else. An advisory opens an incident at your threshold, is named in the agent's session context, and **Upgrade** dispatches a fix into its own worktree, gated and PR'd.
+- **News** — public RSS / Atom security sources matched against what each project runs, the sidebar project as the relevance filter; your own sources with a format check that runs the daemon's own reader.
+- Two rules: **`vulnerable_install`** (an exact version with a known advisory, from a local table) and **`secret_commit`** (a credential file staged, or a token on an added line of the staged diff). `swarm security …` and `swarm doctor` from the terminal; a markdown report per project.
+
 ### Teams (self-hosted, [FSL-1.1-ALv2](14-teams.md))
 - `swarm-teamd` with OIDC device-code login and machine registration, cluster claims that revoke local ones on conflict, forwarded audit events and spend, team budgets, signed org policy, `swarm backup` / `restore`, a `/t1/metrics` endpoint and an incident webhook.
 
@@ -67,6 +73,6 @@ Every group above ships today. **v0.14.0 is the Act release** (2026-09-12): inte
 
 **M12 Reach** (from the 2026-09-06 landscape survey in [15-landscape](15-landscape.md)) continues in 0.15: OpenTelemetry export, rules on Codex / Gemini CLI / Cursor, a destructive-command family with secrets and tamper guards, sandboxed runs, a reviewer on permission prompts, user-defined signals and a score, cost by MCP server, and CI feedback into the run — decisions OQ-20 – OQ-23 in [open questions](07-open-questions.md) — alongside the rest of M13 (worktrees Claude Code creates, guards at the moment of a model switch or config change, memory across compaction, scheduled workflows, findings that become issues).
 
-**M14 Secure** is the next release (v0.18.0, direction set 2026-10-24, [16-security](16-security.md)): each project's stack read from its lockfiles, known advisories on the exact versions it runs (OSV, off until you enable it), a security news feed ranked by that stack with customizable sources and a check that a source parses, an incident per advisory, and a `vulnerable_install` rule that asks before an agent installs a version with one — decisions OQ-31 – OQ-36.
+**M14 Secure shipped as v0.18.0** (2026-10-24, [16-security](16-security.md)) — the Secure group above; decisions OQ-31 – OQ-36. Still later: GitHub Dependabot / code-scanning / secret-scanning alerts through `gh` (OQ-34), Rust, Go and Ruby lockfiles, a fail-closed advisory cache for the offline shim.
 
 See [open questions](07-open-questions.md) for decisions still in the air.
