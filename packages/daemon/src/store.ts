@@ -420,7 +420,8 @@ CREATE TABLE IF NOT EXISTS news_feeds (
 CREATE TABLE IF NOT EXISTS news_items (
   key TEXT PRIMARY KEY, feed_url TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL,
   published TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', image TEXT,
-  matched TEXT NOT NULL DEFAULT '[]', fetched_at TEXT NOT NULL, read_at TEXT
+  matched TEXT NOT NULL DEFAULT '[]', fetched_at TEXT NOT NULL, read_at TEXT,
+  page_at TEXT
 );
 CREATE INDEX IF NOT EXISTS news_items_published ON news_items(published);
 CREATE INDEX IF NOT EXISTS news_items_feed ON news_items(feed_url, published);
@@ -509,6 +510,7 @@ export class Store {
     // M13.7: null = Swarm made the worktree; "claude-code" = adopted — recorded, never removed
     this.ensureColumn("claims", "origin", "TEXT");
     this.ensureColumn("turns", "cost_fixed", "INTEGER DEFAULT 0");
+    this.ensureColumn("news_items", "page_at", "TEXT"); // M14.11: the article page asked once for a picture
     // M12.9: the skill a turn ran under; the tail carries the active one across chunks, and a
     // subagent's tail its type (from the subagent's .meta.json)
     this.ensureColumn("turns", "skill", "TEXT");
@@ -7119,6 +7121,27 @@ export class Store {
       }
     })();
     return n;
+  }
+
+  /**
+   * Items in the window whose feed gave no picture and whose page has not been asked yet — each
+   * page is asked once in its life, whatever it answers.
+   */
+  newsWithoutPicture(since: string, limit = 400): Array<{ key: string; url: string }> {
+    return this.db
+      .query(
+        `SELECT key, url FROM news_items
+         WHERE image IS NULL AND page_at IS NULL AND published >= ? AND url LIKE 'http%'
+         ORDER BY published DESC LIMIT ?`,
+      )
+      .all(since, limit) as Array<{ key: string; url: string }>;
+  }
+
+  /** What the article's own page gave for a picture (null when it had none); the page is never asked again. */
+  setNewsPicture(key: string, image: string | null, at: string): void {
+    this.db
+      .query("UPDATE news_items SET image = COALESCE(?, image), page_at = ? WHERE key = ?")
+      .run(image, at, key);
   }
 
   /** The keyword set of one project, or the union over every live project, plus `[security] keywords`. */

@@ -4062,3 +4062,337 @@ tr.clickable {
 .wt-group {
   min-width: 0;
 }
+
+/* ---- News as a paper (M14.11) ----
+   A dateline per day over a rule, stuck to the top of the pane while the day scrolls, and the
+   day's articles under it in tiers as a front page sets them. The pull-out is one value, read by
+   the cards and the dateline, so a hovered card's ground and the dateline's never drift apart.
+   `main` pads 16px at the top; the dateline reaches up by that much so it sticks at the edge. */
+.news-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  gap: 24px;
+  align-items: start;
+}
+.news-main {
+  min-width: 0;
+}
+.news-aside {
+  position: sticky;
+  top: 0;
+}
+@media (max-width: 960px) {
+  .news-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .news-aside {
+    position: static;
+  }
+}
+.paper {
+  --paper-pull: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 16px;
+}
+.paper-day {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.paper-day > h3 {
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: -16px 0 4px;
+  padding: 22px 0 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.paper-day > h3::before {
+  content: "";
+  position: absolute;
+  inset: 0 calc(-1 * var(--paper-pull)) -3px;
+  z-index: -1;
+  background: var(--bg);
+}
+.paper-day > h3::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -2px;
+  height: 2px;
+  background: var(--fg);
+}
+.paper-ago {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--faint);
+}
+.paper-row {
+  display: grid;
+  gap: 8px 16px;
+}
+.paper-row.hero {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+.paper-row.feature {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+}
+.paper-row.brief {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+}
+.paper-card {
+  display: block;
+  min-width: 0;
+  margin: 0 calc(-1 * var(--paper-pull));
+  padding: var(--paper-pull);
+  border-radius: var(--r);
+  color: inherit;
+  text-decoration: none;
+  transition: background var(--t-fast);
+}
+.paper-card:hover {
+  background: var(--panel);
+  text-decoration: none;
+}
+.paper-picture {
+  display: block;
+  aspect-ratio: 16 / 9;
+  margin: 0 0 10px;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.paper-picture img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.paper-card.hero > .paper-picture {
+  max-height: 320px;
+}
+.paper-card.feature > .paper-picture {
+  max-height: 260px;
+}
+.paper-card.brief > .paper-picture {
+  max-height: 150px;
+}
+/* One hero alone in its row sets with the picture beside the text, as a lead story does. */
+.paper-row.hero > .paper-card.with-picture:only-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr auto;
+  column-gap: 24px;
+}
+.paper-row.hero > .paper-card.with-picture:only-child > :not(.paper-picture) {
+  grid-column: 1;
+}
+.paper-row.hero > .paper-card.with-picture:only-child > .paper-picture {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  aspect-ratio: 16 / 10;
+  max-height: none;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .paper-row.hero > .paper-card.with-picture:only-child {
+    display: block;
+  }
+  .paper-row.hero > .paper-card.with-picture:only-child > .paper-picture {
+    aspect-ratio: 16 / 9;
+    margin-bottom: 10px;
+  }
+}
+.paper-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  margin: 0 0 6px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acc);
+}
+.paper-card.unread .paper-kicker::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.paper-kind {
+  color: var(--faint);
+}
+.paper-headline {
+  margin: 0 0 6px;
+  font-size: var(--fs-lg);
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.paper-card.feature .paper-headline {
+  font-size: var(--fs-xl);
+}
+.paper-card.hero .paper-headline {
+  max-width: 60ch;
+  font-size: var(--fs-2xl);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.paper-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+.paper-card.feature .paper-summary {
+  font-size: var(--fs-md);
+  -webkit-line-clamp: 4;
+}
+.paper-card.hero .paper-summary {
+  max-width: 60ch;
+  font-size: var(--fs-lg);
+}
+.paper-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+/* ---- The month calendar beside the news (M14.11) ---- */
+.cal {
+  padding: 12px 14px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.cal-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: var(--fs-md);
+  color: var(--fg);
+}
+.cal-nav {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+.cal-nav:hover:not(:disabled) {
+  border-color: var(--acc);
+  color: var(--fg);
+}
+.cal-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* `display: table` said outright: a stylesheet rule further up lays every table in a sidebar out as
+   a grid, which would set the weekday row as seven shrink-wrapped cells. */
+.cal-grid {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.cal-grid thead {
+  display: table-header-group;
+}
+.cal-grid tbody {
+  display: table-row-group;
+}
+.cal-grid .wd {
+  padding: 0 0 4px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--faint);
+  text-align: center;
+  background: none;
+  border: 0;
+}
+.cal-grid .cell {
+  padding: 1px;
+  text-align: center;
+  border: 0;
+}
+.cal-day {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: none;
+  font: var(--fs-sm) var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+.cal-day.empty {
+  opacity: 0.55;
+}
+/* Four steps, so the shade is read rather than measured: nothing, a little, a working day, the busiest. */
+button.cal-day {
+  appearance: none;
+  cursor: pointer;
+  color: var(--acc);
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+button.cal-day.h1 {
+  background: color-mix(in srgb, var(--acc) 8%, transparent);
+}
+button.cal-day.h2 {
+  background: color-mix(in srgb, var(--acc) 14%, transparent);
+  font-weight: 600;
+}
+button.cal-day.h3 {
+  background: color-mix(in srgb, var(--acc) 22%, transparent);
+  font-weight: 600;
+}
+button.cal-day:hover {
+  border-color: var(--acc);
+}
+button.cal-day.on {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #ffffff;
+  font-weight: 600;
+}
+.cal-foot {
+  margin: 10px 0 0;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+}

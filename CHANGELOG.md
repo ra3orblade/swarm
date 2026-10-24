@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.18.1](#0181--2026-10-24) | Oct 24 | The news as a paper: datelines, tiers, pictures, a calendar |
 | [0.18.0](#0180--2026-10-24) | Oct 24 | What each project runs, what of it is known-bad, what is happening around it · two new rules · `swarm security` |
 | [0.17.0](#0170--2026-10-16) | Oct 16 | Codex gets the whole hook pipeline · cost by MCP, skill and subagent · CI resumes the run · signals |
 | [0.16.0](#0160--2026-10-01) | Oct 1 | The guards ask by default · sandboxed runs · a reviewer on prompts · scheduled workflows |
@@ -30,6 +31,17 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.18.1] — 2026-10-24
+
+The News view reads like a paper now. The table it shipped with a few hours ago was a list of headlines; nobody reads news as a list.
+
+### Changes
+
+- **News as a paper.** A dateline for each day, stuck to the top of the pane while the day scrolls, and under it the day's articles set in tiers as a front page is: the first two as heroes across the width (one alone sets with its picture beside the text), the next three as features in a row, the rest as briefs in as many columns as fit. Each card is the link to the article and a click marks it read. **Paper / Table** in the heading switches back to the table.
+- **Pictures.** An article's picture comes from its feed, or — since 13 of the 27 built-in sources give a picture to no article at all — from the article's own page: the daemon reads the head of the page once for its Open Graph picture, with the same user agent as a feed read, and never asks that page again. `[security] pictures = false` keeps the daemon to the feeds; the privacy guide says what the default fetches.
+- **A calendar.** A month calendar beside the items shades the days by how many articles they hold; a day narrows the paper and the table to itself, and the chip over them lets it go.
+- **A newspaper icon** for News in the Guard menu, which shared the RSS glyph with Team.
 
 ## [0.18.0] — 2026-10-24
 

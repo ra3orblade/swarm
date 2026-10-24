@@ -3,6 +3,7 @@ import {
   isRelevant,
   keywordMatcher,
   normalizeUrl,
+  pageImage,
   parseFeed,
   plainText,
   stackKeywords,
@@ -80,6 +81,21 @@ describe("parseFeed", () => {
   test("a page that is not a feed is none", () => {
     expect(parseFeed("<html><body><h1>Hi</h1></body></html>").format).toBe("none");
     expect(parseFeed("").items).toEqual([]);
+  });
+
+  test("pageImage takes the Open Graph picture, then the Twitter card, never an SVG or http", () => {
+    expect(
+      pageImage(
+        `<html><head><meta name="twitter:image" content="https://x.example/tw.jpg"><meta property="og:image" content="https://x.example/og.jpg"></head>`,
+      ),
+    ).toBe("https://x.example/og.jpg");
+    expect(
+      pageImage(
+        `<meta property="og:image" content="https://x.example/logo.svg?v=2"><meta name="twitter:image:src" content="https://x.example/card.png">`,
+      ),
+    ).toBe("https://x.example/card.png");
+    expect(pageImage(`<meta property="og:image" content="http://x.example/plain.jpg">`)).toBe(null);
+    expect(pageImage("")).toBe(null);
   });
 
   test("plainText cuts at a word and decodes twice", () => {

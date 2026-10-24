@@ -3550,7 +3550,10 @@ describe("M14.1 stack", () => {
   });
 
   it("an empty folder is an empty stack, and the refresh route answers status", async () => {
-    const { app, store, security } = createApp(new Store(tmpHome()));
+    // news off: the refresh route would otherwise read the real built-in sources
+    const home = tmpHome();
+    require("node:fs").writeFileSync(join(home, "config.toml"), "[security]\nnews = false\n");
+    const { app, store, security } = createApp(new Store(home));
     const root = mkdtempSync(join(tmpdir(), "swarm-stack-empty-"));
     const p = store.resolveProject(root, true, "empty");
     security.scanStacks();
@@ -3705,6 +3708,65 @@ describe("M14.2 news", () => {
       server.stop(true);
     }
   }, 20_000);
+  it("fills the pictures the feeds left empty from the article pages, once each, unless pictures = false (M14.11)", async () => {
+    let pages = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        const base = `http://127.0.0.1:${u.port}`;
+        if (u.pathname === "/rss")
+          return new Response(
+            `<rss><channel><title>V</title>
+            <item><title>Page picture</title><link>${base}/article</link><pubDate>${recent(1).toUTCString()}</pubDate></item>
+            <item><title>Feed picture</title><link>${base}/pictured</link><pubDate>${recent(2).toUTCString()}</pubDate><enclosure url="https://cdn.example/feed.jpg" type="image/jpeg"/></item>
+            <item><title>Bare</title><link>${base}/bare</link><pubDate>${recent(3).toUTCString()}</pubDate></item>
+            </channel></rss>`,
+            { headers: { "content-type": "application/rss+xml" } },
+          );
+        pages++;
+        if (u.pathname === "/article")
+          return new Response(
+            `<html><head><meta property="og:image" content="https://cdn.example/og.jpg"></head><body>${"x".repeat(400_000)}</body></html>`,
+            { headers: { "content-type": "text/html" } },
+          );
+        return new Response("<html><head><title>bare</title></head></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const feed = (extra: string) =>
+        `[security]\nkinds = []\n${extra}[[security.feeds]]\nname = "V"\nurl = "${base}/rss"\nkind = "vendor"\n`;
+      const home = tmpHome();
+      writeF(join(home, "config.toml"), feed(""));
+      const { app, security } = createApp(new Store(home));
+      await security.readNews(Date.now(), true);
+      const pics = async () => {
+        const r = (await (await app.request("/v1/news?all=1")).json()) as {
+          items: Array<{ title: string; image: string | null }>;
+        };
+        return Object.fromEntries(r.items.map((i) => [i.title, i.image]));
+      };
+      expect(await pics()).toEqual({
+        "Page picture": "https://cdn.example/og.jpg",
+        "Feed picture": "https://cdn.example/feed.jpg",
+        Bare: null,
+      });
+      expect(pages).toBe(2); // the pictured item's page is never asked
+      await security.readNews(Date.now(), true);
+      expect(pages).toBe(2); // and a page is asked once in its life, picture or not
+
+      const quiet = tmpHome();
+      writeF(join(quiet, "config.toml"), feed("pictures = false\n"));
+      const off = createApp(new Store(quiet));
+      await off.security.readNews(Date.now(), true);
+      expect(pages).toBe(2);
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 describe("M14.3 sources", () => {
