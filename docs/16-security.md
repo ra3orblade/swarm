@@ -1,6 +1,6 @@
 # 16 · Secure (M14) — design
 
-Status: draft (decided 2026-10-24, nothing built yet). Roadmap rows live in [06-roadmap](06-roadmap.md#m14--secure-what-the-project-runs-what-is-known-bad-what-is-happening-around-it--direction-set-2026-10-24); the questions it raises are OQ-31 – OQ-36 in [07-open-questions](07-open-questions.md). Release: **v0.18.0**.
+Status: living. Designed and built 2026-10-24 (M14.1–M14.10, v0.18.0); the sections below are the design, the addendum at the end says what differs in what shipped. Roadmap rows live in [06-roadmap](06-roadmap.md#m14--secure-what-the-project-runs-what-is-known-bad-what-is-happening-around-it--direction-set-2026-10-24); the questions it raises are OQ-31 – OQ-36 in [07-open-questions](07-open-questions.md). Release: **v0.18.0**.
 
 ## Why a design doc first
 
@@ -391,3 +391,16 @@ Stack first because the news ranking and the advisories both hang off it; news b
 - **OQ-34** GitHub Dependabot / code-scanning / secret-scanning alerts through `gh` — proposal: a later M14.8, off by default.
 - **OQ-35** Keyword derivation heuristics — proposal: ship, expose the set, tune over one release.
 - **OQ-36** `vulnerable_install` when the daemon is down — proposal: fails open; a bounded set in the policy cache is a later task.
+
+---
+
+## Addendum — what shipped (2026-10-24)
+
+Everything above landed the same day as ten PRs, in the cut order, each useful alone. Three tasks were added after the review and are in the roadmap as M14.8 – M14.10: the open advisories in the agent's session context (`swarm_context` too), **Upgrade** on an advisory row dispatching a fix into its own worktree, and the `secret_commit` family. What differs from the design:
+
+- **Keywords are declared runtime packages only.** The first real run over this repository derived 151 keywords from every row, transitive helpers included, and press items matched the word `which`. Names now come from declared runtime rows (and the unscoped rows only of a manifest that declares no scope at all, a pinned `requirements.txt`); GitHub Actions rows always count. 29 keywords on the same repository, no noise rows. OQ-35 is decided on that basis and stays open for tuning.
+- **The advisory cache has a packages table.** `advisory_packages` carries each advisory's ranges and explicit versions so the hook can answer for a version in no project's stack; the design's "hits" table could not serve `vulnerable_install`.
+- **`/v1/context` was registered twice.** The M14.8 test found that Hono answered from the first registration (the context-waste report), so `swarm_context` had always said *nothing to report*. One handler serves both now, by the presence of `cwd`.
+- **The format check is scriptable.** `swarm security feeds check` without a URL checks every configured source and exits 1 when one parses as none; the Sources panel does the same for one URL.
+- **No schema version bump** was needed: every table is `CREATE TABLE IF NOT EXISTS` and nothing back-fills.
+- Measured on this repository against the real services: 159 packages from 4 manifests; all 27 default sources parsed, 360 items in 30 days, 98 relevant; 19 open advisories (1 critical, 4 high, 14 medium) with fixed versions.
