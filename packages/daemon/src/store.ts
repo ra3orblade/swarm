@@ -252,6 +252,7 @@ import {
   type AdvisoryHit,
   type AdvisoryReport,
   advisoryReason,
+  fixTaskId,
   inRange,
   OSV_SENDS,
   SEVERITIES,
@@ -7412,10 +7413,17 @@ export class Store {
       unknown: 0,
     };
     const hits: AdvisoryReport["hits"] = [];
+    // M14.9: a held claim on the fix task means an upgrade is under way
+    const held = new Set<string>();
+    for (const pid of live)
+      if (!projectId || pid === projectId)
+        for (const c of this.claims(pid)) if (c.state === "held") held.add(`${pid}\u0000${c.task}`);
     for (const r of rows) {
       if (!live.has(r.project_id as string)) continue;
       const severity = r.severity as Advisory["severity"];
       if (r.resolved_at == null) counts[severity]++;
+      const fixedVersion = (r.fixed as string | null) ?? null;
+      const fixTask = fixedVersion ? fixTaskId(r.name as string, fixedVersion) : null;
       hits.push({
         projectId: r.project_id as string,
         advisory: {
@@ -7437,6 +7445,8 @@ export class Store {
         firstSeen: r.first_seen as string,
         resolvedAt: (r.resolved_at as string | null) ?? null,
         acked: Boolean(r.acked),
+        fixTask,
+        fixing: fixTask !== null && held.has(`${r.project_id as string}\u0000${fixTask}`),
       });
     }
     return {

@@ -381,6 +381,7 @@ Everything above is a thin wrapper over these. Bound to `127.0.0.1` only; port d
 | `GET /v1/stack?project=` · `POST /v1/security/refresh` | M14.1: what each project runs, from its lockfiles (per manifest, with the scan cursor and any parse error); `refresh` runs the scan now |
 | `GET /v1/news?project=&kind=&days=&unread=&all=` · `POST /v1/news/read` | M14.2: the news items of the window, narrowed to the scope's stack keywords (`all=1` shows the rest); mark read by key or all |
 | `GET /v1/news/feeds` · `POST /v1/news/feeds/check` | M14.3: every source with its state; one URL fetched once through the poller's own parser — `{ok, format, status, contentType, title, items, sample, note}` |
+| `POST /v1/advisories/fix` | M14.9: dispatch an upgrade for one advisory hit into its own claimed worktree (`{project, advisory, ecosystem, name, version}`; `dry: true` answers the task and the prompt without starting) |
 | `GET /v1/advisories?project=` | M14.4: open hits (and the ones resolved in 30 days) with the advisory, package, version → fixed and manifest; `enabled`, the last OSV read and error, and the `enable` block while off |
 
 Not built: a unix socket. Stdin for spawned runs is `POST /v1/runs/:id/send`.
