@@ -54,11 +54,11 @@ export function NewsCalendar({
   const next = shiftMonth(month, 1);
 
   return (
-    <div className="cal">
-      <div className="cal-h">
+    <div className="mcal">
+      <div className="mcal-h">
         <button
           type="button"
-          className="cal-nav"
+          className="mcal-nav"
           onClick={() => setTurned(previous)}
           disabled={compareMonths(previous, span[0]) < 0}
           aria-label="The month before"
@@ -68,7 +68,7 @@ export function NewsCalendar({
         <b>{monthLabel(month)}</b>
         <button
           type="button"
-          className="cal-nav"
+          className="mcal-nav"
           onClick={() => setTurned(next)}
           disabled={compareMonths(next, span[1]) > 0}
           aria-label="The month after"
@@ -76,7 +76,7 @@ export function NewsCalendar({
           ›
         </button>
       </div>
-      <table className="cal-grid">
+      <table className="mcal-grid">
         <thead>
           <tr>
             {WEEKDAYS.map((initial, i) => (
@@ -108,7 +108,7 @@ export function NewsCalendar({
           ))}
         </tbody>
       </table>
-      <p className="cal-foot">{footOf(total, written.length)}</p>
+      <p className="mcal-foot">{footOf(total, written.length)}</p>
     </div>
   );
 }
@@ -128,11 +128,11 @@ function CalendarDay({
   onDay: (day: string) => void;
 }) {
   const dayOfMonth = Number(key.slice(8));
-  if (!count) return <span className="cal-day empty">{dayOfMonth}</span>;
+  if (!count) return <span className="mcal-day empty">{dayOfMonth}</span>;
   return (
     <button
       type="button"
-      className={`cal-day h${heat(count, busiest)}${selected ? " on" : ""}`}
+      className={`mcal-day h${heat(count, busiest)}${selected ? " on" : ""}`}
       onClick={() => onDay(selected ? "" : key)}
       aria-pressed={selected}
       title={`${dayLabel(key)}: ${count} article${count === 1 ? "" : "s"}`}
