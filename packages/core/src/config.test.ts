@@ -152,3 +152,79 @@ describe("[[rules.custom]] (M13.5)", async () => {
     expect(parseCustomRules(undefined)).toEqual([]);
   });
 });
+
+describe("[security] (M14)", () => {
+  test("defaults: stack on, advisories off, news on, three kinds", () => {
+    const s = loadConfig({ home: tmp() }).security;
+    expect(s).toEqual({
+      stack: true,
+      advisories: false,
+      advisory_min_severity: "high",
+      news: true,
+      news_days: 30,
+      refresh_minutes: 30,
+      kinds: ["vendor", "authority", "press"],
+      keywords: [],
+      feeds_off: [],
+      feeds: [],
+    });
+  });
+
+  test("clamps and never throws; feeds need a name and an http(s) url; duplicates by url drop", () => {
+    const home = tmp();
+    writeFileSync(
+      join(home, "config.toml"),
+      [
+        "[security]",
+        "advisories = true",
+        'advisory_min_severity = "loud"',
+        "news_days = 9999",
+        "refresh_minutes = 1",
+        'kinds = ["ai", "bogus", "vendor"]',
+        'keywords = ["PostgreSQL", " ", "PostgreSQL"]',
+        'feeds_off = ["Dark Reading"]',
+        "[[security.feeds]]",
+        'name = "Our vendor"',
+        'url = "https://vendor.example/security.rss"',
+        'kind = "vendor"',
+        "[[security.feeds]]",
+        'name = "Dup"',
+        'url = "https://vendor.example/security.rss/"',
+        "[[security.feeds]]",
+        'name = "No scheme"',
+        'url = "vendor.example/feed"',
+        "[[security.feeds]]",
+        'url = "https://nameless.example/feed"',
+        "[[security.feeds]]",
+        'name = "Unknown kind"',
+        'url = "https://press.example/feed"',
+        'kind = "blog"',
+      ].join("\n"),
+    );
+    const s = loadConfig({ home }).security;
+    expect(s.advisories).toBe(true);
+    expect(s.advisory_min_severity).toBe("high");
+    expect(s.news_days).toBe(30);
+    expect(s.refresh_minutes).toBe(30);
+    expect(s.kinds).toEqual(["vendor", "ai"]);
+    expect(s.keywords).toEqual(["PostgreSQL"]);
+    expect(s.feeds_off).toEqual(["Dark Reading"]);
+    expect(s.feeds).toEqual([
+      { name: "Our vendor", url: "https://vendor.example/security.rss", kind: "vendor" },
+      { name: "Unknown kind", url: "https://press.example/feed", kind: "press" },
+    ]);
+  });
+
+  test("a repo's .swarm.toml cannot switch advisories on or add a feed (global only)", () => {
+    // The daemon reads [security] through policyFor(null); this pins that the repo layer is at
+    // least parsed harmlessly, so a hostile .swarm.toml can never take the daemon down.
+    const home = tmp();
+    const repo = tmp();
+    writeFileSync(
+      join(repo, ".swarm.toml"),
+      '[security]\nadvisories = true\n[[security.feeds]]\nname="x"\nurl="https://x.example/f"\n',
+    );
+    expect(loadConfig({ home }).security.advisories).toBe(false);
+    expect(loadConfig({ home, repoRoot: repo }).security.feeds.length).toBe(1);
+  });
+});

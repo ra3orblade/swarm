@@ -247,6 +247,12 @@ import {
   WRITE_TOOLS,
   waitingReport,
 } from "@swarm/core";
+import {
+  type ManifestKind,
+  type StackReport,
+  type StackRow,
+  stackSummary,
+} from "@swarm/core/stack";
 
 export type { SessionView };
 
@@ -268,6 +274,17 @@ import {
 } from "./git";
 import { type FiledIssue, IssueFiler } from "./issues";
 import { TaskSources } from "./task-sources";
+
+/** M14.1: a manifest row as stored — the scan compares the cursor before it parses. */
+export interface StoredManifest {
+  manifest: string;
+  kind: ManifestKind;
+  mtimeMs: number;
+  size: number;
+  packages: number;
+  scannedAt: string;
+  error: string | null;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, root TEXT, common_dir TEXT, name TEXT, discovered INTEGER, created_at TEXT);
@@ -346,6 +363,20 @@ CREATE TABLE IF NOT EXISTS finding_issues (
   fingerprint TEXT PRIMARY KEY, project_id TEXT, kind TEXT, subject TEXT,
   ref TEXT, url TEXT, filed_at TEXT
 );
+-- M14.1: one row per manifest read in a project — the change cursor, so a rescan is a stat, not a parse
+CREATE TABLE IF NOT EXISTS stack_manifests (
+  project_id TEXT NOT NULL, manifest TEXT NOT NULL, kind TEXT NOT NULL,
+  mtime_ms INTEGER NOT NULL, size INTEGER NOT NULL,
+  packages INTEGER NOT NULL DEFAULT 0, scanned_at TEXT NOT NULL, error TEXT,
+  PRIMARY KEY (project_id, manifest)
+);
+-- M14.1: what each project runs; replaced per (project, manifest) in one transaction
+CREATE TABLE IF NOT EXISTS stack_packages (
+  project_id TEXT NOT NULL, manifest TEXT NOT NULL, ecosystem TEXT NOT NULL,
+  name TEXT NOT NULL, version TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (project_id, manifest, ecosystem, name, version)
+);
+CREATE INDEX IF NOT EXISTS stack_packages_pkg ON stack_packages(ecosystem, name);
 `;
 
 /** How a gate run is asked for. `worktree`/`diffBase` are M13.10's scratch-worktree runs. */
@@ -3950,6 +3981,9 @@ export class Store {
     this.cwdProject.clear();
     this.wtCache.delete(id);
     this.touch();
+    // M14.1: the stack goes with the project
+    this.db.query("DELETE FROM stack_packages WHERE project_id = ?").run(id);
+    this.db.query("DELETE FROM stack_manifests WHERE project_id = ?").run(id);
     return this.db.query("DELETE FROM projects WHERE id = ?").run(id).changes > 0;
   }
 
@@ -6647,6 +6681,113 @@ export class Store {
     const rules = this.rulesFor(root);
     report.modes = Object.fromEntries(FAMILY_RULES.map((r) => [r, rules[r]]));
     return report;
+  }
+
+  // ---------- M14.1 stack
+
+  /** The manifests last seen in a project, with their change cursors. */
+  stackManifests(projectId: string): StoredManifest[] {
+    return (
+      this.db
+        .query(
+          "SELECT manifest, kind, mtime_ms, size, packages, scanned_at, error FROM stack_manifests WHERE project_id = ? ORDER BY manifest",
+        )
+        .all(projectId) as Array<Record<string, unknown>>
+    ).map((r) => ({
+      manifest: r.manifest as string,
+      kind: r.kind as ManifestKind,
+      mtimeMs: r.mtime_ms as number,
+      size: r.size as number,
+      packages: r.packages as number,
+      scannedAt: r.scanned_at as string,
+      error: (r.error as string | null) ?? null,
+    }));
+  }
+
+  /** One manifest re-read: its rows replaced and its cursor written, in one transaction. */
+  replaceStackManifest(
+    projectId: string,
+    m: Omit<StoredManifest, "packages">,
+    rows: readonly StackRow[],
+  ): void {
+    const del = this.db.query("DELETE FROM stack_packages WHERE project_id = ? AND manifest = ?");
+    const ins = this.db.query(
+      "INSERT OR REPLACE INTO stack_packages (project_id, manifest, ecosystem, name, version, scope) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    const up = this.db.query(
+      `INSERT INTO stack_manifests (project_id, manifest, kind, mtime_ms, size, packages, scanned_at, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, manifest) DO UPDATE SET kind = excluded.kind, mtime_ms = excluded.mtime_ms,
+         size = excluded.size, packages = excluded.packages, scanned_at = excluded.scanned_at, error = excluded.error`,
+    );
+    this.db.transaction(() => {
+      del.run(projectId, m.manifest);
+      for (const r of rows) ins.run(projectId, m.manifest, r.ecosystem, r.name, r.version, r.scope);
+      up.run(projectId, m.manifest, m.kind, m.mtimeMs, m.size, rows.length, m.scannedAt, m.error);
+    })();
+  }
+
+  /** A manifest that vanished (or a project root that did): its rows go with it. */
+  deleteStackManifest(projectId: string, manifest: string): void {
+    this.db.transaction(() => {
+      this.db
+        .query("DELETE FROM stack_packages WHERE project_id = ? AND manifest = ?")
+        .run(projectId, manifest);
+      this.db
+        .query("DELETE FROM stack_manifests WHERE project_id = ? AND manifest = ?")
+        .run(projectId, manifest);
+    })();
+  }
+
+  /** Every stack row, for one project or for every live project. */
+  stackRows(projectId?: string): Array<StackRow & { projectId: string }> {
+    const live = new Set(this.liveProjects().map((p) => p.id));
+    const rows = this.db
+      .query(
+        `SELECT project_id, manifest, ecosystem, name, version, scope FROM stack_packages${projectId ? " WHERE project_id = ?" : ""} ORDER BY ecosystem, name, version`,
+      )
+      .all(...(projectId ? [projectId] : [])) as Array<Record<string, string>>;
+    return rows
+      .filter((r) => live.has(r.project_id as string))
+      .map((r) => ({
+        projectId: r.project_id as string,
+        manifest: r.manifest as string,
+        ecosystem: r.ecosystem as StackRow["ecosystem"],
+        name: r.name as string,
+        version: r.version as string,
+        scope: r.scope as StackRow["scope"],
+      }));
+  }
+
+  /** `GET /v1/stack`: what each project runs, per manifest, with the scan cursor. */
+  stackReport(projectId?: string): StackReport {
+    const rows = this.stackRows(projectId);
+    const projects = this.liveProjects().filter((p) => !projectId || p.id === projectId);
+    return {
+      enabled: this.policyFor(null).config.security.stack,
+      scannedAt: this.metaValue("security_stack_at"),
+      projects: projects
+        .map((p) => {
+          const own = rows.filter((r) => r.projectId === p.id);
+          const s = stackSummary(own);
+          return {
+            projectId: p.id,
+            name: p.name,
+            total: s.total,
+            byEcosystem: s.byEcosystem,
+            byScope: s.byScope,
+            manifests: this.stackManifests(p.id).map((m) => ({
+              path: m.manifest,
+              kind: m.kind,
+              packages: m.packages,
+              scannedAt: m.scannedAt,
+              error: m.error,
+            })),
+          };
+        })
+        .filter((p) => p.total > 0 || p.manifests.length > 0 || projectId === p.projectId),
+      rows,
+    };
   }
 
   /**

@@ -3458,3 +3458,111 @@ match = "AND OR ("
     expect(store.stats(project).efficiency.thisWeek).toBe(95);
   });
 });
+
+describe("M14.1 stack", () => {
+  const BUN = `{
+  "lockfileVersion": 1,
+  "workspaces": { "": { "name": "p", "dependencies": { "hono": "^4" }, "devDependencies": { "typescript": "^5" } } },
+  "packages": {
+    "hono": ["hono@4.6.3", "", {}, "sha512-a"],
+    "typescript": ["typescript@5.9.2", "", {}, "sha512-b"],
+  }
+}
+`;
+  const { writeFileSync, mkdirSync, rmSync, utimesSync } =
+    require("node:fs") as typeof import("node:fs");
+
+  it("reads a project's lockfiles once, again only when one moves, and forgets a removed one", async () => {
+    const { app, store, security } = createApp(new Store(tmpHome()));
+    const root = mkdtempSync(join(tmpdir(), "swarm-stack-"));
+    writeFileSync(join(root, "bun.lock"), BUN);
+    mkdirSync(join(root, ".github", "workflows"), { recursive: true });
+    writeFileSync(
+      join(root, ".github", "workflows", "ci.yml"),
+      "steps:\n  - uses: actions/checkout@v4\n",
+    );
+    mkdirSync(join(root, "api"));
+    writeFileSync(join(root, "api", "requirements.txt"), "requests==2.32.3\n");
+    mkdirSync(join(root, "node_modules", "x"), { recursive: true });
+    writeFileSync(join(root, "node_modules", "x", "package-lock.json"), "{}");
+    const p = store.resolveProject(root, true, "stacky");
+
+    expect(security.scanStacks().has(p.id)).toBe(true);
+    const r = await app.request(`/v1/stack?project=${p.id}`);
+    expect(r.status).toBe(200);
+    const report = (await r.json()) as {
+      enabled: boolean;
+      scannedAt: string | null;
+      projects: Array<{
+        total: number;
+        manifests: Array<{ path: string; packages: number; error: string | null }>;
+      }>;
+      rows: Array<{
+        ecosystem: string;
+        name: string;
+        version: string;
+        scope: string;
+        manifest: string;
+      }>;
+    };
+    expect(report.enabled).toBe(true);
+    expect(report.scannedAt).toBeTruthy();
+    expect(report.projects[0]?.manifests.map((m) => m.path).sort()).toEqual([
+      ".github/workflows/ci.yml",
+      "api/requirements.txt",
+      "bun.lock",
+    ]);
+    expect(
+      report.rows.map((x) => `${x.ecosystem}:${x.name}@${x.version}:${x.scope}`).sort(),
+    ).toEqual([
+      "GitHub Actions:actions/checkout@4:",
+      "PyPI:requests@2.32.3:",
+      "npm:hono@4.6.3:runtime",
+      "npm:typescript@5.9.2:development",
+    ]);
+
+    // unchanged files: a second scan is a stat and reports no change
+    expect(security.scanStacks().has(p.id)).toBe(false);
+
+    // a moved manifest is re-read
+    writeFileSync(join(root, "api", "requirements.txt"), "requests==2.32.3\nhttpx==0.27.0\n");
+    utimesSync(join(root, "api", "requirements.txt"), new Date(), new Date(Date.now() + 5000));
+    expect(security.scanStacks().has(p.id)).toBe(true);
+    expect(store.stackRows(p.id).some((x) => x.name === "httpx")).toBe(true);
+
+    // an unreadable file keeps a manifest row that says why
+    writeFileSync(join(root, "bun.lock"), "{ definitely not json");
+    utimesSync(join(root, "bun.lock"), new Date(), new Date(Date.now() + 9000));
+    security.scanStacks();
+    const bun = store.stackManifests(p.id).find((m) => m.manifest === "bun.lock");
+    expect(bun?.error).toBeTruthy();
+    expect(bun?.packages).toBe(0);
+    expect(store.stackRows(p.id).some((x) => x.name === "hono")).toBe(false);
+
+    // a removed manifest loses its rows; a removed project loses everything
+    rmSync(join(root, "api"), { recursive: true });
+    expect(security.scanStacks().has(p.id)).toBe(true);
+    expect(store.stackRows(p.id).some((x) => x.ecosystem === "PyPI")).toBe(false);
+    rmSync(root, { recursive: true });
+    security.scanStacks();
+    expect(store.stackRows(p.id)).toEqual([]);
+    expect(store.stackManifests(p.id)).toEqual([]);
+  });
+
+  it("an empty folder is an empty stack, and the refresh route answers status", async () => {
+    const { app, store, security } = createApp(new Store(tmpHome()));
+    const root = mkdtempSync(join(tmpdir(), "swarm-stack-empty-"));
+    const p = store.resolveProject(root, true, "empty");
+    security.scanStacks();
+    const report = (await (await app.request(`/v1/stack?project=${p.id}`)).json()) as {
+      rows: unknown[];
+      projects: Array<{ total: number; manifests: unknown[] }>;
+    };
+    expect(report.rows).toEqual([]);
+    expect(report.projects[0]).toMatchObject({ total: 0, manifests: [] });
+    const r = await app.request("/v1/security/refresh", { method: "POST" });
+    expect(
+      ((await r.json()) as { status: { stack: { enabled: boolean } } }).status.stack.enabled,
+    ).toBe(true);
+  });
+});

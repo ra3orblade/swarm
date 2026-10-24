@@ -308,6 +308,15 @@ allowed_domains = []          # e.g. ["registry.npmjs.org", "*.github.com"]
 # Also allow every remote host this project's agents reached in the last 14 days (the Security view).
 seed = true
 
+[security]
+# M14 (docs/16-security.md). Global only: a repo's .swarm.toml cannot switch anything here on.
+# Read each project's lockfiles — bun.lock, pnpm-lock.yaml, package-lock.json, yarn.lock, uv.lock,
+# poetry.lock, requirements.txt and the workflows under .github — in the root and one level down.
+# Local, read-only, never written back; the Security › Stack tab. No network is involved.
+stack = true
+# advisories, news and [[security.feeds]] land with M14.2 – M14.5; the keys are parsed and clamped
+# today but do nothing yet.
+
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).
 # `copy`: untracked files copied from the main checkout before setup — repo-relative only,

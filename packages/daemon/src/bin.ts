@@ -15,7 +15,7 @@ import { Store } from "./store";
 const DEFAULT_PORT = process.env.SWARM_PORT ? ENV_PORT : loadConfig().daemon.port;
 
 const appHooks: { restart?: () => void; shutdown?: () => void } = {};
-const { app, store, runner, scheduler, team, otel } = createApp(new Store(), appHooks);
+const { app, store, runner, scheduler, team, otel, security } = createApp(new Store(), appHooks);
 // `swarm demo`: a dedicated home seeded with a believable afternoon of agent work (never real data)
 if (process.env.SWARM_DEMO === "1" && isEmpty(store)) seedDemo(store);
 
@@ -99,7 +99,9 @@ const tailer = setInterval(() => {
   if (!DEMO && tick % 12 === 0) scheduler.tick(); // every minute: armed [[schedules]] that are due (M13.10)
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
   void otel.tick(); // [otel] export (M12.1): no-op unless an endpoint is set; paced by [otel].interval
+  if (!DEMO) security.tick(); // M14.1: stack rescan on manifest change (stat every minute, no network)
 }, 5000);
+if (!DEMO) security.scanStacks();
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path
 // A daemon that was down while sessions ended comes back with them still non-ended.
 store.sweepStaleSessions();
