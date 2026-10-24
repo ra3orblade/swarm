@@ -9,6 +9,7 @@
  * nudges, desktop-window dragging, zoom and external links. All of that lived in `app.js`; it is
  * mounted here because it is global by nature and has nowhere else to be.
  */
+
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { get } from "../api/client";
@@ -29,6 +30,7 @@ import { Graphs } from "../views/Graphs";
 import { Hygiene } from "../views/Hygiene";
 import { Incidents } from "../views/Incidents";
 import { Mcp } from "../views/Mcp";
+import { News } from "../views/News";
 import { Outcomes } from "../views/Outcomes";
 import { PRs } from "../views/PRs";
 import { Provenance } from "../views/Provenance";
@@ -67,6 +69,7 @@ const VIEWS: Partial<Record<ViewId, () => React.JSX.Element | null>> = {
   context: Context,
   heat: Files,
   security: Security,
+  news: News,
   signals: Signals,
   provenance: Provenance,
   rules: Rules,

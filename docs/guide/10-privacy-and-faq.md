@@ -12,6 +12,8 @@ Swarm is local-first and open source (Apache-2.0). There is no account, no telem
 - **git**, read-only, in your projects: the common dir (to identify the project), branch, worktree list, dirty/unpushed state, and `origin` URL (to detect the forge). `swarm claim` and `swarm release` are the only commands that write to git, and only to add or remove a worktree and branch under `~/.swarm/worktrees/`.
 - **Config**: `~/.swarm/config.toml` and `<repo>/.swarm.toml`.
 
+- **Lockfiles**, read-only, in your projects (M14): `bun.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `uv.lock`, `poetry.lock`, `requirements.txt` and the workflows under `.github`, to know what each project runs. Nothing is written back.
+
 ## What Swarm stores
 
 Everything lives in `~/.swarm/` (or `SWARM_HOME`):
@@ -31,7 +33,7 @@ Nothing is written inside your repositories. The dashboard is served on `127.0.0
 
 ## What can leave the machine
 
-Six things, each optional and under your control:
+Seven things, each optional and under your control:
 
 1. **Model prices.** On start, the daemon fetches LiteLLM's public price list from GitHub so costs stay current (and *Refresh pricing* in settings does it on demand). The request carries nothing about you. Set `SWARM_OFFLINE=1` to never make it; costs then use the built-in table plus `~/.swarm/pricing.json`.
 2. **`gh` and `glab`.** The [PRs view](06-pull-requests.md) runs those CLIs, which talk to GitHub/GitLab with their own credentials. Swarm stores no tokens and makes no forge requests itself. Without the CLIs installed, nothing happens.
@@ -39,6 +41,7 @@ Six things, each optional and under your control:
 4. **Team forwarding** — only if you set `[team] url` to your own self-hosted [team daemon](11-teams.md). What is sent is the `forward` list: audit events (claims, gates, incidents, with actors) and daily spend rollups by default; transcript titles/text only if you opt in, and always after your `[privacy] redact` rules. Off entirely by default.
 5. **Incident webhook** — only if you set `[notify] webhook`; each incident is POSTed to that URL as `{text}` JSON.
 6. **OTLP export** — only if you set `[otel] endpoint` to a collector of your choosing. Session spans (tool names, timings, success) and token / cost metrics go there; commands, file paths and prompt text do not unless you also set `include_content = true`.
+7. **Security news sources** (M14.2) — on by default: every `[security] refresh_minutes` the daemon reads the built-in list of public RSS / Atom feeds (the projects' own security channels, CISA and CERT-Bund, the security press; the [Observatory guide](12-observatory.md) names them) plus any `[[security.feeds]]` you add. The request carries a `swarm/<version>` user agent and nothing about you or your projects; what your projects run is matched *locally* against what came back. `[security] news = false` or `SWARM_OFFLINE=1` stops it.
 
 With none of those configured, no session content, command, transcript, token count or cost ever leaves your machine.
 

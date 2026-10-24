@@ -3566,3 +3566,143 @@ describe("M14.1 stack", () => {
     ).toBe(true);
   });
 });
+
+describe("M14.2 news", () => {
+  const { writeFileSync: writeF } = require("node:fs") as typeof import("node:fs");
+  const recent = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3_600_000);
+  const RSS = `<rss><channel><title>Vendor channel</title>
+    <item><title>Hono 4.6.4 security release</title><link>https://vendor.example/a?utm=1</link><pubDate>${recent(2).toUTCString()}</pubDate><description>Fixes a path traversal.</description></item>
+    <item><title>Undated note</title><guid>https://vendor.example/b</guid><description>No date.</description></item>
+    <item><title>Ancient</title><link>https://vendor.example/old</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate></item>
+  </channel></rss>`;
+  const ATOM = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Press</title>
+    <entry><title>PostgreSQL 17.3 fixes CVE-2026-1</title><link rel="alternate" href="https://press.example/pg"/><published>${recent(5).toISOString()}</published><summary>Security release.</summary></entry>
+    <entry><title>Supply chain: a malicious Hono plugin</title><link href="https://press.example/hono"/><updated>${recent(7).toISOString()}</updated><content>Typosquat on npm.</content></entry>
+  </feed>`;
+  const BUN = `{"lockfileVersion":1,"workspaces":{"":{"name":"p","dependencies":{"hono":"^4"}}},"packages":{"hono":["hono@4.6.3","",{},"sha512-a"]}}`;
+
+  it("reads configured sources, narrows press to the stack, marks read, honours ETag and backs a broken source off", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/rss") {
+          if (req.headers.get("if-none-match") === '"v1"')
+            return new Response(null, { status: 304 });
+          return new Response(RSS, {
+            headers: { etag: '"v1"', "content-type": "application/rss+xml" },
+          });
+        }
+        if (path === "/atom")
+          return new Response(ATOM, { headers: { "content-type": "application/atom+xml" } });
+        if (path === "/html")
+          return new Response("<html><body>not a feed</body></html>", {
+            headers: { "content-type": "text/html" },
+          });
+        if (path === "/boom") return new Response("x", { status: 500 });
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const home = tmpHome();
+      writeF(
+        join(home, "config.toml"),
+        [
+          "[security]",
+          "kinds = []",
+          "[[security.feeds]]",
+          'name = "Vendor"',
+          `url = "${base}/rss"`,
+          'kind = "vendor"',
+          "[[security.feeds]]",
+          'name = "Press"',
+          `url = "${base}/atom"`,
+          'kind = "press"',
+          "[[security.feeds]]",
+          'name = "Not a feed"',
+          `url = "${base}/html"`,
+          "[[security.feeds]]",
+          'name = "Broken"',
+          `url = "${base}/boom"`,
+          "",
+        ].join("\n"),
+      );
+      const { app, store, security } = createApp(new Store(home));
+      const root = mkdtempSync(join(tmpdir(), "swarm-news-"));
+      writeF(join(root, "bun.lock"), BUN);
+      const p = store.resolveProject(root, true, "newsy");
+      security.scanStacks();
+
+      await security.readNews(Date.now(), true);
+      const feeds = Object.fromEntries(store.newsFeeds().map((f) => [f.name, f]));
+      expect(feeds.Vendor).toMatchObject({ state: "on", format: "rss", items: 2, failures: 0 });
+      expect(feeds.Press).toMatchObject({ state: "on", format: "atom", items: 2 });
+      expect(feeds["Not a feed"]).toMatchObject({ state: "error", failures: 1 });
+      expect(feeds["Not a feed"]?.note).toContain("no RSS item or Atom entry");
+      expect(feeds.Broken).toMatchObject({ state: "error", failures: 1 });
+      expect(feeds.Broken?.nextTry).toBeTruthy();
+      expect(store.newsFeeds().some((f) => f.source === "builtin" && f.state !== "off")).toBe(
+        false,
+      );
+
+      // scoped to the project: the vendor channel whole (2 items in the window), the press only where it names the stack
+      const r = await app.request(`/v1/news?project=${p.id}`);
+      expect(r.status).toBe(200);
+      const report = (await r.json()) as {
+        keywords: string[];
+        counts: { shown: number; unread: number; total: number };
+        items: Array<{
+          key: string;
+          feed: string;
+          kind: string;
+          title: string;
+          matched: string[];
+          read: boolean;
+        }>;
+      };
+      expect(report.keywords).toContain("Hono");
+      expect(report.counts.total).toBe(4);
+      expect(report.items.map((i) => i.title).sort()).toEqual([
+        "Hono 4.6.4 security release",
+        "Supply chain: a malicious Hono plugin",
+        "Undated note",
+      ]);
+      // keyword order: the product alias first, then the ecosystem word the body names
+      expect(report.items.find((i) => i.kind === "press")?.matched).toEqual(["Hono", "npm"]);
+      expect(report.counts.unread).toBe(3);
+
+      // all=1 shows the unmatched press item too; kind= narrows
+      const all = (await (await app.request(`/v1/news?project=${p.id}&all=1`)).json()) as {
+        counts: { shown: number };
+      };
+      expect(all.counts.shown).toBe(4);
+      const press = (await (await app.request(`/v1/news?project=${p.id}&kind=press`)).json()) as {
+        counts: { shown: number };
+      };
+      expect(press.counts.shown).toBe(1);
+
+      // mark one read; a conditional re-read (304) keeps it read and moves last_ok
+      const key = report.items[0]?.key as string;
+      await app.request("/v1/news/read", {
+        method: "POST",
+        body: JSON.stringify({ keys: [key] }),
+        headers: { "content-type": "application/json" },
+      });
+      const before = store.newsFeeds().find((f) => f.name === "Vendor")?.lastOk;
+      await Bun.sleep(5);
+      await security.readNews(Date.now(), true);
+      const vendor = store.newsFeeds().find((f) => f.name === "Vendor");
+      expect(vendor?.state).toBe("on");
+      expect(vendor?.lastOk).not.toBe(before);
+      const again = (await (await app.request(`/v1/news?project=${p.id}&unread=1`)).json()) as {
+        counts: { shown: number };
+      };
+      expect(again.counts.shown).toBe(2);
+      // the broken source was skipped this round (next_try in the future), so its failure count stayed
+      expect(store.newsFeeds().find((f) => f.name === "Broken")?.failures).toBe(2); // force reads it anyway
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+});

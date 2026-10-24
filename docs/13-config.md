@@ -314,8 +314,25 @@ seed = true
 # poetry.lock, requirements.txt and the workflows under .github — in the root and one level down.
 # Local, read-only, never written back; the Security › Stack tab. No network is involved.
 stack = true
-# advisories, news and [[security.feeds]] land with M14.2 – M14.5; the keys are parsed and clamped
-# today but do nothing yet.
+# M14.2: read the security news feeds — public RSS / Atom; the request carries a `swarm/<version>`
+# user agent and nothing about you. false: nothing is fetched and the News view says so.
+# SWARM_OFFLINE=1 also stops it.
+news = true
+news_days = 30                 # keep items this long (1–365)
+refresh_minutes = 30           # how often the sources are re-read (10–1440); conditional requests
+kinds = ["vendor", "authority", "press"]   # built-in kinds to read; add "ai" for the AI press.
+                               # "vendor" / "ai" items are shown whole; "authority" / "press" only
+                               # when they name a keyword of the selected project's stack.
+keywords = []                  # words that make an authority / press item relevant, on top of the
+                               # ones derived from each project's lockfiles, e.g. ["Okta", "Tailscale"]
+feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark Reading"]
+# Your own sources, appended to the built-ins (a config URL that matches a built-in replaces it).
+# M14.3 adds `swarm security feeds check <url>` and the Sources panel to try one first.
+# [[security.feeds]]
+# name = "Our vendor"
+# url = "https://vendor.example/security.rss"
+# kind = "vendor"              # vendor | authority | press | ai (default "press")
+# advisories and advisory_min_severity land with M14.4 / M14.5; parsed and clamped today, inert.
 
 [worktree]
 # Bootstrap every new worktree (claims and `swarm run` alike) so it starts warm (M7.1).

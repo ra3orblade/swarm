@@ -99,7 +99,7 @@ const tailer = setInterval(() => {
   if (!DEMO && tick % 12 === 0) scheduler.tick(); // every minute: armed [[schedules]] that are due (M13.10)
   void team.tick(); // [team] forwarding (M8.3b): no-op unless configured; paced by [team].interval
   void otel.tick(); // [otel] export (M12.1): no-op unless an endpoint is set; paced by [otel].interval
-  if (!DEMO) security.tick(); // M14.1: stack rescan on manifest change (stat every minute, no network)
+  if (!DEMO) void security.tick(); // M14: stack rescan every minute (no network), news every [security] refresh_minutes
 }, 5000);
 if (!DEMO) security.scanStacks();
 // worktree status (git status / rev-list per worktree) is refreshed here, off the request path

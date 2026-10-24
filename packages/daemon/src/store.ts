@@ -247,6 +247,17 @@ import {
   WRITE_TOOLS,
   waitingReport,
 } from "@swarm/core";
+import type { FeedSource } from "@swarm/core/config";
+import {
+  type FeedItem,
+  isRelevant,
+  type NewsFeedState,
+  type NewsItemView,
+  type NewsKind,
+  type NewsReport,
+  normalizeUrl,
+  stackKeywords,
+} from "@swarm/core/newsfeed";
 import {
   type ManifestKind,
   type StackReport,
@@ -284,6 +295,14 @@ export interface StoredManifest {
   packages: number;
   scannedAt: string;
   error: string | null;
+}
+
+/** M14.2: a source row as stored, with the conditional-request and backoff state. */
+export interface NewsFeedRow extends NewsFeedState {
+  etag: string | null;
+  lastModified: string | null;
+  nextTry: string | null;
+  failures: number;
 }
 
 const SCHEMA = `
@@ -377,6 +396,21 @@ CREATE TABLE IF NOT EXISTS stack_packages (
   PRIMARY KEY (project_id, manifest, ecosystem, name, version)
 );
 CREATE INDEX IF NOT EXISTS stack_packages_pkg ON stack_packages(ecosystem, name);
+-- M14.2: per-source state; built-ins and [[security.feeds]] entries both live here
+CREATE TABLE IF NOT EXISTS news_feeds (
+  url TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending', format TEXT, note TEXT NOT NULL DEFAULT '',
+  etag TEXT, last_modified TEXT, last_try TEXT, last_ok TEXT, next_try TEXT,
+  items INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0
+);
+-- M14.2: items, stored unfiltered so a project added later is matched against them
+CREATE TABLE IF NOT EXISTS news_items (
+  key TEXT PRIMARY KEY, feed_url TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL,
+  published TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', image TEXT,
+  matched TEXT NOT NULL DEFAULT '[]', fetched_at TEXT NOT NULL, read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS news_items_published ON news_items(published);
+CREATE INDEX IF NOT EXISTS news_items_feed ON news_items(feed_url, published);
 `;
 
 /** How a gate run is asked for. `worktree`/`diffBase` are M13.10's scratch-worktree runs. */
@@ -4181,6 +4215,7 @@ export class Store {
     const cutoff = new Date(Date.now() - chatter * 86_400_000).toISOString();
     // M12.3: quota samples are only ever read over the last 8 days
     this.db.query("DELETE FROM quota WHERE at < ?").run(Date.now() - 14 * 86_400_000);
+    this.pruneNews();
     // chatter (tool calls, deltas, …) ages out; audit records only when [audit] retain_days > 0
     let n = this.db
       .query(`DELETE FROM events WHERE ts < ? AND type NOT IN (${AUDIT_TYPES_SQL})`)
@@ -6788,6 +6823,233 @@ export class Store {
         .filter((p) => p.total > 0 || p.manifests.length > 0 || projectId === p.projectId),
       rows,
     };
+  }
+
+  // ---------- M14.2 news
+
+  /**
+   * Reconcile the source rows with the config: every built-in and every `[[security.feeds]]`
+   * entry gets a row; one that is no longer configured goes, with its items. A source switched
+   * off keeps its items (switching it back on costs nothing) but is not read.
+   */
+  reconcileNewsFeeds(
+    sources: ReadonlyArray<FeedSource & { source: "builtin" | "config"; on: boolean }>,
+  ): void {
+    const keep = new Set(sources.map((s) => s.url));
+    const existing = this.db.query("SELECT url FROM news_feeds").all() as Array<{ url: string }>;
+    const up = this.db.query(
+      `INSERT INTO news_feeds (url, name, kind, source, state) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(url) DO UPDATE SET name = excluded.name, kind = excluded.kind, source = excluded.source,
+         state = CASE WHEN excluded.state = 'off' THEN 'off'
+                      WHEN news_feeds.state = 'off' THEN 'pending' ELSE news_feeds.state END`,
+    );
+    this.db.transaction(() => {
+      for (const row of existing)
+        if (!keep.has(row.url)) {
+          this.db.query("DELETE FROM news_items WHERE feed_url = ?").run(row.url);
+          this.db.query("DELETE FROM news_feeds WHERE url = ?").run(row.url);
+        }
+      for (const s of sources) up.run(s.url, s.name, s.kind, s.source, s.on ? "pending" : "off");
+    })();
+  }
+
+  newsFeeds(): NewsFeedRow[] {
+    return (
+      this.db.query("SELECT * FROM news_feeds ORDER BY kind, name").all() as Array<
+        Record<string, unknown>
+      >
+    ).map((r) => ({
+      url: r.url as string,
+      name: r.name as string,
+      kind: r.kind as NewsKind,
+      source: r.source as "builtin" | "config",
+      state: r.state as NewsFeedState["state"],
+      format: (r.format as NewsFeedState["format"]) ?? null,
+      note: (r.note as string) ?? "",
+      etag: (r.etag as string | null) ?? null,
+      lastModified: (r.last_modified as string | null) ?? null,
+      lastTry: (r.last_try as string | null) ?? null,
+      lastOk: (r.last_ok as string | null) ?? null,
+      nextTry: (r.next_try as string | null) ?? null,
+      items: (r.items as number) ?? 0,
+      failures: (r.failures as number) ?? 0,
+    }));
+  }
+
+  /** What one read of a source left behind. */
+  newsFeedResult(
+    url: string,
+    r: {
+      state: "on" | "error";
+      format?: NewsFeedState["format"];
+      note: string;
+      etag?: string | null;
+      lastModified?: string | null;
+      lastTry: string;
+      lastOk?: string;
+      items?: number;
+      failures: number;
+      nextTry: string | null;
+    },
+  ): void {
+    this.db
+      .query(
+        `UPDATE news_feeds SET state = ?, format = COALESCE(?, format), note = ?, etag = COALESCE(?, etag),
+           last_modified = COALESCE(?, last_modified), last_try = ?, last_ok = COALESCE(?, last_ok),
+           items = COALESCE(?, items), failures = ?, next_try = ? WHERE url = ?`,
+      )
+      .run(
+        r.state,
+        r.format ?? null,
+        r.note,
+        r.etag ?? null,
+        r.lastModified ?? null,
+        r.lastTry,
+        r.lastOk ?? null,
+        r.items ?? null,
+        r.failures,
+        r.nextTry,
+        url,
+      );
+  }
+
+  /** Items of one read, upserted by their normalised URL; `read_at` survives a refresh. */
+  upsertNewsItems(
+    feedUrl: string,
+    items: ReadonlyArray<FeedItem & { matched: string[] }>,
+    fetchedAt: string,
+  ): number {
+    const up = this.db.query(
+      `INSERT INTO news_items (key, feed_url, title, url, published, summary, image, matched, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET title = excluded.title, summary = excluded.summary,
+         image = COALESCE(excluded.image, news_items.image), matched = excluded.matched`,
+    );
+    let n = 0;
+    this.db.transaction(() => {
+      for (const i of items) {
+        up.run(
+          normalizeUrl(i.url),
+          feedUrl,
+          i.title,
+          i.url,
+          i.published || fetchedAt,
+          i.summary,
+          i.image,
+          JSON.stringify(i.matched),
+          fetchedAt,
+        );
+        n++;
+      }
+    })();
+    return n;
+  }
+
+  /** The keyword set of one project, or the union over every live project, plus `[security] keywords`. */
+  newsKeywords(projectId?: string): string[] {
+    const cfg = this.policyFor(null).config.security;
+    return stackKeywords(this.stackRows(projectId), cfg.keywords);
+  }
+
+  /** Re-match every stored item against a new keyword set (the union changed). */
+  rematchNews(matcher: (text: string) => string[]): number {
+    const rows = this.db.query("SELECT key, title, summary FROM news_items").all() as Array<{
+      key: string;
+      title: string;
+      summary: string;
+    }>;
+    const up = this.db.query("UPDATE news_items SET matched = ? WHERE key = ?");
+    this.db.transaction(() => {
+      for (const r of rows) up.run(JSON.stringify(matcher(`${r.title}\n${r.summary}`)), r.key);
+    })();
+    return rows.length;
+  }
+
+  /** `GET /v1/news`: the items of the window, narrowed to the scope's keywords unless `all`. */
+  newsReport(
+    projectId: string | undefined,
+    opts: { kinds?: NewsKind[]; days?: number; unread?: boolean; all?: boolean } = {},
+  ): NewsReport {
+    const cfg = this.policyFor(null).config.security;
+    const days = Math.max(1, Math.min(cfg.news_days, opts.days ?? cfg.news_days));
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+    const keywords = this.newsKeywords(projectId);
+    const scope = new Set(keywords.map((k) => k.toLowerCase()));
+    const rows = this.db
+      .query(
+        `SELECT i.key, i.title, i.url, i.published, i.summary, i.image, i.matched, i.read_at, f.name AS feed, f.kind
+         FROM news_items i JOIN news_feeds f ON f.url = i.feed_url
+         WHERE i.published >= ? AND f.state != 'off' ORDER BY i.published DESC, f.name`,
+      )
+      .all(since) as Array<Record<string, unknown>>;
+    const wanted = opts.kinds?.length ? new Set(opts.kinds) : null;
+    const items: NewsItemView[] = [];
+    let unread = 0;
+    for (const r of rows) {
+      const kind = r.kind as NewsKind;
+      if (wanted && !wanted.has(kind)) continue;
+      const matchedAll = JSON.parse((r.matched as string) || "[]") as string[];
+      const matched = matchedAll.filter((k) => scope.has(k.toLowerCase()));
+      if (!opts.all && !isRelevant({ kind, matched: matchedAll }, scope)) continue;
+      const read = r.read_at != null;
+      if (opts.unread && read) continue;
+      if (!read) unread++;
+      if (items.length >= 500) continue;
+      items.push({
+        key: r.key as string,
+        feed: r.feed as string,
+        kind,
+        title: r.title as string,
+        url: r.url as string,
+        published: r.published as string,
+        summary: r.summary as string,
+        image: (r.image as string | null) ?? null,
+        matched,
+        read,
+      });
+    }
+    const feeds = this.newsFeeds();
+    return {
+      enabled: cfg.news,
+      offline: process.env.SWARM_OFFLINE === "1",
+      since,
+      days,
+      keywords,
+      counts: { shown: items.length, unread, total: rows.length },
+      items,
+      feeds: {
+        on: feeds.filter((f) => f.state === "on").length,
+        error: feeds.filter((f) => f.state === "error").length,
+        off: feeds.filter((f) => f.state === "off").length,
+      },
+      lastFetch: this.metaValue("security_news_at"),
+      lastError: this.metaValue("security_news_error"),
+    };
+  }
+
+  /** Mark items read: the keys given, or everything in the window. */
+  markNewsRead(keys: readonly string[] | "all"): number {
+    const now = new Date().toISOString();
+    if (keys === "all")
+      return this.db.query("UPDATE news_items SET read_at = ? WHERE read_at IS NULL").run(now)
+        .changes;
+    const up = this.db.query("UPDATE news_items SET read_at = ? WHERE key = ? AND read_at IS NULL");
+    let n = 0;
+    this.db.transaction(() => {
+      for (const k of keys) n += up.run(now, k).changes;
+    })();
+    return n;
+  }
+
+  /** Items older than `[security] news_days` go; so do items of a source that no longer exists. */
+  pruneNews(): number {
+    const cfg = this.policyFor(null).config.security;
+    const cutoff = new Date(Date.now() - cfg.news_days * 86_400_000).toISOString();
+    let n = this.db.query("DELETE FROM news_items WHERE published < ?").run(cutoff).changes;
+    n += this.db
+      .query("DELETE FROM news_items WHERE feed_url NOT IN (SELECT url FROM news_feeds)")
+      .run().changes;
+    return n;
   }
 
   /**
