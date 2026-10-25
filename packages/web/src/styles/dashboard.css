@@ -3896,9 +3896,18 @@ tr.clickable {
 .link:hover {
   text-decoration: underline;
 }
-/* Actions pushed to the right of a section heading. */
+/* Actions pushed to the right of a section heading. A flex row, so two controls side by side
+   (News: "Mark all read" next to the Paper / Table segment) get a gap and the same height — the
+   bare span laid them out inline, touching, with the button 4px shorter than the segment. */
 .h2-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.h2-actions .mini-act {
+  font-size: var(--fs-md);
+  padding-block: 0;
 }
 
 /* Paging controls under a grid (M11.4). Sits inside the card, below the table, so it scrolls with
