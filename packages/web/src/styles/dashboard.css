@@ -4238,8 +4238,11 @@ tr.clickable {
   background: var(--panel);
   text-decoration: none;
 }
+/* width: 100% matters: with only aspect-ratio, max-height also caps the width (the ratio carries
+   it across), so a wide column left the picture short of its text. The image covers the rest. */
 .paper-picture {
   display: block;
+  width: 100%;
   aspect-ratio: 16 / 9;
   margin: 0 0 10px;
   border-radius: var(--r);
