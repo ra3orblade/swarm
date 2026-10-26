@@ -331,9 +331,9 @@ news_days = 30                 # keep items this long (1–365)
 pictures = true                # M14.11: fetch the page of an article whose feed gave no picture, once, for its
                                # Open Graph picture — the head of the page only. false: one fetch per feed.
 refresh_minutes = 30           # how often the sources are re-read (10–1440); conditional requests
-kinds = ["vendor", "authority", "press"]   # built-in kinds to read; add "ai" for the AI press.
+kinds = ["vendor", "authority", "press", "ai"]   # built-in kinds to read; drop "ai" for security news only.
                                # "vendor" / "ai" items are shown whole; "authority" / "press" only
-                               # when they name a keyword of the selected project's stack.
+                               # when they name a keyword of one of your projects' stacks.
 keywords = []                  # words that make an authority / press item relevant, on top of the
                                # ones derived from each project's lockfiles, e.g. ["Okta", "Tailscale"]
 feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark Reading"]

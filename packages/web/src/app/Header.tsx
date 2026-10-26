@@ -16,7 +16,7 @@ import { refreshSnapshot, useSnapshot, useSnapshotStore } from "../state/snapsho
 import { useUiStore } from "../state/ui";
 import { useViewBadges } from "./badges";
 import { settingsMenu } from "./settingsMenu";
-import { VIEW_GROUPS, viewsInGroup } from "./views";
+import { isUnscoped, VIEW_GROUPS, viewsInGroup } from "./views";
 import { WaitingButton } from "./Waiting";
 
 export interface HeaderProps {
@@ -30,6 +30,8 @@ export interface HeaderProps {
 export function Header({ version, onOpenPalette, onOpenWhatsNew, onOpenWaiting }: HeaderProps) {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  // on an unscoped view there is no sidebar to toggle
+  const unscoped = useUiStore((s) => !s.session && isUnscoped(s.view));
   const today = useSnapshot((s) => (s ? sumBy(s.spend.byProjectToday, (r) => r.cost) : 0));
   const offline = useSnapshotStore((s) => s.offline);
   // A theme or notification toggle changes nothing React observes, so the menu is rebuilt against
@@ -41,11 +43,12 @@ export function Header({ version, onOpenPalette, onOpenWhatsNew, onOpenWaiting }
       <button
         type="button"
         className="icon-btn"
-        title="Toggle sidebar"
+        title={unscoped ? "This view is for every project" : "Toggle sidebar"}
         aria-label="Toggle sidebar"
+        disabled={unscoped}
         onClick={toggleSidebar}
       >
-        {icon(collapsed ? "arrow-bar-right" : "arrow-bar-left", 16)}
+        {icon(collapsed || unscoped ? "arrow-bar-right" : "arrow-bar-left", 16)}
       </button>
       <span className="logo">
         <Mark />

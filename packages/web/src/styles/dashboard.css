@@ -4238,8 +4238,11 @@ tr.clickable {
   background: var(--panel);
   text-decoration: none;
 }
+/* width: 100% matters: with only aspect-ratio, max-height also caps the width (the ratio carries
+   it across), so a wide column left the picture short of its text. The image covers the rest. */
 .paper-picture {
   display: block;
+  width: 100%;
   aspect-ratio: 16 / 9;
   margin: 0 0 10px;
   border-radius: var(--r);
@@ -4253,13 +4256,13 @@ tr.clickable {
   object-fit: cover;
 }
 .paper-card.hero > .paper-picture {
-  max-height: 320px;
+  max-height: 460px;
 }
 .paper-card.feature > .paper-picture {
-  max-height: 260px;
+  max-height: 320px;
 }
 .paper-card.brief > .paper-picture {
-  max-height: 150px;
+  max-height: 180px;
 }
 /* One hero alone in its row sets with the picture beside the text, as a lead story does. */
 .paper-row.hero > .paper-card.with-picture:only-child {

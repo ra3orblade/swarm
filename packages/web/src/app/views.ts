@@ -21,6 +21,8 @@ export interface ViewDef {
   /** Key into the generated pixelarticons subset (`window.icon`). */
   icon: string;
   group: ViewGroup;
+  /** The view is about the machine, not a project: the project sidebar is hidden while it is open. */
+  unscoped?: true;
 }
 
 /** Every routable view. Adding one here is what makes it appear in the nav. */
@@ -42,7 +44,8 @@ export const VIEW_DEFS = [
   { id: "stats", label: "Stats", icon: "chart-bar", group: "Insight" },
   { id: "search", label: "Search", icon: "magnifying-glass", group: "Insight" },
   { id: "security", label: "Security", icon: "shield", group: "Guard" },
-  { id: "news", label: "News", icon: "newspaper", group: "Guard" },
+  // one paper for the machine: a per-project keyword filter hid items without saying why
+  { id: "news", label: "News", icon: "newspaper", group: "Guard", unscoped: true },
   { id: "provenance", label: "Provenance", icon: "git-commit", group: "Guard" },
   { id: "incidents", label: "Incidents", icon: "warning", group: "Guard" },
   { id: "signals", label: "Signals", icon: "bell", group: "Guard" },
@@ -77,4 +80,10 @@ export function viewDef(id: ViewId): RegisteredView {
 /** The views of one group, in registry order. */
 export function viewsInGroup(group: ViewGroup): readonly RegisteredView[] {
   return VIEW_DEFS.filter((v) => v.group === group);
+}
+
+/** Whether the project sidebar has nothing to say about this view. */
+export function isUnscoped(id: ViewId): boolean {
+  const def: ViewDef = viewDef(id);
+  return def.unscoped === true;
 }

@@ -51,7 +51,7 @@ import { Nudges } from "./Nudges";
 import { Palette } from "./Palette";
 import { Sidebar } from "./Sidebar";
 import { SidebarGrip } from "./SidebarGrip";
-import type { ViewId } from "./views";
+import { isUnscoped, type ViewId } from "./views";
 import { useOpenWaitingOnReturn, WaitingPanel } from "./Waiting";
 import { WhatsNew } from "./WhatsNew";
 
@@ -144,9 +144,11 @@ export function App() {
 
   // The collapsed rail is styled off `body.nosb`, which predates this shell and is also read by
   // rules that sit outside it (the update nudge). Setting the class keeps one source of truth.
+  // An unscoped view (News) has no use for a project filter, so it is drawn the same way.
+  const noSidebar = collapsed || (!session && isUnscoped(view));
   useEffect(() => {
-    document.body.classList.toggle("nosb", collapsed);
-  }, [collapsed]);
+    document.body.classList.toggle("nosb", noSidebar);
+  }, [noSidebar]);
 
   const Ported = VIEWS[view];
 
@@ -158,8 +160,8 @@ export function App() {
         onOpenWhatsNew={openWhatsNew}
         onOpenWaiting={() => setWaiting(true)}
       />
-      <Sidebar />
-      <SidebarGrip />
+      {!noSidebar && <Sidebar />}
+      {!noSidebar && <SidebarGrip />}
       <main id="main">
         <ErrorBoundary resetKey={session ?? view}>
           {/* A session is a place you go to and come back from, so it takes over the main pane

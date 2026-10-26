@@ -154,7 +154,7 @@ describe("[[rules.custom]] (M13.5)", async () => {
 });
 
 describe("[security] (M14)", () => {
-  test("defaults: stack on, advisories off, news on, three kinds", () => {
+  test("defaults: stack on, advisories off, news on, every kind", () => {
     const s = loadConfig({ home: tmp() }).security;
     expect(s).toEqual({
       stack: true,
@@ -164,7 +164,7 @@ describe("[security] (M14)", () => {
       news_days: 30,
       pictures: true,
       refresh_minutes: 30,
-      kinds: ["vendor", "authority", "press"],
+      kinds: ["vendor", "authority", "press", "ai"],
       keywords: [],
       feeds_off: [],
       feeds: [],
