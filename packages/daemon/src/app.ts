@@ -392,6 +392,7 @@ export function createApp(
   // M14.3: per-source state, and the format check for a URL you are about to add
   app.get("/v1/news/feeds", (c) => {
     const cfg = store.policyFor(null).config.security;
+    const sites = store.newsFeedSites();
     return c.json({
       enabled: cfg.news,
       offline: process.env.SWARM_OFFLINE === "1",
@@ -400,6 +401,7 @@ export function createApp(
         name: f.name,
         kind: f.kind,
         url: f.url,
+        site: sites.get(f.url) ?? "",
         source: f.source,
         state: f.state,
         format: f.format,
@@ -408,6 +410,17 @@ export function createApp(
         lastOk: f.lastOk,
         lastTry: f.lastTry,
       })),
+    });
+  });
+  // a source's site icon, asked by the daemon once and kept (`~/.swarm/favicons`), for a site a
+  // source names only; 404 when there is none, `[security] pictures = false`, or SWARM_OFFLINE=1
+  app.get("/v1/favicons/:host", async (c) => {
+    const icon = await security.favicon(c.req.param("host"));
+    if (!icon) return c.body(null, 404, { "cache-control": "max-age=600" });
+    return c.body(new Uint8Array(icon.body).buffer as ArrayBuffer, 200, {
+      "content-type": icon.type,
+      "cache-control": "max-age=86400",
+      "x-content-type-options": "nosniff",
     });
   });
   // the Sources menu: switch one source on or off (`feeds_off` in settings.toml); a source back on

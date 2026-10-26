@@ -100,7 +100,10 @@ function switchable(report: NewsFeedsReport) {
   return report.feeds.filter((f) => f.source === "config" || kinds.has(f.kind));
 }
 
-/** One source in the Sources menu: an eye when it is read, the reason when a switch was refused. */
+/**
+ * One source in the Sources menu: its site's icon, an eye at the end when it is read (struck when
+ * it is not), and the reason when a switch was refused.
+ */
 function sourceItem(
   f: NewsFeedState,
   off: ReadonlySet<string>,
@@ -112,8 +115,11 @@ function sourceItem(
   const caption = refused.get(f.name) ?? state;
   return {
     label: f.name,
-    icon: on ? "eye" : "eye-slash",
+    icon: "broadcast",
+    ...(f.site ? { image: `/v1/favicons/${encodeURIComponent(f.site)}` } : {}),
     ...(caption ? { caption } : {}),
+    mark: on ? "eye" : "eye-slash",
+    off: !on,
     run: () => toggle(f.name, !on),
   };
 }

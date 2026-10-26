@@ -2962,6 +2962,47 @@ h2 .back:hover {
 .fm-row[data-pressed="true"] .fm-ico {
   color: var(--acc);
 }
+/* A row's picture (a news source's site icon) and the mark after its caption (the eye). */
+.fm-img,
+.src-ico {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: contain;
+  flex: none;
+}
+/* the name cell of the sources table: the icon beside the name */
+.src-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.fm-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.fm-row--off .fm-row__name {
+  color: var(--faint);
+}
+.fm-row--off .fm-img {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+/* fancy-menus caps the list at 60vh whatever the menu is allowed, so a menu held shorter — by its
+   maxHeight, by a short window, or by a footer under the list — clipped the list's last rows out
+   of reach: the body hid them and the list never knew to scroll. As a flex column the body hands
+   the list exactly the height left, and the list scrolls within it. */
+.fm-body {
+  display: flex;
+  flex-direction: column;
+}
+.fm-list {
+  flex: 0 1 auto;
+  min-height: 0;
+}
 /* A menu's pinned footer action (News › Sources › Manage): a full-width row under the list. */
 .fm-footer-btn {
   display: flex;

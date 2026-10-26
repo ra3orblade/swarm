@@ -270,6 +270,7 @@ import {
   type NewsKind,
   type NewsReport,
   normalizeUrl,
+  siteHost,
   stackKeywords,
 } from "@swarm/core/newsfeed";
 import { feedsOffWith, resolveSources } from "@swarm/core/newsfeeds";
@@ -7092,6 +7093,17 @@ export class Store {
         }
       for (const s of sources) up.run(s.url, s.name, s.kind, s.source, s.on ? "pending" : "off");
     })();
+  }
+
+  /** Feed URL → the site its icon is asked from: the host of its newest article, else its own. */
+  newsFeedSites(): Map<string, string> {
+    const rows = this.db
+      .query(
+        `SELECT f.url AS feed, (SELECT i.url FROM news_items i WHERE i.feed_url = f.url
+           ORDER BY i.published DESC LIMIT 1) AS article FROM news_feeds f`,
+      )
+      .all() as Array<{ feed: string; article: string | null }>;
+    return new Map(rows.map((r) => [r.feed, siteHost(r.feed, r.article)]));
   }
 
   newsFeeds(): NewsFeedRow[] {

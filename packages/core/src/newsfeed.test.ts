@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  iconLinks,
   isRelevant,
   keywordMatcher,
   normalizeUrl,
   pageImage,
   parseFeed,
   plainText,
+  siteHost,
   stackKeywords,
 } from "./newsfeed";
 import { BUILTIN_FEEDS, feedsOffWith, resolveSources } from "./newsfeeds";
@@ -246,5 +248,34 @@ describe("sources", () => {
     expect(by("BleepingComputer")).toBeUndefined(); // replaced by the config entry with the same url
     expect(by("Mine, replacing")).toMatchObject({ source: "config", on: true, kind: "authority" });
     expect(by("Ours")).toMatchObject({ source: "config", on: true });
+  });
+});
+
+describe("favicons", () => {
+  test("iconLinks: near 32 px first, then any icon, the touch icon last; no SVG, no data URL", () => {
+    const html = `<head>
+      <link rel="apple-touch-icon" href="/touch.png">
+      <link rel="icon" type="image/svg+xml" href="/logo.svg">
+      <link rel="icon" href="/plain.ico">
+      <link rel="shortcut icon" sizes="192x192" href="/big.png">
+      <link rel="icon" sizes="32x32" href="https://cdn.example/32.png?a=1&amp;b=2">
+      <link rel="icon" href="data:image/png;base64,AAAA">
+      <link rel="stylesheet" href="/s.css">
+    </head>`;
+    expect(iconLinks(html, "https://site.example/blog/")).toEqual([
+      "https://cdn.example/32.png?a=1&b=2",
+      "https://site.example/plain.ico",
+      "https://site.example/big.png",
+      "https://site.example/touch.png",
+    ]);
+    expect(iconLinks("", "https://site.example/")).toEqual([]);
+  });
+
+  test("siteHost: the articles' host, else the feed's", () => {
+    expect(siteHost("https://feeds.feedburner.com/x", "https://thehackernews.com/a")).toBe(
+      "thehackernews.com",
+    );
+    expect(siteHost("https://Blog.Example/feed", null)).toBe("blog.example");
+    expect(siteHost("not a url", "also not")).toBe("");
   });
 });

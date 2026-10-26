@@ -18,14 +18,20 @@ import {
   useMenu,
   useMenuStack,
 } from "@react-fancy-menus/core/runtime";
-import { type ReactNode, StrictMode, useEffect } from "react";
+import { createElement, type ReactNode, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 export interface MenuItem {
   label: string;
   /** Phosphor icon name in kebab-case, e.g. "push-pin". */
   icon?: string;
+  /** A picture in the icon's place (a source's site icon); `icon` shows if it fails to load. */
+  image?: string;
   caption?: string;
+  /** A pixel icon at the row's end, after the caption: the eye of a source that is read. */
+  mark?: string;
+  /** Drawn faint: a source switched off. */
+  off?: boolean;
   pressed?: boolean;
   danger?: boolean;
   disabled?: boolean;
@@ -67,6 +73,28 @@ const pxIcon = (name: string): IconComponent =>
   )) as unknown as IconComponent);
 const iconOf = (name?: string): IconComponent | undefined => (name ? pxIcon(name) : undefined);
 
+/** A row's picture, the glyph in its place when the picture will not load. One per URL, made once. */
+function MenuImage({ src, fallback }: { src: string; fallback?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return fallback ? createElement(pxIcon(fallback) as () => ReactNode) : null;
+  return (
+    <img
+      className="fm-img"
+      src={src}
+      width={16}
+      height={16}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+const imageCache: Record<string, IconComponent> = {};
+const imageIcon = (src: string, fallback?: string): IconComponent =>
+  (imageCache[`${src} ${fallback ?? ""}`] ??= (() => (
+    <MenuImage src={src} {...(fallback ? { fallback } : {})} />
+  )) as unknown as IconComponent);
+
 const rows = (depth: number): RowSpec<MenuItem>[] => [
   {
     kind: RowKind.Section as const,
@@ -77,15 +105,23 @@ const rows = (depth: number): RowSpec<MenuItem>[] => [
   {
     kind: RowKind.Item as const,
     name: (i: MenuItem) => i.label,
-    caption: (i: MenuItem) => i.caption,
+    caption: (i: MenuItem) =>
+      i.mark ? (
+        <span className="fm-mark">
+          {i.caption}
+          {createElement(pxIcon(i.mark) as () => ReactNode)}
+        </span>
+      ) : (
+        i.caption
+      ),
     icon: (i: MenuItem) => {
-      const icon = iconOf(i.icon);
+      const icon = i.image ? imageIcon(i.image, i.icon) : iconOf(i.icon);
       return icon ? { icon, size: 16, ...(i.danger ? { color: "var(--bad)" } : {}) } : undefined;
     },
     pressed: (i: MenuItem) => !!i.pressed,
     disabled: (i: MenuItem) => !!i.disabled,
     arrow: (i: MenuItem) => !!i.children?.length,
-    className: (i: MenuItem) => (i.danger ? "fm-row--danger" : undefined),
+    className: (i: MenuItem) => (i.danger ? "fm-row--danger" : i.off ? "fm-row--off" : undefined),
     subMenuId: (i: MenuItem) => (i.children?.length ? `swarm-actions-${depth + 1}` : undefined),
     subMenuTrigger: SubMenuTrigger.ArrowClick,
     subMenuData: (i: MenuItem) => ({ items: i.children ?? [] }),

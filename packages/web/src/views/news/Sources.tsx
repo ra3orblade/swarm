@@ -19,6 +19,7 @@ import { Modal } from "../../components/Modal";
 import { Absent, Badge, type BadgeTone, Failed, Loading } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { ago } from "../../lib/format";
+import { icon } from "../../lib/icon";
 import { KIND_LABEL } from "./columns";
 
 const STATE_ORDER: Record<string, number> = { error: 0, on: 1, pending: 2, off: 3 };
@@ -161,6 +162,23 @@ function SourcesBody({ data, reload }: { data: NewsFeedsReport; reload: () => vo
   );
 }
 
+/** A source's site icon, served by the daemon; the feed glyph when there is none. */
+function SiteIcon({ site }: { site: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!site || failed) return icon("broadcast", 16, "src-ico");
+  return (
+    <img
+      className="src-ico"
+      src={`/v1/favicons/${encodeURIComponent(site)}`}
+      width={16}
+      height={16}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /** One source in the table: what it is, how its last read went, its switch and its check. */
 function SourceRow({
   f,
@@ -182,8 +200,11 @@ function SourceRow({
   return (
     <tr>
       <td className="clip" title={f.url}>
-        <b>{f.name}</b>
-        {f.source === "config" && <span className="dim"> yours</span>}
+        <span className="src-name">
+          <SiteIcon site={f.site ?? ""} />
+          <b>{f.name}</b>
+          {f.source === "config" && <span className="dim">yours</span>}
+        </span>
       </td>
       <td>
         <Badge>{KIND_LABEL[f.kind]}</Badge>
