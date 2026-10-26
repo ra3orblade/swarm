@@ -61,7 +61,7 @@ Status: living. Grouped by what you can use today. The engineering plan behind t
 ### Secure (what the project runs, what is known-bad, what is happening around it)
 - **Stack** — every project's packages from its lockfiles (bun, pnpm, npm, yarn, uv, poetry, pinned requirements, GitHub Actions `uses:`), re-read when a file moves; local, read-only, never written back.
 - **Advisories** — off until `[security] advisories = true`; then OSV is asked about the exact versions, every six hours and after a lockfile changes. The query carries the dependency list and nothing else. An advisory opens an incident at your threshold, is named in the agent's session context, and **Upgrade** dispatches a fix into its own worktree, gated and PR'd.
-- **News** — public RSS / Atom security sources matched against what each project runs, the sidebar project as the relevance filter; your own sources with a format check that runs the daemon's own reader.
+- **News** — public RSS / Atom security and AI sources, the security press matched against what any of your projects runs — one paper for the machine, no project sidebar; your own sources with a format check that runs the daemon's own reader.
 - Two rules: **`vulnerable_install`** (an exact version with a known advisory, from a local table) and **`secret_commit`** (a credential file staged, or a token on an added line of the staged diff). `swarm security …` and `swarm doctor` from the terminal; a markdown report per project.
 
 ### Teams (self-hosted, [FSL-1.1-ALv2](14-teams.md))
