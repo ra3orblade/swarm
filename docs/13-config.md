@@ -338,7 +338,7 @@ keywords = []                  # words that make an authority / press item relev
                                # ones derived from each project's lockfiles, e.g. ["Okta", "Tailscale"]
 feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark Reading"]
 # Your own sources, appended to the built-ins (a config URL that matches a built-in replaces it).
-# Try one first: the Sources panel on the News view checks a URL with the same reader the daemon
+# Try one first: News › Sources › Manage sources… checks a URL with the same reader the daemon
 # runs (M14.3); `swarm security feeds check <url>` arrives with M14.6.
 # [[security.feeds]]
 # name = "Our vendor"

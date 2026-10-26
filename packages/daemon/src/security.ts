@@ -12,7 +12,15 @@
  * One service, ticked from the daemon loop like the team forwarder and the OTLP exporter: it keeps
  * its own pacing, never throws, and records what happened in `meta`.
  */
-import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  type Dirent,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   type Advisory,
@@ -26,6 +34,9 @@ import {
 import {
   type FeedCheck,
   type FeedItem,
+  ICON_HOST,
+  ICON_TYPES,
+  iconLinks,
   keywordMatcher,
   pageImage,
   parseFeed,
@@ -56,6 +67,17 @@ const FEED_TIMEOUT_MS = 20_000;
 const FEED_RETRY_MS = 1_000;
 /** An article page is asked for its picture with a shorter patience than a feed, and only its head is read. */
 const PAGE_TIMEOUT_MS = 10_000;
+const ICON_TIMEOUT_MS = 8_000;
+const ICON_MAX_BYTES = 256 * 1024;
+/** A kept icon is asked again after a week; a site that failed, after half an hour. */
+const ICON_MAX_AGE_MS = 7 * 86_400_000;
+const ICON_RETRY_MS = 30 * 60_000;
+
+/** A site's icon as kept and served. */
+export interface SiteIcon {
+  type: string;
+  body: Uint8Array;
+}
 const PAGE_MAX_BYTES = 300_000;
 const FEED_CONCURRENCY = 6;
 /** A whole-run failure (no network) backs off to at most this. */
@@ -159,6 +181,9 @@ export class SecurityService {
   private busyOsv = false;
   private osvBackoffMs = 0;
   private stackChanged = false;
+  private readonly icons = new Map<string, { at: number; icon: SiteIcon | null }>();
+  private readonly asking = new Map<string, Promise<SiteIcon | null>>();
+  private readonly iconFailed = new Map<string, number>();
 
   constructor(
     private readonly store: Store,
@@ -390,6 +415,114 @@ export class SecurityService {
       }),
       FEED_CONCURRENCY,
     );
+  }
+
+  /**
+   * A source's site icon (the Sources menu): the icon the site's home page names, else its
+   * `/favicon.ico`, asked once and kept in `~/.swarm/favicons/<host>.json`, asked again behind the
+   * kept one after a week. Only a host some source names is asked, never under `SWARM_OFFLINE`, and
+   * not with `[security] pictures = false`; the request carries the feed reads' user agent.
+   */
+  async favicon(name: string): Promise<SiteIcon | null> {
+    const host = String(name ?? "").toLowerCase();
+    const cfg = this.store.policyFor(null).config.security;
+    if (!ICON_HOST.test(host) || !cfg.pictures || process.env.SWARM_OFFLINE === "1") return null;
+    if (![...this.store.newsFeedSites().values()].includes(host)) return null;
+    const kept = this.icons.get(host) ?? this.readIcon(host);
+    const mayAsk = Date.now() - (this.iconFailed.get(host) ?? 0) >= ICON_RETRY_MS;
+    if (kept) {
+      if (mayAsk && Date.now() - kept.at >= ICON_MAX_AGE_MS) void this.askIcon(host);
+      return kept.icon;
+    }
+    return mayAsk ? this.askIcon(host) : null;
+  }
+
+  private iconFile(host: string): string {
+    return join(this.store.home, "favicons", `${host}.json`);
+  }
+
+  private readIcon(host: string): { at: number; icon: SiteIcon | null } | null {
+    try {
+      const raw = JSON.parse(readFileSync(this.iconFile(host), "utf8")) as {
+        at: number;
+        type: string | null;
+        body: string | null;
+      };
+      const icon =
+        raw.type && raw.body && ICON_TYPES.has(raw.type)
+          ? { type: raw.type, body: Buffer.from(raw.body, "base64") }
+          : null;
+      const entry = { at: Number(raw.at) || 0, icon };
+      this.icons.set(host, entry);
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
+  private askIcon(host: string): Promise<SiteIcon | null> {
+    const pending = this.asking.get(host);
+    if (pending) return pending;
+    const ask = this.fetchIcon(host)
+      .then((icon) => {
+        this.iconFailed.delete(host);
+        const entry = { at: Date.now(), icon };
+        this.icons.set(host, entry);
+        try {
+          mkdirSync(join(this.store.home, "favicons"), { recursive: true });
+          const body = icon ? Buffer.from(icon.body).toString("base64") : null;
+          writeFileSync(
+            this.iconFile(host),
+            JSON.stringify({ at: entry.at, type: icon?.type ?? null, body }),
+          );
+        } catch {
+          // a folder that cannot be written costs the next daemon one ask
+        }
+        return icon;
+      })
+      .catch(() => {
+        this.iconFailed.set(host, Date.now());
+        return null;
+      })
+      .finally(() => this.asking.delete(host));
+    this.asking.set(host, ask);
+    return ask;
+  }
+
+  private async fetchIcon(host: string): Promise<SiteIcon | null> {
+    const home = `https://${host}/`;
+    const headers = { "user-agent": `swarm/${this.version}` };
+    let named: string[] = [];
+    try {
+      const res = await this.fetchFn(home, {
+        headers: { ...headers, accept: "text/html" },
+        signal: AbortSignal.timeout(ICON_TIMEOUT_MS),
+        redirect: "follow",
+      });
+      if (res.ok) named = iconLinks(await readHead(res, PAGE_MAX_BYTES), res.url || home);
+      else await res.body?.cancel().catch(() => {});
+    } catch {
+      // no home page: the conventional address may still answer
+    }
+    for (const url of [...named.slice(0, 3), `${home}favicon.ico`]) {
+      try {
+        const res = await this.fetchFn(url, {
+          headers: { ...headers, accept: "image/*" },
+          signal: AbortSignal.timeout(ICON_TIMEOUT_MS),
+          redirect: "follow",
+        });
+        const type = (res.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
+        if (!res.ok || !type || !ICON_TYPES.has(type)) {
+          await res.body?.cancel().catch(() => {});
+          continue;
+        }
+        const body = new Uint8Array(await res.arrayBuffer());
+        if (body.length && body.length <= ICON_MAX_BYTES) return { type, body };
+      } catch {
+        // the next one
+      }
+    }
+    return null;
   }
 
   private async fetchFeed(f: NewsFeedRow): Promise<Response> {

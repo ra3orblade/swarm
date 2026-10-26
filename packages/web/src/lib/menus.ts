@@ -7,9 +7,9 @@
  * — but `main.tsx` imports it, so it shares the app's React instead of shipping a second copy.
  * The standalone `menus.js` build still exists for the vanilla team dashboard.
  */
-import type { MenuItem, MenuSpec } from "../menus";
+import type { MenuItem, MenuSpec, PanelSpec } from "../menus";
 
-export type { MenuItem, MenuSpec };
+export type { MenuItem, MenuSpec, PanelSpec };
 
 type Anchor = Element | { x: number; y: number };
 
@@ -17,6 +17,7 @@ declare global {
   interface Window {
     menus?: {
       open: (anchor: Anchor, spec: MenuSpec) => void;
+      panel: (anchor: Anchor, spec: PanelSpec) => void;
       close: () => void;
       isOpen: () => boolean;
     };
@@ -26,6 +27,15 @@ declare global {
 /** Open a menu anchored to an element. A no-op if the island has not loaded yet. */
 export function openMenu(anchor: Anchor, items: MenuItem[], spec?: Omit<MenuSpec, "items">): void {
   window.menus?.open(anchor, { ...spec, items });
+}
+
+/**
+ * Open free content — a calendar, say — in the same popup a menu opens in, anchored the same way
+ * and put away the same way (Escape, a click elsewhere). `render` gets `close` for a choice made
+ * inside it. A no-op if the island has not loaded yet.
+ */
+export function openPanel(anchor: Anchor, render: PanelSpec["render"]): void {
+  window.menus?.panel(anchor, { render });
 }
 
 /** Close whatever dropdown is open. A no-op when none is. */

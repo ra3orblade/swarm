@@ -41,6 +41,8 @@ export interface NewsFeedState {
   name: string;
   kind: NewsKind;
   url: string;
+  /** The host its icon is asked from (`/v1/favicons/<site>`); "" when none could be named. */
+  site?: string;
   source: "builtin" | "config";
   state: "pending" | "on" | "error" | "off";
   format: "rss" | "atom" | "none" | null;
@@ -656,6 +658,8 @@ export function stackKeywords(rows: readonly StackRow[], extra: readonly string[
 export interface NewsFeedsReport {
   enabled: boolean;
   offline: boolean;
+  /** `[security] kinds`: a built-in source of any other kind is off whatever `feeds_off` says. */
+  kinds: NewsKind[];
   feeds: NewsFeedState[];
 }
 
@@ -674,4 +678,61 @@ export interface FeedCheck {
   items: number;
   sample: FeedItem[];
   note: string;
+}
+
+/** The icon types the daemon passes on. An SVG is left out: it is a document, served from the dashboard's origin. */
+export const ICON_TYPES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+]);
+
+/** A host name as a favicon route takes it: letters, digits and hyphens in dotted labels, nothing else. */
+export const ICON_HOST =
+  /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/**
+ * The icons a page's head names, best first: a picture near 32 pixels, any other icon, then the
+ * touch icon. SVGs are skipped, and so is anything that is not http(s) once resolved.
+ */
+export function iconLinks(html: string, base: string): string[] {
+  const links: Array<{ url: string; rank: number }> = [];
+  for (const m of String(html ?? "").matchAll(/<link\s[^>]*>/gi)) {
+    const t = m[0];
+    const rel = attr(t, "rel").toLowerCase();
+    const href = attr(t, "href");
+    if (!href || !/(^|\s)(icon|apple-touch-icon)(\s|$)/.test(rel)) continue;
+    if (attr(t, "type").toLowerCase().includes("svg") || /\.svg(?:[?#]|$)/i.test(href)) continue;
+    const size = Number(/^(\d+)x\d+/i.exec(attr(t, "sizes"))?.[1] ?? 0);
+    let url: string;
+    try {
+      url = new URL(href, base).href;
+    } catch {
+      continue;
+    }
+    if (!/^https?:/.test(url)) continue;
+    const touch = rel.includes("apple-touch-icon");
+    links.push({ url, rank: (touch ? 1000 : 0) + (size ? Math.abs(size - 32) : 16) });
+  }
+  return links.sort((a, b) => a.rank - b.rank).map((l) => l.url);
+}
+
+/**
+ * The site a source belongs to, for its icon: the host its articles live on (a feed served from a
+ * feed host, `feeds.feedburner.com`, has articles on the publisher's own), else the feed's host.
+ */
+export function siteHost(feedUrl: string, articleUrl: string | null): string {
+  for (const u of [articleUrl, feedUrl]) {
+    if (!u) continue;
+    try {
+      const host = new URL(u).hostname.toLowerCase();
+      if (ICON_HOST.test(host)) return host;
+    } catch {
+      // the next one
+    }
+  }
+  return "";
 }

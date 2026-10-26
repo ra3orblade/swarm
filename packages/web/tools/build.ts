@@ -80,6 +80,9 @@ export const ICONS = [
   "bell",
   "arrow-right",
   "chevron-down",
+  "calendar",
+  "eye-slash",
+  "funnel",
 ];
 // app-facing key -> pixelarticons filename (closest pixel-art equivalent)
 const NAME_MAP: Record<string, string> = {
@@ -131,6 +134,8 @@ const NAME_MAP: Record<string, string> = {
   "clock-counter-clockwise": "clock",
   brain: "robot-face",
   eye: "eye",
+  "eye-slash": "eye-off",
+  funnel: "filter",
   pause: "pause",
   stop: "stop",
   broadcast: "rss-square",

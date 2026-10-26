@@ -1,22 +1,25 @@
 /**
- * News › Sources (M14.3): every feed the daemon reads, with its state, and the format check for a
- * URL you are about to add. The check runs the very reader the poller runs, so "it parsed here"
- * means it will parse every half hour.
+ * News › Sources › Manage (M14.3): every feed the daemon knows, with its state, a switch for each,
+ * and the format check for a URL you are about to add — in a window opened from the Sources menu.
+ * The check runs the very reader the poller runs, so "it parsed here" means it will parse every
+ * half hour.
  */
 import {
   type FeedCheck,
   NEWS_KINDS,
+  type NewsFeedState,
   type NewsFeedsReport,
   type NewsKind,
 } from "@swarm/core/newsfeed";
 import { useState } from "react";
-import { checkFeed } from "../../api/actions";
+import { checkFeed, switchFeed } from "../../api/actions";
 import { routes } from "../../api/endpoints";
 import { useResource } from "../../api/useResource";
-import { Panel } from "../../components/Panel";
+import { Modal } from "../../components/Modal";
 import { Absent, Badge, type BadgeTone, Failed, Loading } from "../../components/ui";
 import { copyText } from "../../lib/copy";
 import { ago } from "../../lib/format";
+import { icon } from "../../lib/icon";
 import { KIND_LABEL } from "./columns";
 
 const STATE_ORDER: Record<string, number> = { error: 0, on: 1, pending: 2, off: 3 };
@@ -33,11 +36,30 @@ function tomlFor(url: string, kind: NewsKind, title: string | null): string {
   return `[[security.feeds]]\nname = "${name}"\nurl = "${url}"\nkind = "${kind}"   # vendor | authority | press | ai`;
 }
 
-export function Sources() {
+export function SourcesManager({ onClose }: { onClose: () => void }) {
   const { data, error, reload } = useResource<NewsFeedsReport>(routes.newsFeeds(), 30_000);
+  const hint = data
+    ? `${data.feeds.filter((f) => f.state === "on").length} on · ${data.feeds.filter((f) => f.state === "error").length} failing · ${data.feeds.filter((f) => f.state === "off").length} off`
+    : undefined;
+  return (
+    <Modal title="News sources" glyph="broadcast" subtitle={hint} size="wide" onClose={onClose}>
+      {error && !data ? (
+        <Failed error={error} onRetry={reload} />
+      ) : data ? (
+        <SourcesBody data={data} reload={reload} />
+      ) : (
+        <Loading />
+      )}
+    </Modal>
+  );
+}
+
+function SourcesBody({ data, reload }: { data: NewsFeedsReport; reload: () => void }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<FeedCheck | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  const kinds = new Set(data.kinds);
 
   const check = async (u: string) => {
     setBusy(u);
@@ -48,12 +70,19 @@ export function Sources() {
     }
   };
 
-  if (error && !data) return <Failed error={error} onRetry={reload} />;
-  if (!data) return <Loading />;
+  const toggle = async (name: string, on: boolean) => {
+    setBusy(name);
+    try {
+      const r = await switchFeed(name, on);
+      setRefused(r.ok ? null : r.error);
+    } catch (e) {
+      setRefused((e as Error).message);
+    } finally {
+      setBusy(null);
+      reload();
+    }
+  };
 
-  const on = data.feeds.filter((f) => f.state === "on").length;
-  const failing = data.feeds.filter((f) => f.state === "error").length;
-  const off = data.feeds.filter((f) => f.state === "off").length;
   // what is failing first, then what is read, then what is off; within a state the kinds in their order
   const feeds = [...data.feeds].sort(
     (a, b) =>
@@ -63,19 +92,22 @@ export function Sources() {
   );
 
   return (
-    <Panel
-      title="Sources"
-      hint={`${on} on · ${failing} failing · ${off} off · built-ins ship with Swarm, yours go in [[security.feeds]]`}
-    >
+    <>
+      <p className="dim note">
+        Built-ins ship with Swarm, yours go in <code>[[security.feeds]]</code>. A source switched
+        off here is kept in <code>~/.swarm/settings.toml</code>; a built-in of a kind not in{" "}
+        <code>[security] kinds</code> stays off whatever its switch says.
+      </p>
+      {refused && <p className="note bad">{refused}</p>}
       <table className="mini">
         <colgroup>
-          <col style={{ width: "26%" }} />
+          <col style={{ width: "25%" }} />
           <col style={{ width: "10%" }} />
-          <col style={{ width: "26%" }} />
+          <col style={{ width: "22%" }} />
           <col style={{ width: "8%" }} />
-          <col style={{ width: "8%" }} />
-          <col style={{ width: "12%" }} />
-          <col style={{ width: "10%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "11%" }} />
+          <col style={{ width: "17%" }} />
         </colgroup>
         <thead>
           <tr>
@@ -90,34 +122,15 @@ export function Sources() {
         </thead>
         <tbody>
           {feeds.map((f) => (
-            <tr key={f.url}>
-              <td className="clip" title={f.url}>
-                <b>{f.name}</b>
-                {f.source === "config" && <span className="dim"> yours</span>}
-              </td>
-              <td>
-                <Badge>{KIND_LABEL[f.kind]}</Badge>
-              </td>
-              <td className="clip" title={f.note || undefined}>
-                <Badge tone={STATE_TONE[f.state] ?? "plain"}>{f.state}</Badge>
-                {f.note && <span className="dim"> {f.note}</span>}
-              </td>
-              <td>{f.format ? <code>{f.format}</code> : <Absent />}</td>
-              <td className="num">{f.items}</td>
-              <td className="dim" title={f.lastOk ?? undefined}>
-                {f.lastOk ? ago(f.lastOk) : <Absent />}
-              </td>
-              <td className="num">
-                <button
-                  type="button"
-                  className="mini-act"
-                  disabled={busy !== null || data.offline}
-                  onClick={() => check(f.url)}
-                >
-                  {busy === f.url ? "…" : "Check"}
-                </button>
-              </td>
-            </tr>
+            <SourceRow
+              key={f.url}
+              f={f}
+              switchable={f.source === "config" || kinds.has(f.kind)}
+              busy={busy}
+              offline={data.offline}
+              onToggle={toggle}
+              onCheck={check}
+            />
           ))}
         </tbody>
       </table>
@@ -145,7 +158,87 @@ export function Sources() {
         {data.offline && <span className="dim">SWARM_OFFLINE=1: nothing is fetched</span>}
       </div>
       {result && <CheckResult r={result} />}
-    </Panel>
+    </>
+  );
+}
+
+/** A source's site icon, served by the daemon; the feed glyph when there is none. */
+function SiteIcon({ site }: { site: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!site || failed) return icon("broadcast", 16, "src-ico");
+  return (
+    <img
+      className="src-ico"
+      src={`/v1/favicons/${encodeURIComponent(site)}`}
+      width={16}
+      height={16}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+/** One source in the table: what it is, how its last read went, its switch and its check. */
+function SourceRow({
+  f,
+  switchable,
+  busy,
+  offline,
+  onToggle,
+  onCheck,
+}: {
+  f: NewsFeedState;
+  /** False for a built-in of a kind `[security] kinds` leaves out: no switch turns it on. */
+  switchable: boolean;
+  busy: string | null;
+  offline: boolean;
+  onToggle: (name: string, on: boolean) => void;
+  onCheck: (url: string) => void;
+}) {
+  const off = f.state === "off";
+  return (
+    <tr>
+      <td className="clip" title={f.url}>
+        <span className="src-name">
+          <SiteIcon site={f.site ?? ""} />
+          <b>{f.name}</b>
+          {f.source === "config" && <span className="dim">yours</span>}
+        </span>
+      </td>
+      <td>
+        <Badge>{KIND_LABEL[f.kind]}</Badge>
+      </td>
+      <td className="clip" title={f.note || undefined}>
+        <Badge tone={STATE_TONE[f.state] ?? "plain"}>{f.state}</Badge>
+        {f.note && <span className="dim"> {f.note}</span>}
+      </td>
+      <td>{f.format ? <code>{f.format}</code> : <Absent />}</td>
+      <td className="num">{f.items}</td>
+      <td className="dim" title={f.lastOk ?? undefined}>
+        {f.lastOk ? ago(f.lastOk) : <Absent />}
+      </td>
+      <td className="num">
+        {switchable && (
+          <button
+            type="button"
+            className="mini-act"
+            disabled={busy !== null}
+            onClick={() => onToggle(f.name, off)}
+          >
+            {busy === f.name ? "…" : off ? "Turn on" : "Turn off"}
+          </button>
+        )}
+        <button
+          type="button"
+          className="mini-act"
+          disabled={busy !== null || offline}
+          onClick={() => onCheck(f.url)}
+        >
+          {busy === f.url ? "…" : "Check"}
+        </button>
+      </td>
+    </tr>
   );
 }
 

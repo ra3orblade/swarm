@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { BUILTIN_FEEDS, resolveSources } from "@swarm/core/newsfeeds";
 import { createApp, expandHome, Store } from "./app";
 
 const tmpHome = () => mkdtempSync(join(tmpdir(), "swarm-test-"));
@@ -3875,6 +3876,90 @@ describe("M14.3 sources", () => {
       server.stop(true);
     }
   }, 20_000);
+
+  it("serves a source's site icon, asked once and kept, and only for a site a source names", async () => {
+    const { existsSync: exists } = require("node:fs") as typeof import("node:fs");
+    const home = tmpHome();
+    writeF(
+      join(home, "config.toml"),
+      `[security]\nkinds = []\n[[security.feeds]]\nname = "Mine"\nurl = "https://vendor.example/feed"\nkind = "vendor"\n`,
+    );
+    const { app, store, security } = createApp(new Store(home));
+    store.reconcileNewsFeeds(resolveSources(store.policyFor(null).config.security));
+    const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+    const asked: string[] = [];
+    security.fetchFn = (async (input: string | URL | Request) => {
+      const url = String(input);
+      asked.push(url);
+      if (url === "https://vendor.example/")
+        return new Response('<head><link rel="icon" sizes="32x32" href="/i.png"></head>', {
+          headers: { "content-type": "text/html" },
+        });
+      if (url === "https://vendor.example/i.png")
+        return new Response(png, { headers: { "content-type": "image/png" } });
+      return new Response("nf", { status: 404 });
+    }) as typeof fetch;
+
+    const feeds = (await (await app.request("/v1/news/feeds")).json()) as {
+      feeds: Array<{ name: string; site: string }>;
+    };
+    expect(feeds.feeds.find((f) => f.name === "Mine")?.site).toBe("vendor.example");
+
+    const first = await app.request("/v1/favicons/vendor.example");
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(png);
+    expect(exists(join(home, "favicons", "vendor.example.json"))).toBe(true);
+    const again = await app.request("/v1/favicons/vendor.example");
+    expect(new Uint8Array(await again.arrayBuffer())).toEqual(png);
+    expect(asked).toEqual(["https://vendor.example/", "https://vendor.example/i.png"]);
+
+    // a fresh daemon serves the kept icon without asking
+    const next = createApp(new Store(home));
+    next.security.fetchFn = (async () => {
+      throw new Error("asked");
+    }) as unknown as typeof fetch;
+    expect((await next.app.request("/v1/favicons/vendor.example")).status).toBe(200);
+
+    expect((await app.request("/v1/favicons/elsewhere.example")).status).toBe(404);
+    expect((await app.request("/v1/favicons/..%2Fsecret")).status).toBe(404);
+    expect(asked.length).toBe(2);
+  });
+
+  it("switches a source off and on through settings.toml, and never over config.toml", async () => {
+    const { readFileSync: readF } = require("node:fs") as typeof import("node:fs");
+    const home = tmpHome();
+    const { app, store } = createApp(new Store(home));
+    store.reconcileNewsFeeds(resolveSources(store.policyFor(null).config.security));
+    const name = BUILTIN_FEEDS.find((f) => f.kind === "vendor")?.name ?? "";
+    const post = (a: ReturnType<typeof createApp>["app"], body: unknown) =>
+      a.request("/v1/news/feeds/switch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const stateOf = () => store.newsFeeds().find((f) => f.name === name)?.state;
+
+    expect(stateOf()).toBe("pending");
+    expect(await (await post(app, { name: name.toUpperCase(), on: false })).json()).toEqual({
+      ok: true,
+      off: [name],
+      source: "settings",
+    });
+    expect(stateOf()).toBe("off");
+    expect(readF(join(home, "settings.toml"), "utf8")).toContain("feeds_off");
+    expect(await (await post(app, { name, on: true })).json()).toMatchObject({ ok: true, off: [] });
+    expect(stateOf()).toBe("pending");
+    expect((await post(app, { name })).status).toBe(400);
+    expect((await post(app, { name: "No such feed", on: false })).status).toBe(404);
+
+    writeF(join(home, "config.toml"), `[security]\nfeeds_off = ["${name}"]\n`);
+    const again = createApp(new Store(home));
+    expect(await (await post(again.app, { name, on: true })).json()).toMatchObject({
+      ok: false,
+      source: "global",
+    });
+  });
 });
 
 describe("M14.4 advisories", () => {

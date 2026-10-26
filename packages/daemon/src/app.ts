@@ -392,13 +392,16 @@ export function createApp(
   // M14.3: per-source state, and the format check for a URL you are about to add
   app.get("/v1/news/feeds", (c) => {
     const cfg = store.policyFor(null).config.security;
+    const sites = store.newsFeedSites();
     return c.json({
       enabled: cfg.news,
       offline: process.env.SWARM_OFFLINE === "1",
+      kinds: cfg.kinds,
       feeds: store.newsFeeds().map((f) => ({
         name: f.name,
         kind: f.kind,
         url: f.url,
+        site: sites.get(f.url) ?? "",
         source: f.source,
         state: f.state,
         format: f.format,
@@ -408,6 +411,27 @@ export function createApp(
         lastTry: f.lastTry,
       })),
     });
+  });
+  // a source's site icon, asked by the daemon once and kept (`~/.swarm/favicons`), for a site a
+  // source names only; 404 when there is none, `[security] pictures = false`, or SWARM_OFFLINE=1
+  app.get("/v1/favicons/:host", async (c) => {
+    const icon = await security.favicon(c.req.param("host"));
+    if (!icon) return c.body(null, 404, { "cache-control": "max-age=600" });
+    return c.body(new Uint8Array(icon.body).buffer as ArrayBuffer, 200, {
+      "content-type": icon.type,
+      "cache-control": "max-age=86400",
+      "x-content-type-options": "nosniff",
+    });
+  });
+  // the Sources menu: switch one source on or off (`feeds_off` in settings.toml); a source back on
+  // is read at once rather than at the next round
+  app.post("/v1/news/feeds/switch", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; on?: unknown };
+    if (typeof body.name !== "string" || !body.name.trim() || typeof body.on !== "boolean")
+      return c.json({ ok: false, error: "name and on (true or false) required" }, 400);
+    const r = store.setFeedOn(body.name.trim(), body.on);
+    if (r.ok && body.on) void security.refresh("news");
+    return c.json(r, r.ok || r.source !== "none" ? 200 : 404);
   });
   app.post("/v1/news/feeds/check", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
