@@ -1,7 +1,7 @@
 /**
- * The month calendar beside the news (M14.11): the days with articles, shaded by how many. A day
- * narrows the paper and the table to itself; the same day again lets it go. The arrows stop where
- * the window does.
+ * The month calendar of the news (M14.11), in the popup of the heading's Calendar button: the days
+ * with articles, shaded by how many. A day narrows the paper and the table to itself; the same day
+ * again lets it go. The arrows stop where the window does.
  */
 import type { NewsItemView } from "@swarm/core/newsfeed";
 import { useState } from "react";
@@ -29,8 +29,11 @@ export function NewsCalendar({
   items,
   day,
   onDay,
+  bare,
 }: {
   items: readonly NewsItemView[];
+  /** Inside a popup, which is already the frame: no border or shadow of its own. */
+  bare?: boolean;
   /** The selected day, or "" for every day. */
   day: string;
   onDay: (day: string) => void;
@@ -54,7 +57,7 @@ export function NewsCalendar({
   const next = shiftMonth(month, 1);
 
   return (
-    <div className="mcal">
+    <div className={bare ? "mcal bare" : "mcal"}>
       <div className="mcal-h">
         <button
           type="button"

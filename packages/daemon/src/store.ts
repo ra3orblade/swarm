@@ -272,6 +272,7 @@ import {
   normalizeUrl,
   stackKeywords,
 } from "@swarm/core/newsfeed";
+import { feedsOffWith, resolveSources } from "@swarm/core/newsfeeds";
 import {
   type ManifestKind,
   type StackReport,
@@ -3390,6 +3391,38 @@ export class Store {
     writeFileSync(path, withSetting(existing, "security", "advisories", enabled));
     this.invalidateConfig();
     return { ok: true, enabled, source: "settings" };
+  }
+
+  /**
+   * Switch one news source on or off from the dashboard's Sources menu: `feeds_off` in the daemon's
+   * own `settings.toml`, under the same rule as the advisories switch — a list set in `config.toml`
+   * or the policy wins over this file, so the answer names that file instead. The rows are
+   * reconciled at once, so the source's items leave the view (or come back) without waiting a round.
+   */
+  setFeedOn(
+    name: string,
+    on: boolean,
+  ):
+    | { ok: true; off: string[]; source: "settings" }
+    | { ok: false; error: string; source: "global" | "policy" | "none" } {
+    const loaded = this.policyFor(null);
+    const cfg = loaded.config.security;
+    const known = this.newsFeeds().find((f) => f.name.toLowerCase() === name.toLowerCase());
+    if (!known) return { ok: false, error: `no news source named ${name}`, source: "none" };
+    const source = loaded.provenance["security.feeds_off"] ?? "default";
+    if (source === "global" || source === "policy")
+      return {
+        ok: false,
+        error: `feeds_off is set in ~/.swarm/${source === "policy" ? "policy.toml" : "config.toml"}; change it there`,
+        source,
+      };
+    const off = feedsOffWith(cfg.feeds_off, known.name, on);
+    const path = join(this.home, SETTINGS_FILE);
+    const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+    writeFileSync(path, withSetting(existing, "security", "feeds_off", off));
+    this.invalidateConfig();
+    this.reconcileNewsFeeds(resolveSources(this.policyFor(null).config.security));
+    return { ok: true, off, source: "settings" };
   }
 
   /** Config with provenance for a repo, cached 30 s (same cadence the rules always had). */

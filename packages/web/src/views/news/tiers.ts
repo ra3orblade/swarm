@@ -41,6 +41,13 @@ export function dayLabel(day: string): string {
   return `${weekday}, ${rest}`;
 }
 
+/** `26 Oct`: a day short enough for a heading button. */
+export function shortDayLabel(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return day;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 const DAY_MS = 86_400_000;
 const startOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 

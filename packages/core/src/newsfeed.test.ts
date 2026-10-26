@@ -8,7 +8,7 @@ import {
   plainText,
   stackKeywords,
 } from "./newsfeed";
-import { BUILTIN_FEEDS, resolveSources } from "./newsfeeds";
+import { BUILTIN_FEEDS, feedsOffWith, resolveSources } from "./newsfeeds";
 import type { StackRow } from "./stack";
 
 const RSS = `<?xml version="1.0"?>
@@ -210,6 +210,12 @@ describe("keywords", () => {
 });
 
 describe("sources", () => {
+  test("feedsOffWith: off adds the name once, on drops every spelling, the rest keep their order", () => {
+    expect(feedsOffWith(["A", "b"], "C", false)).toEqual(["A", "b", "C"]);
+    expect(feedsOffWith(["A", "c", "b"], "C", false)).toEqual(["A", "b", "C"]);
+    expect(feedsOffWith(["A", "c", "b", "C"], "C", true)).toEqual(["A", "b"]);
+    expect(feedsOffWith([], "C", true)).toEqual([]);
+  });
   test("built-ins are public https feeds with the four kinds", () => {
     expect(BUILTIN_FEEDS.length).toBeGreaterThan(40);
     for (const f of BUILTIN_FEEDS) {

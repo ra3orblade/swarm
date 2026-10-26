@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { BUILTIN_FEEDS, resolveSources } from "@swarm/core/newsfeeds";
 import { createApp, expandHome, Store } from "./app";
 
 const tmpHome = () => mkdtempSync(join(tmpdir(), "swarm-test-"));
@@ -3875,6 +3876,41 @@ describe("M14.3 sources", () => {
       server.stop(true);
     }
   }, 20_000);
+
+  it("switches a source off and on through settings.toml, and never over config.toml", async () => {
+    const { readFileSync: readF } = require("node:fs") as typeof import("node:fs");
+    const home = tmpHome();
+    const { app, store } = createApp(new Store(home));
+    store.reconcileNewsFeeds(resolveSources(store.policyFor(null).config.security));
+    const name = BUILTIN_FEEDS.find((f) => f.kind === "vendor")?.name ?? "";
+    const post = (a: ReturnType<typeof createApp>["app"], body: unknown) =>
+      a.request("/v1/news/feeds/switch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const stateOf = () => store.newsFeeds().find((f) => f.name === name)?.state;
+
+    expect(stateOf()).toBe("pending");
+    expect(await (await post(app, { name: name.toUpperCase(), on: false })).json()).toEqual({
+      ok: true,
+      off: [name],
+      source: "settings",
+    });
+    expect(stateOf()).toBe("off");
+    expect(readF(join(home, "settings.toml"), "utf8")).toContain("feeds_off");
+    expect(await (await post(app, { name, on: true })).json()).toMatchObject({ ok: true, off: [] });
+    expect(stateOf()).toBe("pending");
+    expect((await post(app, { name })).status).toBe(400);
+    expect((await post(app, { name: "No such feed", on: false })).status).toBe(404);
+
+    writeF(join(home, "config.toml"), `[security]\nfeeds_off = ["${name}"]\n`);
+    const again = createApp(new Store(home));
+    expect(await (await post(again.app, { name, on: true })).json()).toMatchObject({
+      ok: false,
+      source: "global",
+    });
+  });
 });
 
 describe("M14.4 advisories", () => {

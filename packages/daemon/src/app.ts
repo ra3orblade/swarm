@@ -395,6 +395,7 @@ export function createApp(
     return c.json({
       enabled: cfg.news,
       offline: process.env.SWARM_OFFLINE === "1",
+      kinds: cfg.kinds,
       feeds: store.newsFeeds().map((f) => ({
         name: f.name,
         kind: f.kind,
@@ -408,6 +409,16 @@ export function createApp(
         lastTry: f.lastTry,
       })),
     });
+  });
+  // the Sources menu: switch one source on or off (`feeds_off` in settings.toml); a source back on
+  // is read at once rather than at the next round
+  app.post("/v1/news/feeds/switch", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; on?: unknown };
+    if (typeof body.name !== "string" || !body.name.trim() || typeof body.on !== "boolean")
+      return c.json({ ok: false, error: "name and on (true or false) required" }, 400);
+    const r = store.setFeedOn(body.name.trim(), body.on);
+    if (r.ok && body.on) void security.refresh("news");
+    return c.json(r, r.ok || r.source !== "none" ? 200 : 404);
   });
   app.post("/v1/news/feeds/check", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };

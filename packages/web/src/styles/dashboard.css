@@ -2962,6 +2962,28 @@ h2 .back:hover {
 .fm-row[data-pressed="true"] .fm-ico {
   color: var(--acc);
 }
+/* A menu's pinned footer action (News › Sources › Manage): a full-width row under the list. */
+.fm-footer-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--fg-2);
+  font: 500 var(--fs-md) var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.fm-footer-btn:hover,
+.fm-footer-btn:focus-visible {
+  background: var(--panel-2);
+  color: var(--fg);
+  outline: none;
+}
 /* Pixel icons in menu rows: flex-center them and drop the global .ph baseline nudge. */
 .fm-row__icon,
 .fm-ico {
@@ -3906,8 +3928,31 @@ tr.clickable {
   gap: 8px;
 }
 .h2-actions .mini-act {
+  gap: 6px;
   font-size: var(--fs-md);
   padding-block: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* In a row with a gap, the stacked-buttons margin would double it. */
+.h2-actions .mini-act + .mini-act {
+  margin-left: 0;
+}
+.h2-actions .mini-act .chev {
+  margin-left: -2px;
+  opacity: 0.6;
+}
+/* A heading button that is in effect: a filter narrowing, a day chosen, the view shown. */
+.mini-act.on {
+  color: var(--acc);
+  background: var(--acc-soft);
+  border-color: transparent;
+}
+/* Paper / Table: two heading buttons set closer than the rest, as one choice. */
+.h2-switch {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
 }
 
 /* Paging controls under a grid (M11.4). Sits inside the card, below the table, so it scrolls with
@@ -4077,27 +4122,6 @@ tr.clickable {
    day's articles under it in tiers as a front page sets them. The pull-out is one value, read by
    the cards and the dateline, so a hovered card's ground and the dateline's never drift apart.
    `main` pads 16px at the top; the dateline reaches up by that much so it sticks at the edge. */
-.news-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 232px;
-  gap: 24px;
-  align-items: start;
-}
-.news-main {
-  min-width: 0;
-}
-.news-aside {
-  position: sticky;
-  top: 0;
-}
-@media (max-width: 960px) {
-  .news-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .news-aside {
-    position: static;
-  }
-}
 .paper {
   --paper-pull: 10px;
   display: flex;
@@ -4288,7 +4312,7 @@ tr.clickable {
   margin: 8px 0 0;
 }
 
-/* ---- The month calendar beside the news (M14.11) ---- */
+/* ---- The month calendar of the news (M14.11), in the Calendar button's popup ---- */
 /* `mcal`, not `cal`: the Stats view's activity strip already owns `.cal` / `.cal-grid`, and sharing the
    names gave it this panel's border and a table layout. */
 .mcal {
@@ -4297,6 +4321,13 @@ tr.clickable {
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: var(--shadow);
+}
+/* In the Calendar button's popup, which is already the frame. */
+.mcal.bare {
+  width: 252px;
+  background: none;
+  border: 0;
+  box-shadow: none;
 }
 .mcal-h {
   display: flex;

@@ -656,6 +656,8 @@ export function stackKeywords(rows: readonly StackRow[], extra: readonly string[
 export interface NewsFeedsReport {
   enabled: boolean;
   offline: boolean;
+  /** `[security] kinds`: a built-in source of any other kind is off whatever `feeds_off` says. */
+  kinds: NewsKind[];
   feeds: NewsFeedState[];
 }
 

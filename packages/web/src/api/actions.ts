@@ -118,6 +118,17 @@ export async function setAdvisories(enabled: boolean): Promise<{ ok: boolean; er
   return send<{ ok: boolean; error?: string }>("/v1/advisories/enable", "POST", { enabled });
 }
 
+/**
+ * The Sources menu: switch one news source on or off (`feeds_off` in `~/.swarm/settings.toml`).
+ * Answers the list as the daemon now holds it, or why it would not — a list set in `config.toml`.
+ */
+export async function switchFeed(
+  name: string,
+  on: boolean,
+): Promise<{ ok: true; off: string[] } | { ok: false; error: string }> {
+  return send("/v1/news/feeds/switch", "POST", { name, on });
+}
+
 /** M14.3: fetch one URL once through the daemon's feed parser and say what came back. A read, not a write; nothing to re-poll. */
 export async function checkFeed(url: string): Promise<FeedCheck> {
   return send<FeedCheck>("/v1/news/feeds/check", "POST", { url });

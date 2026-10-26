@@ -139,3 +139,14 @@ export function resolveSources(cfg: {
     out.push({ ...f, source: "config", on: !off.has(f.name.toLowerCase()) });
   return out;
 }
+
+/**
+ * `feeds_off` with one source switched: on drops every spelling of the name (the match is
+ * case-blind, as `resolveSources` reads it), off adds it once. The order of the rest is kept, so a
+ * hand-written list in `settings.toml` does not reshuffle.
+ */
+export function feedsOffWith(off: readonly string[], name: string, on: boolean): string[] {
+  const key = name.toLowerCase();
+  const rest = off.filter((n) => n.toLowerCase() !== key);
+  return on ? rest : [...rest, name];
+}
