@@ -35,7 +35,7 @@ This doc records where the code is today and what changes, so M14 lands as seven
 ## Decisions already taken (2026-10-24)
 
 1. **Advisories are off until enabled.** Stack detection is local and always on. No package name or version leaves the machine until `[security] advisories = true`. `SWARM_OFFLINE=1` silences every fetch in this milestone. (OQ-33)
-2. **Nav.** The existing **Security** view grows three tabs — **Activity** (today's content) · **Stack** · **Advisories**. **News** is its own view in the Guard group, scoped by the selected project: with a project selected, items are ranked by that project's stack-derived keywords; with *All projects*, by the union.
+2. **Nav.** The existing **Security** view grows three tabs — **Activity** (today's content) · **Stack** · **Advisories**. **News** is its own view in the Guard group, narrowed by the union of every project's stack-derived keywords. (It followed the sidebar's project until M14.13; that hid items without saying why, so the view is now unscoped and the sidebar is hidden on it. `?project=` stays on the route for the CLI.)
 3. **Ecosystems in the first cut:** `bun.lock` (the text format), `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock` (v1 and berry), `uv.lock`, `poetry.lock`, `requirements.txt` (pinned `==` lines, PEP 503 names), and GitHub Actions `uses:` lines. Rust, Go and Ruby are a later task.
 4. **Act, not only report.** A new advisory on a project opens an incident, and a `vulnerable_install` rule family asks (by default) before an agent installs an exact version with a known advisory — from a local SQLite read.
 
@@ -131,7 +131,7 @@ export const BUILTIN_FEEDS: readonly FeedSource[];               // newsfeeds.ts
 - GitHub Actions names as written (`actions/checkout`);
 - plus `[security] keywords`; de-duplicated case-insensitively, capped at 300, frameworks and runtime dependencies first.
 
-**Built-in sources ship in code and user entries are appended.** Three reasons: `merge()` replaces arrays, so a user who writes one `[[security.feeds]]` must not lose the defaults; defaults have to move with releases (a feed dies, a vendor moves its URL) without every user editing TOML; and `feeds_off` by name is a cleaner opt-out than copying a list to delete from it. The built-in list is the earlier feed's public sources — ten vendor channels (Node.js, Python, PyPI, Django, PostgreSQL, GitHub, AWS, HashiCorp, Next.js, …), two authorities (CISA, CERT-Bund), fifteen security press and vendor blogs, and eighteen AI press feeds behind the `ai` kind, which is off by default (OQ-31). A config entry with the same URL as a built-in replaces it.
+**Built-in sources ship in code and user entries are appended.** Three reasons: `merge()` replaces arrays, so a user who writes one `[[security.feeds]]` must not lose the defaults; defaults have to move with releases (a feed dies, a vendor moves its URL) without every user editing TOML; and `feeds_off` by name is a cleaner opt-out than copying a list to delete from it. The built-in list is the earlier feed's public sources — ten vendor channels (Node.js, Python, PyPI, Django, PostgreSQL, GitHub, AWS, HashiCorp, Next.js, …), two authorities (CISA, CERT-Bund), fifteen security press and vendor blogs, and twenty-four AI press feeds behind the `ai` kind — off at first, on by default since M14.13 (OQ-31). A config entry with the same URL as a built-in replaces it.
 
 ### Daemon
 
@@ -315,9 +315,9 @@ news = true                    # read the security news feeds (public RSS / Atom
                                # nothing about you). false: nothing is fetched and the News view says so.
 news_days = 30                 # keep items this long (1–365)
 refresh_minutes = 30           # how often feeds are re-read (10–1440). OSV: every 6 h, and after a stack change.
-kinds = ["vendor", "authority", "press"]   # built-in kinds to read; add "ai" for the AI press.
+kinds = ["vendor", "authority", "press", "ai"]   # built-in kinds to read; drop "ai" for security news only.
                                # "vendor" / "ai" items are shown whole; "authority" / "press" only when
-                               # they name a keyword of the selected project's stack (or of `keywords`).
+                               # they name a keyword of one of your projects' stacks (or of `keywords`).
 keywords = []                  # words that make an authority / press item relevant on top of the ones
                                # derived from each project's stack, e.g. ["Tailscale", "PostgreSQL", "Okta"]
 feeds_off = []                 # built-in sources to skip, by name, e.g. ["Dark Reading"]
@@ -385,7 +385,7 @@ Stack first because the news ranking and the advisories both hang off it; news b
 
 ## Open questions raised here
 
-- **OQ-31** Is the news feed on by default? — proposal: yes, with the `ai` kind off.
+- **OQ-31** Is the news feed on by default? — decided yes; the `ai` kind shipped off and is on since M14.13.
 - **OQ-32** Should the dashboard ever write `~/.swarm/config.toml`? — proposal: no; show and copy the TOML.
 - **OQ-33** What the OSV query reveals, and how it is said — **decided**: off until enabled, one sentence everywhere.
 - **OQ-34** GitHub Dependabot / code-scanning / secret-scanning alerts through `gh` — proposal: a later M14.8, off by default.

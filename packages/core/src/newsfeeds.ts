@@ -2,7 +2,7 @@
  * The built-in news sources (M14.2). Shipped in code, not in config, for three reasons: `merge()`
  * replaces arrays, so a user who writes one `[[security.feeds]]` must not lose these; a feed that
  * dies or moves is fixed by a release, not by every user editing TOML; and `feeds_off` by name is
- * the clean opt-out. The `ai` kind is off by default (`[security] kinds`).
+ * the clean opt-out. Every kind is read by default; `[security] kinds` narrows them.
  *
  * Every entry is a public RSS / Atom feed; the request carries nothing about the user.
  */
@@ -75,7 +75,7 @@ export const BUILTIN_FEEDS: readonly FeedSource[] = [
     url: "https://www.redhat.com/en/rss/blog/channel/security",
     kind: "press",
   },
-  // the AI press — whole, off unless `kinds` includes "ai"
+  // the AI press — shown whole
   { name: "OpenAI news", url: "https://openai.com/news/rss.xml", kind: "ai" },
   { name: "Google DeepMind blog", url: "https://deepmind.google/blog/rss.xml", kind: "ai" },
   { name: "Google AI blog", url: "https://blog.google/technology/ai/rss/", kind: "ai" },
@@ -114,6 +114,17 @@ export const BUILTIN_FEEDS: readonly FeedSource[] = [
     kind: "ai",
   },
   { name: "Wired, AI", url: "https://www.wired.com/feed/tag/ai/latest/rss", kind: "ai" },
+  { name: "GitHub blog, AI & ML", url: "https://github.blog/ai-and-ml/feed/", kind: "ai" },
+  { name: "Cloudflare blog, AI", url: "https://blog.cloudflare.com/tag/ai/rss/", kind: "ai" },
+  { name: "Interconnects", url: "https://www.interconnects.ai/feed", kind: "ai" },
+  { name: "Ahead of AI", url: "https://magazine.sebastianraschka.com/feed", kind: "ai" },
+  { name: "One Useful Thing", url: "https://www.oneusefulthing.org/feed", kind: "ai" },
+  // the agent Swarm watches most, by its own release notes
+  {
+    name: "Claude Code releases",
+    url: "https://github.com/anthropics/claude-code/releases.atom",
+    kind: "ai",
+  },
 ];
 
 /** The sources to read for a config: built-ins by kind minus `feeds_off`, then the user's own, a config URL replacing a built-in. */

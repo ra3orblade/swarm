@@ -289,7 +289,7 @@ export const DEFAULT_SECURITY: SecurityConfig = {
   news_days: 30,
   pictures: true,
   refresh_minutes: 30,
-  kinds: ["vendor", "authority", "press"],
+  kinds: ["vendor", "authority", "press", "ai"],
   keywords: [],
   feeds_off: [],
   feeds: [],
