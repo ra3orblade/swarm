@@ -4256,13 +4256,13 @@ tr.clickable {
   object-fit: cover;
 }
 .paper-card.hero > .paper-picture {
-  max-height: 320px;
+  max-height: 460px;
 }
 .paper-card.feature > .paper-picture {
-  max-height: 260px;
+  max-height: 320px;
 }
 .paper-card.brief > .paper-picture {
-  max-height: 150px;
+  max-height: 180px;
 }
 /* One hero alone in its row sets with the picture beside the text, as a lead story does. */
 .paper-row.hero > .paper-card.with-picture:only-child {
