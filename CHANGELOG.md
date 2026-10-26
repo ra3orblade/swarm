@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.18.2](#0182--2026-10-26) | Oct 26 | The desktop updater's manifest · the Stats strip and News heading · two dependency advisories |
 | [0.18.1](#0181--2026-10-24) | Oct 24 | The news as a paper · a switch for advisories |
 | [0.18.0](#0180--2026-10-24) | Oct 24 | What each project runs, what of it is known-bad, what is happening around it · two new rules · `swarm security` |
 | [0.17.0](#0170--2026-10-16) | Oct 16 | Codex gets the whole hook pipeline · cost by MCP, skill and subagent · CI resumes the run · signals |
@@ -31,6 +32,22 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.18.2] — 2026-10-26
+
+A patch for what the two security releases left behind on their own day: the desktop app could not find its next update, the Stats view's activity strip came up as an empty box, and two Dependabot alerts had fixes waiting.
+
+### Fixes
+
+- **The desktop app finds its updates again.** 0.18.1's `latest.json` named only the Linux platforms, so the macOS app answered *none of the fallback platforms were found* when it checked. The release workflow's three desktop legs each merged their platforms into the manifest by download → delete → upload, and the Linux and Windows legs finished a second apart, so one overwrote the other. A step after all three now rebuilds the manifest from the `.sig` assets on the release (`tools/updater-json.ts`, checked key for key against the 0.18.0 manifest) and uploads it once. The 0.18.1 manifest was repaired in place the same way, and `docs/11-desktop-signing.md` explains the race.
+- **The Stats activity strip rendered as an empty bordered box.** The News month calendar used `.cal` / `.cal-grid`, the class names the strip already owned, so the strip inherited the calendar's border, padding and table layout. The calendar has its own names now; the strip is back to 53 columns.
+- **The News dateline rule was too bright** on a dark ground: 2px in the full foreground colour. It is a 1px line at 35% now, in both themes.
+- **The News heading's two controls** — Mark all read and Paper / Table — touched each other and differed in height. They sit in a flex row with a gap, and the button takes the segment's height.
+
+### Dependencies
+
+- **zod 4.6.7** in the MCP server (GHSA-mrhx-c7xc-m3w5): its tool input schemas held uncapped string arrays, the shape the advisory names; 3.x has no patched release, so the package moves to 4 and the SDK shares that one copy. Exposure was local, over stdio from the Claude Code process on the same machine.
+- **rustls 0.23.46** in the desktop crate (GHSA-2mjx-qc3c-rqvc), reached through the updater's HTTP client. The third alert, glib under 0.20 on Linux, waits on Tauri's GTK bindings; the unsound path is one nothing in the app calls.
 
 ## [0.18.1] — 2026-10-24
 
