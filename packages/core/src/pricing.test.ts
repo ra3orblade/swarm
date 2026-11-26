@@ -34,3 +34,15 @@ describe("pricing", () => {
     expect(costUsd("<synthetic>", { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })).toBe(0);
   });
 });
+
+describe("priceFor memo", () => {
+  it("a new table is asked afresh — a reload never serves the old table's answer", () => {
+    const a = { "claude-x": { input: 1, output: 1, cacheWrite: 1, cacheRead: 1 } };
+    const b = { "claude-x": { input: 2, output: 2, cacheWrite: 2, cacheRead: 2 } };
+    expect(priceFor("claude-x-1", a)?.input).toBe(1);
+    expect(priceFor("claude-x-1", a)?.input).toBe(1);
+    expect(priceFor("claude-x-1", b)?.input).toBe(2);
+    expect(priceFor("other", a)).toBe(null);
+    expect(priceFor("other", a)).toBe(null);
+  });
+});
