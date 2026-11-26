@@ -509,6 +509,17 @@ export class Store {
   private wtInflight = new Map<string, Promise<Worktree[]>>();
   /** Last git probes per worktree, by project — a worktree nothing touched is not asked again. */
   private wtProbes = new Map<string, Map<string, WorktreeProbe>>();
+  /** `computeSessions`' per-session turn sums, and the sessions whose turns changed since. */
+  private turnStats = new Map<
+    string,
+    {
+      agg: Record<string, unknown>;
+      spark: Array<[number, number | null]>;
+      newest: string | null;
+      t: number;
+    }
+  >();
+  private turnsDirty = new Set<string>();
   /** Paths agents changed (cwd, written files) and when; read by the worktree listing. */
   private wtTouches = new Map<string, number>();
   /** cwd → project id, so a hook round-trip does not spawn `git rev-parse` twice. */
@@ -4090,28 +4101,40 @@ export class Store {
     // cost_fixed turns carry the agent's own exact cost (aider, opencode) — never reprice them
     const rows = this.db
       .query(
-        "SELECT id, model, input, output, cache_write, cache_write_1h, cache_read FROM turns WHERE cost_fixed IS NOT 1",
+        "SELECT id, model, input, output, cache_write, cache_write_1h, cache_read, cost_usd FROM turns WHERE cost_fixed IS NOT 1",
       )
-      .all() as Array<Record<string, number | string>>;
+      .all() as Array<Record<string, number | string | null>>;
     const up = this.db.query("UPDATE turns SET cost_usd = ? WHERE id = ?");
+    let changed = 0;
     const tx = this.db.transaction(() => {
-      for (const r of rows)
-        up.run(
-          costUsd(
-            r.model as string,
-            {
-              input: r.input as number,
-              output: r.output as number,
-              cacheWrite: r.cache_write as number,
-              cacheWrite1h: r.cache_write_1h as number,
-              cacheRead: r.cache_read as number,
-            },
-            this.prices,
-          ),
-          r.id as string,
+      for (const r of rows) {
+        const cost = costUsd(
+          r.model as string,
+          {
+            input: r.input as number,
+            output: r.output as number,
+            cacheWrite: r.cache_write as number,
+            cacheWrite1h: r.cache_write_1h as number,
+            cacheRead: r.cache_read as number,
+          },
+          this.prices,
         );
+        // Runs on every start; with unchanged prices rewriting all ~100k rows was pure churn.
+        if (cost === r.cost_usd) continue;
+        up.run(cost, r.id as string);
+        changed++;
+      }
     });
     tx();
+    if (changed) {
+      this.dropSpendHistory();
+      this.turnStats.clear();
+    }
+  }
+
+  /** Forget the cached pre-today spend (`spend()`), after anything rewrote past turns' cost. */
+  private dropSpendHistory() {
+    for (const k of this.memo.keys()) if (k.startsWith("spend")) this.memo.delete(k);
   }
 
   // ---------- projects
@@ -4706,6 +4729,7 @@ export class Store {
   }
 
   private persistTurns(sessionId: string, agentId: string | null, turns: Turn[]) {
+    this.turnsDirty.add(sessionId);
     const privacy = this.policyFor(null).config.privacy;
     const res = this.redactions();
     const up = this.db.query(
@@ -8689,19 +8713,65 @@ export class Store {
     if (!page.length) return [];
     const ids = page.map((r) => r.id);
     const holes = ids.map(() => "?").join(",");
+    const sessionRows = this.db
+      .query(`SELECT * FROM sessions WHERE id IN (${holes}) ORDER BY last_seen_at DESC`)
+      .all(...ids) as Array<Record<string, unknown>>;
+    const turnsOf = this.sessionTurnStats(ids);
+    const rows = sessionRows.map((r) => ({ ...r, ...turnsOf.get(r.id as string)?.agg }));
+    const sparks = new Map(ids.map((id) => [id, turnsOf.get(id)?.spark ?? []]));
+    const idleBefore = Date.now() - IDLE_MS;
+    return this.sessionViews(rows, sparks, idleBefore);
+  }
+
+  /**
+   * Turn aggregates and sparklines for sessions, recomputed only for sessions whose turns changed.
+   *
+   * The snapshot lists 200 sessions and is polled several times a second while agents work; summing
+   * every turn of all 200 on each poll was half of what the daemon still spent under load. A
+   * session's numbers change only when its turns do: `persistTurns` marks it, the newest turn's `ts`
+   * (one index probe on `turns_session`) catches any other writer, a reprice drops everything, and
+   * nothing is trusted past a minute.
+   */
+  private sessionTurnStats(ids: string[]) {
+    const now = Date.now();
+    const newest = this.db.query("SELECT MAX(ts) AS m FROM turns WHERE session_id = ?");
+    const stale: string[] = [];
+    const marks = new Map<string, string | null>();
+    for (const id of ids) {
+      const m = (newest.get(id) as { m: string | null } | null)?.m ?? null;
+      marks.set(id, m);
+      const hit = this.turnStats.get(id);
+      if (!hit || hit.newest !== m || this.turnsDirty.has(id) || now - hit.t > 60_000)
+        stale.push(id);
+    }
+    if (stale.length) {
+      for (const [id, v] of this.aggregateTurns(stale))
+        this.turnStats.set(id, { ...v, newest: marks.get(id) ?? null, t: now });
+      for (const id of stale) this.turnsDirty.delete(id);
+    }
+    // a daemon runs for weeks: forget sessions that fell off the page
+    if (this.turnStats.size > ids.length * 2) {
+      const keep = new Set(ids);
+      for (const id of this.turnStats.keys()) if (!keep.has(id)) this.turnStats.delete(id);
+    }
+    return this.turnStats;
+  }
+
+  /** The per-session sums and last-24-turn sparkline, for the given sessions only. */
+  private aggregateTurns(ids: string[]) {
+    const holes = ids.map(() => "?").join(",");
     const rows = this.db
       .query(
-        `SELECT s.*, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
+        `SELECT s.id AS id, COUNT(t.id) AS turns, COALESCE(SUM(t.input),0) AS input, COALESCE(SUM(t.output),0) AS output,
                 COALESCE(SUM(t.cache_write),0) AS cache_write, COALESCE(SUM(t.cache_read),0) AS cache_read, COALESCE(SUM(t.thinking),0) AS thinking,
                 SUM(t.cost_usd) AS cost_usd, MAX(t.cost_usd IS NULL AND t.id IS NOT NULL) AS unpriced,
                 (SELECT model FROM turns lt WHERE lt.session_id = s.id AND lt.agent_id IS NULL AND lt.sidechain = 0 AND lt.model != '<synthetic>' ORDER BY lt.ts DESC LIMIT 1) AS live_model,
                 (SELECT COUNT(DISTINCT model) FROM turns lm WHERE lm.session_id = s.id AND lm.agent_id IS NULL AND lm.sidechain = 0 AND lm.model != '<synthetic>') AS model_count
          FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
          WHERE s.id IN (${holes})
-         GROUP BY s.id ORDER BY s.last_seen_at DESC`,
+         GROUP BY s.id`,
       )
       .all(...ids) as Array<Record<string, unknown>>;
-    const idleBefore = Date.now() - IDLE_MS;
     // Per-session sparkline: the last 24 top-level turns (output tokens + cost), oldest first.
     const sparkRows = this.db
       .query(
@@ -8718,6 +8788,21 @@ export class Store {
       a.push([x.output, x.cost_usd]);
       sparks.set(x.session_id, a);
     }
+    const out = new Map<
+      string,
+      { agg: Record<string, unknown>; spark: Array<[number, number | null]> }
+    >();
+    for (const { id, ...agg } of rows)
+      out.set(id as string, { agg, spark: sparks.get(id as string) ?? [] });
+    return out;
+  }
+
+  /** Session rows (with their turn sums merged in) as the dashboard's `SessionView`s. */
+  private sessionViews(
+    rows: Array<Record<string, unknown>>,
+    sparks: Map<string, Array<[number, number | null]>>,
+    idleBefore: number,
+  ): SessionView[] {
     return rows.map((r) => {
       let state = r.state as SessionView["state"];
       if (state !== "ended" && new Date(r.last_seen_at as string).getTime() < idleBefore)
@@ -9065,26 +9150,48 @@ export class Store {
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     const today = dayStart.toISOString();
-    const q = (where: string, by: string) =>
-      this.db
-        .query(
-          `SELECT ${by} AS key, SUM(t.cost_usd) AS cost, SUM(t.input + t.cache_write + t.cache_read) AS input, SUM(t.output) AS output, COUNT(*) AS turns
-           FROM turns t JOIN sessions s ON s.id = t.session_id ${where} GROUP BY key`,
-        )
-        .all(today) as Array<{
-        key: string;
-        cost: number | null;
-        input: number;
-        output: number;
-        turns: number;
-      }>;
+    // Everything before local midnight is fixed for the day, so it is summed once (and again only
+    // after a reprice or every 10 min, for late-ingested history) and only today's turns — an
+    // index range on `turns_ts` — are summed per call. Summing the whole table each time was
+    // ~150–600 ms of blocking SQLite on a 90k-turn ledger.
+    const past = this.memoisedFor(`spend-past:${today}`, 10 * 60_000, () =>
+      this.spendPart("t.ts < ?", today),
+    );
+    const now = this.spendPart("t.ts >= ?", today);
+    const cells = [...past.cells, ...now.cells.map((c) => ({ ...c, today: 1 }))];
+    const q = (todayOnly: boolean, by: "project" | "model" | "agent") =>
+      rollUpSpend(todayOnly ? now.cells : cells, by);
+    return {
+      hourly: mergeHourly(past.hourly, now.hourly),
+      byProjectToday: q(true, "project"),
+      byProjectAll: q(false, "project"),
+      byModelToday: q(true, "model"),
+      byModelAll: q(false, "model"),
+      byAgentToday: q(true, "agent"),
+      byAgentAll: q(false, "agent"),
+      // past days all fall before today's, so the two halves concatenate in day order
+      daily: [...past.daily, ...now.daily],
+    };
+  }
+
+  /** `spend()`'s three aggregates over the turns matching `where` (bound to `today`). */
+  private spendPart(where: string, today: string) {
+    const cells = this.db
+      .query(
+        `SELECT s.project_id AS project, t.model AS model, COALESCE(s.agent, 'claude-code') AS agent,
+                0 AS today, SUM(t.cost_usd) AS cost, SUM(t.input + t.cache_write + t.cache_read) AS input,
+                SUM(t.output) AS output, COUNT(*) AS turns
+         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE ${where} GROUP BY 1, 2, 3`,
+      )
+      .all(today) as SpendCell[];
     const daily = this.db
       .query(
         `SELECT date(t.ts, 'localtime') AS day, s.project_id AS projectId, COALESCE(s.agent, 'claude-code') AS agent,
                 SUM(t.cost_usd) AS cost, SUM(t.output) AS output, COUNT(*) AS turns
-         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-90 days') GROUP BY day, projectId, agent ORDER BY day`,
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+         WHERE t.ts > date('now', '-90 days') AND ${where} GROUP BY day, projectId, agent ORDER BY day`,
       )
-      .all() as Array<{
+      .all(today) as Array<{
       day: string;
       projectId: string;
       agent: string;
@@ -9097,25 +9204,11 @@ export class Store {
       .query(
         `SELECT CAST(strftime('%w', t.ts, 'localtime') AS INTEGER) AS dow, CAST(strftime('%H', t.ts, 'localtime') AS INTEGER) AS hour,
                 s.project_id AS projectId, SUM(t.cost_usd) AS cost, COUNT(*) AS turns
-         FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.ts > date('now', '-28 days') GROUP BY dow, hour, projectId`,
+         FROM turns t JOIN sessions s ON s.id = t.session_id
+         WHERE t.ts > date('now', '-28 days') AND ${where} GROUP BY dow, hour, projectId`,
       )
-      .all() as Array<{
-      dow: number;
-      hour: number;
-      projectId: string;
-      cost: number | null;
-      turns: number;
-    }>;
-    return {
-      hourly,
-      byProjectToday: q("WHERE t.ts >= ?", "s.project_id"),
-      byProjectAll: q("WHERE ? IS NOT NULL", "s.project_id"),
-      byModelToday: q("WHERE t.ts >= ?", "t.model"),
-      byModelAll: q("WHERE ? IS NOT NULL", "t.model"),
-      byAgentToday: q("WHERE t.ts >= ?", "COALESCE(s.agent, 'claude-code')"),
-      byAgentAll: q("WHERE ? IS NOT NULL", "COALESCE(s.agent, 'claude-code')"),
-      daily,
-    };
+      .all(today) as HourCell[];
+    return { cells, daily, hourly };
   }
 
   /**
@@ -9957,7 +10050,7 @@ export class Store {
       worktrees,
       // sessions/incidents are fresh on every write; spend totals may trail by their TTL
       sessions: this.sessions(),
-      spend: this.memoisedFor("spend", 15_000, () => this.spend()),
+      spend: this.memoisedFor("spend", 5000, () => this.spend()),
       spendSparks: this.memoisedFor("spendSparks", 60_000, () => this.spendSparks()),
       quota: this.quota(),
       claims: this.claims(),
@@ -9988,6 +10081,71 @@ function parseStoredBackground(v: unknown): BackgroundSnapshot | null {
   } catch {
     return null;
   }
+}
+
+/** One weekday × hour × project cell of `spend().hourly`. */
+interface HourCell {
+  dow: number;
+  hour: number;
+  projectId: string;
+  cost: number | null;
+  turns: number;
+}
+
+/** Sum the past and today's hourly cells, in the `GROUP BY dow, hour, projectId` order. */
+export function mergeHourly(a: HourCell[], b: HourCell[]): HourCell[] {
+  const out = new Map<string, HourCell>();
+  for (const c of [...a, ...b]) {
+    const k = `${c.dow}|${c.hour}|${c.projectId}`;
+    const cur = out.get(k);
+    if (!cur) out.set(k, { ...c });
+    else {
+      cur.turns += c.turns;
+      if (c.cost !== null) cur.cost = (cur.cost ?? 0) + c.cost;
+    }
+  }
+  return [...out.values()].sort(
+    (x, y) =>
+      x.dow - y.dow ||
+      x.hour - y.hour ||
+      (x.projectId < y.projectId ? -1 : x.projectId > y.projectId ? 1 : 0),
+  );
+}
+
+/** One (project, model, agent, today?) cell of `spend()`'s single scan. */
+interface SpendCell {
+  project: string;
+  model: string | null;
+  agent: string;
+  today: number;
+  cost: number | null;
+  input: number;
+  output: number;
+  turns: number;
+}
+
+/**
+ * Sum cells into one breakdown, in the shape (and order — by key, nulls first) the six separate
+ * `GROUP BY key` queries returned. `cost` stays null for a key none of whose turns were priced,
+ * as SQL's `SUM` over nulls did.
+ */
+export function rollUpSpend(cells: SpendCell[], by: "project" | "model" | "agent") {
+  const out = new Map<
+    string | null,
+    { key: string | null; cost: number | null; input: number; output: number; turns: number }
+  >();
+  for (const c of cells) {
+    const key = c[by];
+    const row = out.get(key) ?? { key, cost: null, input: 0, output: 0, turns: 0 };
+    if (c.cost !== null) row.cost = (row.cost ?? 0) + c.cost;
+    row.input += c.input ?? 0;
+    row.output += c.output ?? 0;
+    row.turns += c.turns;
+    out.set(key, row);
+  }
+  return [...out.values()].sort((a, b) =>
+    a.key === b.key ? 0 : a.key === null ? -1 : b.key === null ? 1 : a.key < b.key ? -1 : 1,
+  ) as Array<{ key: string; cost: number | null; input: number; output: number; turns: number }>;
 }
 
 function safeJson(v: string | null): unknown {

@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { type DiffFile, parseNumstat, type Worktree } from "@swarm/core";
 
 export type { Worktree };
@@ -293,9 +293,55 @@ export function currentBranch(cwd: string): string | null {
   const hit = branchCache.get(cwd);
   const now = Date.now();
   if (hit && now - hit.t < 5000) return hit.v;
-  const v = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])?.trim() ?? null;
+  const fromFiles = branchFromFiles(cwd);
+  const v =
+    fromFiles !== undefined
+      ? fromFiles
+      : (git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])?.trim() ?? null);
   branchCache.set(cwd, { v: v === "HEAD" ? "(detached)" : v, t: now });
   return branchCache.get(cwd)?.v ?? null;
+}
+
+/**
+ * The branch `HEAD` names, read from the repository's files rather than by running git.
+ *
+ * `currentBranch` runs on the hook path — the hook is waiting — and a synchronous `git` spawn there
+ * cost 10–30 ms each time the 5 s cache lapsed, per cwd, per agent. HEAD is one small file:
+ * `.git/HEAD`, or for a linked worktree the `HEAD` in the directory its `.git` file points at.
+ * Returns null outside any repository, `"HEAD"` when detached (as `--abbrev-ref` does), and
+ * undefined when the layout is one this does not read (reftable, an unreadable gitdir), so the
+ * caller asks git.
+ */
+export function branchFromFiles(cwd: string): string | null | undefined {
+  let dir = resolve(cwd);
+  for (;;) {
+    const dotGit = join(dir, ".git");
+    let gitDir: string | null = null;
+    try {
+      const st = statSync(dotGit);
+      if (st.isDirectory()) gitDir = dotGit;
+      else {
+        const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"));
+        if (!m?.[1]) return undefined;
+        gitDir = resolve(dir, m[1].trim());
+      }
+    } catch {
+      /* no .git here — keep walking up */
+    }
+    if (gitDir) {
+      try {
+        const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
+        const ref = /^ref:\s*refs\/heads\/(.+)$/.exec(head)?.[1];
+        if (ref) return ref === ".invalid" ? undefined : ref;
+        return /^[0-9a-f]{40,64}$/.test(head) ? "HEAD" : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    const up = dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
 }
 
 /** `origin` remote URL for a repo root, cached — remotes change rarely (team forwarding, M8.3b). */

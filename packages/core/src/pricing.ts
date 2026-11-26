@@ -54,14 +54,28 @@ export const PRICES: Record<string, Price> = {
   "grok-composer": { input: 0.2, output: 1.5, cacheWrite: 0.2, cacheRead: 0.02 },
 };
 
+/**
+ * Longest-prefix answers per table. With the LiteLLM table loaded there are thousands of keys, and
+ * the scan ran once per turn: on every transcript line ingested and ~94k times in a reprice. A
+ * table is built once and then only read (`Store.loadPricing` makes a fresh object each time), so
+ * an answer stays right for as long as its table lives.
+ */
+const priceMemo = new WeakMap<Record<string, Price>, Map<string, Price | null>>();
+
 export function priceFor(model: string | null | undefined, table = PRICES): Price | null {
   if (!model) return null;
   const m = model.toLowerCase();
+  const memo = priceMemo.get(table) ?? new Map<string, Price | null>();
+  priceMemo.set(table, memo);
+  const hit = memo.get(m);
+  if (hit !== undefined) return hit;
   let best: string | null = null;
   for (const k of Object.keys(table)) {
     if (m.startsWith(k) && (!best || k.length > best.length)) best = k;
   }
-  return best ? (table[best] ?? null) : null;
+  const v = best ? (table[best] ?? null) : null;
+  memo.set(m, v);
+  return v;
 }
 
 export function costUsd(model: string | null | undefined, u: Usage, table = PRICES): number | null {

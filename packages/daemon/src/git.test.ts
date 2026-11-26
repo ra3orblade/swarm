@@ -22,10 +22,11 @@ describe("squashed", () => {
   });
 });
 
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
+  branchFromFiles,
   listWorktreesAsync,
   PROBE_IDLE_MS,
   probeStillGood,
@@ -169,5 +170,52 @@ describe("listWorktreesAsync with reuse", () => {
     sh(root, "worktree", "remove", other);
     await listWorktreesAsync(root, { probes, now: 2000 });
     expect([...probes.keys()]).toEqual([root]);
+  });
+});
+
+describe("branchFromFiles", () => {
+  const sh = (cwd: string, ...args: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe" });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+    return r.stdout.toString().trim();
+  };
+  const commit = (cwd: string) =>
+    sh(
+      cwd,
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "c",
+    );
+
+  test("agrees with git for a checkout, a subdirectory, a linked worktree and a detached HEAD", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "swarm-br-")));
+    sh(root, "init", "-q", "-b", "feat/nested-name");
+    commit(root);
+    const sub = join(root, "a", "b");
+    mkdirSync(sub, { recursive: true });
+    const linked = join(root, ".claude", "worktrees", "x");
+    sh(root, "worktree", "add", "-q", "-b", "wt/x", linked);
+    const detached = join(root, "..", `${basename(root)}-detached`);
+    sh(root, "worktree", "add", "-q", "--detach", detached);
+    for (const cwd of [root, sub, linked, detached])
+      expect(branchFromFiles(cwd)).toBe(sh(cwd, "rev-parse", "--abbrev-ref", "HEAD"));
+    expect(branchFromFiles(linked)).toBe("wt/x");
+    expect(branchFromFiles(detached)).toBe("HEAD");
+  });
+
+  test("outside any repository there is no branch", () => {
+    expect(branchFromFiles(realpathSync(mkdtempSync(join(tmpdir(), "swarm-nobr-"))))).toBe(null);
+  });
+
+  test("a .git file it cannot read hands the question back to git", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "swarm-odd-")));
+    writeFileSync(join(dir, ".git"), "not a gitdir line\n");
+    expect(branchFromFiles(dir)).toBeUndefined();
   });
 });
