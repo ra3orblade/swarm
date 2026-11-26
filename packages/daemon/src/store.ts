@@ -292,14 +292,31 @@ import {
   heldWork,
   listWorktreesAsync,
   originUrl,
+  PROBE_IDLE_MS,
   stagedDiff,
   type Worktree,
+  type WorktreeProbe,
   worktreeAdd,
   worktreeDiff,
   worktreePatch,
   worktreeRemove,
   worktreeRemoveAsync,
 } from "./git";
+
+/** Tools that change nothing on disk, so their calls do not mark a worktree for re-probing. */
+const READ_ONLY_TOOLS = new Set([
+  "Read",
+  "Grep",
+  "Glob",
+  "LS",
+  "WebFetch",
+  "WebSearch",
+  "ToolSearch",
+  "TodoWrite",
+  "TaskList",
+  "TaskGet",
+]);
+
 import { type FiledIssue, IssueFiler } from "./issues";
 import { TaskSources } from "./task-sources";
 
@@ -490,6 +507,10 @@ export class Store {
   private listeners = new Set<(e: SwarmEvent) => void>();
   private wtCache = new Map<string, { v: Worktree[]; t: number }>();
   private wtInflight = new Map<string, Promise<Worktree[]>>();
+  /** Last git probes per worktree, by project — a worktree nothing touched is not asked again. */
+  private wtProbes = new Map<string, Map<string, WorktreeProbe>>();
+  /** Paths agents changed (cwd, written files) and when; read by the worktree listing. */
+  private wtTouches = new Map<string, number>();
   /** cwd → project id, so a hook round-trip does not spawn `git rev-parse` twice. */
   private cwdProject = new Map<string, { id: string; t: number }>();
   /** Last time a session's transcript was tailed from the hook path (ms). */
@@ -4154,6 +4175,22 @@ export class Store {
     this.memo.set(key, { gen: this.gen, t: now, v });
     return v;
   }
+  /**
+   * Memoise for `ttlMs` regardless of writes — for whole-history aggregates only.
+   *
+   * `memoised` drops its value on every write, and while agents work every hook is a write, so a
+   * 30 s memo on `spend()` was really none: each snapshot poll re-ran nine aggregates over every
+   * turn ever recorded (~200 ms of blocking SQLite on a 90k-turn ledger), several times a second,
+   * and every agent's hooks queued behind it. Totals that read a few seconds late are fine.
+   */
+  private memoisedFor<T>(key: string, ttlMs: number, compute: () => T): T {
+    const hit = this.memo.get(key);
+    const now = Date.now();
+    if (hit && now - hit.t < ttlMs) return hit.v as T;
+    const v = compute();
+    this.memo.set(key, { gen: this.gen, t: now, v });
+    return v;
+  }
   touch() {
     this.gen++;
   }
@@ -4506,6 +4543,7 @@ export class Store {
         for (const fp of files)
           if (typeof fp === "string") this.noteEdit(raw.session_id, absolutePath(fp, cwd));
     }
+    this.noteTouch(event, raw, cwd);
     const project = existsSync(cwd) ? this.resolveProject(cwd) : null;
     const e = this.append(normalizeHook(event, raw, project?.id ?? "p_unknown"));
     // M13.14: only a turn end reports what is still running; a payload without the fields leaves
@@ -8388,27 +8426,39 @@ export class Store {
    */
   worktrees(projectId: string, ttlMs = 15_000): Worktree[] {
     const hit = this.wtCache.get(projectId);
-    if (!hit || Date.now() - hit.t >= ttlMs) void this.refreshWorktrees(projectId);
+    if (!hit || Date.now() - hit.t >= ttlMs) void this.refreshWorktrees(projectId, true);
     return hit?.v ?? [];
   }
 
-  /** Re-list one project's worktrees off the event loop; concurrent calls share one run. */
-  refreshWorktrees(projectId: string): Promise<Worktree[]> {
-    const inflight = this.wtInflight.get(projectId);
+  /**
+   * Re-list one project's worktrees off the event loop; concurrent calls share one run.
+   *
+   * `background` (the tick, the snapshot) may reuse a worktree's last probes when nothing says it
+   * changed (`listWorktreesAsync`). Everything else — a removal, gc, a refresh someone asked for —
+   * decides on what it gets back, so it asks git about every worktree, as it always did.
+   */
+  refreshWorktrees(projectId: string, background = false): Promise<Worktree[]> {
+    const key = background ? projectId : `${projectId}:fresh`;
+    const inflight = this.wtInflight.get(key);
     if (inflight) return inflight;
     const p = this.project(projectId);
     if (!p) return Promise.resolve([]);
-    const run: Promise<Worktree[]> = listWorktreesAsync(p.root)
+    const probes = this.wtProbes.get(projectId) ?? new Map<string, WorktreeProbe>();
+    this.wtProbes.set(projectId, probes);
+    const run: Promise<Worktree[]> = listWorktreesAsync(p.root, {
+      probes,
+      touches: this.wtTouches,
+      force: !background,
+    })
       .then((v) => {
         // Disowned by `invalidateWorktrees` mid-flight: this listing may predate the change.
-        if (this.wtInflight.get(projectId) === run)
-          this.wtCache.set(projectId, { v, t: Date.now() });
+        if (this.wtInflight.get(key) === run) this.wtCache.set(projectId, { v, t: Date.now() });
         return v;
       })
       .finally(() => {
-        if (this.wtInflight.get(projectId) === run) this.wtInflight.delete(projectId);
+        if (this.wtInflight.get(key) === run) this.wtInflight.delete(key);
       });
-    this.wtInflight.set(projectId, run);
+    this.wtInflight.set(key, run);
     return run;
   }
 
@@ -8585,13 +8635,37 @@ export class Store {
       if (projectId && id !== projectId) continue;
       this.wtCache.set(id, { v: removed ? hit.v.filter((w) => w.path !== removed) : hit.v, t: 0 });
     }
-    if (projectId) this.wtInflight.delete(projectId);
-    else this.wtInflight.clear();
+    if (projectId) {
+      this.wtInflight.delete(projectId);
+      this.wtInflight.delete(`${projectId}:fresh`);
+    } else this.wtInflight.clear();
+    // Swarm changed the worktrees itself: re-probe all of them rather than trust any old answer
+    if (projectId) this.wtProbes.delete(projectId);
+    else this.wtProbes.clear();
+  }
+
+  /**
+   * An agent may have changed the files under `path`: its worktree is re-probed on the next listing
+   * instead of waiting out `PROBE_IDLE_MS`. Read-only tools touch nothing.
+   */
+  private noteTouch(event: string, raw: Record<string, unknown>, cwd: string) {
+    if (event !== "PostToolUse" && event !== "PostToolUseFailure" && event !== "Stop") return;
+    if (event !== "Stop" && READ_ONLY_TOOLS.has(String(raw.tool_name))) return;
+    const now = Date.now();
+    this.wtTouches.set(cwd, now);
+    const ti = raw.tool_input as { file_path?: unknown; file_paths?: unknown } | undefined;
+    const files = Array.isArray(ti?.file_paths) ? ti.file_paths : [ti?.file_path];
+    for (const fp of files)
+      if (typeof fp === "string") this.wtTouches.set(absolutePath(fp, cwd), now);
+    // a touch older than the idle window can no longer change any decision
+    if (this.wtTouches.size > 2000)
+      for (const [k, t] of this.wtTouches)
+        if (now - t > PROBE_IDLE_MS * 2) this.wtTouches.delete(k);
   }
 
   /** Refresh every project's worktrees; for the background tick. */
   async refreshAllWorktrees() {
-    await Promise.all(this.liveProjects().map((p) => this.refreshWorktrees(p.id)));
+    await Promise.all(this.liveProjects().map((p) => this.refreshWorktrees(p.id, true)));
   }
 
   /**
@@ -9881,10 +9955,10 @@ export class Store {
     return {
       projects,
       worktrees,
-      // sessions/spend/incidents only change on writes; `ago`-style fields are computed client-side
+      // sessions/incidents are fresh on every write; spend totals may trail by their TTL
       sessions: this.sessions(),
-      spend: this.memoised("spend", 30_000, () => this.spend()),
-      spendSparks: this.memoised("spendSparks", 60_000, () => this.spendSparks()),
+      spend: this.memoisedFor("spend", 15_000, () => this.spend()),
+      spendSparks: this.memoisedFor("spendSparks", 60_000, () => this.spendSparks()),
       quota: this.quota(),
       claims: this.claims(),
       processes: this.memoised("processes", 5000, () => this.processes()),

@@ -138,27 +138,135 @@ export function listWorktrees(root: string): Worktree[] {
   return wts;
 }
 
+/**
+ * How many background `git` processes may run at once.
+ *
+ * The worktree listing used to spawn every probe of every worktree of every project in one
+ * `Promise.all` — ~350 processes at once on a machine with 80 worktrees, every 15 s, landing on
+ * top of the agents' own builds. A small pool costs the listing a little wall time and nobody CPU.
+ */
+const GIT_POOL = 6;
+let gitRunning = 0;
+const gitQueue: Array<() => void> = [];
+
 async function gitAsync(cwd: string, args: string[]): Promise<string | null> {
+  if (gitRunning >= GIT_POOL) await new Promise<void>((go) => gitQueue.push(go));
+  gitRunning++;
   try {
     const p = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "ignore" });
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
     return code === 0 ? out : null;
   } catch {
     return null;
+  } finally {
+    gitRunning--;
+    gitQueue.shift()?.();
   }
 }
 
-/** Non-blocking listing: one `worktree list` plus status/ahead per worktree, all spawned concurrently. */
-export async function listWorktreesAsync(root: string): Promise<Worktree[]> {
+/** What one worktree's probes said, and what they were measured against. */
+export interface WorktreeProbe {
+  w: Worktree;
+  /** When the probes ran (ms). */
+  t: number;
+  /** The base ref and its head at the time — drift is relative to both. */
+  base: string | null;
+  baseHead: string | null;
+}
+
+/** How long an untouched, unmoved worktree's probes are trusted: edits made outside any agent. */
+export const PROBE_IDLE_MS = 5 * 60_000;
+
+/**
+ * May `prev` stand in for probing `w` again?
+ *
+ * The listing gives every worktree's HEAD for free, so a commit, checkout or reset is seen without
+ * asking. What it cannot see is an edit to the working tree or a push, and those come from agents,
+ * whose hooks mark the path touched (`touchedAt`). Edits from outside any agent — a person in an
+ * editor — are picked up when the probe ages out, staggered per path so a machine's worth of
+ * worktrees does not expire in the same tick.
+ */
+export function probeStillGood(
+  prev: WorktreeProbe | undefined,
+  w: Worktree,
+  base: string | null,
+  baseHead: string | null,
+  touchedAt: number | undefined,
+  now: number,
+  idleMs = PROBE_IDLE_MS,
+): prev is WorktreeProbe {
+  if (!prev) return false;
+  if (prev.w.head !== w.head || prev.w.branch !== w.branch) return false;
+  if (prev.base !== base || (!w.main && prev.baseHead !== baseHead)) return false;
+  if (touchedAt !== undefined && touchedAt >= prev.t) return false;
+  return now - prev.t < idleMs * staggerOf(w.path);
+}
+
+/** 0.75–1.25, fixed per path. */
+function staggerOf(path: string): number {
+  return 0.75 + (Number(BigInt(Bun.hash(path)) % 1000n) / 1000) * 0.5;
+}
+
+/**
+ * The latest touch inside each worktree. A touched path belongs to the *deepest* worktree that
+ * contains it: worktrees commonly live inside the main checkout (`.claude/worktrees/x`), and an
+ * edit there says nothing about the main tree.
+ */
+export function touchesByWorktree(
+  paths: string[],
+  touches: ReadonlyMap<string, number>,
+): Map<string, number> {
+  const byDepth = [...paths].sort((a, b) => b.length - a.length);
+  const out = new Map<string, number>();
+  for (const [p, t] of touches) {
+    const owner = byDepth.find((w) => p === w || p.startsWith(`${w}/`));
+    if (owner && t > (out.get(owner) ?? -1)) out.set(owner, t);
+  }
+  return out;
+}
+
+/** What `listWorktreesAsync` may reuse instead of asking git again. */
+export interface ListReuse {
+  /** Last probes by worktree path; read, and updated in place (gone worktrees are dropped). */
+  probes: Map<string, WorktreeProbe>;
+  /** Paths agents changed and when (ms) — cwd and written files from hooks. */
+  touches?: ReadonlyMap<string, number>;
+  /** Probe every worktree anyway (and record the answers) — for callers that act on the result. */
+  force?: boolean;
+  now?: number;
+}
+
+/**
+ * Non-blocking listing: one `worktree list`, then status/ahead (and drift against the main
+ * checkout's branch) for each worktree that may have changed — every worktree when no `reuse` is
+ * given.
+ */
+export async function listWorktreesAsync(root: string, reuse?: ListReuse): Promise<Worktree[]> {
   const out = await gitAsync(root, ["worktree", "list", "--porcelain"]);
   if (!out) return [];
   const wts = parseWorktreeList(out);
   const base = baseOf(wts);
-  const line = base
-    ? await gitAsync(root, ["rev-list", "--first-parent", "-n", FIRST_PARENT_DEPTH, base])
-    : null;
+  const baseHead = wts[0]?.main ? wts[0].head : null;
+  const now = reuse?.now ?? Date.now();
+  const touched = reuse?.touches
+    ? touchesByWorktree(
+        wts.map((w) => w.path),
+        reuse.touches,
+      )
+    : new Map<string, number>();
+  const stale = wts.filter((w) => {
+    const prev = reuse?.force ? undefined : reuse?.probes.get(w.path);
+    if (!probeStillGood(prev, w, base, baseHead, touched.get(w.path), now)) return true;
+    Object.assign(w, { ...prev.w, main: w.main, path: w.path });
+    return false;
+  });
+  // The first-parent line is only needed to judge drift, so skip it when no branch is re-probed.
+  const line =
+    base && stale.some((w) => !w.main)
+      ? await gitAsync(root, ["rev-list", "--first-parent", "-n", FIRST_PARENT_DEPTH, base])
+      : null;
   await Promise.all(
-    wts.map(async (w) => {
+    stale.map(async (w) => {
       const drift = base && !w.main;
       const [st, ah, be, mg, ch] = await Promise.all([
         gitAsync(w.path, ["status", "--porcelain", "--untracked-files=no"]),
@@ -169,8 +277,13 @@ export async function listWorktreesAsync(root: string): Promise<Worktree[]> {
       ]);
       applyStatus(w, st, ah);
       if (drift) applyDrift(w, be, mg !== null, line, ch);
+      reuse?.probes.set(w.path, { w: { ...w }, t: now, base, baseHead });
     }),
   );
+  if (reuse) {
+    const listed = new Set(wts.map((w) => w.path));
+    for (const p of reuse.probes.keys()) if (!listed.has(p)) reuse.probes.delete(p);
+  }
   return wts;
 }
 
