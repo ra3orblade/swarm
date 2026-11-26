@@ -4,6 +4,7 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [0.18.3](#0183--2026-11-26) | Nov 26 | A quarter of the CPU with many agents · hooks answer in 3 ms · News heading menus and AI news |
 | [0.18.2](#0182--2026-10-26) | Oct 26 | The desktop updater's manifest · the Stats strip and News heading · two dependency advisories |
 | [0.18.1](#0181--2026-10-24) | Oct 24 | The news as a paper · a switch for advisories |
 | [0.18.0](#0180--2026-10-24) | Oct 24 | What each project runs, what of it is known-bad, what is happening around it · two new rules · `swarm security` |
@@ -32,6 +33,31 @@ Every Swarm release, newest first. Each one starts with a short summary, then th
 | [0.3.0](#030--2026-08-22) | Aug 22 | Config · runtime resources · PRs view |
 | [0.2.2](#022--2026-08-21) | Aug 21 | The npm package |
 | [0.0.6](#006--2026-08-21) | Aug 21 | The first signed macOS build |
+
+## [0.18.3] — 2026-11-26
+
+A patch for the CPU. With several agents working, the daemon spent more than a core keeping state nobody had changed fresh, and every agent's hooks waited behind it: about a second per tool call while a dashboard was open. The same replayed load (real hook payloads at 10 per second, a dashboard attached, a 94k-turn ledger) now costs a quarter of the CPU, and hooks answer in 3 ms on average instead of 1 s. The News view also gets its heading menus and AI news.
+
+### Fixes
+
+- **The worktree sweep stopped re-asking git about every worktree.** Every 15 s the daemon ran up to five `git` commands for each worktree of each project, all at once: on a machine with 80 worktrees that was ~350 processes and ~16 CPU-seconds per sweep, charged to the `git` children, so it never showed as Swarm in Activity Monitor. A background listing now reuses a worktree's last answer until one of these happens:
+  - its HEAD or branch moves (the listing reports them for free)
+  - the main branch moves
+  - an agent's hook touches a path inside it
+  - five minutes pass
+
+  Removing a worktree, gc and an explicit refresh still ask git about every worktree. Background `git` runs six at a time.
+- **Spend no longer re-sums the whole history on every poll.** It was cached "until the next write", and while agents work every hook is a write, so each dashboard poll re-ran nine aggregates over every turn ever recorded and blocked the daemon. Days before today are now summed once, and only today's turns are summed per call: 116 ms → 3 ms.
+- **Session totals are recomputed only for sessions that changed.** The snapshot lists 200 sessions, and each poll summed all of their turns again. Now only sessions with new turns are re-summed: 15.6 ms → 3 ms per poll.
+- **The branch of a hook's working directory is read from `.git/HEAD`** instead of running `git` while the hook waits.
+- **Price lookups are memoised.** Each one scanned the pricing table's thousands of keys, once per ingested turn. The reprice on every daemon start now writes only the turns whose cost changed, instead of all of them.
+
+### Changes
+
+- **News heading as menus.** Sources (with each site's icon, and a per-source on/off switch saved in `~/.swarm/settings.toml`), Manage sources…, Calendar, Filter, and Paper / Table, one row in the heading instead of chips, a side panel and a calendar column.
+- **AI news is on by default**, with six more sources (51 built-ins). `kinds = ["vendor", "authority", "press"]` brings back security news only.
+- **News reads every project's keywords** instead of following the sidebar project, which hid items without saying why. The sidebar is hidden on News, and the footnote names the filter.
+- A menu held shorter than 60% of the window can scroll to its last row again. The paper's pictures are taller now that the page is full width.
 
 ## [0.18.2] — 2026-10-26
 
