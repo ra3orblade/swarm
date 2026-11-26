@@ -84,12 +84,16 @@ if (import.meta.main) {
   const repo = ["--repo", slug];
   const release =
     (await $`gh release view ${tag} ${repo} --json tagName,body,createdAt,assets`.json()) as Release;
-  const manifest = await buildManifest(release, async (a) => {
-    // `gh release download` reads drafts too, which the asset URL does not without a token.
-    const dir = `${process.env.TMPDIR ?? "/tmp"}/updater-json-${process.pid}`;
-    await $`gh release download ${tag} ${repo} -p ${a.name} -D ${dir} --clobber`.quiet();
-    return Bun.file(`${dir}/${a.name}`).text();
-  }, slug);
+  const manifest = await buildManifest(
+    release,
+    async (a) => {
+      // `gh release download` reads drafts too, which the asset URL does not without a token.
+      const dir = `${process.env.TMPDIR ?? "/tmp"}/updater-json-${process.pid}`;
+      await $`gh release download ${tag} ${repo} -p ${a.name} -D ${dir} --clobber`.quiet();
+      return Bun.file(`${dir}/${a.name}`).text();
+    },
+    slug,
+  );
   const expected = PLATFORMS.flatMap(([, keys]) => keys);
   const have = Object.keys(manifest.platforms);
   if (have.length === 0) {
