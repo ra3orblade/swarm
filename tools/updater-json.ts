@@ -14,6 +14,11 @@
  * manifest is a pure function of the release's `.sig` assets, so the `updater-manifest` job
  * rebuilds it once, after every leg, instead of trusting the merge.
  *
+ * Each package URL is built from the tag, never copied from the asset: the job runs while the
+ * release is still a draft, and a draft asset's URL is `releases/download/untagged-<hash>/…`,
+ * which 404s once the release is published (0.18.2 and 0.18.3 shipped that way; the app said
+ * "Download request failed with status: 404 Not Found").
+ *
  * Needs `gh` logged in with read access to the repo (the workflow's GITHUB_TOKEN is enough).
  */
 import { $ } from "bun";
@@ -44,6 +49,7 @@ export type Manifest = {
 export async function buildManifest(
   release: Release,
   readSig: (asset: Asset) => Promise<string>,
+  repo: string,
   now = new Date(),
 ): Promise<Manifest> {
   const byName = new Map(release.assets.map((a) => [a.name, a]));
@@ -55,7 +61,8 @@ export async function buildManifest(
     const keys = PLATFORMS.find(([re]) => re.test(pkg.name))?.[1];
     if (!keys) continue;
     const signature = (await readSig(sig)).trim();
-    for (const k of keys) platforms[k] = { signature, url: pkg.url };
+    const url = `https://github.com/${repo}/releases/download/${encodeURIComponent(release.tagName)}/${encodeURIComponent(pkg.name)}`;
+    for (const k of keys) platforms[k] = { signature, url };
   }
   return {
     version: release.tagName.replace(/^v/, ""),
@@ -71,7 +78,10 @@ if (import.meta.main) {
     console.error("usage: bun tools/updater-json.ts <tag>");
     process.exit(2);
   }
-  const repo = process.env.GITHUB_REPOSITORY ? ["--repo", process.env.GITHUB_REPOSITORY] : [];
+  const slug =
+    process.env.GITHUB_REPOSITORY ??
+    (await $`gh repo view --json nameWithOwner -q .nameWithOwner`.text()).trim();
+  const repo = ["--repo", slug];
   const release =
     (await $`gh release view ${tag} ${repo} --json tagName,body,createdAt,assets`.json()) as Release;
   const manifest = await buildManifest(release, async (a) => {
@@ -79,7 +89,7 @@ if (import.meta.main) {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/updater-json-${process.pid}`;
     await $`gh release download ${tag} ${repo} -p ${a.name} -D ${dir} --clobber`.quiet();
     return Bun.file(`${dir}/${a.name}`).text();
-  });
+  }, slug);
   const expected = PLATFORMS.flatMap(([, keys]) => keys);
   const have = Object.keys(manifest.platforms);
   if (have.length === 0) {
